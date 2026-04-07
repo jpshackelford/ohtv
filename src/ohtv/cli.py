@@ -295,6 +295,7 @@ def _format_time(dt: datetime) -> str:
     help="Output format (default: table)",
 )
 @click.option("--output", "-o", type=click.Path(), help="Write output to file")
+@click.option("--include-empty", "-e", is_flag=True, help="Include conversations with no events")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def list_conversations(
     reverse: bool,
@@ -303,6 +304,7 @@ def list_conversations(
     offset: int,
     fmt: str,
     output: str | None,
+    include_empty: bool,
     verbose: bool,
 ) -> None:
     """List available conversations from local and cloud sources."""
@@ -311,6 +313,11 @@ def list_conversations(
 
     # Load conversations from both sources
     conversations = _load_all_conversations(config)
+
+    # Filter out empty conversations (0 events) unless --include-empty
+    if not include_empty:
+        conversations = [c for c in conversations if c.event_count > 0]
+
     total_count = len(conversations)
     local_count = sum(1 for c in conversations if c.source == "local")
     cloud_count = total_count - local_count
@@ -455,7 +462,7 @@ def _print_list_table(
             f"[{source_style}]{conv.source}[/{source_style}]",
             started,
             _format_duration(conv.duration) if conv.duration else "",
-            str(conv.event_count) if conv.event_count else "",
+            str(conv.event_count),
             (conv.title or "")[:60] + ("..." if conv.title and len(conv.title) > 60 else ""),
         )
 

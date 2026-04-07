@@ -42,6 +42,8 @@ class LocalSource:
 
         title = None
         selected_repository = None
+        base_created_at = None
+        base_updated_at = None
 
         if base_state.exists():
             try:
@@ -50,14 +52,30 @@ class LocalSource:
                 selected_repository = data.get("selected_repository")
                 if data.get("id"):
                     conv_id = data["id"]
+                # Cloud conversations store timestamps in base_state.json
+                base_created_at = _parse_datetime(
+                    data.get("created_at"), assume_utc=self._timestamps_are_utc
+                )
+                base_updated_at = _parse_datetime(
+                    data.get("updated_at"), assume_utc=self._timestamps_are_utc
+                )
             except (json.JSONDecodeError, OSError) as e:
                 log.warning("Failed to read base_state.json for %s: %s", conv_id, e)
 
-        # Always derive timestamps from events for accurate duration
-        # (base_state timestamps may not reflect actual conversation span)
+        # Prefer timestamps from events for accurate duration,
+        # fall back to base_state timestamps (useful for cloud conversations
+        # where events may not be synced yet)
         timestamps = self._get_event_timestamps(conv_dir)
-        created_at = timestamps[0] if timestamps else None
-        updated_at = timestamps[1] if timestamps else None
+        created_at = timestamps[0] if timestamps else base_created_at
+        updated_at = timestamps[1] if timestamps else base_updated_at
+
+        # Last resort: use file modification time for conversations with no other timestamps
+        if created_at is None and base_state.exists():
+            file_mtime = datetime.fromtimestamp(
+                base_state.stat().st_mtime, tz=timezone.utc
+            )
+            created_at = file_mtime
+            updated_at = file_mtime
 
         # Fallback: get title from first user message if not present
         if not title:
