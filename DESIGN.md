@@ -41,28 +41,27 @@ export OHTV_CONVERSATIONS_DIR=/path/to/conversations
 ohtv list
 ```
 
-#### Data Source Selection
+#### Unified Data Access
+
+The `list` and `show` commands transparently search across both local CLI conversations and synced cloud conversations:
 
 ```bash
-# Local source (default)
-ohtv list --local                    # Explicit local
-ohtv list                            # Default is local
+# Lists conversations from both sources (local + synced cloud)
+ohtv list
 
-# Cloud source
-ohtv list --cloud                    # Use OpenHands Cloud API
-ohtv show <id> --cloud              # Show cloud conversation
+# Show works with any conversation ID (local or cloud)
+ohtv show <id>
 
-# Set default source via environment
-export OHTV_SOURCE=cloud             # Or "local" (default)
-ohtv list                            # Now uses cloud
-
-# Cloud authentication (required for --cloud)
+# Sync cloud conversations to local storage (requires API key)
 export OH_API_KEY=your_api_key
-ohtv list --cloud
-
-# Cloud base URL (optional, defaults to https://app.all-hands.dev)
-export OHTV_CLOUD_URL=https://custom.all-hands.dev
+ohtv sync
 ```
+
+**How it works:**
+- `list` merges conversations from `~/.openhands/conversations/` (local) and `~/.openhands/cloud/conversations/` (synced cloud)
+- `show` searches both directories for the conversation ID
+- Results are sorted by timestamp regardless of source
+- A "Source" column in list output indicates where each conversation came from (local vs cloud)
 
 ### Listing Conversations
 
@@ -85,13 +84,13 @@ ohtv list --format csv           # CSV export
 #### Example List Output (table format)
 
 ```
-ID       Started              Duration  Events  Title
-───────────────────────────────────────────────────────────────────────────────────────
-005fc28  2026-02-24 16:49:46    43m 26s     162  I don't understand what is happening with OpenHands...
-fd2954f  2026-02-24 14:22:03    12m 15s      47  Create a branch using SDK from PR #2334...
-fbcfa59  2026-02-23 09:15:22     8m 42s      31  Help me debug this CI failure...
+ID       Source  Started              Duration  Events  Title
+────────────────────────────────────────────────────────────────────────────────────────────────
+005fc28  cloud   2026-02-24 16:49:46    43m 26s     162  I don't understand what is happening with OpenHands...
+fd2954f  cloud   2026-02-24 14:22:03    12m 15s      47  Create a branch using SDK from PR #2334...
+fbcfa59  local   2026-02-23 09:15:22     8m 42s      31  Help me debug this CI failure...
 
-Showing 3 of 483 conversations
+Showing 3 of 483 conversations (412 cloud, 71 local)
 ```
 
 Short IDs (first 7 characters) are used in table output for readability. Full IDs are shown in `show` output and JSON/CSV formats. The `show` command accepts both short and full IDs via prefix matching.
@@ -164,23 +163,6 @@ ohtv show <id> --stats           # Only show counts, no content
 | `--offset` | `-k` | Skip first N items (use with `--max` for slicing) |
 | `--output` | `-o` | Write output to file |
 | `--format` | `-F` | Output format (see below) |
-
-### Source Selection Options (shared by `list` and `show`)
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--local` | `-L` | Use local filesystem source (default) |
-| `--cloud` | `-C` | Use OpenHands Cloud API |
-
-### Cloud-specific Options (only with `--cloud`)
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--title` | | Filter by title (substring match) |
-| `--since` | | Filter by created/timestamp after date (ISO 8601) |
-| `--until` | | Filter by created/timestamp before date (ISO 8601) |
-| `--repo` | | Filter by repository (e.g., `owner/repo`) |
-| `--kind` | | Filter events by kind (e.g., `ActionEvent`, `MessageEvent`) |
 
 ### Show-specific Options
 
@@ -879,67 +861,21 @@ trajectory-viewer/
 
 **Demo:** Full usage demonstration with various flag combinations
 
-### Milestone 4: Cloud API Support
-**Goal:** Add support for viewing conversations from OpenHands Cloud
+### Milestone 4: Cloud Sync Infrastructure
+**Goal:** Enable syncing cloud conversations to local storage for offline viewing
 
 **Deliverables:**
-- `src/ohtv/sources/base.py` - Abstract DataSource interface
-- `src/ohtv/sources/local.py` - Refactored local filesystem source
-- `src/ohtv/sources/cloud.py` - Cloud API client
-- Updated `src/ohtv/config.py` - API key handling, source selection
-- Updated CLI with `--cloud` / `--local` flags
-- `tests/test_cloud_source.py` - Cloud source tests (with mocking)
-
-**Acceptance Criteria:**
-- `ohtv list --cloud` lists cloud conversations
-- `ohtv show <id> --cloud` shows cloud conversation events
-- Proper handling of `OH_API_KEY` environment variable
-- Clear error messages for authentication failures
-- Cloud-specific filters work: `--title`, `--since`, `--until`, `--repo`
-- Event kind filtering works: `--kind ActionEvent`
-
-**Demo:** 
-```bash
-export OH_API_KEY=your_key
-ohtv list --cloud -n 5
-ohtv show <cloud_id> --cloud --messages
-ohtv list --cloud --title "debug" --since 2024-01-01
-```
-
-### Milestone 4.5: Export/Download Feature
-**Goal:** Download and convert cloud trajectories for offline use
-
-**Deliverables:**
-- `src/ohtv/exporter.py` - TrajectoryExporter class
-- New `ohtv download` command in CLI
-- Format conversion utilities (cloud → local)
-
-**Acceptance Criteria:**
-- `ohtv download <id> --cloud` downloads trajectory as zip
-- `ohtv download <id> --cloud --extract` extracts to directory
-- `ohtv download <id> --cloud --local-format` converts to local CLI format
-- Downloaded conversations can be viewed with `ohtv show <id>` (without --cloud)
-
-**Demo:**
-```bash
-export OH_API_KEY=your_key
-# Download and convert to local format
-ohtv download abc123 --cloud --local-format
-# Now view it locally (from ~/.openhands/cloud/conversations/)
-ohtv show abc123 --messages
-```
-
-### Milestone 4.6: Incremental Sync
-**Goal:** Efficient batch sync of all cloud conversations with minimal API calls
-
-**Deliverables:**
-- `src/ohtv/sync.py` - SyncManager class with incremental sync logic
+- `src/ohtv/sources/base.py` - ConversationInfo dataclass
+- `src/ohtv/sources/cloud.py` - CloudClient (API client for sync only)
+- `src/ohtv/exporter.py` - TrajectoryExporter (zip → local format conversion)
+- `src/ohtv/sync.py` - SyncManager with incremental sync logic
+- Updated `src/ohtv/config.py` - API key handling, cloud_conversations_dir
 - New `ohtv sync` command in CLI
 - `sync_manifest.json` state tracking
-- Quiet mode for cron/scheduled runs
+- `tests/test_sync.py` - Sync tests
 
 **Acceptance Criteria:**
-- `ohtv sync` downloads new/updated conversations only
+- `ohtv sync` downloads new/updated conversations
 - Uses `updated_at__gte` filter to minimize API calls
 - Manifest tracks sync state across runs
 - Hourly sync with no changes = 1 API call
@@ -947,6 +883,9 @@ ohtv show abc123 --messages
 - `--dry-run` shows what would sync
 - `--status` shows sync statistics
 - `--quiet` mode for cron jobs
+- Proper handling of `OH_API_KEY` environment variable
+- Clear error messages for authentication failures
+- Exponential backoff on rate limiting (429)
 
 **Demo:**
 ```bash
@@ -967,6 +906,31 @@ ohtv sync --status
 echo "0 * * * * ohtv sync --quiet" | crontab -
 ```
 
+### Milestone 4.5: Unified Data Access
+**Goal:** Make `list` and `show` commands transparently search both local and synced cloud data
+
+**Deliverables:**
+- `list` merges results from both directories
+- `show` searches both directories for conversation ID
+- Source column in list output (local vs cloud)
+- Conversation count shows breakdown by source
+
+**Acceptance Criteria:**
+- `ohtv list` shows conversations from both local and cloud sources
+- `ohtv show <id>` works regardless of whether ID is local or cloud
+- List output includes "Source" column indicating origin
+- Summary line shows count breakdown: "Showing N of M (X cloud, Y local)"
+
+**Demo:** 
+```bash
+# After running ohtv sync...
+ohtv list -n 5
+# Shows mixed results from both sources with Source column
+
+ohtv show abc123 --messages
+# Works whether abc123 is local or cloud
+```
+
 ### Milestone 5: Polish and Distribution
 **Goal:** Ready for distribution and daily use
 
@@ -982,59 +946,52 @@ echo "0 * * * * ohtv sync --quiet" | crontab -
 - Installable via `uv tool install` or `pip install`
 - Cloud pagination handles 1000+ events gracefully
 
-## 5. Cloud API Support
+## 5. Cloud Support Architecture
 
-The tool should also support viewing conversations from OpenHands Cloud via the V1 API.
+Cloud conversations are accessed via a **sync-first architecture**: the `sync` command downloads conversations from the cloud API to local storage, and all other commands (`list`, `show`, `refs`) read from this local cache. This provides:
 
-### 5.1 Data Source Selection
+- **Offline access** - View cloud conversations without internet
+- **Fast response times** - No API latency for list/show operations
+- **Reduced API calls** - Incremental sync minimizes bandwidth
+- **Transparent access** - Users don't need to know where a conversation came from
 
-Users can choose between local and cloud data sources:
+### 5.1 Unified Data Access
+
+The `list` and `show` commands automatically search both local and synced cloud directories:
 
 ```bash
-# Explicit source selection
-ohtv list --local                    # Local conversations (default)
-ohtv list --cloud                    # Cloud conversations
-ohtv show <id> --cloud              # Show specific cloud conversation
-
-# Set default via environment variable
-export OHTV_SOURCE=cloud
-ohtv list                           # Now defaults to cloud
-
-# Cloud requires authentication
+# Sync cloud conversations (one-time or periodic)
 export OH_API_KEY=your_api_key
-ohtv list --cloud
+ohtv sync
+
+# List shows all conversations from both sources
+ohtv list
+# Output includes "Source" column: local or cloud
+
+# Show works with any conversation ID
+ohtv show abc123    # Works whether abc123 is local or cloud
 ```
 
-### 5.2 Cloud-Specific Options
+**Search order:** When resolving a conversation ID, the tool searches:
+1. Local CLI conversations (`~/.openhands/conversations/`)
+2. Synced cloud conversations (`~/.openhands/cloud/conversations/`)
 
-```bash
-# Search/filter cloud conversations
-ohtv list --cloud --title "search term"       # Filter by title
-ohtv list --cloud --since 2024-01-01          # Created after date
-ohtv list --cloud --until 2024-02-01          # Created before date
-ohtv list --cloud --repo "owner/repo"         # Filter by repository
+If a conversation ID exists in both locations (unlikely but possible), the local version takes precedence.
 
-# Event filtering (for show command)
-ohtv show <id> --cloud --kind ActionEvent     # Filter by event kind
-ohtv show <id> --cloud --since "2024-01-01T10:00:00"  # Events after timestamp
-```
+### 5.2 Cloud API Endpoints (used only by `sync`)
 
-### 5.3 Cloud API Endpoints Used
-
-The V1 API provides these key endpoints:
+The `sync` command uses these V1 API endpoints:
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET /api/v1/app-conversations/search` | List/search conversations |
-| `GET /api/v1/app-conversations/count` | Count conversations |
-| `GET /api/v1/app-conversations?ids=...` | Get specific conversations |
-| `GET /api/v1/conversation/{id}/events/search` | List/search events |
-| `GET /api/v1/conversation/{id}/events/count` | Count events |
-| `GET /api/v1/app-conversations/{id}/download` | Download full trajectory |
+| `GET /api/v1/app-conversations/search` | Find conversations updated since last sync |
+| `GET /api/v1/app-conversations/{id}/download` | Download full trajectory zip |
 
-### 5.4 Cloud Event Types
+All other endpoints (events/search, events/count, etc.) are not needed because we read from locally synced files.
 
-Cloud events have a `kind` field that maps to our display categories:
+### 5.3 Cloud Event Types
+
+Downloaded cloud events have a `kind` field that maps to our display categories:
 
 | Cloud Event Kind | Display Category |
 |------------------|------------------|
@@ -1048,219 +1005,79 @@ Cloud events have a `kind` field that maps to our display categories:
 | `SystemPromptEvent` | System (hidden by default) |
 | `TokenEvent` | Token usage (hidden by default) |
 
-### 5.5 AppConversation Fields
-
-Cloud conversations include these fields:
-
-```json
-{
-  "id": "uuid",
-  "title": "Conversation title",
-  "created_at": "2024-01-15T10:30:00Z",
-  "updated_at": "2024-01-15T11:45:00Z",
-  "sandbox_id": "sandbox-uuid",
-  "selected_repository": "owner/repo",
-  "selected_branch": "main",
-  "trigger": "user_message"
-}
-```
-
-### 5.6 Architecture Changes for Cloud Support
+### 5.4 Architecture
 
 ```
 src/ohtv/
 ├── sources/
 │   ├── __init__.py
-│   ├── base.py           # Abstract DataSource interface
-│   ├── local.py          # Local filesystem (existing loader logic)
-│   └── cloud.py          # Cloud API client
-├── config.py             # Extended for API key, base URL, source selection
-└── ...
+│   ├── base.py           # ConversationInfo dataclass
+│   └── cloud.py          # CloudClient (for sync only)
+├── sync.py               # SyncManager - orchestrates cloud sync
+├── exporter.py           # TrajectoryExporter - converts zip to local format
+├── config.py             # Config with local_conversations_dir, cloud_conversations_dir
+└── cli.py                # Commands: sync, list, show, refs
 ```
 
-#### DataSource Interface
+The key insight is that there is **no CloudDataSource** for list/show operations. Instead:
+
+1. `sync` uses `CloudClient` to download trajectories to `~/.openhands/cloud/conversations/`
+2. `list` merges conversations from both local and cloud directories
+3. `show` searches both directories for the requested conversation ID
+
+### 5.5 Unified Listing Implementation
+
+The `list` command merges conversations from both sources:
 
 ```python
-from abc import ABC, abstractmethod
-from typing import Iterator
-
-class DataSource(ABC):
-    """Abstract interface for conversation data sources."""
+def list_all_conversations() -> list[ConversationInfo]:
+    """List conversations from both local and cloud sources."""
+    conversations = []
     
-    @abstractmethod
-    def list_conversations(self, options: ListOptions) -> tuple[list[ConversationMeta], int]:
-        """List conversations with pagination."""
-        pass
+    # Local conversations (scan directory)
+    for conv in discover_local_conversations():
+        conv.source = "local"
+        conversations.append(conv)
     
-    @abstractmethod
-    def get_conversation(self, conversation_id: str) -> ConversationMeta:
-        """Get a single conversation's metadata."""
-        pass
+    # Cloud conversations (from manifest for speed)
+    manifest = load_sync_manifest()
+    for conv_id, info in manifest.conversations.items():
+        conversations.append(ConversationInfo(
+            id=conv_id,
+            title=info.get("title"),
+            updated_at=info.get("updated_at"),
+            event_count=info.get("event_count"),
+            source="cloud",
+        ))
     
-    @abstractmethod
-    def get_events(self, conversation_id: str, options: ShowOptions) -> Iterator[ParsedEvent]:
-        """Get events for a conversation with filtering."""
-        pass
-    
-    @abstractmethod
-    def count_events(self, conversation_id: str, kind: str | None = None) -> dict[str, int]:
-        """Count events by type."""
-        pass
+    return sorted(conversations, key=lambda c: c.updated_at, reverse=True)
 ```
 
-#### CloudDataSource Implementation
+### 5.6 Unified Show Implementation
+
+The `show` command searches both directories:
 
 ```python
-import httpx
-from .base import DataSource
-
-class CloudDataSource(DataSource):
-    """Cloud API data source."""
+def find_conversation(conv_id: str) -> Path | None:
+    """Find conversation directory by ID, searching local first then cloud."""
+    # Try local first
+    local_dir = config.local_conversations_dir / conv_id
+    if local_dir.exists():
+        return local_dir
     
-    BASE_URL = "https://app.all-hands.dev"
+    # Try cloud
+    cloud_dir = config.cloud_conversations_dir / conv_id
+    if cloud_dir.exists():
+        return cloud_dir
     
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.client = httpx.Client(
-            base_url=self.BASE_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Accept": "application/json"
-            }
-        )
+    # Try prefix matching in both
+    for base_dir in [config.local_conversations_dir, config.cloud_conversations_dir]:
+        matches = [d for d in base_dir.iterdir() if d.name.startswith(conv_id)]
+        if len(matches) == 1:
+            return matches[0]
     
-    def list_conversations(self, options: ListOptions) -> tuple[list[ConversationMeta], int]:
-        params = {"limit": options.max or 100}
-        if options.title_contains:
-            params["title__contains"] = options.title_contains
-        if options.created_after:
-            params["created_at__gte"] = options.created_after.isoformat()
-        if options.created_before:
-            params["created_at__lt"] = options.created_before.isoformat()
-        
-        # Handle pagination
-        all_items = []
-        page_id = None
-        
-        while True:
-            if page_id:
-                params["page_id"] = page_id
-            
-            response = self.client.get("/api/v1/app-conversations/search", params=params)
-            response.raise_for_status()
-            data = response.json()
-            
-            all_items.extend(data["items"])
-            page_id = data.get("next_page_id")
-            
-            if not page_id or (options.max and len(all_items) >= options.max):
-                break
-        
-        # Convert to ConversationMeta
-        conversations = [self._to_conversation_meta(item) for item in all_items]
-        
-        # Get total count
-        count_response = self.client.get("/api/v1/app-conversations/count", params=params)
-        total_count = count_response.json()
-        
-        return conversations, total_count
-    
-    def get_events(self, conversation_id: str, options: ShowOptions) -> Iterator[ParsedEvent]:
-        params = {"limit": 100}
-        if options.kind_filter:
-            params["kind__eq"] = options.kind_filter
-        if options.since:
-            params["timestamp__gte"] = options.since.isoformat()
-        if options.until:
-            params["timestamp__lt"] = options.until.isoformat()
-        params["sort_order"] = "TIMESTAMP_DESC" if options.reverse else "TIMESTAMP"
-        
-        page_id = None
-        count = 0
-        skip_remaining = options.offset or 0
-        
-        while True:
-            if page_id:
-                params["page_id"] = page_id
-            
-            response = self.client.get(
-                f"/api/v1/conversation/{conversation_id}/events/search",
-                params=params
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            for item in data["items"]:
-                if skip_remaining > 0:
-                    skip_remaining -= 1
-                    continue
-                
-                yield self._to_parsed_event(item)
-                count += 1
-                
-                if options.max and count >= options.max:
-                    return
-            
-            page_id = data.get("next_page_id")
-            if not page_id:
-                break
-    
-    def _to_conversation_meta(self, item: dict) -> ConversationMeta:
-        """Convert cloud AppConversation to ConversationMeta."""
-        return ConversationMeta(
-            id=item["id"],
-            title=item.get("title"),
-            started=datetime.fromisoformat(item["created_at"].replace("Z", "+00:00")),
-            ended=datetime.fromisoformat(item["updated_at"].replace("Z", "+00:00")),
-            event_count=0,  # Would need separate count call
-            repository=item.get("selected_repository"),
-            branch=item.get("selected_branch"),
-        )
-    
-    def _to_parsed_event(self, item: dict) -> ParsedEvent:
-        """Convert cloud Event to ParsedEvent."""
-        kind = item.get("kind")
-        source = item.get("source")
-        
-        # Map cloud event kinds to our categories
-        if kind == "MessageEvent":
-            event_type = EventType.USER_MESSAGE if source == "user" else EventType.AGENT_MESSAGE
-        elif kind == "ActionEvent":
-            action = item.get("action", {})
-            if action.get("kind") == "FinishAction":
-                event_type = EventType.FINISH
-            else:
-                event_type = EventType.ACTION
-        elif kind == "ObservationEvent":
-            event_type = EventType.OBSERVATION
-        elif kind in ("ConversationErrorEvent", "AgentErrorEvent"):
-            event_type = EventType.ERROR
-        else:
-            event_type = EventType.OTHER
-        
-        return ParsedEvent(
-            id=item.get("id"),
-            timestamp=datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00")),
-            event_type=event_type,
-            source=source,
-            content=self._extract_content(item),
-            raw=item,
-        )
+    return None
 ```
-
-### 5.7 Cloud List Output Example
-
-```
-ID                                    Started              Duration  Events  Title                                              Repository
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-005fc28a-6fc4-4c7a-9409-d83153399c67  2026-02-24 16:49:46    43m 26s     162  I don't understand what is happening with Open...  All-Hands-AI/openhands
-fd2954f1-b841-465b-8045-024475c079dd  2026-02-24 14:22:03    12m 15s      47  Create a branch using SDK from PR #2334...         jpshackelford/my-repo
-fbcfa59e-1234-5678-abcd-ef1234567890  2026-02-23 09:15:22     8m 42s      31  Help me debug this CI failure...                   All-Hands-AI/openhands
-
-Showing 3 of 483 conversations
-```
-
-Note: Cloud conversations show full UUIDs (can use `--short-ids` for 7-char prefix) and include repository information.
 
 ## 6. Format Comparison: Local vs Cloud
 
@@ -1328,29 +1145,11 @@ Both formats use **identical event structure**:
 - Created/updated timestamps
 - Metrics (token usage, cost)
 
-## 7. Export/Download Feature
+## 7. Cloud Sync
 
-Given the format similarity, we can provide export functionality.
+The `sync` command is the only way to access cloud conversations. It efficiently downloads all cloud conversations, only fetching new or updated trajectories.
 
-### 7.1 Single Conversation Download
-
-```bash
-# Download cloud conversation as zip
-ohtv download <cloud_id> --cloud
-ohtv download <cloud_id> --cloud -o ./my-conversation.zip
-
-# Download and extract
-ohtv download <cloud_id> --cloud --extract
-ohtv download <cloud_id> --cloud --extract -o ./my-conversation/
-
-# Download and convert to local format (default: ~/.openhands/cloud/conversations/)
-ohtv download <cloud_id> --cloud --local-format
-ohtv download <cloud_id> --cloud --local-format -o ~/custom/path/
-```
-
-### 7.2 Incremental Sync (Batch Download)
-
-The `sync` command efficiently downloads all cloud conversations, only fetching new or updated trajectories.
+### 7.1 Usage
 
 ```bash
 # Sync all cloud conversations (incremental - only downloads changes)
@@ -1369,7 +1168,7 @@ ohtv sync --status
 ohtv sync --since 2026-01-01
 ```
 
-#### Efficiency Strategy
+### 7.2 Efficiency Strategy
 
 The sync is designed to minimize API calls, especially for hourly/scheduled runs:
 
@@ -1388,7 +1187,7 @@ GET /api/v1/app-conversations/search?updated_at__gte={last_sync_time}
 
 **Hourly cron job:** Typically 1-10 API calls (1 search + few downloads)
 
-#### Sync Manifest
+### 7.3 Sync Manifest
 
 Track sync state in `~/.openhands/cloud/sync_manifest.json`:
 
@@ -1413,7 +1212,7 @@ Track sync state in `~/.openhands/cloud/sync_manifest.json`:
 }
 ```
 
-#### Sync Algorithm
+### 7.4 Sync Algorithm
 
 ```python
 def sync_conversations(force: bool = False, since: datetime = None) -> SyncResult:
@@ -1497,7 +1296,7 @@ def sync_conversations(force: bool = False, since: datetime = None) -> SyncResul
     return result
 ```
 
-#### Sync Output
+### 7.5 Sync Output
 
 ```bash
 $ ohtv sync
@@ -1533,14 +1332,14 @@ Recent syncs:
   2026-04-07 08:00 - 1 updated
 ```
 
-#### Cron Setup
+### 7.6 Cron Setup
 
 ```bash
 # Sync every hour
 0 * * * * /usr/local/bin/ohtv sync --quiet >> ~/.openhands/cloud/sync.log 2>&1
 ```
 
-### 7.3 Storage Location
+### 7.7 Storage Location
 
 Downloaded cloud conversations are stored separately from CLI-generated conversations:
 
@@ -1564,78 +1363,6 @@ This separation:
 - Groups cloud-related files together under `cloud/`
 
 Environment variable to customize: `OHTV_CLOUD_CONVERSATIONS_DIR`
-
-### 7.4 Local Format Conversion
-
-When using `--local-format`, the tool will:
-1. Download events via API or zip
-2. Create directory structure: `{id}/events/`, `{id}/observations/`
-3. Rename files: `event_000000_*` → `event-00000-*`
-4. Convert `meta.json` to minimal `base_state.json`
-5. Extract any truncated observations to `observations/` directory
-
-### Implementation
-
-```python
-class TrajectoryExporter:
-    """Export cloud conversations to local format."""
-    
-    def download_zip(self, conversation_id: str, output_path: Path) -> None:
-        """Download raw trajectory zip from cloud."""
-        response = self.client.get(
-            f"/api/v1/app-conversations/{conversation_id}/download",
-            follow_redirects=True
-        )
-        response.raise_for_status()
-        output_path.write_bytes(response.content)
-    
-    def convert_to_local_format(self, zip_path: Path, output_dir: Path) -> None:
-        """Convert cloud zip to local CLI directory structure."""
-        output_dir.mkdir(parents=True, exist_ok=True)
-        events_dir = output_dir / "events"
-        events_dir.mkdir(exist_ok=True)
-        
-        with zipfile.ZipFile(zip_path) as zf:
-            for name in zf.namelist():
-                if name == "meta.json":
-                    # Convert to base_state.json
-                    meta = json.loads(zf.read(name))
-                    base_state = self._meta_to_base_state(meta)
-                    (output_dir / "base_state.json").write_text(
-                        json.dumps(base_state, indent=2)
-                    )
-                elif name.startswith("event_"):
-                    # Rename: event_000000_uuid.json -> event-00000-uuid.json
-                    new_name = self._convert_event_filename(name)
-                    (events_dir / new_name).write_bytes(zf.read(name))
-    
-    def _convert_event_filename(self, name: str) -> str:
-        """Convert cloud filename to local format."""
-        # event_000000_uuid.json -> event-00000-uuid.json
-        match = re.match(r'event_(\d{6})_(.+)\.json', name)
-        if match:
-            seq = int(match.group(1))
-            uuid = match.group(2)
-            return f"event-{seq:05d}-{uuid}.json"
-        return name
-    
-    def _meta_to_base_state(self, meta: dict) -> dict:
-        """Convert cloud meta.json to local base_state.json format."""
-        return {
-            "id": meta.get("id"),
-            "title": meta.get("title"),
-            "selected_repository": meta.get("selected_repository"),
-            "selected_branch": meta.get("selected_branch"),
-            "created_at": meta.get("created_at"),
-            "updated_at": meta.get("updated_at"),
-            # Minimal agent config (actual config not available from cloud)
-            "agent": {
-                "llm": {
-                    "model": meta.get("llm_model", "unknown")
-                }
-            }
-        }
-```
 
 ## 8. Open Questions
 
@@ -1667,7 +1394,7 @@ class TrajectoryExporter:
    - `ohtv tail <id>` - Follow a conversation in real-time (like `tail -f`)?
 
 6. **Cloud-specific questions:**
-   - Should we cache cloud responses locally for faster repeat access?
-   - How to handle pagination for very large conversations (1000+ events)?
-   - Should `--cloud` also support the legacy V0 API for older conversations?
-   - ~~Should we support downloading the full trajectory zip for offline viewing?~~ (Now in scope!)
+   - ~~Should we cache cloud responses locally for faster repeat access?~~ (Resolved: sync-first architecture)
+   - ~~How to handle pagination for very large conversations (1000+ events)?~~ (Resolved: events read from local files)
+   - ~~Should we support downloading the full trajectory zip for offline viewing?~~ (Resolved: `ohtv sync`)
+   - Should `sync` support the legacy V0 API for older conversations?
