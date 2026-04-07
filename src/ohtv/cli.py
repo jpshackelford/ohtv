@@ -285,7 +285,8 @@ def _format_time(dt: datetime) -> str:
 
 @main.command("list")
 @click.option("--reverse", "-r", is_flag=True, help="Show oldest first (default: newest first)")
-@click.option("--max", "-n", "limit", type=int, help="Maximum number of conversations to show")
+@click.option("--max", "-n", "limit", type=int, help="Maximum conversations to show (default: 10)")
+@click.option("--all", "-A", "show_all", is_flag=True, help="Show all conversations (no limit)")
 @click.option("--offset", "-k", type=int, default=0, help="Skip first N conversations")
 @click.option(
     "--format", "-F", "fmt",
@@ -298,6 +299,7 @@ def _format_time(dt: datetime) -> str:
 def list_conversations(
     reverse: bool,
     limit: int | None,
+    show_all: bool,
     offset: int,
     fmt: str,
     output: str | None,
@@ -322,10 +324,15 @@ def list_conversations(
     )
 
     # Apply offset and limit
+    # Default to 10 unless --all or explicit -n is provided
     if offset:
         conversations = conversations[offset:]
-    if limit:
-        conversations = conversations[:limit]
+    if not show_all:
+        effective_limit = limit if limit is not None else 10
+        conversations = conversations[:effective_limit]
+
+    # Track if we're using default limit (for hint message)
+    using_default_limit = not show_all and limit is None
 
     # Format output
     output_text = _format_list_output(conversations, fmt, total_count, local_count, cloud_count)
@@ -337,7 +344,10 @@ def list_conversations(
     else:
         if fmt == "table":
             # For table format, we use rich console directly
-            _print_list_table(conversations, total_count, local_count, cloud_count)
+            _print_list_table(
+                conversations, total_count, local_count, cloud_count,
+                show_hint=using_default_limit and len(conversations) < total_count,
+            )
         else:
             # For JSON and CSV, use plain print to avoid rich styling
             print(output_text)
@@ -421,6 +431,8 @@ def _print_list_table(
     total_count: int,
     local_count: int,
     cloud_count: int,
+    *,
+    show_hint: bool = False,
 ) -> None:
     """Print conversations as a rich table."""
     table = Table(show_header=True, header_style="bold")
@@ -461,6 +473,10 @@ def _print_list_table(
     if parts:
         summary += f" ({', '.join(parts)})"
     console.print(f"[dim]{summary}[/dim]")
+
+    # Hint for default limit
+    if show_hint:
+        console.print("[dim]Use -A to show all, or -n to change limit[/dim]")
 
 
 def _format_duration(duration: timedelta | None) -> str:

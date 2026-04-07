@@ -44,7 +44,9 @@ uv run ohtv sync
 
 Currently no automated tests. Use manual testing with real conversation data:
 ```bash
-uv run ohtv list
+uv run ohtv list                       # Shows 10 most recent (default)
+uv run ohtv list -A                    # Shows all conversations
+uv run ohtv list -n 20                 # Shows 20 most recent
 uv run ohtv show <id>                  # Stats only
 uv run ohtv show <id> --messages       # User + agent messages + finish
 uv run ohtv show <id> -s -O            # Actions with outputs
