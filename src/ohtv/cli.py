@@ -482,6 +482,7 @@ def _format_duration(duration: timedelta | None) -> str:
 @click.option("--outputs", "-O", is_flag=True, help="Include tool call outputs/observations")
 @click.option("--thinking", "-t", is_flag=True, help="Include thinking/reasoning blocks")
 @click.option("--timestamps", "-T", is_flag=True, help="Include timestamps on events")
+@click.option("--refs", "-R", "show_refs", is_flag=True, help="Show git refs with write actions")
 @click.option("--all", "-A", "include_all", is_flag=True, help="Include everything")
 @click.option("--messages", "-m", is_flag=True, help="Shorthand for -u -a -f")
 @click.option("--stats", "-S", is_flag=True, help="Show only statistics, no content")
@@ -506,6 +507,7 @@ def show(
     outputs: bool,
     thinking: bool,
     timestamps: bool,
+    show_refs: bool,
     include_all: bool,
     messages: bool,
     stats: bool,
@@ -529,6 +531,7 @@ def show(
     if include_all:
         user_messages = agent_messages = include_finish = True
         action_summaries = action_details = outputs = thinking = timestamps = True
+        show_refs = True
     if messages:
         user_messages = agent_messages = include_finish = True
 
@@ -552,6 +555,9 @@ def show(
             conv_id, title, first_ts, last_ts, event_counts, fmt
         )
         _write_or_print_output(output_text, output, fmt)
+        # Show refs after stats if requested
+        if show_refs:
+            _show_refs_summary(conv_dir)
         return
 
     # Filter events based on flags
@@ -594,6 +600,20 @@ def show(
     )
 
     _write_or_print_output(output_text, output, fmt)
+
+    # Show refs after main output if requested
+    if show_refs:
+        _show_refs_summary(conv_dir)
+
+
+def _show_refs_summary(conv_dir: Path) -> None:
+    """Show refs with write actions as a summary section."""
+    extracted = _extract_refs_from_conversation(conv_dir)
+    if not any(extracted.values()):
+        return
+
+    interactions = _detect_interactions_from_conversation(conv_dir, extracted)
+    _display_actions_only(interactions)
 
 
 def _write_or_print_output(output_text: str, output_path: str | None, fmt: str) -> None:
