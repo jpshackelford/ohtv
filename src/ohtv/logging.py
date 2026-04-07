@@ -1,6 +1,7 @@
 """Logging configuration for ohtv."""
 
 import logging
+import logging.handlers
 import sys
 from pathlib import Path
 
@@ -15,10 +16,22 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     logger = logging.getLogger("ohtv")
     logger.setLevel(logging.DEBUG)
 
-    if not logger.handlers:
+    # Check if we already have handlers
+    has_file_handler = any(
+        isinstance(h, logging.handlers.RotatingFileHandler) for h in logger.handlers
+    )
+    has_console_handler = any(
+        isinstance(h, logging.StreamHandler) and h.stream == sys.stderr
+        for h in logger.handlers
+    )
+
+    # Add file handler if not present
+    if not has_file_handler:
         _add_file_handler(logger)
-        if verbose:
-            _add_console_handler(logger)
+
+    # Add console handler for verbose mode if not already present
+    if verbose and not has_console_handler:
+        _add_console_handler(logger)
 
     return logger
 

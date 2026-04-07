@@ -382,7 +382,7 @@ def analyze_objectives(
     if not force_refresh:
         cached = get_cached_analysis(conv_dir, context, detail)
         if cached:
-            log.info("Using cached analysis from %s", cached.analyzed_at)
+            log.debug("Using cached analysis from %s", cached.analyzed_at)
             return cached
 
     # Load events and build transcript
@@ -396,6 +396,10 @@ def analyze_objectives(
 
     content_hash = _compute_content_hash(items)
     transcript = format_transcript(items)
+
+    # Suppress SDK banner before import
+    import os
+    os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
 
     # Import here to avoid loading SDK unless needed
     from openhands.sdk import LLM, Message, TextContent
@@ -415,9 +419,9 @@ def analyze_objectives(
     else:  # detailed
         system_prompt = PROMPT_DETAILED
 
-    # Log token estimate
+    # Log token estimate (debug level - only shows with --verbose)
     approx_tokens = int(len(transcript.split()) * 1.3)
-    log.info(
+    log.debug(
         "Analyzing conversation with %s (context=%s, detail=%s, ~%d tokens)...",
         model_used,
         context,
@@ -498,6 +502,6 @@ def analyze_objectives(
 
     # Cache the result
     _save_analysis(conv_dir, analysis)
-    log.info("Analysis complete and cached")
+    log.debug("Analysis complete and cached")
 
     return analysis
