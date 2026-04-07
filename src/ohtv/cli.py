@@ -1018,8 +1018,9 @@ def _format_event(
 
 @main.command()
 @click.argument("conversation_id")
+@click.option("--actions", "-a", is_flag=True, help="Show only refs with write actions (created, pushed, etc.)")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
-def refs(conversation_id: str, verbose: bool) -> None:
+def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
     """Extract repository, issue, and PR references from a conversation.
 
     Shows what actions were taken on each reference:
@@ -1028,6 +1029,7 @@ def refs(conversation_id: str, verbose: bool) -> None:
     - Issues: created, commented, closed
 
     References without detected interactions are shown without annotation.
+    Use --actions to show only refs where write actions were detected.
     """
     _init_logging(verbose=verbose)
     config = Config.from_env()
@@ -1053,7 +1055,11 @@ def refs(conversation_id: str, verbose: bool) -> None:
     # Detect interactions for each ref
     interactions = _detect_interactions_from_conversation(conv_dir, extracted)
 
-    _display_refs(extracted, interactions)
+    # Show only actions summary if requested
+    if actions:
+        _display_actions_only(interactions)
+    else:
+        _display_refs(extracted, interactions)
 
 
 def _find_conversation_dir(config: Config, conv_id: str) -> Path | None:
@@ -1501,6 +1507,55 @@ def _detect_interactions_from_conversation(conv_dir: Path, refs: dict[str, set[s
                             interactions.prs[pr_url].add("pushed")
 
     return interactions
+
+
+def _display_actions_only(interactions: RefInteractions) -> None:
+    """Display only refs with detected write actions."""
+    # Collect all interactions with their URLs
+    action_items: list[tuple[str, str, str]] = []  # (action, url, category)
+
+    # Priority order for actions (most significant first)
+    action_priority = {
+        "created": 1,
+        "merged": 2,
+        "pushed": 3,
+        "commented": 4,
+        "reviewed": 5,
+        "closed": 6,
+        "cloned": 7,
+    }
+
+    for url, url_actions in interactions.repos.items():
+        for action in url_actions:
+            action_items.append((action, url, "repo"))
+
+    for url, url_actions in interactions.prs.items():
+        for action in url_actions:
+            action_items.append((action, url, "pr"))
+
+    for url, url_actions in interactions.issues.items():
+        for action in url_actions:
+            action_items.append((action, url, "issue"))
+
+    if not action_items:
+        console.print("\n[dim]No write actions detected.[/dim]")
+        return
+
+    # Sort by priority
+    action_items.sort(key=lambda x: action_priority.get(x[0], 99))
+
+    console.print()
+    for action, url, category in action_items:
+        # Shorten URL for display
+        short_url = url.replace("https://github.com/", "")
+        # Color based on action type
+        if action in ("created", "merged"):
+            style = "green"
+        elif action in ("pushed", "commented", "reviewed"):
+            style = "yellow"
+        else:
+            style = "dim"
+        console.print(f"  [{style}]{action}[/{style}] {short_url}")
 
 
 def _display_refs(refs: dict[str, set[str]], interactions: RefInteractions | None = None) -> None:
