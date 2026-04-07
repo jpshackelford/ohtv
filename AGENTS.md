@@ -2,20 +2,13 @@
 
 ## Project Overview
 
-**ohtv (OpenHands Trajectory Viewer)** - A CLI utility for viewing and syncing OpenHands conversation histories.
+**ohtv (OpenHands Trajectory Viewer)** - A CLI utility for viewing and syncing OpenHands conversation histories. See `README.md` for full usage documentation.
 
-## Quick Commands
+## Development
 
 ```bash
-# Install dependencies
-uv sync
-
-# Run CLI
-uv run ohtv --help
-uv run ohtv list
-uv run ohtv show <conversation_id>
-uv run ohtv refs <conversation_id>
-uv run ohtv sync
+uv sync                    # Install dependencies
+uv run ohtv --help         # Run CLI
 ```
 
 ## Code Structure
@@ -34,43 +27,19 @@ uv run ohtv sync
 
 3. **Title derivation**: Local conversations derive titles from first user message (first 60 chars, word boundary truncation)
 
-4. **Timezone handling**: Cloud conversation timestamps are stored in UTC, while local CLI timestamps are in local time (without timezone info). The codebase normalizes all timestamps to UTC internally for correct chronological sorting, then converts to local time for display. **Limitation:** Local CLI timestamps are interpreted using the current machine's timezone, so if conversation data is moved to a machine in a different timezone (or the user changes their timezone), local conversation times may be incorrectly interpreted. A proper fix requires OpenHands CLI/SDK to store UTC timestamps or include timezone info.
-
-## Specifications in Progress
-
-- `SPEC_REFS_INTERACTION_TYPES.md` - Enhancement to detect whether we pushed/created/commented on PRs and issues
+4. **Timezone handling**: Cloud timestamps are UTC; local CLI timestamps lack timezone info. The codebase normalizes to UTC for sorting, then converts to local time for display. **Limitation:** Local timestamps are interpreted using the current machine's timezone—if data moves between machines with different timezones, times may display incorrectly.
 
 ## Testing
 
-Currently no automated tests. Use manual testing with real conversation data:
+No automated tests. Manual testing with real conversation data:
 ```bash
-uv run ohtv list                       # Shows 10 most recent (default)
-uv run ohtv list -A                    # Shows all conversations
-uv run ohtv list -n 20                 # Shows 20 most recent
-uv run ohtv show <id>                  # Stats only
-uv run ohtv show <id> --messages       # User + agent messages + finish
+uv run ohtv list -A                    # All conversations
+uv run ohtv show <id> -m               # Messages
 uv run ohtv show <id> -s -O            # Actions with outputs
-uv run ohtv show <id> -A               # Everything
-uv run ohtv show <id> -F json          # JSON output
-uv run ohtv refs <id>
+uv run ohtv refs <id>                  # Git references
 ```
 
-## Show Command Details
+## Reference Documentation
 
-The `show` command supports extensive filtering:
-
-**Content flags:**
-- `-u` user messages, `-a` agent messages, `-f` finish
-- `-s` action summaries, `-d` action details, `-O` outputs
-- `-t` thinking blocks, `-T` timestamps
-- `-m` shorthand for `-u -a -f`, `-A` everything
-
-**Display options:**
-- `-r` reverse order, `-n` limit, `-k` offset
-- `-F markdown|json|text`, `-o` output file
-
-## Environment Variables
-
-- `OH_API_KEY` - Required for cloud sync
-- `OHTV_CONVERSATIONS_DIR` - Override local conversations path
-- `OHTV_CLOUD_CONVERSATIONS_DIR` - Override cloud conversations path
+- `REFERENCE_CLOUD_API.md` - OpenHands Cloud V1 API endpoints used by sync
+- `REFERENCE_TRAJECTORY_FORMAT_COMPARISON.md` - Local vs cloud trajectory formats
