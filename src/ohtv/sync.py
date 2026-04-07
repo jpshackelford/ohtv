@@ -104,6 +104,7 @@ class SyncManager:
         try:
             with CloudClient(self.config.cloud_base_url, self.config.api_key) as client:
                 conversations = client.search_all_conversations(updated_since=cutoff)
+                conversations = self._add_failed_conversations(conversations)
                 log.info("Found %d conversations to process", len(conversations))
                 return self._process_conversations(client, conversations, force, dry_run, on_progress)
         except httpx.HTTPStatusError as e:
@@ -114,6 +115,28 @@ class SyncManager:
         except (httpx.TimeoutException, httpx.ConnectError) as e:
             log.error("Network error during sync: %s", e)
             raise SyncAbortedError(f"Network error: {e}")
+
+    def _add_failed_conversations(self, conversations: list[dict]) -> list[dict]:
+        """Add previously failed conversations to the sync list for retry."""
+        if not self.manifest.failed_ids:
+            return conversations
+
+        existing_ids = {c["id"] for c in conversations}
+        retry_count = 0
+
+        for failed_id in self.manifest.failed_ids:
+            if failed_id not in existing_ids:
+                conversations.append({
+                    "id": failed_id,
+                    "title": "(retry)",
+                    "updated_at": "",
+                })
+                retry_count += 1
+
+        if retry_count > 0:
+            log.info("Adding %d previously failed conversations for retry", retry_count)
+
+        return conversations
 
     def _determine_cutoff(self, force: bool, since: datetime | None) -> datetime | None:
         """Determine the cutoff date for syncing."""

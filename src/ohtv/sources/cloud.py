@@ -19,7 +19,7 @@ class CloudClient:
         self._client = httpx.Client(
             base_url=self.base_url,
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=30.0,
+            timeout=180.0,
         )
 
     def close(self) -> None:

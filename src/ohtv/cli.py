@@ -1,8 +1,10 @@
 """Command-line interface for ohtv."""
 
+import csv
+import io
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import click
@@ -11,9 +13,22 @@ from rich.table import Table
 
 from ohtv.config import Config
 from ohtv.logging import setup_logging
+from ohtv.sources import ConversationInfo, LocalSource
 from ohtv.sync import SyncAbortedError, SyncAuthError, SyncManager, SyncResult
 
 console = Console()
+
+# Minimum datetime for sorting (timezone-aware)
+MIN_DATETIME = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _normalize_datetime_for_sort(dt: datetime | None) -> datetime:
+    """Normalize datetime for sorting, handling None and timezone-naive values."""
+    if dt is None:
+        return MIN_DATETIME
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 # URL patterns for git hosting platforms
 GIT_URL_PATTERNS = {
@@ -199,18 +214,205 @@ def _format_time(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+@main.command("list")
+@click.option("--reverse", "-r", is_flag=True, help="Show oldest first (default: newest first)")
+@click.option("--max", "-n", "limit", type=int, help="Maximum number of conversations to show")
+@click.option("--offset", "-k", type=int, default=0, help="Skip first N conversations")
+@click.option(
+    "--format", "-F", "fmt",
+    type=click.Choice(["table", "json", "csv"]),
+    default="table",
+    help="Output format (default: table)",
+)
+@click.option("--output", "-o", type=click.Path(), help="Write output to file")
+@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+def list_conversations(
+    reverse: bool,
+    limit: int | None,
+    offset: int,
+    fmt: str,
+    output: str | None,
+    verbose: bool,
+) -> None:
+    """List available conversations from local and cloud sources."""
+    _init_logging(verbose=verbose)
+    config = Config.from_env()
+
+    # Load conversations from both sources
+    conversations = _load_all_conversations(config)
+    total_count = len(conversations)
+    local_count = sum(1 for c in conversations if c.source == "local")
+    cloud_count = total_count - local_count
+
+    # Sort by created_at (newest first by default)
+    # Use a sort key that handles None and normalizes timezone awareness
+    conversations = sorted(
+        conversations,
+        key=lambda c: _normalize_datetime_for_sort(c.created_at),
+        reverse=not reverse,
+    )
+
+    # Apply offset and limit
+    if offset:
+        conversations = conversations[offset:]
+    if limit:
+        conversations = conversations[:limit]
+
+    # Format output
+    output_text = _format_list_output(conversations, fmt, total_count, local_count, cloud_count)
+
+    # Write to file or stdout
+    if output:
+        Path(output).write_text(output_text)
+        console.print(f"[green]Written to {output}[/green]")
+    else:
+        if fmt == "table":
+            # For table format, we use rich console directly
+            _print_list_table(conversations, total_count, local_count, cloud_count)
+        else:
+            # For JSON and CSV, use plain print to avoid rich styling
+            print(output_text)
+
+
+def _load_all_conversations(config: Config) -> list[ConversationInfo]:
+    """Load conversations from both local and cloud directories."""
+    conversations: list[ConversationInfo] = []
+
+    # Load local conversations
+    local_source = LocalSource(config.local_conversations_dir, source_name="local")
+    conversations.extend(local_source.list_conversations())
+
+    # Load cloud conversations (synced)
+    cloud_source = LocalSource(config.cloud_conversations_dir, source_name="cloud")
+    conversations.extend(cloud_source.list_conversations())
+
+    return conversations
+
+
+def _format_list_output(
+    conversations: list[ConversationInfo],
+    fmt: str,
+    total_count: int,
+    local_count: int,
+    cloud_count: int,
+) -> str:
+    """Format conversation list for output."""
+    if fmt == "json":
+        return _format_list_json(conversations)
+    if fmt == "csv":
+        return _format_list_csv(conversations)
+    # Table format is handled separately with rich
+    return ""
+
+
+def _format_list_json(conversations: list[ConversationInfo]) -> str:
+    """Format conversations as JSON."""
+    items = []
+    for conv in conversations:
+        items.append({
+            "id": conv.id,
+            "source": conv.source,
+            "title": conv.title,
+            "created_at": conv.created_at.isoformat() if conv.created_at else None,
+            "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+            "duration_seconds": conv.duration.total_seconds() if conv.duration else None,
+            "event_count": conv.event_count,
+            "selected_repository": conv.selected_repository,
+        })
+    return json.dumps(items, indent=2)
+
+
+def _format_list_csv(conversations: list[ConversationInfo]) -> str:
+    """Format conversations as CSV."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "source", "started", "duration", "events", "title", "repository"])
+
+    for conv in conversations:
+        writer.writerow([
+            conv.id,
+            conv.source,
+            conv.created_at.strftime("%Y-%m-%d %H:%M") if conv.created_at else "",
+            _format_duration(conv.duration) if conv.duration else "",
+            conv.event_count or "",
+            conv.title or "",
+            conv.selected_repository or "",
+        ])
+
+    return output.getvalue()
+
+
+def _print_list_table(
+    conversations: list[ConversationInfo],
+    total_count: int,
+    local_count: int,
+    cloud_count: int,
+) -> None:
+    """Print conversations as a rich table."""
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("ID", style="cyan", width=7)
+    table.add_column("Source", width=6)
+    table.add_column("Started", width=16)
+    table.add_column("Duration", width=10, justify="right")
+    table.add_column("Events", width=6, justify="right")
+    table.add_column("Title", no_wrap=False)
+
+    for conv in conversations:
+        source_style = "blue" if conv.source == "cloud" else "green"
+        table.add_row(
+            conv.short_id,
+            f"[{source_style}]{conv.source}[/{source_style}]",
+            conv.created_at.strftime("%Y-%m-%d %H:%M") if conv.created_at else "",
+            _format_duration(conv.duration) if conv.duration else "",
+            str(conv.event_count) if conv.event_count else "",
+            (conv.title or "")[:60] + ("..." if conv.title and len(conv.title) > 60 else ""),
+        )
+
+    console.print(table)
+
+    # Summary line
+    showing = len(conversations)
+    parts = []
+    if cloud_count > 0:
+        parts.append(f"{cloud_count} cloud")
+    if local_count > 0:
+        parts.append(f"{local_count} local")
+
+    summary = f"Showing {showing} of {total_count} conversations"
+    if parts:
+        summary += f" ({', '.join(parts)})"
+    console.print(f"[dim]{summary}[/dim]")
+
+
+def _format_duration(duration: timedelta | None) -> str:
+    """Format a timedelta as a human-readable duration string."""
+    if duration is None:
+        return ""
+
+    total_seconds = int(duration.total_seconds())
+    if total_seconds < 0:
+        return ""
+
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    if hours > 0:
+        return f"{hours}h {minutes:02d}m {seconds:02d}s"
+    if minutes > 0:
+        return f"{minutes}m {seconds:02d}s"
+    return f"{seconds}s"
+
+
 @main.command()
 @click.argument("conversation_id")
-@click.option("--source", type=click.Choice(["local", "cloud"]), help="Data source")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
-def refs(conversation_id: str, source: str | None, verbose: bool) -> None:
+def refs(conversation_id: str, verbose: bool) -> None:
     """Extract repository, issue, and PR references from a conversation."""
     _init_logging(verbose=verbose)
     config = Config.from_env()
 
-    # Determine which directory to use
-    src = source or config.source
-    conv_dir = _find_conversation_dir(config, conversation_id, src)
+    # Search both local and cloud sources
+    conv_dir = _find_conversation_dir(config, conversation_id)
 
     if not conv_dir:
         console.print(f"[red]Error:[/red] Conversation '{conversation_id}' not found")
@@ -230,25 +432,34 @@ def refs(conversation_id: str, source: str | None, verbose: bool) -> None:
     _display_refs(extracted)
 
 
-def _find_conversation_dir(config: Config, conv_id: str, source: str) -> Path | None:
-    """Find conversation directory, supporting partial ID matching."""
-    base_dir = config.cloud_conversations_dir if source == "cloud" else config.local_conversations_dir
+def _find_conversation_dir(config: Config, conv_id: str) -> Path | None:
+    """Find conversation directory across both local and cloud sources."""
+    # Search both directories
+    dirs_to_search = [
+        config.local_conversations_dir,
+        config.cloud_conversations_dir,
+    ]
 
-    if not base_dir.exists():
-        return None
+    all_matches: list[Path] = []
 
-    # Try exact match first
-    exact = base_dir / conv_id
-    if exact.exists():
-        return exact
+    for base_dir in dirs_to_search:
+        if not base_dir.exists():
+            continue
 
-    # Try prefix match
-    matches = [d for d in base_dir.iterdir() if d.is_dir() and d.name.startswith(conv_id)]
-    if len(matches) == 1:
-        return matches[0]
-    if len(matches) > 1:
-        console.print(f"[yellow]Ambiguous ID:[/yellow] {len(matches)} matches. Provide more characters.")
-        for m in matches[:5]:
+        # Try exact match first
+        exact = base_dir / conv_id
+        if exact.exists():
+            return exact
+
+        # Collect prefix matches
+        matches = [d for d in base_dir.iterdir() if d.is_dir() and d.name.startswith(conv_id)]
+        all_matches.extend(matches)
+
+    if len(all_matches) == 1:
+        return all_matches[0]
+    if len(all_matches) > 1:
+        console.print(f"[yellow]Ambiguous ID:[/yellow] {len(all_matches)} matches. Provide more characters.")
+        for m in all_matches[:5]:
             console.print(f"  {m.name}")
         return None
 

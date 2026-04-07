@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 @dataclass
@@ -15,6 +15,19 @@ class ConversationInfo:
     updated_at: datetime | None
     event_count: int | None = None
     selected_repository: str | None = None
+    source: str = "local"  # "local" or "cloud"
+
+    @property
+    def duration(self) -> timedelta | None:
+        """Calculate conversation duration."""
+        if self.created_at and self.updated_at:
+            return self.updated_at - self.created_at
+        return None
+
+    @property
+    def short_id(self) -> str:
+        """Get first 7 characters of ID for display."""
+        return self.id[:7]
 
 
 @dataclass
