@@ -34,7 +34,7 @@ uv run ohtv sync
 
 3. **Title derivation**: Local conversations derive titles from first user message (first 60 chars, word boundary truncation)
 
-4. **Timezone handling**: Cloud conversation timestamps are stored in UTC, while local CLI timestamps are in local time. The codebase normalizes all timestamps to UTC internally for correct chronological sorting, then converts to local time for display.
+4. **Timezone handling**: Cloud conversation timestamps are stored in UTC, while local CLI timestamps are in local time (without timezone info). The codebase normalizes all timestamps to UTC internally for correct chronological sorting, then converts to local time for display. **Limitation:** Local CLI timestamps are interpreted using the current machine's timezone, so if conversation data is moved to a machine in a different timezone (or the user changes their timezone), local conversation times may be incorrectly interpreted. A proper fix requires OpenHands CLI/SDK to store UTC timestamps or include timezone info.
 
 ## Specifications in Progress
 
