@@ -16,6 +16,8 @@ class LocalSource:
     def __init__(self, conversations_dir: Path, source_name: str = "local"):
         self.conversations_dir = conversations_dir
         self.source_name = source_name
+        # Cloud conversations store timestamps in UTC, local CLI uses local time
+        self._timestamps_are_utc = source_name != "local"
 
     def list_conversations(self) -> list[ConversationInfo]:
         """List all conversations in the directory."""
@@ -101,7 +103,7 @@ class LocalSource:
         """Extract timestamp from an event file."""
         try:
             data = json.loads(event_file.read_text())
-            return _parse_datetime(data.get("timestamp"))
+            return _parse_datetime(data.get("timestamp"), assume_utc=self._timestamps_are_utc)
         except (json.JSONDecodeError, OSError):
             return None
 
@@ -136,15 +138,26 @@ class LocalSource:
         return None
 
 
-def _parse_datetime(value: str | None) -> datetime | None:
-    """Parse ISO 8601 datetime string."""
+def _parse_datetime(value: str | None, assume_utc: bool = True) -> datetime | None:
+    """Parse ISO 8601 datetime string.
+
+    Args:
+        value: ISO 8601 datetime string
+        assume_utc: If True, treat naive timestamps as UTC.
+                    If False, treat as local time and convert to UTC.
+    """
     if not value:
         return None
     value = value.rstrip("Z")
     if "+" in value:
         value = value.split("+")[0]
     try:
-        return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+        naive_dt = datetime.fromisoformat(value)
+        if assume_utc:
+            return naive_dt.replace(tzinfo=timezone.utc)
+        # Treat as local time, then convert to UTC
+        local_dt = naive_dt.astimezone()  # Attach local timezone
+        return local_dt.astimezone(timezone.utc)
     except ValueError:
         return None
 

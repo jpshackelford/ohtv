@@ -34,6 +34,8 @@ uv run ohtv sync
 
 3. **Title derivation**: Local conversations derive titles from first user message (first 60 chars, word boundary truncation)
 
+4. **Timezone handling**: Cloud conversation timestamps are stored in UTC, while local CLI timestamps are in local time. The codebase normalizes all timestamps to UTC internally for correct chronological sorting, then converts to local time for display.
+
 ## Specifications in Progress
 
 - `SPEC_REFS_INTERACTION_TYPES.md` - Enhancement to detect whether we pushed/created/commented on PRs and issues

@@ -398,10 +398,15 @@ def _format_list_csv(conversations: list[ConversationInfo]) -> str:
     writer.writerow(["id", "source", "started", "duration", "events", "title", "repository"])
 
     for conv in conversations:
+        # Convert UTC to local time for display
+        started = ""
+        if conv.created_at:
+            local_time = conv.created_at.astimezone()
+            started = local_time.strftime("%Y-%m-%d %H:%M")
         writer.writerow([
             conv.id,
             conv.source,
-            conv.created_at.strftime("%Y-%m-%d %H:%M") if conv.created_at else "",
+            started,
             _format_duration(conv.duration) if conv.duration else "",
             conv.event_count or "",
             conv.title or "",
@@ -428,10 +433,15 @@ def _print_list_table(
 
     for conv in conversations:
         source_style = "blue" if conv.source == "cloud" else "green"
+        # Convert UTC to local time for display
+        started = ""
+        if conv.created_at:
+            local_time = conv.created_at.astimezone()
+            started = local_time.strftime("%Y-%m-%d %H:%M")
         table.add_row(
             conv.short_id,
             f"[{source_style}]{conv.source}[/{source_style}]",
-            conv.created_at.strftime("%Y-%m-%d %H:%M") if conv.created_at else "",
+            started,
             _format_duration(conv.duration) if conv.duration else "",
             str(conv.event_count) if conv.event_count else "",
             (conv.title or "")[:60] + ("..." if conv.title and len(conv.title) > 60 else ""),
@@ -522,10 +532,11 @@ def show(
     _init_logging(verbose=verbose)
     config = Config.from_env()
 
-    conv_dir = _find_conversation_dir(config, conversation_id)
-    if not conv_dir:
+    result = _find_conversation_dir(config, conversation_id)
+    if not result:
         console.print(f"[red]Error:[/red] Conversation not found: {conversation_id}")
         raise SystemExit(1)
+    conv_dir, is_cloud = result
 
     # Expand shorthand flags
     if include_all:
@@ -541,7 +552,7 @@ def show(
     # Load and count events
     events = _load_events(conv_dir)
     event_counts = _count_events_by_type(events)
-    first_ts, last_ts = _get_event_time_range(events)
+    first_ts, last_ts = _get_event_time_range(events, is_cloud=is_cloud)
 
     # If no content flags specified (and not stats-only), show summary only
     show_content = (
@@ -679,8 +690,13 @@ def _count_events_by_type(events: list[dict]) -> dict[str, int]:
     return counts
 
 
-def _get_event_time_range(events: list[dict]) -> tuple[datetime | None, datetime | None]:
-    """Get first and last timestamps from events."""
+def _get_event_time_range(events: list[dict], is_cloud: bool = True) -> tuple[datetime | None, datetime | None]:
+    """Get first and last timestamps from events.
+
+    Args:
+        events: List of event dictionaries
+        is_cloud: If True, timestamps are in UTC. If False, in local time.
+    """
     if not events:
         return None, None
 
@@ -688,7 +704,7 @@ def _get_event_time_range(events: list[dict]) -> tuple[datetime | None, datetime
     for event in events:
         ts_str = event.get("timestamp")
         if ts_str:
-            ts = _parse_event_datetime(ts_str)
+            ts = _parse_event_datetime(ts_str, assume_utc=is_cloud)
             if ts:
                 timestamps.append(ts)
 
@@ -698,15 +714,26 @@ def _get_event_time_range(events: list[dict]) -> tuple[datetime | None, datetime
     return min(timestamps), max(timestamps)
 
 
-def _parse_event_datetime(value: str | None) -> datetime | None:
-    """Parse ISO 8601 datetime string from event."""
+def _parse_event_datetime(value: str | None, assume_utc: bool = True) -> datetime | None:
+    """Parse ISO 8601 datetime string from event.
+
+    Args:
+        value: ISO 8601 datetime string
+        assume_utc: If True, treat naive timestamps as UTC.
+                    If False, treat as local time and convert to UTC.
+    """
     if not value:
         return None
     value = value.rstrip("Z")
     if "+" in value:
         value = value.split("+")[0]
     try:
-        return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+        naive_dt = datetime.fromisoformat(value)
+        if assume_utc:
+            return naive_dt.replace(tzinfo=timezone.utc)
+        # Treat as local time, then convert to UTC
+        local_dt = naive_dt.astimezone()  # Attach local timezone
+        return local_dt.astimezone(timezone.utc)
     except ValueError:
         return None
 
@@ -769,13 +796,17 @@ def _format_show_stats(
             "total_events": total,
         }, indent=2)
 
+    # Convert to local time for display
+    started_str = first_ts.astimezone().strftime('%Y-%m-%d %H:%M:%S') if first_ts else 'N/A'
+    ended_str = last_ts.astimezone().strftime('%Y-%m-%d %H:%M:%S') if last_ts else 'N/A'
+
     if fmt == "text":
         lines = [
             f"Conversation: {conv_id}",
             f"Title: {title or '(none)'}",
             "",
-            f"Started:  {first_ts.strftime('%Y-%m-%d %H:%M:%S') if first_ts else 'N/A'}",
-            f"Ended:    {last_ts.strftime('%Y-%m-%d %H:%M:%S') if last_ts else 'N/A'}",
+            f"Started:  {started_str}",
+            f"Ended:    {ended_str}",
             f"Duration: {_format_duration(duration) if duration else 'N/A'}",
             "",
             "Event Counts:",
@@ -797,8 +828,8 @@ def _format_show_stats(
         lines.append(f"**Title:** {title}")
     lines.extend([
         "",
-        f"**Started:** {first_ts.strftime('%Y-%m-%d %H:%M:%S') if first_ts else 'N/A'}",
-        f"**Ended:** {last_ts.strftime('%Y-%m-%d %H:%M:%S') if last_ts else 'N/A'}",
+        f"**Started:** {started_str}",
+        f"**Ended:** {ended_str}",
         f"**Duration:** {_format_duration(duration) if duration else 'N/A'}",
         "",
         "| Type | Count |",
@@ -1055,11 +1086,12 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
     config = Config.from_env()
 
     # Search both local and cloud sources
-    conv_dir = _find_conversation_dir(config, conversation_id)
+    result = _find_conversation_dir(config, conversation_id)
 
-    if not conv_dir:
+    if not result:
         console.print(f"[red]Error:[/red] Conversation '{conversation_id}' not found")
         raise SystemExit(1)
+    conv_dir, _ = result  # We don't need is_cloud for refs
 
     # Get conversation metadata
     conv_id, title = _get_conversation_info(conv_dir)
@@ -1082,34 +1114,38 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
         _display_refs(extracted, interactions)
 
 
-def _find_conversation_dir(config: Config, conv_id: str) -> Path | None:
-    """Find conversation directory across both local and cloud sources."""
-    # Search both directories
+def _find_conversation_dir(config: Config, conv_id: str) -> tuple[Path, bool] | None:
+    """Find conversation directory across both local and cloud sources.
+
+    Returns:
+        Tuple of (directory_path, is_cloud_source) or None if not found
+    """
+    # Search both directories - local first, then cloud
     dirs_to_search = [
-        config.local_conversations_dir,
-        config.cloud_conversations_dir,
+        (config.local_conversations_dir, False),  # (path, is_cloud)
+        (config.cloud_conversations_dir, True),
     ]
 
-    all_matches: list[Path] = []
+    all_matches: list[tuple[Path, bool]] = []
 
-    for base_dir in dirs_to_search:
+    for base_dir, is_cloud in dirs_to_search:
         if not base_dir.exists():
             continue
 
         # Try exact match first
         exact = base_dir / conv_id
         if exact.exists():
-            return exact
+            return (exact, is_cloud)
 
         # Collect prefix matches
-        matches = [d for d in base_dir.iterdir() if d.is_dir() and d.name.startswith(conv_id)]
+        matches = [(d, is_cloud) for d in base_dir.iterdir() if d.is_dir() and d.name.startswith(conv_id)]
         all_matches.extend(matches)
 
     if len(all_matches) == 1:
         return all_matches[0]
     if len(all_matches) > 1:
         console.print(f"[yellow]Ambiguous ID:[/yellow] {len(all_matches)} matches. Provide more characters.")
-        for m in all_matches[:5]:
+        for m, _ in all_matches[:5]:
             console.print(f"  {m.name}")
         return None
 
