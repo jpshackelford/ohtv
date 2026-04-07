@@ -22,5 +22,5 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/ohtv"]
 
-[tool.uv]
-dev-dependencies = ["pytest>=8.0", "pytest-httpx>=0.30"]
+[dependency-groups]
+dev = ["pytest>=8.0", "pytest-httpx>=0.30"]
