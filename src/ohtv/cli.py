@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -20,6 +21,74 @@ console = Console()
 
 # Minimum datetime for sorting (timezone-aware)
 MIN_DATETIME = datetime.min.replace(tzinfo=timezone.utc)
+
+
+# =============================================================================
+# Interaction Detection Types and Patterns
+# =============================================================================
+
+# Interaction types for each ref category
+REPO_INTERACTIONS = {"cloned", "pushed"}
+PR_INTERACTIONS = {"created", "pushed", "commented", "merged", "closed", "reviewed"}
+ISSUE_INTERACTIONS = {"created", "commented", "closed"}
+
+# Command patterns to detect interactions
+INTERACTION_COMMAND_PATTERNS = {
+    "git_push": re.compile(r"git\s+push"),
+    "git_clone": re.compile(r"git\s+clone"),
+    "gh_pr_create": re.compile(r"gh\s+pr\s+create"),
+    "gh_pr_comment": re.compile(r"gh\s+pr\s+comment\s+(\d+)"),
+    "gh_pr_review": re.compile(r"gh\s+pr\s+review\s+(\d+)"),
+    "gh_pr_merge": re.compile(r"gh\s+pr\s+merge\s+(\d+)"),
+    "gh_pr_close": re.compile(r"gh\s+pr\s+close\s+(\d+)"),
+    "gh_issue_create": re.compile(r"gh\s+issue\s+create"),
+    "gh_issue_comment": re.compile(r"gh\s+issue\s+comment\s+(\d+)"),
+    "gh_issue_close": re.compile(r"gh\s+issue\s+close\s+(\d+)"),
+}
+
+# Patterns to extract repo/PR/issue from commands and outputs
+REPO_FLAG_PATTERN = re.compile(r"--repo\s+([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)")
+PR_NUMBER_PATTERN = re.compile(r"gh\s+pr\s+(?:view|comment|review|merge|close|checks|diff)\s+(\d+)")
+ISSUE_NUMBER_PATTERN = re.compile(r"gh\s+issue\s+(?:view|comment|close)\s+(\d+)")
+
+# Output patterns for extraction
+OUTPUT_REPO_PATTERN = re.compile(r"To\s+https://github\.com/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)(?:\.git)?")
+OUTPUT_PR_PATTERN = re.compile(r"https://github\.com/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)/pull/(\d+)")
+OUTPUT_ISSUE_PATTERN = re.compile(r"https://github\.com/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)/issues/(\d+)")
+MERGE_SUCCESS_PATTERN = re.compile(r"✓\s+(?:Squashed and merged|Merged|Rebased and merged)\s+pull request\s+([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)#(\d+)")
+CLONE_URL_PATTERN = re.compile(r"git\s+clone\s+(?:--[a-z-]+\s+)*(?:https://github\.com/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)|git@github\.com:([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+))")
+
+# Map command patterns to interaction types
+PATTERN_TO_INTERACTION = {
+    "git_push": ("repo", "pushed"),
+    "git_clone": ("repo", "cloned"),
+    "gh_pr_create": ("pr", "created"),
+    "gh_pr_comment": ("pr", "commented"),
+    "gh_pr_review": ("pr", "reviewed"),
+    "gh_pr_merge": ("pr", "merged"),
+    "gh_pr_close": ("pr", "closed"),
+    "gh_issue_create": ("issue", "created"),
+    "gh_issue_comment": ("issue", "commented"),
+    "gh_issue_close": ("issue", "closed"),
+}
+
+
+@dataclass
+class ExtractedRef:
+    """A reference extracted from a command."""
+    ref_type: str  # "repo", "pr", "issue"
+    owner: str | None
+    repo: str | None
+    number: int | None  # PR or issue number
+    url: str | None  # Constructed URL if possible
+
+
+@dataclass
+class RefInteractions:
+    """Tracks interactions for all refs in a conversation."""
+    repos: dict[str, set[str]] = field(default_factory=dict)  # url -> set of interactions
+    prs: dict[str, set[str]] = field(default_factory=dict)
+    issues: dict[str, set[str]] = field(default_factory=dict)
 
 
 def _normalize_datetime_for_sort(dt: datetime | None) -> datetime:
@@ -951,7 +1020,15 @@ def _format_event(
 @click.argument("conversation_id")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def refs(conversation_id: str, verbose: bool) -> None:
-    """Extract repository, issue, and PR references from a conversation."""
+    """Extract repository, issue, and PR references from a conversation.
+
+    Shows what actions were taken on each reference:
+    - Repositories: cloned, pushed
+    - Pull Requests: created, pushed, commented, merged, closed, reviewed
+    - Issues: created, commented, closed
+
+    References without detected interactions are shown without annotation.
+    """
     _init_logging(verbose=verbose)
     config = Config.from_env()
 
@@ -973,7 +1050,10 @@ def refs(conversation_id: str, verbose: bool) -> None:
         console.print("[dim]No repository references found.[/dim]")
         return
 
-    _display_refs(extracted)
+    # Detect interactions for each ref
+    interactions = _detect_interactions_from_conversation(conv_dir, extracted)
+
+    _display_refs(extracted, interactions)
 
 
 def _find_conversation_dir(config: Config, conv_id: str) -> Path | None:
@@ -1186,8 +1266,245 @@ def _is_real_ref(url: str) -> bool:
     return True
 
 
-def _display_refs(refs: dict[str, set[str]]) -> None:
-    """Display extracted references organized by category."""
+# =============================================================================
+# Interaction Detection Functions
+# =============================================================================
+
+
+def _normalize_ref_url(url: str) -> str:
+    """Normalize a URL for comparison (remove .git suffix, trailing slashes)."""
+    url = url.rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    return url
+
+
+def _extract_ref_from_command(command: str, output: str, pattern_type: str) -> ExtractedRef | None:
+    """Extract the target ref from a command and its output."""
+    # First, try to get repo from --repo flag (most reliable for gh commands)
+    repo_match = REPO_FLAG_PATTERN.search(command)
+    owner, repo = (repo_match.group(1), repo_match.group(2)) if repo_match else (None, None)
+
+    # For PR commands, extract number
+    if pattern_type in ("gh_pr_comment", "gh_pr_review", "gh_pr_merge", "gh_pr_close"):
+        num_match = PR_NUMBER_PATTERN.search(command)
+        if num_match:
+            number = int(num_match.group(1))
+            if owner and repo:
+                return ExtractedRef(
+                    ref_type="pr",
+                    owner=owner,
+                    repo=repo,
+                    number=number,
+                    url=f"https://github.com/{owner}/{repo}/pull/{number}",
+                )
+            # Try to get repo from output
+            pr_url_match = OUTPUT_PR_PATTERN.search(output)
+            if pr_url_match:
+                return ExtractedRef(
+                    ref_type="pr",
+                    owner=pr_url_match.group(1),
+                    repo=pr_url_match.group(2),
+                    number=int(pr_url_match.group(3)),
+                    url=f"https://github.com/{pr_url_match.group(1)}/{pr_url_match.group(2)}/pull/{pr_url_match.group(3)}",
+                )
+        # Check merge success pattern
+        if pattern_type == "gh_pr_merge":
+            merge_match = MERGE_SUCCESS_PATTERN.search(output)
+            if merge_match:
+                return ExtractedRef(
+                    ref_type="pr",
+                    owner=merge_match.group(1),
+                    repo=merge_match.group(2),
+                    number=int(merge_match.group(3)),
+                    url=f"https://github.com/{merge_match.group(1)}/{merge_match.group(2)}/pull/{merge_match.group(3)}",
+                )
+
+    # For issue commands
+    if pattern_type in ("gh_issue_comment", "gh_issue_close"):
+        num_match = ISSUE_NUMBER_PATTERN.search(command)
+        if num_match:
+            number = int(num_match.group(1))
+            if owner and repo:
+                return ExtractedRef(
+                    ref_type="issue",
+                    owner=owner,
+                    repo=repo,
+                    number=number,
+                    url=f"https://github.com/{owner}/{repo}/issues/{number}",
+                )
+
+    # For gh pr create - look for created PR URL in output
+    if pattern_type == "gh_pr_create":
+        pr_url_match = OUTPUT_PR_PATTERN.search(output)
+        if pr_url_match:
+            return ExtractedRef(
+                ref_type="pr",
+                owner=pr_url_match.group(1),
+                repo=pr_url_match.group(2),
+                number=int(pr_url_match.group(3)),
+                url=f"https://github.com/{pr_url_match.group(1)}/{pr_url_match.group(2)}/pull/{pr_url_match.group(3)}",
+            )
+
+    # For gh issue create - look for created issue URL in output
+    if pattern_type == "gh_issue_create":
+        issue_url_match = OUTPUT_ISSUE_PATTERN.search(output)
+        if issue_url_match:
+            return ExtractedRef(
+                ref_type="issue",
+                owner=issue_url_match.group(1),
+                repo=issue_url_match.group(2),
+                number=int(issue_url_match.group(3)),
+                url=f"https://github.com/{issue_url_match.group(1)}/{issue_url_match.group(2)}/issues/{issue_url_match.group(3)}",
+            )
+
+    # For git push - extract repo from output
+    if pattern_type == "git_push":
+        repo_match = OUTPUT_REPO_PATTERN.search(output)
+        if repo_match:
+            return ExtractedRef(
+                ref_type="repo",
+                owner=repo_match.group(1),
+                repo=repo_match.group(2),
+                number=None,
+                url=f"https://github.com/{repo_match.group(1)}/{repo_match.group(2)}",
+            )
+
+    # For git clone - extract repo from command
+    if pattern_type == "git_clone":
+        clone_match = CLONE_URL_PATTERN.search(command)
+        if clone_match:
+            # Groups 1,2 for https, groups 3,4 for ssh
+            owner = clone_match.group(1) or clone_match.group(3)
+            repo = clone_match.group(2) or clone_match.group(4)
+            if owner and repo:
+                # Remove .git suffix from repo name
+                if repo.endswith(".git"):
+                    repo = repo[:-4]
+                return ExtractedRef(
+                    ref_type="repo",
+                    owner=owner,
+                    repo=repo,
+                    number=None,
+                    url=f"https://github.com/{owner}/{repo}",
+                )
+
+    return None
+
+
+def _detect_interactions_from_conversation(conv_dir: Path, refs: dict[str, set[str]]) -> RefInteractions:
+    """Detect interactions from conversation events and match to refs.
+
+    Scans terminal actions for interaction patterns (git push, gh pr comment, etc.)
+    and correlates successful commands with the refs found in the conversation.
+    """
+    interactions = RefInteractions()
+    events_dir = conv_dir / "events"
+
+    if not events_dir.exists():
+        return interactions
+
+    # Normalize all refs for matching
+    norm_repos = {_normalize_ref_url(url): url for url in refs["repos"]}
+    norm_prs = {_normalize_ref_url(url): url for url in refs["prs"]}
+    norm_issues = {_normalize_ref_url(url): url for url in refs["issues"]}
+
+    # Load all events
+    events = []
+    for event_file in sorted(events_dir.glob("event-*.json")):
+        try:
+            event = json.loads(event_file.read_text())
+            events.append(event)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+    # Scan for command patterns
+    for i, event in enumerate(events):
+        if event.get("kind") != "ActionEvent":
+            continue
+
+        action = event.get("action")
+        if not action or action.get("kind") != "TerminalAction":
+            continue
+
+        command = action.get("command", "")
+        if not command:
+            continue
+
+        # Check each pattern
+        for pattern_name, pattern in INTERACTION_COMMAND_PATTERNS.items():
+            if not pattern.search(command):
+                continue
+
+            # Get observation output and exit code
+            output = ""
+            exit_code = None
+            if i + 1 < len(events):
+                next_event = events[i + 1]
+                if next_event.get("kind") == "ObservationEvent":
+                    obs = next_event.get("observation", {})
+                    exit_code = obs.get("exit_code")
+                    content = obs.get("content", [])
+                    if content and isinstance(content, list):
+                        output = content[0].get("text", "") if isinstance(content[0], dict) else str(content[0])
+                    elif isinstance(content, str):
+                        output = content
+
+            # Only count successful interactions
+            if exit_code != 0:
+                continue
+
+            # Extract ref from command/output
+            extracted_ref = _extract_ref_from_command(command, output, pattern_name)
+            if not extracted_ref or not extracted_ref.url:
+                continue
+
+            # Match to conversation refs
+            norm_url = _normalize_ref_url(extracted_ref.url)
+            ref_type, interaction_type = PATTERN_TO_INTERACTION.get(pattern_name, (None, None))
+
+            if ref_type == "repo" and norm_url in norm_repos:
+                orig_url = norm_repos[norm_url]
+                if orig_url not in interactions.repos:
+                    interactions.repos[orig_url] = set()
+                interactions.repos[orig_url].add(interaction_type)
+
+            elif ref_type == "pr" and norm_url in norm_prs:
+                orig_url = norm_prs[norm_url]
+                if orig_url not in interactions.prs:
+                    interactions.prs[orig_url] = set()
+                interactions.prs[orig_url].add(interaction_type)
+                # Also mark repo as pushed if this was a push to a PR
+                if interaction_type == "pushed":
+                    repo_url = f"https://github.com/{extracted_ref.owner}/{extracted_ref.repo}"
+                    norm_repo_url = _normalize_ref_url(repo_url)
+                    if norm_repo_url in norm_repos:
+                        orig_repo_url = norm_repos[norm_repo_url]
+                        if orig_repo_url not in interactions.repos:
+                            interactions.repos[orig_repo_url] = set()
+                        interactions.repos[orig_repo_url].add("pushed")
+
+            elif ref_type == "issue" and norm_url in norm_issues:
+                orig_url = norm_issues[norm_url]
+                if orig_url not in interactions.issues:
+                    interactions.issues[orig_url] = set()
+                interactions.issues[orig_url].add(interaction_type)
+
+            # For git push, also check if it matches a repo
+            if ref_type == "repo" and pattern_name == "git_push":
+                # Check if any PR belongs to this repo - mark repo as pushed
+                for pr_url in refs["prs"]:
+                    if extracted_ref.owner and extracted_ref.repo:
+                        if f"/{extracted_ref.owner}/{extracted_ref.repo}/" in pr_url:
+                            if pr_url not in interactions.prs:
+                                interactions.prs[pr_url] = set()
+                            interactions.prs[pr_url].add("pushed")
+
+    return interactions
+
+
+def _display_refs(refs: dict[str, set[str]], interactions: RefInteractions | None = None) -> None:
+    """Display extracted references organized by category with interaction annotations."""
     categories = [
         ("Repositories", "repos", "blue"),
         ("Issues", "issues", "yellow"),
@@ -1199,7 +1516,15 @@ def _display_refs(refs: dict[str, set[str]]) -> None:
         if urls:
             console.print(f"\n[bold {color}]{title}[/bold {color}]")
             for url in urls:
-                console.print(f"  • {url}")
+                # Get interactions for this URL
+                annotation = ""
+                if interactions:
+                    interaction_dict = getattr(interactions, key, {})
+                    url_interactions = interaction_dict.get(url, set())
+                    if url_interactions:
+                        sorted_interactions = sorted(url_interactions)
+                        annotation = f" [dim]\\[{', '.join(sorted_interactions)}][/dim]"
+                console.print(f"  • {url}{annotation}")
 
 
 if __name__ == "__main__":
