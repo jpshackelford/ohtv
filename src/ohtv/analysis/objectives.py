@@ -60,13 +60,15 @@ class ObjectiveAnalysis(BaseModel):
     content_hash: str
     context_level: str
     detail_level: str = "brief"
+    assess: bool = False
 
     # Brief/Standard fields
     goal: str | None = None
+    status: str | None = None  # For assessed mode
     primary_outcomes: list[str] = []
     secondary_outcomes: list[str] = []
 
-    # Detailed fields (legacy/detailed mode)
+    # Detailed fields (detailed mode)
     primary_objectives: list[Objective] = []
     summary: str | None = None
 
@@ -76,7 +78,13 @@ ANALYSIS_CACHE_FILENAME = "objective_analysis.json"
 # Output detail levels
 DetailLevel = Literal["brief", "standard", "detailed"]
 
-# Prompt for brief output (just the goal, no assessment)
+# Status values for assessment
+STATUS_VALUES = "achieved|partially_achieved|not_achieved|in_progress|unclear"
+
+# =============================================================================
+# Prompts without assessment (default)
+# =============================================================================
+
 PROMPT_BRIEF = """Analyze this conversation between a user and an AI coding assistant.
 
 In 1-2 sentences, answer: What outcome does the user hope to achieve?
@@ -86,7 +94,6 @@ Do not assess whether the goal was achieved. Just identify what they want.
 Respond with JSON:
 {"goal": "1-2 sentence description of what the user wants to accomplish"}"""
 
-# Prompt for standard output (goal + success criteria)
 PROMPT_STANDARD = """Analyze this conversation between a user and an AI coding assistant.
 
 Identify:
@@ -103,7 +110,51 @@ Respond with JSON:
   "secondary_outcomes": ["outcome 1", "outcome 2"]
 }"""
 
-# Prompt for detailed output (full analysis with status assessment)
+# =============================================================================
+# Prompts WITH assessment (--assess flag)
+# =============================================================================
+
+PROMPT_BRIEF_ASSESS = """Analyze this conversation between a user and an AI coding assistant.
+
+1. In 1-2 sentences, describe: What outcome does the user hope to achieve?
+2. Assess whether the goal was achieved based on the conversation outcome.
+
+Status values:
+- achieved: Goal was fully accomplished
+- partially_achieved: Some progress made but not complete
+- not_achieved: Goal was not accomplished
+- in_progress: Work ongoing with no clear conclusion
+- unclear: Cannot determine
+
+Respond with JSON:
+{
+  "goal": "1-2 sentence description of what the user wants to accomplish",
+  "status": "achieved|partially_achieved|not_achieved|in_progress|unclear"
+}"""
+
+PROMPT_STANDARD_ASSESS = """Analyze this conversation between a user and an AI coding assistant.
+
+Identify:
+1. The user's primary goal (1-2 sentences)
+2. Primary outcomes or success criteria (3-6 bullets max)
+3. Secondary outcomes if any (3-6 bullets max)
+4. Overall status of goal achievement
+
+Status values:
+- achieved: Goal was fully accomplished
+- partially_achieved: Some progress made but not complete
+- not_achieved: Goal was not accomplished
+- in_progress: Work ongoing with no clear conclusion
+- unclear: Cannot determine
+
+Respond with JSON:
+{
+  "goal": "1-2 sentence description of the primary goal",
+  "status": "achieved|partially_achieved|not_achieved|in_progress|unclear",
+  "primary_outcomes": ["outcome 1", "outcome 2"],
+  "secondary_outcomes": ["outcome 1", "outcome 2"]
+}"""
+
 PROMPT_DETAILED = """You are an expert at analyzing software development conversations to identify user objectives.
 
 Given a conversation between a user and an AI coding assistant, identify:
@@ -284,6 +335,7 @@ def get_cached_analysis(
     conv_dir: Path,
     context: ContextLevel = "default",
     detail: DetailLevel = "brief",
+    assess: bool = False,
 ) -> ObjectiveAnalysis | None:
     """Load cached analysis if it exists and is still valid.
 
@@ -291,6 +343,7 @@ def get_cached_analysis(
     - Content hash has changed (conversation was modified)
     - Context level has changed
     - Detail level has changed
+    - Assess flag has changed
     """
     cache_file = conv_dir / ANALYSIS_CACHE_FILENAME
     if not cache_file.exists():
@@ -310,6 +363,12 @@ def get_cached_analysis(
         cached_detail = getattr(analysis, "detail_level", "brief")
         if cached_detail != detail:
             log.debug("Cache invalidated: detail level changed (%s -> %s)", cached_detail, detail)
+            return None
+
+        # Check if assess flag matches
+        cached_assess = getattr(analysis, "assess", False)
+        if cached_assess != assess:
+            log.debug("Cache invalidated: assess changed (%s -> %s)", cached_assess, assess)
             return None
 
         # Check if content has changed
@@ -354,6 +413,7 @@ def analyze_objectives(
     model: str | None = None,
     context: ContextLevel = "default",
     detail: DetailLevel = "brief",
+    assess: bool = False,
     force_refresh: bool = False,
 ) -> ObjectiveAnalysis:
     """Analyze a conversation to extract user objectives.
@@ -369,6 +429,9 @@ def analyze_objectives(
             - "brief": Just the goal (1-2 sentences)
             - "standard": Goal + primary/secondary outcomes
             - "detailed": Full hierarchical analysis with status
+        assess: If True, include status assessment of whether goals were achieved.
+            For brief/standard modes, requires at least "default" context (finish action).
+            Detailed mode always includes assessment.
         force_refresh: If True, ignore cached analysis
 
     Returns:
@@ -378,9 +441,16 @@ def analyze_objectives(
         ValueError: If no messages found in conversation
         RuntimeError: If LLM call fails
     """
+    # For assessment, we need at least the finish action
+    # Upgrade context if needed
+    effective_context = context
+    if assess and context == "minimal":
+        effective_context = "default"
+        log.debug("Upgrading context to 'default' for assessment (need finish action)")
+
     # Check cache first
     if not force_refresh:
-        cached = get_cached_analysis(conv_dir, context, detail)
+        cached = get_cached_analysis(conv_dir, effective_context, detail, assess)
         if cached:
             log.debug("Using cached analysis from %s", cached.analyzed_at)
             return cached
@@ -390,7 +460,7 @@ def analyze_objectives(
     if not events:
         raise ValueError(f"No events found in conversation: {conv_dir}")
 
-    items = build_transcript(events, context)
+    items = build_transcript(events, effective_context)
     if not items:
         raise ValueError(f"No content found in conversation: {conv_dir}")
 
@@ -411,21 +481,25 @@ def analyze_objectives(
 
     model_used = llm.model
 
-    # Select prompt based on detail level
-    if detail == "brief":
-        system_prompt = PROMPT_BRIEF
-    elif detail == "standard":
-        system_prompt = PROMPT_STANDARD
-    else:  # detailed
+    # Select prompt based on detail level and assess flag
+    if detail == "detailed":
+        # Detailed mode always includes assessment
         system_prompt = PROMPT_DETAILED
+    elif assess:
+        # Assessment variants for brief/standard
+        system_prompt = PROMPT_BRIEF_ASSESS if detail == "brief" else PROMPT_STANDARD_ASSESS
+    else:
+        # No assessment
+        system_prompt = PROMPT_BRIEF if detail == "brief" else PROMPT_STANDARD
 
     # Log token estimate (debug level - only shows with --verbose)
     approx_tokens = int(len(transcript.split()) * 1.3)
     log.debug(
-        "Analyzing conversation with %s (context=%s, detail=%s, ~%d tokens)...",
+        "Analyzing conversation with %s (context=%s, detail=%s, assess=%s, ~%d tokens)...",
         model_used,
-        context,
+        effective_context,
         detail,
+        assess,
         approx_tokens,
     )
 
@@ -461,7 +535,7 @@ def analyze_objectives(
 
     # Build analysis object based on detail level
     if detail == "detailed":
-        # Full hierarchical analysis
+        # Full hierarchical analysis (always includes assessment)
         def parse_objective(obj_data: dict) -> Objective:
             return Objective(
                 description=obj_data.get("description", ""),
@@ -481,8 +555,9 @@ def analyze_objectives(
             analyzed_at=datetime.now(timezone.utc),
             model_used=model_used,
             content_hash=content_hash,
-            context_level=context,
+            context_level=effective_context,
             detail_level=detail,
+            assess=True,  # detailed always assesses
             primary_objectives=primary_objectives,
             summary=result.get("summary"),
         )
@@ -493,9 +568,11 @@ def analyze_objectives(
             analyzed_at=datetime.now(timezone.utc),
             model_used=model_used,
             content_hash=content_hash,
-            context_level=context,
+            context_level=effective_context,
             detail_level=detail,
+            assess=assess,
             goal=result.get("goal"),
+            status=result.get("status") if assess else None,
             primary_outcomes=result.get("primary_outcomes", []),
             secondary_outcomes=result.get("secondary_outcomes", []),
         )

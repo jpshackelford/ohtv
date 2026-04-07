@@ -1195,6 +1195,7 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
     default="brief",
     help="Output detail: brief (default), standard (with outcomes), detailed (full analysis)",
 )
+@click.option("--assess", "-a", is_flag=True, help="Assess whether objectives were achieved")
 @click.option(
     "--context",
     "-c",
@@ -1209,6 +1210,7 @@ def objectives(
     refresh: bool,
     model: str | None,
     detail: str,
+    assess: bool,
     context: str,
     json_output: bool,
     verbose: bool,
@@ -1224,10 +1226,16 @@ def objectives(
       detailed  - Full hierarchical analysis with status assessment
 
     \b
+    Use --assess to add status assessment (achieved/not achieved/etc.)
+    to brief or standard modes. Detailed mode always includes assessment.
+
+    \b
     Context levels (how much conversation to analyze):
       minimal   - User messages only (lowest tokens)
       default   - User messages + finish action
       full      - All messages + action summaries (highest tokens)
+
+    Note: --assess requires at least 'default' context to see the outcome.
 
     Requires LLM_API_KEY environment variable to be set.
     """
@@ -1254,7 +1262,7 @@ def objectives(
 
     # Check for cached analysis first if not refreshing
     if not refresh:
-        cached = get_cached_analysis(conv_dir, context=context, detail=detail)  # type: ignore[arg-type]
+        cached = get_cached_analysis(conv_dir, context=context, detail=detail, assess=assess)  # type: ignore[arg-type]
         if cached:
             if json_output:
                 console.print(cached.model_dump_json(indent=2))
@@ -1265,7 +1273,7 @@ def objectives(
     # Run analysis
     try:
         analysis = analyze_objectives(
-            conv_dir, model=model, context=context, detail=detail, force_refresh=refresh  # type: ignore[arg-type]
+            conv_dir, model=model, context=context, detail=detail, assess=assess, force_refresh=refresh  # type: ignore[arg-type]
         )
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -1293,11 +1301,37 @@ def objectives(
 def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis") -> None:
     """Display objective analysis with rich formatting."""
     detail_level = getattr(analysis, "detail_level", "brief")
+    has_assessment = getattr(analysis, "assess", False)
+
+    # Status formatting
+    status_colors = {
+        "achieved": "green",
+        "partially_achieved": "yellow",
+        "not_achieved": "red",
+        "in_progress": "blue",
+        "unclear": "dim",
+    }
+    status_icons = {
+        "achieved": "✓",
+        "partially_achieved": "◐",
+        "not_achieved": "✗",
+        "in_progress": "→",
+        "unclear": "?",
+    }
+
+    def format_status(status: str | None) -> str:
+        if not status:
+            return ""
+        color = status_colors.get(status, "white")
+        icon = status_icons.get(status, "•")
+        label = status.replace("_", " ").title()
+        return f" [{color}]{icon} {label}[/{color}]"
 
     # Brief mode - minimal output
     if detail_level == "brief":
         if analysis.goal:
-            console.print(f"\n[bold]Goal:[/bold] {analysis.goal}")
+            status_str = format_status(analysis.status) if has_assessment else ""
+            console.print(f"\n[bold]Goal:[/bold] {analysis.goal}{status_str}")
         else:
             console.print("\n[dim]No goal identified.[/dim]")
         return
@@ -1305,7 +1339,8 @@ def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis")
     # Standard mode - goal + outcomes
     if detail_level == "standard":
         if analysis.goal:
-            console.print(f"\n[bold]Goal:[/bold] {analysis.goal}")
+            status_str = format_status(analysis.status) if has_assessment else ""
+            console.print(f"\n[bold]Goal:[/bold] {analysis.goal}{status_str}")
 
         if analysis.primary_outcomes:
             console.print("\n[bold]Primary Outcomes:[/bold]")
