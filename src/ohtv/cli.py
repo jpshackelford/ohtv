@@ -405,6 +405,550 @@ def _format_duration(duration: timedelta | None) -> str:
 
 @main.command()
 @click.argument("conversation_id")
+@click.option("--user-messages", "-u", is_flag=True, help="Include user's messages")
+@click.option("--agent-messages", "-a", is_flag=True, help="Include agent's response messages")
+@click.option("--finish", "-f", "include_finish", is_flag=True, help="Include finish action message")
+@click.option("--action-summaries", "-s", is_flag=True, help="Include brief tool call summaries")
+@click.option("--action-details", "-d", is_flag=True, help="Include full tool call details")
+@click.option("--outputs", "-O", is_flag=True, help="Include tool call outputs/observations")
+@click.option("--thinking", "-t", is_flag=True, help="Include thinking/reasoning blocks")
+@click.option("--timestamps", "-T", is_flag=True, help="Include timestamps on events")
+@click.option("--all", "-A", "include_all", is_flag=True, help="Include everything")
+@click.option("--messages", "-m", is_flag=True, help="Shorthand for -u -a -f")
+@click.option("--stats", "-S", is_flag=True, help="Show only statistics, no content")
+@click.option("--reverse", "-r", is_flag=True, help="Show newest events first")
+@click.option("--max", "-n", "limit", type=int, help="Maximum number of events to show")
+@click.option("--offset", "-k", type=int, default=0, help="Skip first N events")
+@click.option(
+    "--format", "-F", "fmt",
+    type=click.Choice(["markdown", "json", "text"]),
+    default="markdown",
+    help="Output format (default: markdown)",
+)
+@click.option("--output", "-o", type=click.Path(), help="Write output to file")
+@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+def show(
+    conversation_id: str,
+    user_messages: bool,
+    agent_messages: bool,
+    include_finish: bool,
+    action_summaries: bool,
+    action_details: bool,
+    outputs: bool,
+    thinking: bool,
+    timestamps: bool,
+    include_all: bool,
+    messages: bool,
+    stats: bool,
+    reverse: bool,
+    limit: int | None,
+    offset: int,
+    fmt: str,
+    output: str | None,
+    verbose: bool,
+) -> None:
+    """Show a conversation's content and statistics."""
+    _init_logging(verbose=verbose)
+    config = Config.from_env()
+
+    conv_dir = _find_conversation_dir(config, conversation_id)
+    if not conv_dir:
+        console.print(f"[red]Error:[/red] Conversation not found: {conversation_id}")
+        raise SystemExit(1)
+
+    # Expand shorthand flags
+    if include_all:
+        user_messages = agent_messages = include_finish = True
+        action_summaries = action_details = outputs = thinking = timestamps = True
+    if messages:
+        user_messages = agent_messages = include_finish = True
+
+    # Load conversation info
+    conv_id, title = _get_conversation_info(conv_dir)
+
+    # Load and count events
+    events = _load_events(conv_dir)
+    event_counts = _count_events_by_type(events)
+    first_ts, last_ts = _get_event_time_range(events)
+
+    # If no content flags specified (and not stats-only), show summary only
+    show_content = (
+        user_messages or agent_messages or include_finish or
+        action_summaries or action_details or outputs or thinking
+    )
+
+    # Stats-only mode: show statistics and exit
+    if stats or not show_content:
+        output_text = _format_show_stats(
+            conv_id, title, first_ts, last_ts, event_counts, fmt
+        )
+        _write_or_print_output(output_text, output, fmt)
+        return
+
+    # Filter events based on flags
+    filtered_events = _filter_events(
+        events,
+        user_messages=user_messages,
+        agent_messages=agent_messages,
+        include_finish=include_finish,
+        action_summaries=action_summaries,
+        action_details=action_details,
+        outputs=outputs,
+        thinking=thinking,
+    )
+
+    # Sort events (oldest first by default)
+    filtered_events = sorted(
+        filtered_events,
+        key=lambda e: e.get("timestamp", ""),
+        reverse=reverse,
+    )
+
+    # Apply offset and limit
+    if offset:
+        filtered_events = filtered_events[offset:]
+    if limit:
+        filtered_events = filtered_events[:limit]
+
+    # Format output
+    output_text = _format_show_output(
+        conv_id=conv_id,
+        title=title,
+        first_ts=first_ts,
+        last_ts=last_ts,
+        event_counts=event_counts,
+        events=filtered_events,
+        fmt=fmt,
+        timestamps=timestamps,
+        action_details=action_details,
+        thinking=thinking,
+    )
+
+    _write_or_print_output(output_text, output, fmt)
+
+
+def _write_or_print_output(output_text: str, output_path: str | None, fmt: str) -> None:
+    """Write output to file or print to console."""
+    if output_path:
+        Path(output_path).write_text(output_text)
+        console.print(f"[green]Written to {output_path}[/green]")
+    elif fmt == "markdown":
+        console.print(output_text)
+    else:
+        print(output_text)
+
+
+def _load_events(conv_dir: Path) -> list[dict]:
+    """Load all events from a conversation directory."""
+    events_dir = conv_dir / "events"
+    if not events_dir.exists():
+        return []
+
+    events = []
+    for event_file in sorted(events_dir.glob("event-*.json")):
+        try:
+            data = json.loads(event_file.read_text())
+            events.append(data)
+        except (json.JSONDecodeError, OSError):
+            continue
+    return events
+
+
+def _count_events_by_type(events: list[dict]) -> dict[str, int]:
+    """Count events by type."""
+    counts: dict[str, int] = {
+        "user_messages": 0,
+        "agent_messages": 0,
+        "actions": 0,
+        "observations": 0,
+        "finish": 0,
+        "other": 0,
+    }
+
+    for event in events:
+        source = event.get("source", "")
+        kind = event.get("kind", "")
+
+        if source == "user" and kind == "MessageEvent":
+            counts["user_messages"] += 1
+        elif source == "agent":
+            if kind == "ActionEvent":
+                tool_name = event.get("tool_name", "")
+                if tool_name == "finish":
+                    counts["finish"] += 1
+                else:
+                    counts["actions"] += 1
+            elif kind == "MessageEvent":
+                counts["agent_messages"] += 1
+            else:
+                counts["other"] += 1
+        elif source == "environment" and kind == "ObservationEvent":
+            counts["observations"] += 1
+        else:
+            counts["other"] += 1
+
+    return counts
+
+
+def _get_event_time_range(events: list[dict]) -> tuple[datetime | None, datetime | None]:
+    """Get first and last timestamps from events."""
+    if not events:
+        return None, None
+
+    timestamps = []
+    for event in events:
+        ts_str = event.get("timestamp")
+        if ts_str:
+            ts = _parse_event_datetime(ts_str)
+            if ts:
+                timestamps.append(ts)
+
+    if not timestamps:
+        return None, None
+
+    return min(timestamps), max(timestamps)
+
+
+def _parse_event_datetime(value: str | None) -> datetime | None:
+    """Parse ISO 8601 datetime string from event."""
+    if not value:
+        return None
+    value = value.rstrip("Z")
+    if "+" in value:
+        value = value.split("+")[0]
+    try:
+        return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _filter_events(
+    events: list[dict],
+    user_messages: bool,
+    agent_messages: bool,
+    include_finish: bool,
+    action_summaries: bool,
+    action_details: bool,
+    outputs: bool,
+    thinking: bool,
+) -> list[dict]:
+    """Filter events based on content flags."""
+    include_actions = action_summaries or action_details
+
+    filtered = []
+    for event in events:
+        source = event.get("source", "")
+        kind = event.get("kind", "")
+
+        if source == "user" and kind == "MessageEvent" and user_messages:
+            filtered.append(event)
+        elif source == "agent":
+            if kind == "ActionEvent":
+                tool_name = event.get("tool_name", "")
+                if tool_name == "finish" and include_finish:
+                    filtered.append(event)
+                elif tool_name != "finish" and include_actions:
+                    filtered.append(event)
+            elif kind == "MessageEvent" and agent_messages:
+                filtered.append(event)
+        elif source == "environment" and kind == "ObservationEvent" and outputs:
+            filtered.append(event)
+
+    return filtered
+
+
+def _format_show_stats(
+    conv_id: str,
+    title: str | None,
+    first_ts: datetime | None,
+    last_ts: datetime | None,
+    event_counts: dict[str, int],
+    fmt: str,
+) -> str:
+    """Format statistics-only output."""
+    duration = (last_ts - first_ts) if (first_ts and last_ts) else None
+    total = sum(event_counts.values())
+
+    if fmt == "json":
+        return json.dumps({
+            "id": conv_id,
+            "title": title,
+            "started": first_ts.isoformat() if first_ts else None,
+            "ended": last_ts.isoformat() if last_ts else None,
+            "duration_seconds": duration.total_seconds() if duration else None,
+            "counts": event_counts,
+            "total_events": total,
+        }, indent=2)
+
+    if fmt == "text":
+        lines = [
+            f"Conversation: {conv_id}",
+            f"Title: {title or '(none)'}",
+            "",
+            f"Started:  {first_ts.strftime('%Y-%m-%d %H:%M:%S') if first_ts else 'N/A'}",
+            f"Ended:    {last_ts.strftime('%Y-%m-%d %H:%M:%S') if last_ts else 'N/A'}",
+            f"Duration: {_format_duration(duration) if duration else 'N/A'}",
+            "",
+            "Event Counts:",
+            f"  User messages:    {event_counts['user_messages']}",
+            f"  Agent messages:   {event_counts['agent_messages']}",
+            f"  Actions:          {event_counts['actions']}",
+            f"  Observations:     {event_counts['observations']}",
+            f"  Finish:           {event_counts['finish']}",
+            "  ─────────────────────",
+            f"  Total:            {total}",
+        ]
+        return "\n".join(lines)
+
+    # Markdown format (default)
+    lines = [
+        f"# Conversation: {conv_id}",
+    ]
+    if title:
+        lines.append(f"**Title:** {title}")
+    lines.extend([
+        "",
+        f"**Started:** {first_ts.strftime('%Y-%m-%d %H:%M:%S') if first_ts else 'N/A'}",
+        f"**Ended:** {last_ts.strftime('%Y-%m-%d %H:%M:%S') if last_ts else 'N/A'}",
+        f"**Duration:** {_format_duration(duration) if duration else 'N/A'}",
+        "",
+        "| Type | Count |",
+        "|------|-------|",
+        f"| User messages | {event_counts['user_messages']} |",
+        f"| Agent messages | {event_counts['agent_messages']} |",
+        f"| Actions | {event_counts['actions']} |",
+        f"| Observations | {event_counts['observations']} |",
+        f"| Finish | {event_counts['finish']} |",
+        f"| **Total** | **{total}** |",
+    ])
+    return "\n".join(lines)
+
+
+def _format_show_output(
+    conv_id: str,
+    title: str | None,
+    first_ts: datetime | None,
+    last_ts: datetime | None,
+    event_counts: dict[str, int],
+    events: list[dict],
+    fmt: str,
+    timestamps: bool,
+    action_details: bool,
+    thinking: bool,
+) -> str:
+    """Format full output with events."""
+    if fmt == "json":
+        return _format_show_json(conv_id, title, first_ts, last_ts, event_counts, events)
+
+    # For markdown and text formats
+    header = _format_show_stats(conv_id, title, first_ts, last_ts, event_counts, fmt)
+    separator = "\n---\n\n" if fmt == "markdown" else "\n" + "=" * 60 + "\n\n"
+
+    event_lines = []
+    for event in events:
+        formatted = _format_event(event, fmt, timestamps, action_details, thinking)
+        if formatted:
+            event_lines.append(formatted)
+
+    events_text = "\n\n".join(event_lines)
+    return header + separator + events_text
+
+
+def _format_show_json(
+    conv_id: str,
+    title: str | None,
+    first_ts: datetime | None,
+    last_ts: datetime | None,
+    event_counts: dict[str, int],
+    events: list[dict],
+) -> str:
+    """Format output as JSON."""
+    duration = (last_ts - first_ts) if (first_ts and last_ts) else None
+    total = sum(event_counts.values())
+
+    formatted_events = []
+    for event in events:
+        formatted_events.append(_extract_event_data(event))
+
+    return json.dumps({
+        "id": conv_id,
+        "title": title,
+        "started": first_ts.isoformat() if first_ts else None,
+        "ended": last_ts.isoformat() if last_ts else None,
+        "duration_seconds": duration.total_seconds() if duration else None,
+        "counts": event_counts,
+        "total_events": total,
+        "events": formatted_events,
+    }, indent=2)
+
+
+def _extract_event_data(event: dict) -> dict:
+    """Extract relevant data from an event for JSON output."""
+    result = {
+        "id": event.get("id"),
+        "timestamp": event.get("timestamp"),
+        "source": event.get("source"),
+        "kind": event.get("kind"),
+    }
+
+    source = event.get("source", "")
+    kind = event.get("kind", "")
+
+    if source == "user" and kind == "MessageEvent":
+        result["content"] = _extract_message_content(event)
+    elif source == "agent":
+        if kind == "ActionEvent":
+            result["tool_name"] = event.get("tool_name")
+            result["summary"] = event.get("summary")
+            result["action"] = event.get("action")
+            if event.get("reasoning_content"):
+                result["reasoning"] = event.get("reasoning_content")
+            if event.get("thinking_blocks"):
+                result["thinking_blocks"] = event.get("thinking_blocks")
+        elif kind == "MessageEvent":
+            result["content"] = _extract_message_content(event)
+    elif source == "environment" and kind == "ObservationEvent":
+        result["observation"] = _extract_observation_content(event)
+
+    return result
+
+
+def _extract_message_content(event: dict) -> str:
+    """Extract text content from a message event."""
+    llm_msg = event.get("llm_message", {})
+    content = llm_msg.get("content", [])
+
+    if isinstance(content, list):
+        texts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                texts.append(item.get("text", ""))
+        return "\n".join(texts)
+
+    if isinstance(content, str):
+        return content
+
+    # Fallback for direct content field
+    return event.get("content", "")
+
+
+def _extract_observation_content(event: dict) -> str:
+    """Extract text content from an observation event."""
+    obs = event.get("observation", {})
+    content = obs.get("content", [])
+
+    if isinstance(content, list):
+        texts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                texts.append(item.get("text", ""))
+        return "\n".join(texts)
+
+    if isinstance(content, str):
+        return content
+
+    return ""
+
+
+def _format_event(
+    event: dict,
+    fmt: str,
+    timestamps: bool,
+    action_details: bool,
+    thinking: bool,
+) -> str:
+    """Format a single event for display."""
+    source = event.get("source", "")
+    kind = event.get("kind", "")
+    ts = event.get("timestamp", "")
+
+    lines = []
+    ts_prefix = f"[{ts[:19]}] " if timestamps and ts else ""
+
+    if source == "user" and kind == "MessageEvent":
+        content = _extract_message_content(event)
+        if fmt == "markdown":
+            lines.append(f"## {ts_prefix}User")
+            lines.append(content)
+        else:
+            lines.append(f"{ts_prefix}USER:")
+            lines.append(content)
+
+    elif source == "agent" and kind == "ActionEvent":
+        tool_name = event.get("tool_name", "unknown")
+        summary = event.get("summary", "")
+        action = event.get("action", {})
+
+        # Thinking/reasoning content
+        if thinking:
+            reasoning = event.get("reasoning_content", "")
+            thinking_blocks = event.get("thinking_blocks", [])
+            if reasoning:
+                if fmt == "markdown":
+                    lines.append(f"### {ts_prefix}Thinking")
+                    lines.append(f"> {reasoning}")
+                else:
+                    lines.append(f"{ts_prefix}THINKING: {reasoning}")
+            elif thinking_blocks:
+                for block in thinking_blocks:
+                    if isinstance(block, dict) and block.get("type") == "thinking":
+                        if fmt == "markdown":
+                            lines.append(f"### {ts_prefix}Thinking")
+                            lines.append(f"> {block.get('thinking', '')}")
+                        else:
+                            lines.append(f"{ts_prefix}THINKING: {block.get('thinking', '')}")
+
+        # Action summary or details
+        if fmt == "markdown":
+            if action_details:
+                lines.append(f"## {ts_prefix}Action: {tool_name}")
+                if summary:
+                    lines.append(f"*{summary}*")
+                lines.append("```json")
+                lines.append(json.dumps(action, indent=2))
+                lines.append("```")
+            else:
+                lines.append(f"## {ts_prefix}Action: {tool_name}")
+                if summary:
+                    lines.append(summary)
+        else:
+            if action_details:
+                lines.append(f"{ts_prefix}ACTION ({tool_name}): {summary}")
+                lines.append(json.dumps(action, indent=2))
+            else:
+                lines.append(f"{ts_prefix}ACTION ({tool_name}): {summary}")
+
+    elif source == "agent" and kind == "MessageEvent":
+        content = _extract_message_content(event)
+        if fmt == "markdown":
+            lines.append(f"## {ts_prefix}Agent")
+            lines.append(content)
+        else:
+            lines.append(f"{ts_prefix}AGENT:")
+            lines.append(content)
+
+    elif source == "environment" and kind == "ObservationEvent":
+        tool_name = event.get("tool_name", "unknown")
+        content = _extract_observation_content(event)
+        if fmt == "markdown":
+            lines.append(f"## {ts_prefix}Output ({tool_name})")
+            lines.append("```")
+            lines.append(content[:2000] if len(content) > 2000 else content)
+            if len(content) > 2000:
+                lines.append(f"... (truncated, {len(content)} chars total)")
+            lines.append("```")
+        else:
+            lines.append(f"{ts_prefix}OUTPUT ({tool_name}):")
+            truncated = content[:2000] if len(content) > 2000 else content
+            lines.append(truncated)
+            if len(content) > 2000:
+                lines.append(f"... (truncated, {len(content)} chars total)")
+
+    return "\n".join(lines)
+
+
+@main.command()
+@click.argument("conversation_id")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def refs(conversation_id: str, verbose: bool) -> None:
     """Extract repository, issue, and PR references from a conversation."""
