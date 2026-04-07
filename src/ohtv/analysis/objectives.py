@@ -46,20 +46,65 @@ class Objective(BaseModel):
 
 
 class ObjectiveAnalysis(BaseModel):
-    """Complete objective analysis for a conversation."""
+    """Complete objective analysis for a conversation.
+
+    Supports three detail levels:
+    - brief: Just 'goal' field (1-2 sentences)
+    - standard: goal + primary_outcomes + secondary_outcomes
+    - detailed: Full hierarchical objectives with status assessment
+    """
 
     conversation_id: str
     analyzed_at: datetime
     model_used: str
     content_hash: str
     context_level: str
-    primary_objectives: list[Objective]
+    detail_level: str = "brief"
+
+    # Brief/Standard fields
+    goal: str | None = None
+    primary_outcomes: list[str] = []
+    secondary_outcomes: list[str] = []
+
+    # Detailed fields (legacy/detailed mode)
+    primary_objectives: list[Objective] = []
     summary: str | None = None
 
 
 ANALYSIS_CACHE_FILENAME = "objective_analysis.json"
 
-SYSTEM_PROMPT = """You are an expert at analyzing software development conversations to identify user objectives.
+# Output detail levels
+DetailLevel = Literal["brief", "standard", "detailed"]
+
+# Prompt for brief output (just the goal, no assessment)
+PROMPT_BRIEF = """Analyze this conversation between a user and an AI coding assistant.
+
+In 1-2 sentences, answer: What outcome does the user hope to achieve?
+
+Do not assess whether the goal was achieved. Just identify what they want.
+
+Respond with JSON:
+{"goal": "1-2 sentence description of what the user wants to accomplish"}"""
+
+# Prompt for standard output (goal + success criteria)
+PROMPT_STANDARD = """Analyze this conversation between a user and an AI coding assistant.
+
+Identify:
+1. The user's primary goal (1-2 sentences)
+2. Primary outcomes or success criteria (3-6 bullets max)
+3. Secondary outcomes if any (3-6 bullets max)
+
+Do not assess whether goals were achieved. Just identify what the user wants.
+
+Respond with JSON:
+{
+  "goal": "1-2 sentence description of the primary goal",
+  "primary_outcomes": ["outcome 1", "outcome 2"],
+  "secondary_outcomes": ["outcome 1", "outcome 2"]
+}"""
+
+# Prompt for detailed output (full analysis with status assessment)
+PROMPT_DETAILED = """You are an expert at analyzing software development conversations to identify user objectives.
 
 Given a conversation between a user and an AI coding assistant, identify:
 1. PRIMARY OBJECTIVES: The main goals the user is trying to accomplish
@@ -238,12 +283,14 @@ def _compute_content_hash(items: list[dict]) -> str:
 def get_cached_analysis(
     conv_dir: Path,
     context: ContextLevel = "default",
+    detail: DetailLevel = "brief",
 ) -> ObjectiveAnalysis | None:
     """Load cached analysis if it exists and is still valid.
 
     Cache is invalidated if:
     - Content hash has changed (conversation was modified)
     - Context level has changed
+    - Detail level has changed
     """
     cache_file = conv_dir / ANALYSIS_CACHE_FILENAME
     if not cache_file.exists():
@@ -257,6 +304,12 @@ def get_cached_analysis(
         cached_context = getattr(analysis, "context_level", "default")
         if cached_context != context:
             log.debug("Cache invalidated: context level changed (%s -> %s)", cached_context, context)
+            return None
+
+        # Check if detail level matches
+        cached_detail = getattr(analysis, "detail_level", "brief")
+        if cached_detail != detail:
+            log.debug("Cache invalidated: detail level changed (%s -> %s)", cached_detail, detail)
             return None
 
         # Check if content has changed
@@ -300,6 +353,7 @@ def analyze_objectives(
     conv_dir: Path,
     model: str | None = None,
     context: ContextLevel = "default",
+    detail: DetailLevel = "brief",
     force_refresh: bool = False,
 ) -> ObjectiveAnalysis:
     """Analyze a conversation to extract user objectives.
@@ -311,6 +365,10 @@ def analyze_objectives(
             - "minimal": User messages only (lowest tokens)
             - "default": User messages + finish action (recommended)
             - "full": User + agent messages + action summaries (most tokens)
+        detail: Detail level for output:
+            - "brief": Just the goal (1-2 sentences)
+            - "standard": Goal + primary/secondary outcomes
+            - "detailed": Full hierarchical analysis with status
         force_refresh: If True, ignore cached analysis
 
     Returns:
@@ -322,7 +380,7 @@ def analyze_objectives(
     """
     # Check cache first
     if not force_refresh:
-        cached = get_cached_analysis(conv_dir, context)
+        cached = get_cached_analysis(conv_dir, context, detail)
         if cached:
             log.info("Using cached analysis from %s", cached.analyzed_at)
             return cached
@@ -349,24 +407,33 @@ def analyze_objectives(
 
     model_used = llm.model
 
+    # Select prompt based on detail level
+    if detail == "brief":
+        system_prompt = PROMPT_BRIEF
+    elif detail == "standard":
+        system_prompt = PROMPT_STANDARD
+    else:  # detailed
+        system_prompt = PROMPT_DETAILED
+
     # Log token estimate
     approx_tokens = int(len(transcript.split()) * 1.3)
     log.info(
-        "Analyzing conversation with %s (context=%s, ~%d tokens)...",
+        "Analyzing conversation with %s (context=%s, detail=%s, ~%d tokens)...",
         model_used,
         context,
+        detail,
         approx_tokens,
     )
 
     # Prepare messages for LLM
     llm_messages = [
-        Message(role="system", content=[TextContent(type="text", text=SYSTEM_PROMPT)]),
+        Message(role="system", content=[TextContent(type="text", text=system_prompt)]),
         Message(
             role="user",
             content=[
                 TextContent(
                     type="text",
-                    text=f"Analyze this conversation and identify user objectives:\n\n{transcript}",
+                    text=f"Analyze this conversation:\n\n{transcript}",
                 )
             ],
         ),
@@ -388,30 +455,46 @@ def analyze_objectives(
         log.error("Failed to parse LLM response: %s", response_text[:500])
         raise RuntimeError(f"Failed to parse LLM response as JSON: {e}") from e
 
-    # Build analysis object
-    def parse_objective(obj_data: dict) -> Objective:
-        return Objective(
-            description=obj_data.get("description", ""),
-            status=ObjectiveStatus(obj_data.get("status", "unclear")),
-            evidence=obj_data.get("evidence"),
-            subordinates=[
-                parse_objective(sub) for sub in obj_data.get("subordinates", [])
-            ],
+    # Build analysis object based on detail level
+    if detail == "detailed":
+        # Full hierarchical analysis
+        def parse_objective(obj_data: dict) -> Objective:
+            return Objective(
+                description=obj_data.get("description", ""),
+                status=ObjectiveStatus(obj_data.get("status", "unclear")),
+                evidence=obj_data.get("evidence"),
+                subordinates=[
+                    parse_objective(sub) for sub in obj_data.get("subordinates", [])
+                ],
+            )
+
+        primary_objectives = [
+            parse_objective(obj) for obj in result.get("primary_objectives", [])
+        ]
+
+        analysis = ObjectiveAnalysis(
+            conversation_id=conv_dir.name,
+            analyzed_at=datetime.now(timezone.utc),
+            model_used=model_used,
+            content_hash=content_hash,
+            context_level=context,
+            detail_level=detail,
+            primary_objectives=primary_objectives,
+            summary=result.get("summary"),
         )
-
-    primary_objectives = [
-        parse_objective(obj) for obj in result.get("primary_objectives", [])
-    ]
-
-    analysis = ObjectiveAnalysis(
-        conversation_id=conv_dir.name,
-        analyzed_at=datetime.now(timezone.utc),
-        model_used=model_used,
-        content_hash=content_hash,
-        context_level=context,
-        primary_objectives=primary_objectives,
-        summary=result.get("summary"),
-    )
+    else:
+        # Brief or standard - simpler structure
+        analysis = ObjectiveAnalysis(
+            conversation_id=conv_dir.name,
+            analyzed_at=datetime.now(timezone.utc),
+            model_used=model_used,
+            content_hash=content_hash,
+            context_level=context,
+            detail_level=detail,
+            goal=result.get("goal"),
+            primary_outcomes=result.get("primary_outcomes", []),
+            secondary_outcomes=result.get("secondary_outcomes", []),
+        )
 
     # Cache the result
     _save_analysis(conv_dir, analysis)

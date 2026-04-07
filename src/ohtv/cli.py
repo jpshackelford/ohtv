@@ -1189,6 +1189,13 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
 @click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (ignore cache)")
 @click.option("--model", "-m", help="LLM model to use for analysis")
 @click.option(
+    "--detail",
+    "-d",
+    type=click.Choice(["brief", "standard", "detailed"]),
+    default="brief",
+    help="Output detail: brief (default), standard (with outcomes), detailed (full analysis)",
+)
+@click.option(
     "--context",
     "-c",
     type=click.Choice(["minimal", "default", "full"]),
@@ -1201,22 +1208,26 @@ def objectives(
     conversation_id: str,
     refresh: bool,
     model: str | None,
+    detail: str,
     context: str,
     json_output: bool,
     verbose: bool,
 ) -> None:
-    """Analyze user objectives in a conversation.
+    """Identify what the user hopes to achieve in a conversation.
 
-    Uses an LLM to extract and categorize the user's primary and subordinate
-    objectives from the conversation. Results are cached for quick subsequent
-    lookups.
-
-    Context levels control how much of the conversation is sent to the LLM:
+    By default, outputs a brief 1-2 sentence description of the user's goal.
 
     \b
-      minimal  - User messages only (lowest tokens, may miss outcome details)
-      default  - User messages + finish action (recommended balance)
-      full     - All messages + action summaries (most context, highest tokens)
+    Detail levels:
+      brief     - Just the goal (1-2 sentences) [default]
+      standard  - Goal + primary/secondary outcomes (3-6 bullets each)
+      detailed  - Full hierarchical analysis with status assessment
+
+    \b
+    Context levels (how much conversation to analyze):
+      minimal   - User messages only (lowest tokens)
+      default   - User messages + finish action
+      full      - All messages + action summaries (highest tokens)
 
     Requires LLM_API_KEY environment variable to be set.
     """
@@ -1243,7 +1254,7 @@ def objectives(
 
     # Check for cached analysis first if not refreshing
     if not refresh:
-        cached = get_cached_analysis(conv_dir, context=context)  # type: ignore[arg-type]
+        cached = get_cached_analysis(conv_dir, context=context, detail=detail)  # type: ignore[arg-type]
         if cached:
             if json_output:
                 console.print(cached.model_dump_json(indent=2))
@@ -1254,7 +1265,7 @@ def objectives(
     # Run analysis
     try:
         analysis = analyze_objectives(
-            conv_dir, model=model, context=context, force_refresh=refresh  # type: ignore[arg-type]
+            conv_dir, model=model, context=context, detail=detail, force_refresh=refresh  # type: ignore[arg-type]
         )
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -1281,6 +1292,36 @@ def objectives(
 
 def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis") -> None:
     """Display objective analysis with rich formatting."""
+    detail_level = getattr(analysis, "detail_level", "brief")
+
+    # Brief mode - minimal output
+    if detail_level == "brief":
+        if analysis.goal:
+            console.print(f"\n[bold]Goal:[/bold] {analysis.goal}")
+        else:
+            console.print("\n[dim]No goal identified.[/dim]")
+        return
+
+    # Standard mode - goal + outcomes
+    if detail_level == "standard":
+        if analysis.goal:
+            console.print(f"\n[bold]Goal:[/bold] {analysis.goal}")
+
+        if analysis.primary_outcomes:
+            console.print("\n[bold]Primary Outcomes:[/bold]")
+            for outcome in analysis.primary_outcomes:
+                console.print(f"  • {outcome}")
+
+        if analysis.secondary_outcomes:
+            console.print("\n[bold]Secondary Outcomes:[/bold]")
+            for outcome in analysis.secondary_outcomes:
+                console.print(f"  • {outcome}")
+
+        if not analysis.goal and not analysis.primary_outcomes:
+            console.print("\n[dim]No objectives identified.[/dim]")
+        return
+
+    # Detailed mode - full hierarchical analysis (legacy behavior)
     from ohtv.analysis import Objective, ObjectiveStatus
 
     # Header

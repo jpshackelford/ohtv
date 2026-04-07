@@ -2,6 +2,7 @@
 
 from ohtv.analysis.objectives import (
     ContextLevel,
+    DetailLevel,
     Objective,
     ObjectiveAnalysis,
     ObjectiveStatus,
@@ -11,6 +12,7 @@ from ohtv.analysis.objectives import (
 
 __all__ = [
     "ContextLevel",
+    "DetailLevel",
     "Objective",
     "ObjectiveAnalysis",
     "ObjectiveStatus",
