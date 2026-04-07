@@ -11,6 +11,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 from rich.table import Table
+from rich.tree import Tree
 
 from ohtv.config import Config
 from ohtv.logging import setup_logging
@@ -1135,6 +1136,147 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
         _display_actions_only(interactions)
     else:
         _display_refs(extracted, interactions)
+
+
+@main.command()
+@click.argument("conversation_id")
+@click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (ignore cache)")
+@click.option("--model", "-m", help="LLM model to use for analysis")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+def objectives(
+    conversation_id: str,
+    refresh: bool,
+    model: str | None,
+    json_output: bool,
+    verbose: bool,
+) -> None:
+    """Analyze user objectives in a conversation.
+
+    Uses an LLM to extract and categorize the user's primary and subordinate
+    objectives from the conversation. Results are cached for quick subsequent
+    lookups.
+
+    Requires LLM_API_KEY environment variable to be set.
+    """
+    _init_logging(verbose=verbose)
+    config = Config.from_env()
+
+    # Find conversation
+    result = _find_conversation_dir(config, conversation_id)
+    if not result:
+        console.print(f"[red]Error:[/red] Conversation '{conversation_id}' not found")
+        raise SystemExit(1)
+
+    conv_dir, _ = result
+
+    # Get conversation metadata for display
+    conv_id, title = _get_conversation_info(conv_dir)
+
+    # Import analysis module (lazy to avoid loading SDK unless needed)
+    try:
+        from ohtv.analysis import ObjectiveAnalysis, analyze_objectives, get_cached_analysis
+    except ImportError as e:
+        console.print(f"[red]Error:[/red] Analysis module not available: {e}")
+        raise SystemExit(1)
+
+    # Check for cached analysis first if not refreshing
+    if not refresh:
+        cached = get_cached_analysis(conv_dir)
+        if cached:
+            if json_output:
+                console.print(cached.model_dump_json(indent=2))
+            else:
+                _display_objectives(conv_id, title, cached)
+            return
+
+    # Run analysis
+    try:
+        analysis = analyze_objectives(conv_dir, model=model, force_refresh=refresh)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise SystemExit(1)
+    except RuntimeError as e:
+        console.print(f"[red]Analysis failed:[/red] {e}")
+        raise SystemExit(1)
+    except Exception as e:
+        # Catch LLM configuration errors
+        if "api_key" in str(e).lower() or "LLM_" in str(e):
+            console.print(
+                "[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
+            )
+            console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
+        else:
+            console.print(f"[red]Error:[/red] {e}")
+        raise SystemExit(1)
+
+    if json_output:
+        console.print(analysis.model_dump_json(indent=2))
+    else:
+        _display_objectives(conv_id, title, analysis)
+
+
+def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis") -> None:
+    """Display objective analysis with rich formatting."""
+    from ohtv.analysis import Objective, ObjectiveStatus
+
+    # Header
+    _display_conversation_header(conv_id, title)
+
+    # Summary
+    if analysis.summary:
+        console.print(f"\n[bold]Summary:[/bold] {analysis.summary}")
+
+    # Status colors
+    status_colors = {
+        ObjectiveStatus.ACHIEVED: "green",
+        ObjectiveStatus.PARTIALLY_ACHIEVED: "yellow",
+        ObjectiveStatus.NOT_ACHIEVED: "red",
+        ObjectiveStatus.IN_PROGRESS: "blue",
+        ObjectiveStatus.UNCLEAR: "dim",
+    }
+
+    status_icons = {
+        ObjectiveStatus.ACHIEVED: "✓",
+        ObjectiveStatus.PARTIALLY_ACHIEVED: "◐",
+        ObjectiveStatus.NOT_ACHIEVED: "✗",
+        ObjectiveStatus.IN_PROGRESS: "→",
+        ObjectiveStatus.UNCLEAR: "?",
+    }
+
+    def add_objective_to_tree(tree: Tree, obj: Objective, level: int = 0) -> None:
+        """Recursively add objectives to tree."""
+        color = status_colors.get(obj.status, "white")
+        icon = status_icons.get(obj.status, "•")
+
+        # Format the objective
+        status_label = obj.status.value.replace("_", " ").title()
+        text = f"[{color}]{icon}[/{color}] {obj.description} [{color}][{status_label}][/{color}]"
+
+        # Add evidence if present
+        if obj.evidence:
+            text += f"\n   [dim]Evidence: {obj.evidence[:100]}{'...' if len(obj.evidence) > 100 else ''}[/dim]"
+
+        branch = tree.add(text)
+
+        # Add subordinates
+        for sub in obj.subordinates:
+            add_objective_to_tree(branch, sub, level + 1)
+
+    # Build and display tree
+    if analysis.primary_objectives:
+        console.print("\n[bold]Objectives:[/bold]")
+        tree = Tree("[bold]Primary Objectives[/bold]")
+        for obj in analysis.primary_objectives:
+            add_objective_to_tree(tree, obj)
+        console.print(tree)
+    else:
+        console.print("\n[dim]No objectives identified.[/dim]")
+
+    # Footer with metadata
+    console.print(
+        f"\n[dim]Analyzed: {analysis.analyzed_at.strftime('%Y-%m-%d %H:%M')} UTC • Model: {analysis.model_used}[/dim]"
+    )
 
 
 def _find_conversation_dir(config: Config, conv_id: str) -> tuple[Path, bool] | None:

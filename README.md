@@ -19,6 +19,9 @@ ohtv list
 # View a conversation's messages
 ohtv show <conversation_id> --messages
 
+# Analyze user objectives (requires LLM_API_KEY)
+ohtv objectives <conversation_id>
+
 # See what GitHub repos/PRs/issues were referenced
 ohtv refs <conversation_id>
 
@@ -158,6 +161,52 @@ ohtv refs abc123 --actions
 | Flag | Description |
 |------|-------------|
 | `-a, --actions` | Show only refs with write actions |
+
+---
+
+### `ohtv objectives` - Analyze User Objectives
+
+Uses an LLM to extract and categorize user objectives from a conversation into a hierarchy of primary and subordinate goals. Results are cached for quick subsequent lookups.
+
+```bash
+# Analyze objectives (uses cache if available)
+ohtv objectives abc123
+
+# Force re-analysis (ignore cache)
+ohtv objectives abc123 --refresh
+
+# Use a specific model
+ohtv objectives abc123 --model gpt-4o
+
+# Output as JSON
+ohtv objectives abc123 --json
+```
+
+**Example Output:**
+```
+Summary: User wanted to refactor the authentication module...
+
+Objectives:
+Primary Objectives
+└── ✓ Refactor authentication to use OAuth2 [Achieved]
+    ├── ✓ Add OAuth2 client configuration [Achieved]
+    ├── ◐ Update user session handling [Partially Achieved]
+    └── ✗ Add refresh token support [Not Achieved]
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `-r, --refresh` | Force re-analysis (ignore cache) |
+| `-m, --model` | LLM model to use for analysis |
+| `--json` | Output as JSON |
+
+**Environment Variables:**
+| Variable | Description |
+|----------|-------------|
+| `LLM_API_KEY` | API key for the LLM provider |
+| `LLM_MODEL` | Default model to use (optional) |
+| `LLM_BASE_URL` | Custom LLM base URL (optional) |
 
 ---
 

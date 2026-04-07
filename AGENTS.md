@@ -13,11 +13,12 @@ uv run ohtv --help         # Run CLI
 
 ## Code Structure
 
-- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, sync)
+- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, sync, objectives)
 - `src/ohtv/config.py` - Configuration management
 - `src/ohtv/sync.py` - Cloud sync logic
 - `src/ohtv/sources/` - Data sources (local, cloud)
 - `src/ohtv/exporter.py` - Output formatting
+- `src/ohtv/analysis/` - LLM-based analysis features (objectives extraction)
 
 ## Key Design Decisions
 
@@ -29,6 +30,8 @@ uv run ohtv --help         # Run CLI
 
 4. **Timezone handling**: Cloud timestamps are UTC; local CLI timestamps lack timezone info. The codebase normalizes to UTC for sorting, then converts to local time for display. **Limitation:** Local timestamps are interpreted using the current machine's timezone—if data moves between machines with different timezones, times may display incorrectly.
 
+5. **LLM analysis caching**: The `objectives` command uses LLM to analyze conversations but caches results to avoid repeated API calls. Cache is invalidated automatically when conversation content changes (based on content hash).
+
 ## Testing
 
 No automated tests. Manual testing with real conversation data:
@@ -37,6 +40,7 @@ uv run ohtv list -A                    # All conversations
 uv run ohtv show <id> -m               # Messages
 uv run ohtv show <id> -s -O            # Actions with outputs
 uv run ohtv refs <id>                  # Git references
+uv run ohtv objectives <id>            # Objective analysis (requires LLM_API_KEY)
 ```
 
 ## Reference Documentation
