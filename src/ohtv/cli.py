@@ -9,11 +9,57 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import click
+from click import Context, HelpFormatter
 from rich.console import Console
 from rich.table import Table
 from rich.tree import Tree
 
 from ohtv.config import Config
+
+
+# Commands that use LLM and consume tokens
+LLM_COMMANDS = {"objectives"}
+
+
+class SectionedGroup(click.Group):
+    """Custom Click group that separates commands into sections based on LLM usage."""
+
+    def format_commands(self, ctx: Context, formatter: HelpFormatter) -> None:
+        """Format commands into separate sections for LLM and non-LLM commands."""
+        commands = []
+        for subcommand in self.list_commands(ctx):
+            cmd = self.get_command(ctx, subcommand)
+            if cmd is None or cmd.hidden:
+                continue
+            commands.append((subcommand, cmd))
+
+        if not commands:
+            return
+
+        limit = formatter.width - 6 - max(len(cmd[0]) for cmd in commands)
+
+        # Separate into LLM and non-LLM commands
+        standard_commands = []
+        llm_commands = []
+
+        for subcommand, cmd in commands:
+            help_text = cmd.get_short_help_str(limit)
+            if subcommand in LLM_COMMANDS:
+                llm_commands.append((subcommand, help_text))
+            else:
+                standard_commands.append((subcommand, help_text))
+
+        # Write standard commands first
+        if standard_commands:
+            with formatter.section("Commands"):
+                formatter.write_dl(standard_commands)
+
+        # Write LLM commands in separate section
+        if llm_commands:
+            with formatter.section("Analysis Commands (require LLM, consume tokens)"):
+                formatter.write_dl(llm_commands)
+
+
 from ohtv.logging import setup_logging
 from ohtv.sources import ConversationInfo, LocalSource
 from ohtv.sync import SyncAbortedError, SyncAuthError, SyncManager, SyncResult
@@ -140,7 +186,7 @@ def _init_logging(verbose: bool = False) -> None:
     setup_logging(verbose=verbose)
 
 
-@click.group()
+@click.group(cls=SectionedGroup)
 @click.version_option()
 def main() -> None:
     """OpenHands Trajectory Viewer - view and sync conversation histories."""
