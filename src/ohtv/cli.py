@@ -1188,12 +1188,20 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
 @click.argument("conversation_id")
 @click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (ignore cache)")
 @click.option("--model", "-m", help="LLM model to use for analysis")
+@click.option(
+    "--context",
+    "-c",
+    type=click.Choice(["minimal", "default", "full"]),
+    default="default",
+    help="Context level: minimal (user only), default (user+finish), full (all messages)",
+)
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def objectives(
     conversation_id: str,
     refresh: bool,
     model: str | None,
+    context: str,
     json_output: bool,
     verbose: bool,
 ) -> None:
@@ -1202,6 +1210,13 @@ def objectives(
     Uses an LLM to extract and categorize the user's primary and subordinate
     objectives from the conversation. Results are cached for quick subsequent
     lookups.
+
+    Context levels control how much of the conversation is sent to the LLM:
+
+    \b
+      minimal  - User messages only (lowest tokens, may miss outcome details)
+      default  - User messages + finish action (recommended balance)
+      full     - All messages + action summaries (most context, highest tokens)
 
     Requires LLM_API_KEY environment variable to be set.
     """
@@ -1228,7 +1243,7 @@ def objectives(
 
     # Check for cached analysis first if not refreshing
     if not refresh:
-        cached = get_cached_analysis(conv_dir)
+        cached = get_cached_analysis(conv_dir, context=context)  # type: ignore[arg-type]
         if cached:
             if json_output:
                 console.print(cached.model_dump_json(indent=2))
@@ -1238,7 +1253,9 @@ def objectives(
 
     # Run analysis
     try:
-        analysis = analyze_objectives(conv_dir, model=model, force_refresh=refresh)
+        analysis = analyze_objectives(
+            conv_dir, model=model, context=context, force_refresh=refresh  # type: ignore[arg-type]
+        )
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise SystemExit(1)
@@ -1320,8 +1337,10 @@ def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis")
         console.print("\n[dim]No objectives identified.[/dim]")
 
     # Footer with metadata
+    context_level = getattr(analysis, "context_level", "default")
     console.print(
-        f"\n[dim]Analyzed: {analysis.analyzed_at.strftime('%Y-%m-%d %H:%M')} UTC • Model: {analysis.model_used}[/dim]"
+        f"\n[dim]Analyzed: {analysis.analyzed_at.strftime('%Y-%m-%d %H:%M')} UTC • "
+        f"Model: {analysis.model_used} • Context: {context_level}[/dim]"
     )
 
 

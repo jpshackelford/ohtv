@@ -1,16 +1,29 @@
-"""Objective extraction and analysis from conversations."""
+"""Objective extraction and analysis from conversations.
+
+Context Levels (experimentally validated):
+- minimal: User messages only (lowest tokens, may lack outcome info)
+- default: User messages + finish action (best balance of tokens vs accuracy)
+- full: User + agent messages + action summaries (most context, highest tokens)
+
+The 'default' level was determined through experiments comparing different
+approaches across short (23 events), medium (60 events), and long (300+ events)
+conversations. See experiments/objective_extraction_comparison.py for details.
+"""
 
 import hashlib
 import json
 import logging
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel
 
 log = logging.getLogger("ohtv")
+
+# Context level type
+ContextLevel = Literal["minimal", "default", "full"]
 
 
 class ObjectiveStatus(str, Enum):
@@ -39,6 +52,7 @@ class ObjectiveAnalysis(BaseModel):
     analyzed_at: datetime
     model_used: str
     content_hash: str
+    context_level: str
     primary_objectives: list[Objective]
     summary: str | None = None
 
@@ -81,77 +95,156 @@ Respond with a JSON object in this exact format:
 }"""
 
 
-def _compute_content_hash(messages: list[dict]) -> str:
-    """Compute a hash of conversation content for cache invalidation."""
-    content = json.dumps(messages, sort_keys=True)
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
+# =============================================================================
+# Event Loading (shared with cli.py patterns)
+# =============================================================================
 
 
-def _load_conversation_messages(conv_dir: Path) -> list[dict]:
-    """Load user and assistant messages from a conversation directory."""
+def load_events(conv_dir: Path) -> list[dict]:
+    """Load all events from a conversation directory."""
     events_dir = conv_dir / "events"
     if not events_dir.exists():
         return []
 
-    messages = []
+    events = []
     for event_file in sorted(events_dir.glob("event-*.json")):
         try:
-            event = json.loads(event_file.read_text())
+            data = json.loads(event_file.read_text())
+            events.append(data)
         except (json.JSONDecodeError, OSError):
             continue
-
-        source = event.get("source")
-        if source not in ("user", "agent"):
-            continue
-
-        # Extract message text
-        text = _extract_message_text(event)
-        if text:
-            role = "user" if source == "user" else "assistant"
-            messages.append({"role": role, "text": text})
-
-    return messages
+    return events
 
 
-def _extract_message_text(event: dict) -> str | None:
-    """Extract text content from an event."""
-    # Try llm_message.content[].text format (cloud)
+def extract_message_content(event: dict, include_critic: bool = False) -> str:
+    """Extract text content from a message event.
+
+    Args:
+        event: The event dictionary
+        include_critic: If False (default), exclude critic_result metadata from
+            the extracted content. Critic results are internal evaluation data
+            that shouldn't influence objective analysis.
+    """
+    # Note: critic_result is a top-level field in MessageEvents, not part of
+    # the message content itself. It contains evaluation scores/metadata.
+    # We don't need to explicitly filter it since we only extract from
+    # llm_message.content or direct content fields.
+
     llm_msg = event.get("llm_message", {})
     content = llm_msg.get("content", [])
+
     if isinstance(content, list):
         texts = []
         for item in content:
             if isinstance(item, dict) and item.get("type") == "text":
                 texts.append(item.get("text", ""))
-        if texts:
-            return "\n".join(texts)
+        return "\n".join(texts)
 
-    # Try direct content field (local CLI format)
-    if event.get("content"):
-        return event["content"]
+    if isinstance(content, str):
+        return content
 
-    # Try message field
-    if event.get("message"):
-        return event["message"]
-
-    return None
+    return event.get("content", "") or event.get("message", "")
 
 
-def _format_messages_for_analysis(messages: list[dict]) -> str:
-    """Format messages into a readable transcript for analysis."""
+def extract_action_summary(event: dict) -> str:
+    """Extract a brief summary of an action."""
+    tool_name = event.get("tool_name", "unknown")
+    action = event.get("action", {})
+
+    if tool_name == "terminal":
+        cmd = action.get("command", "")[:100]
+        return f"[Terminal] {cmd}"
+    elif tool_name == "file_editor":
+        path = action.get("path", "")
+        cmd = action.get("command", "")
+        return f"[Edit] {cmd} {path}"
+    elif tool_name == "finish":
+        msg = action.get("message", "")[:300]
+        return f"[Finish] {msg}"
+    else:
+        return f"[{tool_name}]"
+
+
+# =============================================================================
+# Transcript Building
+# =============================================================================
+
+
+def build_transcript(events: list[dict], context: ContextLevel = "default") -> list[dict]:
+    """Build a transcript based on the context level.
+
+    Context levels:
+    - minimal: User messages only
+    - default: User messages + finish action
+    - full: User + agent messages + action summaries
+    """
+    items = []
+
+    for event in events:
+        source = event.get("source", "")
+        kind = event.get("kind", "")
+
+        # User messages - always included
+        if source == "user" and kind == "MessageEvent":
+            content = extract_message_content(event)
+            if content:
+                items.append({"role": "user", "text": content})
+
+        # Agent messages - only in full context
+        elif source == "agent" and kind == "MessageEvent" and context == "full":
+            content = extract_message_content(event)
+            if content:
+                # Truncate long agent messages
+                if len(content) > 1000:
+                    content = content[:1000] + "... [truncated]"
+                items.append({"role": "assistant", "text": content})
+
+        # Action events
+        elif source == "agent" and kind == "ActionEvent":
+            tool_name = event.get("tool_name", "")
+
+            # Finish action - included in default and full
+            if tool_name == "finish" and context in ("default", "full"):
+                summary = extract_action_summary(event)
+                items.append({"role": "action", "text": summary})
+
+            # Other actions - only in full context
+            elif context == "full" and tool_name != "finish":
+                summary = extract_action_summary(event)
+                items.append({"role": "action", "text": summary})
+
+    return items
+
+
+def format_transcript(items: list[dict]) -> str:
+    """Format transcript items into a string for LLM analysis."""
     lines = []
-    for msg in messages:
-        role = msg["role"].upper()
-        text = msg["text"]
-        # Truncate very long messages
+    for item in items:
+        role = item["role"].upper()
+        text = item["text"]
+        # Truncate very long items
         if len(text) > 2000:
             text = text[:2000] + "... [truncated]"
         lines.append(f"[{role}]: {text}")
     return "\n\n".join(lines)
 
 
-def get_cached_analysis(conv_dir: Path) -> ObjectiveAnalysis | None:
-    """Load cached analysis if it exists and is still valid."""
+def _compute_content_hash(items: list[dict]) -> str:
+    """Compute a hash of transcript content for cache invalidation."""
+    content = json.dumps(items, sort_keys=True)
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+
+def get_cached_analysis(
+    conv_dir: Path,
+    context: ContextLevel = "default",
+) -> ObjectiveAnalysis | None:
+    """Load cached analysis if it exists and is still valid.
+
+    Cache is invalidated if:
+    - Content hash has changed (conversation was modified)
+    - Context level has changed
+    """
     cache_file = conv_dir / ANALYSIS_CACHE_FILENAME
     if not cache_file.exists():
         return None
@@ -160,9 +253,16 @@ def get_cached_analysis(conv_dir: Path) -> ObjectiveAnalysis | None:
         data = json.loads(cache_file.read_text())
         analysis = ObjectiveAnalysis.model_validate(data)
 
+        # Check if context level matches
+        cached_context = getattr(analysis, "context_level", "default")
+        if cached_context != context:
+            log.debug("Cache invalidated: context level changed (%s -> %s)", cached_context, context)
+            return None
+
         # Check if content has changed
-        messages = _load_conversation_messages(conv_dir)
-        current_hash = _compute_content_hash(messages)
+        events = load_events(conv_dir)
+        items = build_transcript(events, context)
+        current_hash = _compute_content_hash(items)
         if analysis.content_hash != current_hash:
             log.debug("Cache invalidated: content hash mismatch")
             return None
@@ -199,13 +299,18 @@ def _parse_llm_response(response_text: str) -> dict:
 def analyze_objectives(
     conv_dir: Path,
     model: str | None = None,
+    context: ContextLevel = "default",
     force_refresh: bool = False,
 ) -> ObjectiveAnalysis:
     """Analyze a conversation to extract user objectives.
 
     Args:
         conv_dir: Path to the conversation directory
-        model: LLM model to use (defaults to LLM_MODEL env var or claude-sonnet-4-20250514)
+        model: LLM model to use (defaults to LLM_MODEL env var)
+        context: Context level for transcript building:
+            - "minimal": User messages only (lowest tokens)
+            - "default": User messages + finish action (recommended)
+            - "full": User + agent messages + action summaries (most tokens)
         force_refresh: If True, ignore cached analysis
 
     Returns:
@@ -217,18 +322,22 @@ def analyze_objectives(
     """
     # Check cache first
     if not force_refresh:
-        cached = get_cached_analysis(conv_dir)
+        cached = get_cached_analysis(conv_dir, context)
         if cached:
             log.info("Using cached analysis from %s", cached.analyzed_at)
             return cached
 
-    # Load messages
-    messages = _load_conversation_messages(conv_dir)
-    if not messages:
-        raise ValueError(f"No messages found in conversation: {conv_dir}")
+    # Load events and build transcript
+    events = load_events(conv_dir)
+    if not events:
+        raise ValueError(f"No events found in conversation: {conv_dir}")
 
-    content_hash = _compute_content_hash(messages)
-    transcript = _format_messages_for_analysis(messages)
+    items = build_transcript(events, context)
+    if not items:
+        raise ValueError(f"No content found in conversation: {conv_dir}")
+
+    content_hash = _compute_content_hash(items)
+    transcript = format_transcript(items)
 
     # Import here to avoid loading SDK unless needed
     from openhands.sdk import LLM, Message, TextContent
@@ -239,6 +348,15 @@ def analyze_objectives(
         llm = LLM(model=model, api_key=llm.api_key, base_url=llm.base_url)
 
     model_used = llm.model
+
+    # Log token estimate
+    approx_tokens = int(len(transcript.split()) * 1.3)
+    log.info(
+        "Analyzing conversation with %s (context=%s, ~%d tokens)...",
+        model_used,
+        context,
+        approx_tokens,
+    )
 
     # Prepare messages for LLM
     llm_messages = [
@@ -255,7 +373,6 @@ def analyze_objectives(
     ]
 
     # Call LLM
-    log.info("Analyzing conversation with %s...", model_used)
     response = llm.completion(llm_messages)
 
     # Extract text from response
@@ -291,6 +408,7 @@ def analyze_objectives(
         analyzed_at=datetime.now(timezone.utc),
         model_used=model_used,
         content_hash=content_hash,
+        context_level=context,
         primary_objectives=primary_objectives,
         summary=result.get("summary"),
     )

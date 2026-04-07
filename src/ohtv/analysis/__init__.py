@@ -1,6 +1,7 @@
 """Analysis module for extracting insights from conversations using LLM."""
 
 from ohtv.analysis.objectives import (
+    ContextLevel,
     Objective,
     ObjectiveAnalysis,
     ObjectiveStatus,
@@ -9,6 +10,7 @@ from ohtv.analysis.objectives import (
 )
 
 __all__ = [
+    "ContextLevel",
     "Objective",
     "ObjectiveAnalysis",
     "ObjectiveStatus",
