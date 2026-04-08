@@ -1370,18 +1370,14 @@ def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis")
     # Status colors
     status_colors = {
         ObjectiveStatus.ACHIEVED: "green",
-        ObjectiveStatus.PARTIALLY_ACHIEVED: "yellow",
         ObjectiveStatus.NOT_ACHIEVED: "red",
         ObjectiveStatus.IN_PROGRESS: "blue",
-        ObjectiveStatus.UNCLEAR: "dim",
     }
 
     status_icons = {
         ObjectiveStatus.ACHIEVED: "✓",
-        ObjectiveStatus.PARTIALLY_ACHIEVED: "◐",
         ObjectiveStatus.NOT_ACHIEVED: "✗",
         ObjectiveStatus.IN_PROGRESS: "→",
-        ObjectiveStatus.UNCLEAR: "?",
     }
 
     def add_objective_to_tree(tree: Tree, obj: Objective, level: int = 0) -> None:
