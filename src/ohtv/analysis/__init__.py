@@ -1,5 +1,11 @@
 """Analysis module for extracting insights from conversations using LLM."""
 
+from ohtv.analysis.cache import (
+    AnalysisCacheManager,
+    CachedAnalysis,
+    compute_content_hash,
+    load_events,
+)
 from ohtv.analysis.objectives import (
     ContextLevel,
     DetailLevel,
@@ -11,6 +17,12 @@ from ohtv.analysis.objectives import (
 )
 
 __all__ = [
+    # Cache infrastructure
+    "AnalysisCacheManager",
+    "CachedAnalysis",
+    "compute_content_hash",
+    "load_events",
+    # Objective analysis
     "ContextLevel",
     "DetailLevel",
     "Objective",

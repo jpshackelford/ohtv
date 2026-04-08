@@ -10,7 +10,6 @@ approaches across short (23 events), medium (60 events), and long (300+ events)
 conversations. See experiments/objective_extraction_comparison.py for details.
 """
 
-import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -19,6 +18,13 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
+
+from ohtv.analysis.cache import (
+    AnalysisCacheManager,
+    CachedAnalysis,
+    compute_content_hash,
+    load_events,
+)
 
 log = logging.getLogger("ohtv")
 
@@ -45,7 +51,7 @@ class Objective(BaseModel):
     subordinates: list["Objective"] = []
 
 
-class ObjectiveAnalysis(BaseModel):
+class ObjectiveAnalysis(CachedAnalysis):
     """Complete objective analysis for a conversation.
 
     Supports three detail levels:
@@ -54,10 +60,6 @@ class ObjectiveAnalysis(BaseModel):
     - detailed: Full hierarchical objectives with status assessment
     """
 
-    conversation_id: str
-    analyzed_at: datetime
-    model_used: str
-    content_hash: str
     context_level: str
     detail_level: str = "brief"
     assess: bool = False
@@ -74,6 +76,9 @@ class ObjectiveAnalysis(BaseModel):
 
 
 ANALYSIS_CACHE_FILENAME = "objective_analysis.json"
+
+# Cache manager for objective analysis
+_cache_manager = AnalysisCacheManager(ANALYSIS_CACHE_FILENAME, ObjectiveAnalysis)
 
 # Output detail levels
 DetailLevel = Literal["brief", "standard", "detailed"]
@@ -192,24 +197,8 @@ Respond with a JSON object in this exact format:
 
 
 # =============================================================================
-# Event Loading (shared with cli.py patterns)
+# Event Content Extraction
 # =============================================================================
-
-
-def load_events(conv_dir: Path) -> list[dict]:
-    """Load all events from a conversation directory."""
-    events_dir = conv_dir / "events"
-    if not events_dir.exists():
-        return []
-
-    events = []
-    for event_file in sorted(events_dir.glob("event-*.json")):
-        try:
-            data = json.loads(event_file.read_text())
-            events.append(data)
-        except (json.JSONDecodeError, OSError):
-            continue
-    return events
 
 
 def extract_message_content(event: dict, include_critic: bool = False) -> str:
@@ -325,12 +314,6 @@ def format_transcript(items: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def _compute_content_hash(items: list[dict]) -> str:
-    """Compute a hash of transcript content for cache invalidation."""
-    content = json.dumps(items, sort_keys=True)
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
-
-
 def get_cached_analysis(
     conv_dir: Path,
     context: ContextLevel = "default",
@@ -340,55 +323,24 @@ def get_cached_analysis(
     """Load cached analysis if it exists and is still valid.
 
     Cache is invalidated if:
+    - Event count has changed (quick check for trajectory growth)
     - Content hash has changed (conversation was modified)
     - Context level has changed
     - Detail level has changed
     - Assess flag has changed
     """
-    cache_file = conv_dir / ANALYSIS_CACHE_FILENAME
-    if not cache_file.exists():
-        return None
+    events = load_events(conv_dir)
+    items = build_transcript(events, context)
+    content_hash = compute_content_hash(items)
 
-    try:
-        data = json.loads(cache_file.read_text())
-        analysis = ObjectiveAnalysis.model_validate(data)
-
-        # Check if context level matches
-        cached_context = getattr(analysis, "context_level", "default")
-        if cached_context != context:
-            log.debug("Cache invalidated: context level changed (%s -> %s)", cached_context, context)
-            return None
-
-        # Check if detail level matches
-        cached_detail = getattr(analysis, "detail_level", "brief")
-        if cached_detail != detail:
-            log.debug("Cache invalidated: detail level changed (%s -> %s)", cached_detail, detail)
-            return None
-
-        # Check if assess flag matches
-        cached_assess = getattr(analysis, "assess", False)
-        if cached_assess != assess:
-            log.debug("Cache invalidated: assess changed (%s -> %s)", cached_assess, assess)
-            return None
-
-        # Check if content has changed
-        events = load_events(conv_dir)
-        items = build_transcript(events, context)
-        current_hash = _compute_content_hash(items)
-        if analysis.content_hash != current_hash:
-            log.debug("Cache invalidated: content hash mismatch")
-            return None
-
-        return analysis
-    except (json.JSONDecodeError, OSError, ValueError) as e:
-        log.warning("Failed to load cached analysis: %s", e)
-        return None
-
-
-def _save_analysis(conv_dir: Path, analysis: ObjectiveAnalysis) -> None:
-    """Save analysis to cache file."""
-    cache_file = conv_dir / ANALYSIS_CACHE_FILENAME
-    cache_file.write_text(analysis.model_dump_json(indent=2))
+    return _cache_manager.load_cached(
+        conv_dir,
+        events,
+        content_hash,
+        context_level=context,
+        detail_level=detail,
+        assess=assess,
+    )
 
 
 def _parse_llm_response(response_text: str) -> dict:
@@ -464,7 +416,8 @@ def analyze_objectives(
     if not items:
         raise ValueError(f"No content found in conversation: {conv_dir}")
 
-    content_hash = _compute_content_hash(items)
+    event_count = len(events)
+    content_hash = compute_content_hash(items)
     transcript = format_transcript(items)
 
     # Suppress SDK banner before import
@@ -554,6 +507,7 @@ def analyze_objectives(
             conversation_id=conv_dir.name,
             analyzed_at=datetime.now(timezone.utc),
             model_used=model_used,
+            event_count=event_count,
             content_hash=content_hash,
             context_level=effective_context,
             detail_level=detail,
@@ -567,6 +521,7 @@ def analyze_objectives(
             conversation_id=conv_dir.name,
             analyzed_at=datetime.now(timezone.utc),
             model_used=model_used,
+            event_count=event_count,
             content_hash=content_hash,
             context_level=effective_context,
             detail_level=detail,
@@ -578,7 +533,7 @@ def analyze_objectives(
         )
 
     # Cache the result
-    _save_analysis(conv_dir, analysis)
+    _cache_manager.save(conv_dir, analysis)
     log.debug("Analysis complete and cached")
 
     return analysis
