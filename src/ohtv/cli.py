@@ -75,7 +75,7 @@ MIN_DATETIME = datetime.min.replace(tzinfo=timezone.utc)
 # =============================================================================
 
 # Interaction types for each ref category
-REPO_INTERACTIONS = {"cloned", "pushed"}
+REPO_INTERACTIONS = {"cloned", "pushed", "committed"}
 PR_INTERACTIONS = {"created", "pushed", "commented", "merged", "closed", "reviewed"}
 ISSUE_INTERACTIONS = {"created", "commented", "closed"}
 
@@ -83,6 +83,7 @@ ISSUE_INTERACTIONS = {"created", "commented", "closed"}
 INTERACTION_COMMAND_PATTERNS = {
     "git_push": re.compile(r"git\s+push"),
     "git_clone": re.compile(r"git\s+clone"),
+    "git_commit": re.compile(r"git\s+commit"),
     "gh_pr_create": re.compile(r"gh\s+pr\s+create"),
     "gh_pr_comment": re.compile(r"gh\s+pr\s+comment\s+(\d+)"),
     "gh_pr_review": re.compile(r"gh\s+pr\s+review\s+(\d+)"),
@@ -92,6 +93,9 @@ INTERACTION_COMMAND_PATTERNS = {
     "gh_issue_comment": re.compile(r"gh\s+issue\s+comment\s+(\d+)"),
     "gh_issue_close": re.compile(r"gh\s+issue\s+close\s+(\d+)"),
 }
+
+# Pattern to extract working directory from cd command
+CD_PATH_PATTERN = re.compile(r"cd\s+([^\s;&|]+)")
 
 # Patterns to extract repo/PR/issue from commands and outputs
 REPO_FLAG_PATTERN = re.compile(r"--repo\s+([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)")
@@ -109,6 +113,7 @@ CLONE_URL_PATTERN = re.compile(r"git\s+clone\s+(?:--[a-z-]+\s+)*(?:https://githu
 PATTERN_TO_INTERACTION = {
     "git_push": ("repo", "pushed"),
     "git_clone": ("repo", "cloned"),
+    "git_commit": ("repo", "committed"),
     "gh_pr_create": ("pr", "created"),
     "gh_pr_comment": ("pr", "commented"),
     "gh_pr_review": ("pr", "reviewed"),
@@ -136,6 +141,7 @@ class RefInteractions:
     repos: dict[str, set[str]] = field(default_factory=dict)  # url -> set of interactions
     prs: dict[str, set[str]] = field(default_factory=dict)
     issues: dict[str, set[str]] = field(default_factory=dict)
+    unpushed_commits: set[str] = field(default_factory=set)  # working dirs with commits but no push
 
 
 def _normalize_datetime_for_sort(dt: datetime | None) -> datetime:
@@ -1149,6 +1155,9 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
     - Pull Requests: created, pushed, commented, merged, closed, reviewed
     - Issues: created, commented, closed
 
+    Also warns about unpushed commits: directories where git commit was run
+    but no git push followed.
+
     References without detected interactions are shown without annotation.
     Use --actions to show only refs where write actions were detected.
     """
@@ -1422,20 +1431,19 @@ def _display_outputs(conv_dir: Path) -> None:
     # Extract references and detect interactions
     refs = _extract_refs_from_conversation(conv_dir)
 
-    if not any(refs.values()):
-        return  # No refs to display
-
+    # Even if no refs, we might have unpushed commits to warn about
     interactions = _detect_interactions_from_conversation(conv_dir, refs)
 
-    # Only show items that have write actions
+    # Show items that have write actions or unpushed commits
     has_actions = (
         any(interactions.repos.values())
         or any(interactions.prs.values())
         or any(interactions.issues.values())
     )
+    has_unpushed = bool(interactions.unpushed_commits)
 
-    if not has_actions:
-        return  # No actions to display
+    if not has_actions and not has_unpushed:
+        return  # Nothing to display
 
     console.print("\n[bold]Outputs:[/bold]")
     _display_actions_only(interactions)
@@ -1781,11 +1789,20 @@ def _extract_ref_from_command(command: str, output: str, pattern_type: str) -> E
     return None
 
 
+def _extract_working_dir(command: str) -> str | None:
+    """Extract working directory from a command with cd prefix."""
+    cd_match = CD_PATH_PATTERN.search(command)
+    if cd_match:
+        return cd_match.group(1)
+    return None
+
+
 def _detect_interactions_from_conversation(conv_dir: Path, refs: dict[str, set[str]]) -> RefInteractions:
     """Detect interactions from conversation events and match to refs.
 
     Scans terminal actions for interaction patterns (git push, gh pr comment, etc.)
     and correlates successful commands with the refs found in the conversation.
+    Also tracks commits without corresponding pushes to warn about unpushed work.
     """
     interactions = RefInteractions()
     events_dir = conv_dir / "events"
@@ -1797,6 +1814,10 @@ def _detect_interactions_from_conversation(conv_dir: Path, refs: dict[str, set[s
     norm_repos = {_normalize_ref_url(url): url for url in refs["repos"]}
     norm_prs = {_normalize_ref_url(url): url for url in refs["prs"]}
     norm_issues = {_normalize_ref_url(url): url for url in refs["issues"]}
+
+    # Track commits and pushes by working directory to detect unpushed work
+    committed_dirs: set[str] = set()
+    pushed_dirs: set[str] = set()
 
     # Load all events
     events = []
@@ -1843,8 +1864,21 @@ def _detect_interactions_from_conversation(conv_dir: Path, refs: dict[str, set[s
             if exit_code != 0:
                 continue
 
+            # Track commits and pushes by working directory
+            working_dir = _extract_working_dir(command)
+            if pattern_name == "git_commit" and working_dir:
+                committed_dirs.add(working_dir)
+            elif pattern_name == "git_push" and working_dir:
+                pushed_dirs.add(working_dir)
+
             # Extract ref from command/output
             extracted_ref = _extract_ref_from_command(command, output, pattern_name)
+            
+            # For git_commit, we don't have a URL but still want to track it
+            if pattern_name == "git_commit":
+                # Git commit doesn't produce a URL, but we track it for unpushed detection
+                continue
+            
             if not extracted_ref or not extracted_ref.url:
                 continue
 
@@ -1889,6 +1923,9 @@ def _detect_interactions_from_conversation(conv_dir: Path, refs: dict[str, set[s
                                 interactions.prs[pr_url] = set()
                             interactions.prs[pr_url].add("pushed")
 
+    # Identify directories with commits but no push
+    interactions.unpushed_commits = committed_dirs - pushed_dirs
+
     return interactions
 
 
@@ -1920,25 +1957,34 @@ def _display_actions_only(interactions: RefInteractions) -> None:
         for action in url_actions:
             action_items.append((action, url, "issue"))
 
-    if not action_items:
+    if not action_items and not interactions.unpushed_commits:
         console.print("\n[dim]No write actions detected.[/dim]")
         return
 
-    # Sort by priority
-    action_items.sort(key=lambda x: action_priority.get(x[0], 99))
+    if action_items:
+        # Sort by priority
+        action_items.sort(key=lambda x: action_priority.get(x[0], 99))
 
-    console.print()
-    for action, url, category in action_items:
-        # Shorten URL for display
-        short_url = url.replace("https://github.com/", "")
-        # Color based on action type
-        if action in ("created", "merged"):
-            style = "green"
-        elif action in ("pushed", "commented", "reviewed"):
-            style = "yellow"
-        else:
-            style = "dim"
-        console.print(f"  [{style}]{action}[/{style}] {short_url}")
+        console.print()
+        for action, url, category in action_items:
+            # Shorten URL for display
+            short_url = url.replace("https://github.com/", "")
+            # Color based on action type
+            if action in ("created", "merged"):
+                style = "green"
+            elif action in ("pushed", "commented", "reviewed"):
+                style = "yellow"
+            else:
+                style = "dim"
+            console.print(f"  [{style}]{action}[/{style}] {short_url}")
+
+    # Show warning for unpushed commits
+    if interactions.unpushed_commits:
+        console.print("\n[bold yellow]⚠ Unpushed Commits[/bold yellow]")
+        for path in sorted(interactions.unpushed_commits):
+            # Shorten home directory paths for readability
+            display_path = path.replace(str(Path.home()), "~")
+            console.print(f"  • [yellow]{display_path}[/yellow]")
 
 
 def _display_refs(refs: dict[str, set[str]], interactions: RefInteractions | None = None) -> None:
@@ -1963,6 +2009,14 @@ def _display_refs(refs: dict[str, set[str]], interactions: RefInteractions | Non
                         sorted_interactions = sorted(url_interactions)
                         annotation = f" [dim]\\[{', '.join(sorted_interactions)}][/dim]"
                 console.print(f"  • {url}{annotation}")
+
+    # Show warning for unpushed commits
+    if interactions and interactions.unpushed_commits:
+        console.print("\n[bold yellow]⚠ Unpushed Commits[/bold yellow]")
+        for path in sorted(interactions.unpushed_commits):
+            # Shorten home directory paths for readability
+            display_path = path.replace(str(Path.home()), "~")
+            console.print(f"  • [yellow]{display_path}[/yellow]")
 
 
 if __name__ == "__main__":
