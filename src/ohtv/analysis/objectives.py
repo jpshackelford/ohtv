@@ -494,7 +494,7 @@ def analyze_objectives(
         # No assessment
         system_prompt = PROMPT_BRIEF if detail == "brief" else PROMPT_STANDARD
 
-    # Log token estimate (debug level - only shows with --verbose)
+    # Estimate tokens and log analysis parameters
     approx_tokens = int(len(transcript.split()) * 1.3)
     log.debug(
         "Analyzing conversation with %s (context=%s, detail=%s, assess=%s, ~%d tokens)...",
@@ -519,8 +519,19 @@ def analyze_objectives(
         ),
     ]
 
-    # Call LLM
-    response = llm.completion(llm_messages)
+    # Import timeout error type for specific handling
+    from openhands.sdk.llm.exceptions import LLMTimeoutError
+
+    # Call LLM with timeout awareness
+    try:
+        response = llm.completion(llm_messages)
+    except LLMTimeoutError as e:
+        timeout_val = llm.timeout or 300
+        raise RuntimeError(
+            f"LLM request timed out after {timeout_val}s. "
+            f"For long conversations, try setting LLM_TIMEOUT to a higher value "
+            f"(e.g., export LLM_TIMEOUT=600 for 10 minutes)."
+        ) from e
 
     # Extract text from response
     response_text = ""

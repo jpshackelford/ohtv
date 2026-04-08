@@ -32,6 +32,8 @@ uv run ohtv --help         # Run CLI
 
 5. **LLM analysis caching**: The `objectives` command uses LLM to analyze conversations but caches results to avoid repeated API calls. Cache is invalidated automatically when conversation content changes (based on content hash).
 
+6. **LLM timeout configuration**: The SDK uses a 300-second (5 minute) default timeout. For very long conversations or slow models, users can increase it via `LLM_TIMEOUT` environment variable (e.g., `export LLM_TIMEOUT=600` for 10 minutes). The CLI shows a spinner during analysis for user feedback.
+
 ## Testing
 
 No automated tests. Manual testing with real conversation data:

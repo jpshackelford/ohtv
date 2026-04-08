@@ -1268,7 +1268,7 @@ def objectives(
 
     # Import analysis module (lazy to avoid loading SDK unless needed)
     try:
-        from ohtv.analysis import ObjectiveAnalysis, analyze_objectives, get_cached_analysis
+        from ohtv.analysis import ObjectiveAnalysis, analyze_objectives, get_cached_analysis, load_events
     except ImportError as e:
         console.print(f"[red]Error:[/red] Analysis module not available: {e}")
         raise SystemExit(1)
@@ -1280,10 +1280,20 @@ def objectives(
 
     # Run analysis if not cached
     if analysis is None:
+        # Load events to show progress info
+        events = load_events(conv_dir)
+        event_count = len(events) if events else 0
+
+        # Show status spinner for potentially long-running analysis
+        status_msg = f"Analyzing {event_count} events"
+        if event_count > 100:
+            status_msg += " (this may take a minute)"
+
         try:
-            analysis = analyze_objectives(
-                conv_dir, model=model, context=context, detail=detail, assess=assess, force_refresh=refresh  # type: ignore[arg-type]
-            )
+            with console.status(f"[bold blue]{status_msg}...[/bold blue]"):
+                analysis = analyze_objectives(
+                    conv_dir, model=model, context=context, detail=detail, assess=assess, force_refresh=refresh  # type: ignore[arg-type]
+                )
         except ValueError as e:
             console.print(f"[red]Error:[/red] {e}")
             raise SystemExit(1)
