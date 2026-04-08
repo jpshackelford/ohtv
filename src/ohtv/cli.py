@@ -1236,11 +1236,11 @@ def objectives(
     Detail levels:
       brief     - Just the goal (1-2 sentences) [default]
       standard  - Goal + primary/secondary outcomes (3-6 bullets each)
-      detailed  - Full hierarchical analysis with status assessment
+      detailed  - Full hierarchical objectives with subordinates
 
     \b
-    Use --assess to add status assessment (achieved/not achieved/etc.)
-    to brief or standard modes. Detailed mode always includes assessment.
+    Use --assess to add status assessment (achieved/not achieved/in_progress)
+    to any detail level. Without --assess, only the objectives are shown.
 
     \b
     Context levels (how much conversation to analyze):
@@ -1391,16 +1391,19 @@ def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis")
 
     def add_objective_to_tree(tree: Tree, obj: Objective, level: int = 0) -> None:
         """Recursively add objectives to tree."""
-        color = status_colors.get(obj.status, "white")
-        icon = status_icons.get(obj.status, "•")
+        # Only show status formatting when assessment is present
+        if has_assessment and obj.status:
+            color = status_colors.get(obj.status, "white")
+            icon = status_icons.get(obj.status, "•")
+            status_label = obj.status.value.replace("_", " ").title()
+            text = f"[{color}]{icon}[/{color}] {obj.description} [{color}][{status_label}][/{color}]"
 
-        # Format the objective
-        status_label = obj.status.value.replace("_", " ").title()
-        text = f"[{color}]{icon}[/{color}] {obj.description} [{color}][{status_label}][/{color}]"
-
-        # Add evidence if present
-        if obj.evidence:
-            text += f"\n   [dim]Evidence: {obj.evidence[:100]}{'...' if len(obj.evidence) > 100 else ''}[/dim]"
+            # Add evidence if present
+            if obj.evidence:
+                text += f"\n   [dim]Evidence: {obj.evidence[:100]}{'...' if len(obj.evidence) > 100 else ''}[/dim]"
+        else:
+            # No assessment - just show bullet and description
+            text = f"• {obj.description}"
 
         branch = tree.add(text)
 

@@ -51,8 +51,8 @@ class Objective(BaseModel):
     """A user objective identified in a conversation."""
 
     description: str
-    status: ObjectiveStatus
-    evidence: str | None = None
+    status: ObjectiveStatus | None = None  # Only present when assess=True
+    evidence: str | None = None  # Only present when assess=True
     subordinates: list["Objective"] = []
 
 
@@ -62,7 +62,10 @@ class ObjectiveAnalysis(CachedAnalysis):
     Supports three detail levels:
     - brief: Just 'goal' field (1-2 sentences)
     - standard: goal + primary_outcomes + secondary_outcomes
-    - detailed: Full hierarchical objectives with status assessment
+    - detailed: Full hierarchical objectives with subordinates
+
+    All levels support optional assessment (assess=True) which adds
+    status (achieved/not_achieved/in_progress) and evidence.
     """
 
     context_level: str
@@ -180,6 +183,31 @@ Respond with JSON:
 }"""
 
 PROMPT_DETAILED = """You are an expert at analyzing software development conversations to identify user objectives.
+
+Given a conversation between a user and an AI coding assistant, identify:
+1. PRIMARY OBJECTIVES: The main goals the user is trying to accomplish
+2. SUBORDINATE OBJECTIVES: Supporting goals that help achieve the primary ones
+
+Do not assess whether objectives were achieved. Just identify what the user wants to accomplish
+and structure them hierarchically.
+
+Respond with a JSON object in this exact format:
+{
+  "primary_objectives": [
+    {
+      "description": "Clear description of the objective",
+      "subordinates": [
+        {
+          "description": "Description of subordinate objective",
+          "subordinates": []
+        }
+      ]
+    }
+  ],
+  "summary": "Brief overall summary of what the user was trying to accomplish"
+}"""
+
+PROMPT_DETAILED_ASSESS = """You are an expert at analyzing software development conversations to identify user objectives.
 
 Given a conversation between a user and an AI coding assistant, identify:
 1. PRIMARY OBJECTIVES: The main goals the user is trying to accomplish
@@ -403,10 +431,9 @@ def analyze_objectives(
         detail: Detail level for output:
             - "brief": Just the goal (1-2 sentences)
             - "standard": Goal + primary/secondary outcomes
-            - "detailed": Full hierarchical analysis with status
-        assess: If True, include status assessment of whether goals were achieved.
-            For brief/standard modes, requires at least "default" context (finish action).
-            Detailed mode always includes assessment.
+            - "detailed": Full hierarchical objectives with subordinates
+        assess: If True, include status assessment (achieved/not_achieved/in_progress)
+            for each objective. Requires at least "default" context (finish action).
         force_refresh: If True, ignore cached analysis
 
     Returns:
@@ -459,8 +486,7 @@ def analyze_objectives(
 
     # Select prompt based on detail level and assess flag
     if detail == "detailed":
-        # Detailed mode always includes assessment
-        system_prompt = PROMPT_DETAILED
+        system_prompt = PROMPT_DETAILED_ASSESS if assess else PROMPT_DETAILED
     elif assess:
         # Assessment variants for brief/standard
         system_prompt = PROMPT_BRIEF_ASSESS if detail == "brief" else PROMPT_STANDARD_ASSESS
@@ -511,12 +537,21 @@ def analyze_objectives(
 
     # Build analysis object based on detail level
     if detail == "detailed":
-        # Full hierarchical analysis (always includes assessment)
+        # Full hierarchical analysis
         def parse_objective(obj_data: dict) -> Objective:
+            # Only parse status/evidence when assess=True
+            status = None
+            evidence = None
+            if assess:
+                status_str = obj_data.get("status")
+                if status_str:
+                    status = ObjectiveStatus(status_str)
+                evidence = obj_data.get("evidence")
+
             return Objective(
                 description=obj_data.get("description", ""),
-                status=ObjectiveStatus(obj_data.get("status", "unclear")),
-                evidence=obj_data.get("evidence"),
+                status=status,
+                evidence=evidence,
                 subordinates=[
                     parse_objective(sub) for sub in obj_data.get("subordinates", [])
                 ],
@@ -534,7 +569,7 @@ def analyze_objectives(
             content_hash=content_hash,
             context_level=effective_context,
             detail_level=detail,
-            assess=True,  # detailed always assesses
+            assess=assess,
             primary_objectives=primary_objectives,
             summary=result.get("summary"),
         )
