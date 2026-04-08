@@ -1203,6 +1203,7 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
     default="default",
     help="Context level: minimal (user only), default (user+finish), full (all messages)",
 )
+@click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def objectives(
@@ -1212,12 +1213,15 @@ def objectives(
     detail: str,
     assess: bool,
     context: str,
+    no_outputs: bool,
     json_output: bool,
     verbose: bool,
 ) -> None:
     """Identify what the user hopes to achieve in a conversation.
 
-    By default, outputs a brief 1-2 sentence description of the user's goal.
+    By default, outputs a brief 1-2 sentence description of the user's goal,
+    followed by any outputs (repositories pushed, PRs created/merged, issues
+    modified). Use --no-outputs to hide the outputs section.
 
     \b
     Detail levels:
@@ -1261,41 +1265,42 @@ def objectives(
         raise SystemExit(1)
 
     # Check for cached analysis first if not refreshing
+    analysis = None
     if not refresh:
-        cached = get_cached_analysis(conv_dir, context=context, detail=detail, assess=assess)  # type: ignore[arg-type]
-        if cached:
-            if json_output:
-                console.print(cached.model_dump_json(indent=2))
-            else:
-                _display_objectives(conv_id, title, cached)
-            return
+        analysis = get_cached_analysis(conv_dir, context=context, detail=detail, assess=assess)  # type: ignore[arg-type]
 
-    # Run analysis
-    try:
-        analysis = analyze_objectives(
-            conv_dir, model=model, context=context, detail=detail, assess=assess, force_refresh=refresh  # type: ignore[arg-type]
-        )
-    except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}")
-        raise SystemExit(1)
-    except RuntimeError as e:
-        console.print(f"[red]Analysis failed:[/red] {e}")
-        raise SystemExit(1)
-    except Exception as e:
-        # Catch LLM configuration errors
-        if "api_key" in str(e).lower() or "LLM_" in str(e):
-            console.print(
-                "[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
+    # Run analysis if not cached
+    if analysis is None:
+        try:
+            analysis = analyze_objectives(
+                conv_dir, model=model, context=context, detail=detail, assess=assess, force_refresh=refresh  # type: ignore[arg-type]
             )
-            console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
-        else:
+        except ValueError as e:
             console.print(f"[red]Error:[/red] {e}")
-        raise SystemExit(1)
+            raise SystemExit(1)
+        except RuntimeError as e:
+            console.print(f"[red]Analysis failed:[/red] {e}")
+            raise SystemExit(1)
+        except Exception as e:
+            # Catch LLM configuration errors
+            if "api_key" in str(e).lower() or "LLM_" in str(e):
+                console.print(
+                    "[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
+                )
+                console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
+            else:
+                console.print(f"[red]Error:[/red] {e}")
+            raise SystemExit(1)
 
+    # Display results
     if json_output:
         console.print(analysis.model_dump_json(indent=2))
     else:
         _display_objectives(conv_id, title, analysis)
+
+        # Show outputs (repos, PRs, issues) unless suppressed
+        if not no_outputs:
+            _display_outputs(conv_dir)
 
 
 def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis") -> None:
@@ -1418,6 +1423,30 @@ def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis")
         f"\n[dim]Analyzed: {analysis.analyzed_at.strftime('%Y-%m-%d %H:%M')} UTC • "
         f"Model: {analysis.model_used} • Context: {context_level}[/dim]"
     )
+
+
+def _display_outputs(conv_dir: Path) -> None:
+    """Display outputs (repos, PRs, issues modified) for a conversation."""
+    # Extract references and detect interactions
+    refs = _extract_refs_from_conversation(conv_dir)
+
+    if not any(refs.values()):
+        return  # No refs to display
+
+    interactions = _detect_interactions_from_conversation(conv_dir, refs)
+
+    # Only show items that have write actions
+    has_actions = (
+        any(interactions.repos.values())
+        or any(interactions.prs.values())
+        or any(interactions.issues.values())
+    )
+
+    if not has_actions:
+        return  # No actions to display
+
+    console.print("\n[bold]Outputs:[/bold]")
+    _display_actions_only(interactions)
 
 
 def _find_conversation_dir(config: Config, conv_id: str) -> tuple[Path, bool] | None:
