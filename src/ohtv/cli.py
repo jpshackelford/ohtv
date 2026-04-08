@@ -1311,17 +1311,13 @@ def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis")
     # Status formatting
     status_colors = {
         "achieved": "green",
-        "partially_achieved": "yellow",
         "not_achieved": "red",
         "in_progress": "blue",
-        "unclear": "dim",
     }
     status_icons = {
         "achieved": "✓",
-        "partially_achieved": "◐",
         "not_achieved": "✗",
         "in_progress": "→",
-        "unclear": "?",
     }
 
     def format_status(status: str | None) -> str:

@@ -33,13 +33,18 @@ ContextLevel = Literal["minimal", "default", "full"]
 
 
 class ObjectiveStatus(str, Enum):
-    """Status of an objective in a conversation."""
+    """Status of an objective in a conversation.
+
+    We use a decisive, optimistic assessment approach:
+    - Assume success unless there's clear evidence of failure
+    - Look for negative signals: user frustration, repeated retries,
+      explicit errors, user giving up
+    - No "partially achieved" - decide achieved or not
+    """
 
     ACHIEVED = "achieved"
-    PARTIALLY_ACHIEVED = "partially_achieved"
     NOT_ACHIEVED = "not_achieved"
-    IN_PROGRESS = "in_progress"
-    UNCLEAR = "unclear"
+    IN_PROGRESS = "in_progress"  # Only for ongoing work with no conclusion
 
 
 class Objective(BaseModel):
@@ -84,7 +89,7 @@ _cache_manager = AnalysisCacheManager(ANALYSIS_CACHE_FILENAME, ObjectiveAnalysis
 DetailLevel = Literal["brief", "standard", "detailed"]
 
 # Status values for assessment
-STATUS_VALUES = "achieved|partially_achieved|not_achieved|in_progress|unclear"
+STATUS_VALUES = "achieved|not_achieved|in_progress"
 
 # =============================================================================
 # Prompts without assessment (default)
@@ -117,24 +122,34 @@ Respond with JSON:
 
 # =============================================================================
 # Prompts WITH assessment (--assess flag)
+#
+# Assessment philosophy: Be optimistic and decisive.
+# - Assume success unless there's clear evidence of failure
+# - Failure signals: user frustration, repeated retry requests, explicit errors,
+#   user giving up, negative feedback
+# - No "partially achieved" - make a decision
 # =============================================================================
 
 PROMPT_BRIEF_ASSESS = """Analyze this conversation between a user and an AI coding assistant.
 
 1. In 1-2 sentences, describe: What outcome does the user hope to achieve?
-2. Assess whether the goal was achieved based on the conversation outcome.
+2. Assess whether the goal was achieved.
+
+ASSESSMENT APPROACH: Be optimistic and decisive.
+- Assume SUCCESS unless there is clear evidence of failure
+- Failure signals: user frustration, requests to retry followed by giving up,
+  explicit errors that weren't resolved, negative feedback
+- Do NOT use "partially achieved" - decide achieved or not achieved
 
 Status values:
-- achieved: Goal was fully accomplished
-- partially_achieved: Some progress made but not complete
-- not_achieved: Goal was not accomplished
-- in_progress: Work ongoing with no clear conclusion
-- unclear: Cannot determine
+- achieved: Goal was accomplished (default assumption unless failure signals present)
+- not_achieved: Clear evidence of failure (errors, user frustration, giving up)
+- in_progress: Conversation ended mid-work with no conclusion
 
 Respond with JSON:
 {
   "goal": "1-2 sentence description of what the user wants to accomplish",
-  "status": "achieved|partially_achieved|not_achieved|in_progress|unclear"
+  "status": "achieved|not_achieved|in_progress"
 }"""
 
 PROMPT_STANDARD_ASSESS = """Analyze this conversation between a user and an AI coding assistant.
@@ -145,17 +160,21 @@ Identify:
 3. Secondary outcomes if any (3-6 bullets max)
 4. Overall status of goal achievement
 
+ASSESSMENT APPROACH: Be optimistic and decisive.
+- Assume SUCCESS unless there is clear evidence of failure
+- Failure signals: user frustration, requests to retry followed by giving up,
+  explicit errors that weren't resolved, negative feedback
+- Do NOT use "partially achieved" - decide achieved or not achieved
+
 Status values:
-- achieved: Goal was fully accomplished
-- partially_achieved: Some progress made but not complete
-- not_achieved: Goal was not accomplished
-- in_progress: Work ongoing with no clear conclusion
-- unclear: Cannot determine
+- achieved: Goal was accomplished (default assumption unless failure signals present)
+- not_achieved: Clear evidence of failure (errors, user frustration, giving up)
+- in_progress: Conversation ended mid-work with no conclusion
 
 Respond with JSON:
 {
   "goal": "1-2 sentence description of the primary goal",
-  "status": "achieved|partially_achieved|not_achieved|in_progress|unclear",
+  "status": "achieved|not_achieved|in_progress",
   "primary_outcomes": ["outcome 1", "outcome 2"],
   "secondary_outcomes": ["outcome 1", "outcome 2"]
 }"""
@@ -166,21 +185,25 @@ Given a conversation between a user and an AI coding assistant, identify:
 1. PRIMARY OBJECTIVES: The main goals the user is trying to accomplish
 2. SUBORDINATE OBJECTIVES: Supporting goals that help achieve the primary ones
 
-For each objective, assess its status:
-- achieved: The objective was fully accomplished
-- partially_achieved: Some progress was made but not complete
-- not_achieved: The objective was not accomplished
-- in_progress: Work is ongoing with no clear conclusion
-- unclear: Cannot determine the status from the conversation
+ASSESSMENT APPROACH: Be optimistic and decisive.
+- Assume SUCCESS unless there is clear evidence of failure
+- Failure signals: user frustration, requests to retry followed by giving up,
+  explicit errors that weren't resolved, negative feedback
+- Do NOT use "partially achieved" - decide achieved or not achieved
 
-Provide evidence from the conversation to support your assessment.
+For each objective, assess its status:
+- achieved: Objective was accomplished (default assumption unless failure signals present)
+- not_achieved: Clear evidence of failure (errors, user frustration, giving up)
+- in_progress: Work is ongoing with no conclusion yet
+
+Provide brief evidence from the conversation to support your assessment.
 
 Respond with a JSON object in this exact format:
 {
   "primary_objectives": [
     {
       "description": "Clear description of the objective",
-      "status": "achieved|partially_achieved|not_achieved|in_progress|unclear",
+      "status": "achieved|not_achieved|in_progress",
       "evidence": "Brief quote or reference from conversation",
       "subordinates": [
         {
