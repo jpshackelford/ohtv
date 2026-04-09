@@ -448,6 +448,10 @@ def list_conversations(
             since = since or week_start
             until = until or week_end
 
+    # Date filters imply --all (show all matching records)
+    if since is not None or until is not None:
+        show_all = True
+
     # Load conversations from both sources
     conversations = _load_all_conversations(config)
 
