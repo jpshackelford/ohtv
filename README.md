@@ -118,8 +118,11 @@ ohtv show abc123 -s -O
 # Show full action details
 ohtv show abc123 -d
 
-# Include thinking/reasoning blocks
-ohtv show abc123 -m -t
+# Show thinking/reasoning blocks
+ohtv show abc123 -t
+
+# Show user messages with thinking
+ohtv show abc123 -u -t
 
 # Include git refs summary at end
 ohtv show abc123 -m -R
@@ -140,7 +143,7 @@ ohtv show abc123 -A -r -n 5
 | `-s, --action-summaries` | Include brief tool call summaries |
 | `-d, --action-details` | Include full tool call details |
 | `-O, --outputs` | Include tool call outputs/observations |
-| `-t, --thinking` | Include thinking/reasoning blocks |
+| `-t, --thinking` | Show thinking/reasoning blocks (think actions) |
 | `-T, --timestamps` | Include timestamps on events |
 | `-R, --refs` | Show git refs with write actions at end |
 
@@ -157,7 +160,7 @@ ohtv show abc123 -A -r -n 5
 | `-r, --reverse` | Show newest events first |
 | `-n, --max N` | Maximum number of events to show |
 | `-k, --offset N` | Skip first N events |
-| `-F, --format` | Output format: `markdown`, `json`, `text` |
+| `-F, --format` | Output format: `text` (default), `markdown`, `json` |
 | `-o, --output FILE` | Write output to file |
 
 ---
