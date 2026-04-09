@@ -57,6 +57,23 @@ ohtv list --include-empty
 # Output as JSON or CSV
 ohtv list -F json
 ohtv list -F csv -o conversations.csv
+
+# Filter by date range
+ohtv list --since 2024-01-01
+ohtv list --until 2024-06-30
+ohtv list --since 2024-01-01 --until 2024-03-31
+
+# Show today's conversations
+ohtv list --day
+
+# Show conversations from a specific day
+ohtv list --day 2024-03-15
+
+# Show this week's conversations (weeks start Sunday)
+ohtv list --week
+
+# Show conversations from a specific week
+ohtv list --week 2024-03-15
 ```
 
 **Options:**
@@ -69,6 +86,11 @@ ohtv list -F csv -o conversations.csv
 | `-e, --include-empty` | Include conversations with no events |
 | `-F, --format` | Output format: `table`, `json`, `csv` |
 | `-o, --output FILE` | Write output to file |
+| `-S, --since DATE` | Show conversations from DATE onwards |
+| `-U, --until DATE` | Show conversations up to DATE |
+| `-D, --day [DATE]` | Show conversations from a single day (default: today) |
+| `-W, --week [DATE]` | Show conversations from the week containing DATE (default: today, weeks start Sunday) |
+| `-v, --verbose` | Show debug output |
 
 ---
 
