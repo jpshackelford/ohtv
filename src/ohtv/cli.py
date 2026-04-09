@@ -668,9 +668,9 @@ def _format_duration(duration: timedelta | None) -> str:
 @click.option("--offset", "-k", type=int, default=0, help="Skip first N events")
 @click.option(
     "--format", "-F", "fmt",
-    type=click.Choice(["markdown", "json", "text"]),
-    default="markdown",
-    help="Output format (default: markdown)",
+    type=click.Choice(["text", "markdown", "json"]),
+    default="text",
+    help="Output format (default: text)",
 )
 @click.option("--output", "-o", type=click.Path(), help="Write output to file")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
@@ -930,6 +930,9 @@ def _filter_events(
                 tool_name = event.get("tool_name", "")
                 if tool_name == "finish" and include_finish:
                     filtered.append(event)
+                elif tool_name == "think" and thinking:
+                    # Include think actions when -t flag is used
+                    filtered.append(event)
                 elif tool_name != "finish" and include_actions:
                     filtered.append(event)
             elif kind == "MessageEvent" and agent_messages:
@@ -1137,6 +1140,52 @@ def _extract_observation_content(event: dict) -> str:
     return ""
 
 
+def _extract_thinking_content(event: dict) -> str:
+    """Extract thinking/reasoning content from an action event.
+
+    Handles multiple formats:
+    - Think tool (cloud): action.thought contains the thought text
+    - Think tool (local CLI): thought field as list of content items
+    - General reasoning: reasoning_content field
+    - Thinking blocks: thinking_blocks list with type="thinking"
+    """
+    parts = []
+
+    # Think tool: action.thought (cloud format)
+    action = event.get("action", {})
+    if isinstance(action, dict):
+        action_thought = action.get("thought", "")
+        if action_thought and isinstance(action_thought, str):
+            parts.append(action_thought)
+
+    # Think tool: thought field (local CLI format - list of content items)
+    thought = event.get("thought", [])
+    if isinstance(thought, list):
+        for item in thought:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text = item.get("text", "")
+                if text:
+                    parts.append(text)
+    elif isinstance(thought, str) and thought:
+        parts.append(thought)
+
+    # General reasoning content
+    reasoning = event.get("reasoning_content", "")
+    if reasoning:
+        parts.append(reasoning)
+
+    # Thinking blocks (alternative format)
+    thinking_blocks = event.get("thinking_blocks", [])
+    if isinstance(thinking_blocks, list):
+        for block in thinking_blocks:
+            if isinstance(block, dict) and block.get("type") == "thinking":
+                text = block.get("thinking", "")
+                if text:
+                    parts.append(text)
+
+    return "\n\n".join(parts)
+
+
 def _format_event(
     event: dict,
     fmt: str,
@@ -1168,22 +1217,15 @@ def _format_event(
 
         # Thinking/reasoning content
         if thinking:
-            reasoning = event.get("reasoning_content", "")
-            thinking_blocks = event.get("thinking_blocks", [])
-            if reasoning:
+            thinking_content = _extract_thinking_content(event)
+            if thinking_content:
                 if fmt == "markdown":
                     lines.append(f"### {ts_prefix}Thinking")
-                    lines.append(f"> {reasoning}")
+                    # Quote each line for markdown blockquote
+                    quoted = "\n> ".join(thinking_content.split("\n"))
+                    lines.append(f"> {quoted}")
                 else:
-                    lines.append(f"{ts_prefix}THINKING: {reasoning}")
-            elif thinking_blocks:
-                for block in thinking_blocks:
-                    if isinstance(block, dict) and block.get("type") == "thinking":
-                        if fmt == "markdown":
-                            lines.append(f"### {ts_prefix}Thinking")
-                            lines.append(f"> {block.get('thinking', '')}")
-                        else:
-                            lines.append(f"{ts_prefix}THINKING: {block.get('thinking', '')}")
+                    lines.append(f"{ts_prefix}THINKING: {thinking_content}")
 
         # Action summary or details
         if fmt == "markdown":
