@@ -655,8 +655,10 @@ def _format_duration(duration: timedelta | None) -> str:
 @click.option("--agent-messages", "-a", is_flag=True, help="Include agent's response messages")
 @click.option("--finish", "-f", "include_finish", is_flag=True, help="Include finish action message")
 @click.option("--action-summaries", "-s", is_flag=True, help="Include brief tool call summaries")
-@click.option("--action-details", "-d", is_flag=True, help="Include full tool call details")
-@click.option("--outputs", "-O", is_flag=True, help="Include tool call outputs/observations")
+@click.option("--action-details", "-d", is_flag=True, help="Include human-readable tool call details")
+@click.option("--trunc-output", "-o", "trunc_output", is_flag=True, help="Include tool outputs (truncated)")
+@click.option("--full-output", "-O", "full_output", is_flag=True, help="Include tool outputs (full)")
+@click.option("--debug-tool-call", is_flag=True, help="Include raw tool_call JSON and observation metadata")
 @click.option("--thinking", "-t", is_flag=True, help="Include thinking/reasoning blocks")
 @click.option("--timestamps", "-T", is_flag=True, help="Include timestamps on events")
 @click.option("--refs", "-R", "show_refs", is_flag=True, help="Show git refs with write actions")
@@ -672,7 +674,7 @@ def _format_duration(duration: timedelta | None) -> str:
     default="text",
     help="Output format (default: text)",
 )
-@click.option("--output", "-o", type=click.Path(), help="Write output to file")
+@click.option("--file", type=click.Path(), help="Write output to file")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def show(
     conversation_id: str,
@@ -681,7 +683,9 @@ def show(
     include_finish: bool,
     action_summaries: bool,
     action_details: bool,
-    outputs: bool,
+    trunc_output: bool,
+    full_output: bool,
+    debug_tool_call: bool,
     thinking: bool,
     timestamps: bool,
     show_refs: bool,
@@ -692,7 +696,7 @@ def show(
     limit: int | None,
     offset: int,
     fmt: str,
-    output: str | None,
+    file: str | None,
     verbose: bool,
 ) -> None:
     """Show a conversation's content and statistics."""
@@ -705,10 +709,15 @@ def show(
         raise SystemExit(1)
     conv_dir, is_cloud = result
 
+    # Normalize output flags: full_output implies trunc_output behavior (but full)
+    show_outputs = trunc_output or full_output
+
     # Expand shorthand flags
     if include_all:
         user_messages = agent_messages = include_finish = True
-        action_summaries = action_details = outputs = thinking = timestamps = True
+        action_summaries = action_details = True
+        full_output = show_outputs = True
+        debug_tool_call = thinking = timestamps = True
         show_refs = True
     if messages:
         user_messages = agent_messages = include_finish = True
@@ -724,7 +733,7 @@ def show(
     # If no content flags specified (and not stats-only), show summary only
     show_content = (
         user_messages or agent_messages or include_finish or
-        action_summaries or action_details or outputs or thinking
+        action_summaries or action_details or show_outputs or thinking
     )
 
     # Stats-only mode: show statistics and exit
@@ -732,7 +741,7 @@ def show(
         output_text = _format_show_stats(
             conv_id, title, first_ts, last_ts, event_counts, fmt
         )
-        _write_or_print_output(output_text, output, fmt)
+        _write_or_print_output(output_text, file, fmt)
         # Show refs after stats if requested
         if show_refs:
             _show_refs_summary(conv_dir)
@@ -746,7 +755,7 @@ def show(
         include_finish=include_finish,
         action_summaries=action_summaries,
         action_details=action_details,
-        outputs=outputs,
+        outputs=show_outputs,
         thinking=thinking,
     )
 
@@ -775,9 +784,11 @@ def show(
         timestamps=timestamps,
         action_details=action_details,
         thinking=thinking,
+        full_output=full_output,
+        debug_tool_call=debug_tool_call,
     )
 
-    _write_or_print_output(output_text, output, fmt)
+    _write_or_print_output(output_text, file, fmt)
 
     # Show refs after main output if requested
     if show_refs:
@@ -1030,6 +1041,8 @@ def _format_show_output(
     timestamps: bool,
     action_details: bool,
     thinking: bool,
+    full_output: bool = False,
+    debug_tool_call: bool = False,
 ) -> str:
     """Format full output with events."""
     if fmt == "json":
@@ -1041,7 +1054,10 @@ def _format_show_output(
 
     event_lines = []
     for event in events:
-        formatted = _format_event(event, fmt, timestamps, action_details, thinking)
+        formatted = _format_event(
+            event, fmt, timestamps, action_details, thinking,
+            full_output=full_output, debug_tool_call=debug_tool_call,
+        )
         if formatted:
             event_lines.append(formatted)
 
@@ -1197,6 +1213,8 @@ def _format_event(
     timestamps: bool,
     action_details: bool,
     thinking: bool,
+    full_output: bool = False,
+    debug_tool_call: bool = False,
 ) -> str:
     """Format a single event for display."""
     source = event.get("source", "")
@@ -1234,23 +1252,28 @@ def _format_event(
 
         # Action summary or details
         if fmt == "markdown":
+            lines.append(f"## {ts_prefix}Action: {tool_name}")
+            if summary:
+                lines.append(f"*{summary}*")
             if action_details:
-                lines.append(f"## {ts_prefix}Action: {tool_name}")
-                if summary:
-                    lines.append(f"*{summary}*")
-                lines.append("```json")
-                lines.append(json.dumps(action, indent=2))
-                lines.append("```")
-            else:
-                lines.append(f"## {ts_prefix}Action: {tool_name}")
-                if summary:
-                    lines.append(summary)
+                detail_text = _format_action_details(tool_name, action)
+                if detail_text:
+                    lines.append(f"```\n{detail_text}\n```")
+            if debug_tool_call:
+                tool_call = event.get("tool_call", {})
+                if tool_call:
+                    lines.append("**Raw tool_call:**")
+                    lines.append(f"```json\n{json.dumps(tool_call, indent=2)}\n```")
         else:
+            lines.append(f"{ts_prefix}ACTION ({tool_name}): {summary}")
             if action_details:
-                lines.append(f"{ts_prefix}ACTION ({tool_name}): {summary}")
-                lines.append(json.dumps(action, indent=2))
-            else:
-                lines.append(f"{ts_prefix}ACTION ({tool_name}): {summary}")
+                detail_text = _format_action_details(tool_name, action)
+                if detail_text:
+                    lines.append(detail_text)
+            if debug_tool_call:
+                tool_call = event.get("tool_call", {})
+                if tool_call:
+                    lines.append(f"  [tool_call: {json.dumps(tool_call)}]")
 
     elif source == "agent" and kind == "MessageEvent":
         content = _extract_message_content(event)
@@ -1263,22 +1286,101 @@ def _format_event(
 
     elif source == "environment" and kind == "ObservationEvent":
         tool_name = event.get("tool_name", "unknown")
+        obs = event.get("observation", {})
         content = _extract_observation_content(event)
+        exit_code = obs.get("exit_code")
+
+        # Build header with exit code
+        exit_info = f" [exit: {exit_code}]" if exit_code is not None else ""
+
+        # Add metadata for debug mode
+        metadata_info = ""
+        if debug_tool_call:
+            metadata = obs.get("metadata", {})
+            working_dir = metadata.get("working_dir") or obs.get("path", "")
+            if working_dir:
+                metadata_info = f" cwd: {working_dir}"
+
         if fmt == "markdown":
-            lines.append(f"## {ts_prefix}Output ({tool_name})")
+            lines.append(f"## {ts_prefix}Output ({tool_name}){exit_info}")
+            if metadata_info:
+                lines.append(f"*{metadata_info.strip()}*")
             lines.append("```")
-            lines.append(content[:2000] if len(content) > 2000 else content)
-            if len(content) > 2000:
-                lines.append(f"... (truncated, {len(content)} chars total)")
+            if full_output:
+                lines.append(content)
+            else:
+                lines.append(content[:2000] if len(content) > 2000 else content)
+                if len(content) > 2000:
+                    lines.append(f"... (truncated, {len(content)} chars total)")
             lines.append("```")
         else:
-            lines.append(f"{ts_prefix}OUTPUT ({tool_name}):")
-            truncated = content[:2000] if len(content) > 2000 else content
-            lines.append(truncated)
-            if len(content) > 2000:
-                lines.append(f"... (truncated, {len(content)} chars total)")
+            header = f"{ts_prefix}OUTPUT ({tool_name}){exit_info}:"
+            if metadata_info:
+                header = f"{ts_prefix}OUTPUT ({tool_name}){exit_info} [{metadata_info.strip()}]:"
+            lines.append(header)
+            if full_output:
+                lines.append(content)
+            else:
+                truncated = content[:2000] if len(content) > 2000 else content
+                lines.append(truncated)
+                if len(content) > 2000:
+                    lines.append(f"... (truncated, {len(content)} chars total)")
 
     return "\n".join(lines)
+
+
+def _format_action_details(tool_name: str, action: dict) -> str:
+    """Format action details in a human-readable way based on tool type."""
+    action_kind = action.get("kind", "")
+
+    if action_kind == "TerminalAction" or tool_name == "terminal":
+        command = action.get("command", "")
+        if command:
+            return f"$ {command}"
+        return ""
+
+    elif action_kind == "FileEditorAction" or tool_name == "file_editor":
+        cmd = action.get("command", "")
+        path = action.get("path", "")
+        if cmd == "view":
+            view_range = action.get("view_range")
+            if view_range:
+                return f"view {path} [lines {view_range[0]}-{view_range[1]}]"
+            return f"view {path}"
+        elif cmd == "create":
+            return f"create {path}"
+        elif cmd == "str_replace":
+            return f"edit {path} (str_replace)"
+        elif cmd == "insert":
+            line = action.get("insert_line", "?")
+            return f"edit {path} (insert after line {line})"
+        elif cmd == "undo_edit":
+            return f"undo_edit {path}"
+        return f"{cmd} {path}" if cmd else path
+
+    elif action_kind == "ThinkAction" or tool_name == "think":
+        thought = action.get("thought", "")
+        if thought:
+            return thought[:200] + "..." if len(thought) > 200 else thought
+        return ""
+
+    elif action_kind == "FinishAction" or tool_name == "finish":
+        message = action.get("message", "")
+        if message:
+            return message[:200] + "..." if len(message) > 200 else message
+        return ""
+
+    # For other tools, show key parameters (excluding 'kind')
+    params = {k: v for k, v in action.items() if k != "kind" and v is not None}
+    if params:
+        # Format as key=value pairs
+        parts = []
+        for k, v in params.items():
+            if isinstance(v, str) and len(v) > 100:
+                v = v[:100] + "..."
+            parts.append(f"{k}={v}")
+        return ", ".join(parts)
+    return ""
 
 
 @main.command()

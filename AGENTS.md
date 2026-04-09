@@ -34,13 +34,28 @@ uv run ohtv --help         # Run CLI
 
 6. **LLM timeout configuration**: The SDK uses a 300-second (5 minute) default timeout. For very long conversations or slow models, users can increase it via `LLM_TIMEOUT` environment variable (e.g., `export LLM_TIMEOUT=600` for 10 minutes). The CLI shows a spinner during analysis for user feedback.
 
+7. **Human-readable action details**: The `--action-details` (`-d`) flag shows tool actions in human-readable format rather than raw JSON:
+   - **terminal**: `$ <command>` (shows the actual shell command)
+   - **file_editor**: `view /path/to/file` or `edit /path (str_replace)`
+   - **Other tools**: Key parameters in `key=value` format
+   
+   Use `--debug-tool-call` for raw `tool_call` JSON when debugging LLM outputs.
+
+8. **Output truncation control**: Tool outputs (ObservationEvents) can be shown with:
+   - `-o/--trunc-output`: Truncated to 2000 chars (default for quick review)
+   - `-O/--full-output`: Full output without truncation (for detailed debugging)
+   
+   Both options always show exit codes for terminal commands and working directory in debug mode.
+
 ## Testing
 
 No automated tests. Manual testing with real conversation data:
 ```bash
 uv run ohtv list -A                    # All conversations
 uv run ohtv show <id> -m               # Messages
-uv run ohtv show <id> -s -O            # Actions with outputs
+uv run ohtv show <id> -s -d -o         # Actions with human-readable details and truncated outputs
+uv run ohtv show <id> -s -d -O         # Actions with full outputs
+uv run ohtv show <id> -s --debug-tool-call  # Debug mode with raw tool_call JSON
 uv run ohtv refs <id>                  # Git references
 uv run ohtv objectives <id>            # Objective analysis (requires LLM_API_KEY)
 uv run ohtv summary -D                 # Today's conversation summaries (requires LLM_API_KEY)

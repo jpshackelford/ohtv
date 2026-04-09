@@ -115,11 +115,17 @@ ohtv show abc123 --all
 # Show messages with timestamps
 ohtv show abc123 -m -T
 
-# Show action summaries with their outputs
+# Show action summaries with truncated outputs
+ohtv show abc123 -s -o
+
+# Show action details (human-readable: shows shell commands, file paths, etc.)
+ohtv show abc123 -s -d
+
+# Show full outputs (no truncation)
 ohtv show abc123 -s -O
 
-# Show full action details
-ohtv show abc123 -d
+# Debug mode: show raw tool_call JSON and observation metadata
+ohtv show abc123 -s -d -o --debug-tool-call
 
 # Show thinking/reasoning blocks
 ohtv show abc123 -t
@@ -131,7 +137,7 @@ ohtv show abc123 -u -t
 ohtv show abc123 -m -R
 
 # Output as JSON
-ohtv show abc123 -A -F json -o conversation.json
+ohtv show abc123 -A -F json --file conversation.json
 
 # Show only last 5 events, newest first
 ohtv show abc123 -A -r -n 5
@@ -144,8 +150,10 @@ ohtv show abc123 -A -r -n 5
 | `-a, --agent-messages` | Include agent's response messages |
 | `-f, --finish` | Include finish action message |
 | `-s, --action-summaries` | Include brief tool call summaries |
-| `-d, --action-details` | Include full tool call details |
-| `-O, --outputs` | Include tool call outputs/observations |
+| `-d, --action-details` | Include human-readable tool call details (e.g., `$ git status` for terminal) |
+| `-o, --trunc-output` | Include tool outputs (truncated to 2000 chars) with exit codes |
+| `-O, --full-output` | Include full tool outputs (no truncation) with exit codes |
+| `--debug-tool-call` | Include raw tool_call JSON and observation metadata (working dir, etc.) |
 | `-t, --thinking` | Show thinking/reasoning blocks (think actions) |
 | `-T, --timestamps` | Include timestamps on events |
 | `-R, --refs` | Show git refs with write actions at end |
@@ -154,7 +162,7 @@ ohtv show abc123 -A -r -n 5
 | Flag | Equivalent to |
 |------|---------------|
 | `-m, --messages` | `-u -a -f` (user + agent + finish) |
-| `-A, --all` | All content flags enabled |
+| `-A, --all` | All content flags enabled (including `--full-output` and `--debug-tool-call`) |
 | `-S, --stats` | Statistics only, no content |
 
 **Display Options:**
@@ -164,7 +172,7 @@ ohtv show abc123 -A -r -n 5
 | `-n, --max N` | Maximum number of events to show |
 | `-k, --offset N` | Skip first N events |
 | `-F, --format` | Output format: `text` (default), `markdown`, `json` |
-| `-o, --output FILE` | Write output to file |
+| `--file PATH` | Write output to file |
 
 ---
 
