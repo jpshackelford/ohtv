@@ -336,6 +336,60 @@ def _format_time(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
+def _parse_date_option(value: str | None) -> datetime | None:
+    """Parse a date option value, supporting 'today' keyword and standard formats."""
+    if value is None:
+        return None
+    if value.lower() == "today":
+        return datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # Try parsing with click's DateTime
+    try:
+        return click.DateTime().convert(value, None, None)
+    except click.BadParameter:
+        raise click.BadParameter(f"Invalid date format: {value}")
+
+
+def _get_week_bounds(date: datetime) -> tuple[datetime, datetime]:
+    """Get the start (Sunday) and end (Saturday) of the week containing the date."""
+    # weekday() returns 0=Monday, 6=Sunday
+    # We want Sunday as start of week
+    days_since_sunday = (date.weekday() + 1) % 7
+    week_start = date - timedelta(days=days_since_sunday)
+    week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+    return week_start, week_end
+
+
+def _get_day_bounds(date: datetime) -> tuple[datetime, datetime]:
+    """Get the start and end of a day."""
+    day_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1) - timedelta(microseconds=1)
+    return day_start, day_end
+
+
+def _filter_by_date_range(
+    conversations: list[ConversationInfo],
+    since: datetime | None,
+    until: datetime | None,
+) -> list[ConversationInfo]:
+    """Filter conversations by created_at date range."""
+    if since is None and until is None:
+        return conversations
+
+    filtered = []
+    for conv in conversations:
+        if conv.created_at is None:
+            continue
+        # Normalize to naive datetime for comparison (strip timezone)
+        created = conv.created_at.replace(tzinfo=None) if conv.created_at.tzinfo else conv.created_at
+        if since and created < since:
+            continue
+        if until and created > until:
+            continue
+        filtered.append(conv)
+    return filtered
+
+
 @main.command("list")
 @click.option("--reverse", "-r", is_flag=True, help="Show oldest first (default: newest first)")
 @click.option("--max", "-n", "limit", type=int, help="Maximum conversations to show (default: 10)")
@@ -349,6 +403,12 @@ def _format_time(dt: datetime) -> str:
 )
 @click.option("--output", "-o", type=click.Path(), help="Write output to file")
 @click.option("--include-empty", "-e", is_flag=True, help="Include conversations with no events")
+@click.option("--since", "-S", "since_date", help="Show conversations from DATE onwards")
+@click.option("--until", "-U", "until_date", help="Show conversations up to DATE")
+@click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
+              help="Show conversations from a single day (default: today)")
+@click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
+              help="Show conversations from the week containing DATE (default: today, weeks start Sunday)")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def list_conversations(
     reverse: bool,
@@ -358,11 +418,35 @@ def list_conversations(
     fmt: str,
     output: str | None,
     include_empty: bool,
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
     verbose: bool,
 ) -> None:
     """List available conversations from local and cloud sources."""
     _init_logging(verbose=verbose)
     config = Config.from_env()
+
+    # Parse date filters
+    since = _parse_date_option(since_date)
+    until = _parse_date_option(until_date)
+
+    # Handle --day shortcut
+    if day_date is not None:
+        day = _parse_date_option(day_date)
+        if day:
+            day_start, day_end = _get_day_bounds(day)
+            since = since or day_start
+            until = until or day_end
+
+    # Handle --week shortcut
+    if week_date is not None:
+        week = _parse_date_option(week_date)
+        if week:
+            week_start, week_end = _get_week_bounds(week)
+            since = since or week_start
+            until = until or week_end
 
     # Load conversations from both sources
     conversations = _load_all_conversations(config)
@@ -370,6 +454,9 @@ def list_conversations(
     # Filter out empty conversations (0 events) unless --include-empty
     if not include_empty:
         conversations = [c for c in conversations if c.event_count > 0]
+
+    # Apply date filtering
+    conversations = _filter_by_date_range(conversations, since, until)
 
     total_count = len(conversations)
     local_count = sum(1 for c in conversations if c.source == "local")
