@@ -3,9 +3,15 @@
 Provides a base class and utilities for caching analysis results with
 automatic invalidation when conversation content changes.
 
+Cache design:
+- Multiple analyses with different parameters are stored in a single file
+- Each analysis is keyed by its parameter combination (e.g., context_level, detail_level)
+- All analyses are invalidated when event count changes (conversation grew)
+- Individual analyses track their own content hash for finer invalidation
+
 Cache invalidation strategy:
 1. Quick check: Compare event count (fast, catches trajectory growth)
-2. Full check: Compare content hash (catches any content changes)
+2. Full check: Compare content hash per analysis (catches content changes)
 """
 
 import hashlib
@@ -13,7 +19,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -72,68 +78,35 @@ def compute_content_hash(content: str | list | dict) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
-def load_cached_analysis(
-    cache_file: Path,
-    model_class: type[T],
-    events: list[dict],
-    content_hash: str,
-) -> T | None:
-    """Load and validate a cached analysis.
+def _make_cache_key(**kwargs: Any) -> str:
+    """Create a cache key from keyword arguments.
 
     Args:
-        cache_file: Path to the cache JSON file.
-        model_class: Pydantic model class to parse the cache into.
-        events: Current events list (used for event count validation).
-        content_hash: Current content hash to validate against.
+        **kwargs: Parameters that distinguish different analysis types.
 
     Returns:
-        Validated analysis if cache is valid, None otherwise.
-
-    Cache is invalidated if:
-    - Cache file doesn't exist
-    - Event count has changed (quick check)
-    - Content hash has changed (full check)
+        A string key like "context=minimal,detail=brief,assess=False"
     """
-    if not cache_file.exists():
-        return None
-
-    try:
-        data = json.loads(cache_file.read_text())
-        analysis = model_class.model_validate(data)
-
-        # Quick check: event count
-        cached_event_count = getattr(analysis, "event_count", None)
-        current_event_count = len(events)
-        if cached_event_count is not None and cached_event_count != current_event_count:
-            log.debug(
-                "Cache invalidated: event count changed (%d -> %d)",
-                cached_event_count,
-                current_event_count,
-            )
-            return None
-
-        # Full check: content hash
-        if analysis.content_hash != content_hash:
-            log.debug("Cache invalidated: content hash mismatch")
-            return None
-
-        return analysis
-
-    except (json.JSONDecodeError, OSError, ValueError) as e:
-        log.warning("Failed to load cached analysis: %s", e)
-        return None
-
-
-def save_cached_analysis(cache_file: Path, analysis: CachedAnalysis) -> None:
-    """Save analysis to cache file."""
-    cache_file.write_text(analysis.model_dump_json(indent=2))
+    # Sort keys for consistent ordering
+    parts = [f"{k}={v}" for k, v in sorted(kwargs.items())]
+    return ",".join(parts) if parts else "default"
 
 
 class AnalysisCacheManager:
     """Manages caching for a specific analysis type.
 
-    Handles event loading, hash computation, cache validation, and storage.
-    Subclasses or users provide the content extraction logic.
+    Stores multiple analyses with different parameters in a single cache file.
+    Each analysis is keyed by its parameter combination, allowing different
+    analysis modes to coexist without overwriting each other.
+
+    Cache structure:
+    {
+        "event_count": 42,  # For quick invalidation check
+        "analyses": {
+            "context=minimal,detail=brief,assess=False": { ... analysis data ... },
+            "context=default,detail=standard,assess=True": { ... analysis data ... }
+        }
+    }
     """
 
     def __init__(
@@ -154,6 +127,27 @@ class AnalysisCacheManager:
         """Get the cache file path for a conversation."""
         return conv_dir / self.cache_filename
 
+    def _load_cache_data(self, cache_file: Path) -> dict | None:
+        """Load raw cache data from file."""
+        if not cache_file.exists():
+            return None
+        try:
+            data = json.loads(cache_file.read_text())
+
+            # Check for valid format (must have "analyses" key)
+            if "analyses" not in data:
+                log.debug("Invalid cache format, will be overwritten")
+                return None
+
+            return data
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning("Failed to load cache file: %s", e)
+            return None
+
+    def _save_cache_data(self, cache_file: Path, data: dict) -> None:
+        """Save raw cache data to file."""
+        cache_file.write_text(json.dumps(data, indent=2, default=str))
+
     def load_cached(
         self,
         conv_dir: Path,
@@ -167,36 +161,98 @@ class AnalysisCacheManager:
             conv_dir: Conversation directory
             events: Current events list
             content_hash: Current content hash
-            **validation_kwargs: Additional validation criteria (e.g., context_level).
-                Each kwarg is compared against the cached analysis attribute.
+            **validation_kwargs: Parameters that identify the analysis type
+                (e.g., context_level, detail_level, assess). Used both as
+                cache key and for validation.
 
         Returns:
-            Validated analysis or None if cache is invalid.
+            Validated analysis or None if cache is invalid/missing.
         """
         cache_file = self.get_cache_file(conv_dir)
+        cache_data = self._load_cache_data(cache_file)
 
-        analysis = load_cached_analysis(
-            cache_file, self.model_class, events, content_hash
-        )
-        if analysis is None:
+        if cache_data is None:
             return None
 
-        # Check additional validation criteria
+        # Quick check: event count (invalidates ALL cached analyses)
+        cached_event_count = cache_data.get("event_count")
+        current_event_count = len(events)
+        if cached_event_count is not None and cached_event_count != current_event_count:
+            log.debug(
+                "Cache invalidated: event count changed (%d -> %d)",
+                cached_event_count,
+                current_event_count,
+            )
+            return None
+
+        # Look up analysis by parameter key
+        cache_key = _make_cache_key(**validation_kwargs)
+        analyses = cache_data.get("analyses", {})
+
+        if cache_key not in analyses:
+            log.debug("Cache miss: no analysis for key '%s'", cache_key)
+            return None
+
+        # Parse the cached analysis
+        try:
+            analysis = self.model_class.model_validate(analyses[cache_key])
+        except (ValueError, TypeError) as e:
+            log.warning("Failed to parse cached analysis for key '%s': %s", cache_key, e)
+            return None
+
+        # Validate content hash (specific to this analysis's context level)
+        if analysis.content_hash != content_hash:
+            log.debug("Cache invalidated for key '%s': content hash mismatch", cache_key)
+            return None
+
+        # Validate that stored parameters match requested parameters
         for key, expected_value in validation_kwargs.items():
             cached_value = getattr(analysis, key, None)
             if cached_value != expected_value:
                 log.debug(
-                    "Cache invalidated: %s changed (%s -> %s)",
+                    "Cache invalidated for key '%s': %s changed (%s -> %s)",
+                    cache_key,
                     key,
                     cached_value,
                     expected_value,
                 )
                 return None
 
+        log.debug("Cache hit for key '%s'", cache_key)
         return analysis
 
-    def save(self, conv_dir: Path, analysis: T) -> None:
-        """Save analysis to cache."""
+    def save(self, conv_dir: Path, analysis: T, **key_kwargs) -> None:
+        """Save analysis to cache.
+
+        Args:
+            conv_dir: Conversation directory
+            analysis: Analysis result to cache
+            **key_kwargs: Parameters that identify the analysis type.
+                If not provided, extracts from analysis object attributes
+                matching common parameter names.
+        """
         cache_file = self.get_cache_file(conv_dir)
-        save_cached_analysis(cache_file, analysis)
-        log.debug("Analysis cached to %s", cache_file)
+
+        # Load existing cache data or create new
+        cache_data = self._load_cache_data(cache_file) or {}
+
+        # Update event count
+        cache_data["event_count"] = analysis.event_count
+
+        # Determine cache key from kwargs or analysis attributes
+        if not key_kwargs:
+            # Try to extract key parameters from common attribute names
+            for attr in ["context_level", "detail_level", "assess"]:
+                if hasattr(analysis, attr):
+                    key_kwargs[attr] = getattr(analysis, attr)
+
+        cache_key = _make_cache_key(**key_kwargs)
+
+        # Store analysis under its key
+        if "analyses" not in cache_data:
+            cache_data["analyses"] = {}
+
+        cache_data["analyses"][cache_key] = analysis.model_dump(mode="json")
+
+        self._save_cache_data(cache_file, cache_data)
+        log.debug("Analysis cached to %s (key: %s)", cache_file, cache_key)

@@ -37,7 +37,8 @@ class LocalSource:
 
     def _load_conversation_info(self, conv_dir: Path) -> ConversationInfo | None:
         """Load conversation info from a directory."""
-        conv_id = conv_dir.name
+        dir_name = conv_dir.name
+        conv_id = dir_name  # Default to directory name
         base_state = conv_dir / "base_state.json"
 
         title = None
@@ -91,6 +92,7 @@ class LocalSource:
             event_count=event_count,
             selected_repository=selected_repository,
             source=self.source_name,
+            dir_name=dir_name,  # Store actual directory name for lookup
         )
 
     def _count_events(self, conv_dir: Path) -> int:

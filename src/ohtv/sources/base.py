@@ -16,6 +16,7 @@ class ConversationInfo:
     event_count: int | None = None
     selected_repository: str | None = None
     source: str = "local"  # "local" or "cloud"
+    dir_name: str | None = None  # Actual directory name (may differ from id)
 
     @property
     def duration(self) -> timedelta | None:
@@ -28,6 +29,11 @@ class ConversationInfo:
     def short_id(self) -> str:
         """Get first 7 characters of ID for display."""
         return self.id[:7]
+
+    @property
+    def lookup_id(self) -> str:
+        """Get the ID to use for directory lookup (dir_name if set, else id)."""
+        return self.dir_name or self.id
 
 
 @dataclass

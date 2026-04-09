@@ -22,6 +22,9 @@ ohtv show <conversation_id> --messages
 # Analyze user objectives (requires LLM_API_KEY)
 ohtv objectives <conversation_id>
 
+# Summarize today's conversations (requires LLM_API_KEY)
+ohtv summary --day
+
 # See what GitHub repos/PRs/issues were referenced
 ohtv refs <conversation_id>
 
@@ -225,6 +228,85 @@ Primary Objectives
 | `-r, --refresh` | Force re-analysis (ignore cache) |
 | `-m, --model` | LLM model to use for analysis |
 | `--json` | Output as JSON |
+
+**Environment Variables:**
+| Variable | Description |
+|----------|-------------|
+| `LLM_API_KEY` | API key for the LLM provider |
+| `LLM_MODEL` | Default model to use (optional) |
+| `LLM_BASE_URL` | Custom LLM base URL (optional) |
+
+---
+
+### `ohtv summary` - Summarize Multiple Conversations
+
+Analyzes multiple conversations and displays a summary table of their goals. Uses the most token-efficient LLM settings (minimal context, brief output) and caches results. Shares cache with `objectives` command.
+
+```bash
+# Summarize 10 most recent conversations (default)
+ohtv summary
+
+# Summarize today's conversations
+ohtv summary --day
+
+# Summarize this week's conversations
+ohtv summary --week
+
+# Summarize with date range
+ohtv summary --since 2024-01-01 --until 2024-01-31
+
+# Summarize all conversations (no limit)
+ohtv summary --all
+
+# Force re-analysis (ignore cache)
+ohtv summary --refresh
+
+# Output as markdown (for notes/docs)
+ohtv summary -F markdown
+
+# Output as JSON
+ohtv summary -F json
+```
+
+**Example Output (table):**
+```
+┏━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID      ┃ Date       ┃ Summary                                             ┃
+┡━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ abc1234 │ 2024-03-15 │ Refactor authentication module to use OAuth2 with   │
+│         │            │ refresh token support for improved security.        │
+│         │            │ → created user/repo/pull/42, pushed user/repo       │
+├─────────┼────────────┼─────────────────────────────────────────────────────┤
+│ def5678 │ 2024-03-14 │ Fix pagination bug in search results component that │
+│         │            │ caused duplicate entries on page boundaries.        │
+└─────────┴────────────┴─────────────────────────────────────────────────────┘
+Showing 2 of 150 (2/2 cached)
+```
+
+**Example Output (markdown):**
+```markdown
+- **abc1234** (2024-03-15): Refactor authentication to use OAuth2 with refresh tokens
+  - created: user/repo/pull/42
+  - pushed: user/repo
+- **def5678** (2024-03-14): Fix pagination bug in search results component
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `-n, --max N` | Maximum conversations to analyze (default: 10) |
+| `-A, --all` | Analyze all conversations (no limit) |
+| `-k, --offset N` | Skip first N conversations |
+| `-S, --since DATE` | Analyze conversations from DATE onwards |
+| `-U, --until DATE` | Analyze conversations up to DATE |
+| `-D, --day [DATE]` | Analyze conversations from a single day (default: today) |
+| `-W, --week [DATE]` | Analyze conversations from the week containing DATE |
+| `--reverse` | Show oldest first |
+| `-r, --refresh` | Force re-analysis (ignore cache) |
+| `-m, --model` | LLM model to use for analysis |
+| `-F, --format` | Output format: `table`, `json`, `markdown` |
+| `--no-outputs` | Don't show outputs (repos, PRs, issues modified) |
+| `-v, --verbose` | Show debug output |
 
 **Environment Variables:**
 | Variable | Description |

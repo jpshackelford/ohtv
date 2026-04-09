@@ -18,7 +18,7 @@ from ohtv.config import Config
 
 
 # Commands that use LLM and consume tokens
-LLM_COMMANDS = {"objectives"}
+LLM_COMMANDS = {"objectives", "summary"}
 
 
 class SectionedGroup(click.Group):
@@ -1598,6 +1598,346 @@ def _display_outputs(conv_dir: Path) -> None:
 
     console.print("\n[bold]Outputs:[/bold]")
     _display_actions_only(interactions)
+
+
+@main.command()
+@click.option("--max", "-n", "limit", type=int, help="Maximum conversations to analyze (default: 10)")
+@click.option("--all", "-A", "show_all", is_flag=True, help="Analyze all conversations (no limit)")
+@click.option("--offset", "-k", type=int, default=0, help="Skip first N conversations")
+@click.option("--since", "-S", "since_date", help="Analyze conversations from DATE onwards")
+@click.option("--until", "-U", "until_date", help="Analyze conversations up to DATE")
+@click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
+              help="Analyze conversations from a single day (default: today)")
+@click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
+              help="Analyze conversations from the week containing DATE (default: today)")
+@click.option("--reverse", is_flag=True, help="Show oldest first (default: newest first)")
+@click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (ignore cache)")
+@click.option("--model", "-m", help="LLM model to use for analysis")
+@click.option(
+    "--format", "-F", "fmt",
+    type=click.Choice(["table", "json", "markdown"]),
+    default="table",
+    help="Output format (default: table)",
+)
+@click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
+@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+def summary(
+    limit: int | None,
+    show_all: bool,
+    offset: int,
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
+    reverse: bool,
+    refresh: bool,
+    model: str | None,
+    fmt: str,
+    no_outputs: bool,
+    verbose: bool,
+) -> None:
+    """Summarize goals for multiple conversations.
+
+    Analyzes selected conversations and displays a table of their goals.
+    Uses the most token-efficient settings (minimal context, brief output)
+    and caches results to avoid repeated LLM calls.
+
+    \b
+    Date filtering examples:
+      -D           Today's conversations
+      -W           This week's conversations
+      -S 2024-01-01  Conversations since Jan 1, 2024
+      -U 2024-06-30  Conversations until June 30, 2024
+
+    Requires LLM_API_KEY environment variable to be set.
+    """
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+
+    _init_logging(verbose=verbose)
+    config = Config.from_env()
+
+    # Parse date filters (reuse list command's logic)
+    since = _parse_date_option(since_date)
+    until = _parse_date_option(until_date)
+
+    # Handle --day shortcut
+    if day_date is not None:
+        day = _parse_date_option(day_date)
+        if day:
+            day_start, day_end = _get_day_bounds(day)
+            since = since or day_start
+            until = until or day_end
+
+    # Handle --week shortcut
+    if week_date is not None:
+        week = _parse_date_option(week_date)
+        if week:
+            week_start, week_end = _get_week_bounds(week)
+            since = since or week_start
+            until = until or week_end
+
+    # Date filters imply --all (show all matching records)
+    if since is not None or until is not None:
+        show_all = True
+
+    # Load conversations from both sources
+    conversations = _load_all_conversations(config)
+
+    # Filter out empty conversations
+    conversations = [c for c in conversations if c.event_count > 0]
+
+    # Apply date filtering
+    conversations = _filter_by_date_range(conversations, since, until)
+
+    total_count = len(conversations)
+
+    # Sort by created_at (newest first by default)
+    conversations = sorted(
+        conversations,
+        key=lambda c: _normalize_datetime_for_sort(c.created_at),
+        reverse=not reverse,
+    )
+
+    # Apply offset and limit
+    if offset:
+        conversations = conversations[offset:]
+    if not show_all:
+        effective_limit = limit if limit is not None else 10
+        conversations = conversations[:effective_limit]
+
+    if not conversations:
+        console.print("[dim]No conversations found matching the criteria.[/dim]")
+        return
+
+    # Import analysis module
+    try:
+        from ohtv.analysis import analyze_objectives, get_cached_analysis
+    except ImportError as e:
+        console.print(f"[red]Error:[/red] Analysis module not available: {e}")
+        raise SystemExit(1)
+
+    # Analyze each conversation with progress indicator
+    results: list[dict] = []
+    errors: list[tuple[str, str]] = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task(
+            f"Analyzing {len(conversations)} conversations...",
+            total=len(conversations),
+        )
+
+        for conv in conversations:
+            # Find conversation directory (use lookup_id which is the directory name)
+            result = _find_conversation_dir(config, conv.lookup_id)
+            if not result:
+                errors.append((conv.short_id, "Not found"))
+                progress.advance(task)
+                continue
+
+            conv_dir, _ = result
+
+            # Check cache first (use minimal context, brief detail, no assessment)
+            analysis = None
+            from_cache = False
+            if not refresh:
+                analysis = get_cached_analysis(
+                    conv_dir, context="minimal", detail="brief", assess=False
+                )
+                from_cache = analysis is not None
+
+            # Run analysis if not cached
+            if analysis is None:
+                try:
+                    analysis = analyze_objectives(
+                        conv_dir,
+                        model=model,
+                        context="minimal",
+                        detail="brief",
+                        assess=False,
+                        force_refresh=refresh,
+                    )
+                except (ValueError, RuntimeError) as e:
+                    errors.append((conv.short_id, str(e)[:50]))
+                    progress.advance(task)
+                    continue
+                except Exception as e:
+                    if "api_key" in str(e).lower() or "LLM_" in str(e):
+                        console.print(
+                            "\n[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
+                        )
+                        console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
+                        raise SystemExit(1)
+                    errors.append((conv.short_id, str(e)[:50]))
+                    progress.advance(task)
+                    continue
+
+            # Store result (include conv_dir for outputs extraction)
+            results.append({
+                "id": conv.id,
+                "short_id": conv.short_id,
+                "source": conv.source,
+                "created_at": conv.created_at,
+                "goal": analysis.goal or "(no goal identified)",
+                "cached": from_cache,
+                "conv_dir": conv_dir,
+            })
+
+            progress.advance(task)
+
+    # Extract outputs for each conversation if needed
+    if not no_outputs:
+        for r in results:
+            r["outputs"] = _get_conversation_outputs(r["conv_dir"])
+
+    # Output results
+    if fmt == "json":
+        json_results = []
+        for r in results:
+            item = {
+                "id": r["id"],
+                "source": r["source"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "goal": r["goal"],
+            }
+            if not no_outputs and r.get("outputs"):
+                item["outputs"] = r["outputs"]
+            json_results.append(item)
+        print(json.dumps(json_results, indent=2))
+    elif fmt == "markdown":
+        print(_format_summary_markdown(results, include_outputs=not no_outputs))
+    else:
+        _print_summary_table(results, total_count, len(errors), include_outputs=not no_outputs)
+
+    # Show errors if any
+    if errors and fmt == "table":
+        console.print(f"\n[yellow]Failed to analyze {len(errors)} conversation(s):[/yellow]")
+        for short_id, error in errors[:5]:  # Show first 5 errors
+            console.print(f"  [dim]{short_id}:[/dim] {error}")
+        if len(errors) > 5:
+            console.print(f"  [dim]... and {len(errors) - 5} more[/dim]")
+
+
+def _get_conversation_outputs(conv_dir: Path) -> list[dict]:
+    """Extract outputs (repos, PRs, issues with write actions) from a conversation.
+
+    Returns a list of dicts with 'action' and 'url' keys.
+    """
+    refs = _extract_refs_from_conversation(conv_dir)
+    interactions = _detect_interactions_from_conversation(conv_dir, refs)
+
+    outputs = []
+
+    # Collect all write actions
+    for url, actions in interactions.repos.items():
+        for action in actions:
+            outputs.append({"action": action, "url": url})
+
+    for url, actions in interactions.prs.items():
+        for action in actions:
+            outputs.append({"action": action, "url": url})
+
+    for url, actions in interactions.issues.items():
+        for action in actions:
+            outputs.append({"action": action, "url": url})
+
+    # Sort by action priority
+    action_priority = {
+        "created": 1, "merged": 2, "pushed": 3, "commented": 4,
+        "reviewed": 5, "closed": 6, "cloned": 7,
+    }
+    outputs.sort(key=lambda x: action_priority.get(x["action"], 99))
+
+    return outputs
+
+
+def _print_summary_table(
+    results: list[dict],
+    total_count: int,
+    error_count: int,
+    *,
+    include_outputs: bool = True,
+) -> None:
+    """Print summary results as a table."""
+    table = Table(show_header=True, header_style="bold", show_lines=True)
+    table.add_column("ID", style="cyan", width=7, no_wrap=True)
+    table.add_column("Date", width=10, no_wrap=True)
+    table.add_column("Summary", no_wrap=False)
+
+    for r in results:
+        date_str = ""
+        if r["created_at"]:
+            local_time = r["created_at"].astimezone()
+            date_str = local_time.strftime("%Y-%m-%d")
+
+        # Build the summary cell content
+        summary_parts = [r["goal"]]
+
+        # Add outputs if present
+        if include_outputs and r.get("outputs"):
+            output_lines = []
+            for out in r["outputs"]:
+                short_url = out["url"].replace("https://github.com/", "")
+                action = out["action"]
+                if action in ("created", "merged"):
+                    style = "green"
+                elif action in ("pushed", "commented", "reviewed"):
+                    style = "yellow"
+                else:
+                    style = "dim"
+                output_lines.append(f"[{style}]{action}[/{style}] {short_url}")
+            if output_lines:
+                summary_parts.append("[dim]→[/dim] " + ", ".join(output_lines))
+
+        summary_cell = "\n".join(summary_parts)
+
+        table.add_row(
+            r["short_id"],
+            date_str,
+            summary_cell,
+        )
+
+    console.print(table)
+
+    # Summary line: "Showing 5 of 100 (3/5 cached)"
+    showing = len(results)
+    cached = sum(1 for r in results if r.get("cached", False))
+
+    summary_parts = [f"Showing {showing} of {total_count}"]
+    if showing > 0:
+        summary_parts.append(f"({cached}/{showing} cached)")
+    if error_count > 0:
+        summary_parts.append(f"{error_count} failed")
+
+    console.print(f"[dim]{' '.join(summary_parts)}[/dim]")
+
+
+def _format_summary_markdown(results: list[dict], *, include_outputs: bool = True) -> str:
+    """Format summary results as markdown."""
+    lines = []
+
+    for r in results:
+        date_str = ""
+        if r["created_at"]:
+            local_time = r["created_at"].astimezone()
+            date_str = local_time.strftime("%Y-%m-%d")
+
+        # Format as a list item with date and goal
+        lines.append(f"- **{r['short_id']}** ({date_str}): {r['goal']}")
+
+        # Add outputs as sub-items if present
+        if include_outputs and r.get("outputs"):
+            for out in r["outputs"]:
+                short_url = out["url"].replace("https://github.com/", "")
+                lines.append(f"  - {out['action']}: {short_url}")
+
+    return "\n".join(lines)
 
 
 def _find_conversation_dir(config: Config, conv_id: str) -> tuple[Path, bool] | None:
