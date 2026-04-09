@@ -1807,7 +1807,27 @@ def summary(
                 "goal": r["goal"],
             }
             if not no_outputs and r.get("outputs"):
-                item["outputs"] = r["outputs"]
+                outputs = r["outputs"]
+                refs = outputs.get("refs", {})
+                interactions = outputs.get("interactions")
+                unpushed = outputs.get("unpushed_commits", set())
+
+                item["refs"] = {
+                    "repos": [
+                        {"url": url, "actions": sorted(interactions.repos.get(url, [])) if interactions else []}
+                        for url in sorted(refs.get("repos", set()))
+                    ],
+                    "prs": [
+                        {"url": url, "actions": sorted(interactions.prs.get(url, [])) if interactions else []}
+                        for url in sorted(refs.get("prs", set()))
+                    ],
+                    "issues": [
+                        {"url": url, "actions": sorted(interactions.issues.get(url, [])) if interactions else []}
+                        for url in sorted(refs.get("issues", set()))
+                    ],
+                }
+                if unpushed:
+                    item["unpushed_commits"] = sorted(unpushed)
             json_results.append(item)
         print(json.dumps(json_results, indent=2))
     elif fmt == "markdown":
@@ -1824,37 +1844,86 @@ def summary(
             console.print(f"  [dim]... and {len(errors) - 5} more[/dim]")
 
 
-def _get_conversation_outputs(conv_dir: Path) -> list[dict]:
-    """Extract outputs (repos, PRs, issues with write actions) from a conversation.
+def _get_conversation_outputs(conv_dir: Path) -> dict:
+    """Extract outputs (repos, PRs, issues with interactions) from a conversation.
 
-    Returns a list of dicts with 'action' and 'url' keys.
+    Returns a dict with:
+        - refs: dict with 'repos', 'prs', 'issues' sets of URLs
+        - interactions: RefInteractions object with write actions
+        - unpushed_commits: set of directory paths with commits but no push
     """
     refs = _extract_refs_from_conversation(conv_dir)
     interactions = _detect_interactions_from_conversation(conv_dir, refs)
 
-    outputs = []
-
-    # Collect all write actions
-    for url, actions in interactions.repos.items():
-        for action in actions:
-            outputs.append({"action": action, "url": url})
-
-    for url, actions in interactions.prs.items():
-        for action in actions:
-            outputs.append({"action": action, "url": url})
-
-    for url, actions in interactions.issues.items():
-        for action in actions:
-            outputs.append({"action": action, "url": url})
-
-    # Sort by action priority
-    action_priority = {
-        "created": 1, "merged": 2, "pushed": 3, "commented": 4,
-        "reviewed": 5, "closed": 6, "cloned": 7,
+    return {
+        "refs": refs,
+        "interactions": interactions,
+        "unpushed_commits": interactions.unpushed_commits,
     }
-    outputs.sort(key=lambda x: action_priority.get(x["action"], 99))
 
-    return outputs
+
+def _format_refs_for_summary(outputs: dict | None) -> list[str]:
+    """Format refs info for display in summary table.
+
+    Returns a list of formatted lines to append to summary cell.
+    """
+    if not outputs:
+        return []
+
+    refs = outputs.get("refs", {})
+    interactions = outputs.get("interactions")
+    unpushed_commits = outputs.get("unpushed_commits", set())
+
+    lines = []
+
+    # Format repos with interactions
+    repos = sorted(refs.get("repos", set()))
+    if repos:
+        repo_parts = []
+        for url in repos:
+            short_url = url.replace("https://github.com/", "").replace("https://gitlab.com/", "").replace("https://bitbucket.org/", "")
+            annotation = ""
+            if interactions and url in interactions.repos:
+                actions = sorted(interactions.repos[url])
+                annotation = f" [dim]\\[{', '.join(actions)}][/dim]"
+            repo_parts.append(f"{short_url}{annotation}")
+        lines.append("[blue]Repos:[/blue] " + ", ".join(repo_parts))
+
+    # Format PRs with interactions
+    prs = sorted(refs.get("prs", set()))
+    if prs:
+        pr_parts = []
+        for url in prs:
+            short_url = url.replace("https://github.com/", "").replace("https://gitlab.com/", "").replace("https://bitbucket.org/", "")
+            annotation = ""
+            if interactions and url in interactions.prs:
+                actions = sorted(interactions.prs[url])
+                annotation = f" [dim]\\[{', '.join(actions)}][/dim]"
+            pr_parts.append(f"{short_url}{annotation}")
+        lines.append("[green]PRs:[/green] " + ", ".join(pr_parts))
+
+    # Format issues with interactions
+    issues = sorted(refs.get("issues", set()))
+    if issues:
+        issue_parts = []
+        for url in issues:
+            short_url = url.replace("https://github.com/", "").replace("https://gitlab.com/", "").replace("https://bitbucket.org/", "")
+            annotation = ""
+            if interactions and url in interactions.issues:
+                actions = sorted(interactions.issues[url])
+                annotation = f" [dim]\\[{', '.join(actions)}][/dim]"
+            issue_parts.append(f"{short_url}{annotation}")
+        lines.append("[yellow]Issues:[/yellow] " + ", ".join(issue_parts))
+
+    # Format unpushed commits warning
+    if unpushed_commits:
+        unpushed_parts = []
+        for path in sorted(unpushed_commits):
+            display_path = path.replace(str(Path.home()), "~")
+            unpushed_parts.append(display_path)
+        lines.append("[bold yellow]⚠ Unpushed:[/bold yellow] " + ", ".join(unpushed_parts))
+
+    return lines
 
 
 def _print_summary_table(
@@ -1879,21 +1948,10 @@ def _print_summary_table(
         # Build the summary cell content
         summary_parts = [r["goal"]]
 
-        # Add outputs if present
+        # Add refs/outputs if present
         if include_outputs and r.get("outputs"):
-            output_lines = []
-            for out in r["outputs"]:
-                short_url = out["url"].replace("https://github.com/", "")
-                action = out["action"]
-                if action in ("created", "merged"):
-                    style = "green"
-                elif action in ("pushed", "commented", "reviewed"):
-                    style = "yellow"
-                else:
-                    style = "dim"
-                output_lines.append(f"[{style}]{action}[/{style}] {short_url}")
-            if output_lines:
-                summary_parts.append("[dim]→[/dim] " + ", ".join(output_lines))
+            ref_lines = _format_refs_for_summary(r["outputs"])
+            summary_parts.extend(ref_lines)
 
         summary_cell = "\n".join(summary_parts)
 
@@ -1918,6 +1976,55 @@ def _print_summary_table(
     console.print(f"[dim]{' '.join(summary_parts)}[/dim]")
 
 
+def _format_refs_for_markdown(outputs: dict | None) -> list[str]:
+    """Format refs info for markdown output.
+
+    Returns a list of markdown sub-items.
+    """
+    if not outputs:
+        return []
+
+    refs = outputs.get("refs", {})
+    interactions = outputs.get("interactions")
+    unpushed_commits = outputs.get("unpushed_commits", set())
+
+    lines = []
+
+    # Format repos with interactions
+    for url in sorted(refs.get("repos", set())):
+        short_url = url.replace("https://github.com/", "").replace("https://gitlab.com/", "").replace("https://bitbucket.org/", "")
+        annotation = ""
+        if interactions and url in interactions.repos:
+            actions = sorted(interactions.repos[url])
+            annotation = f" [{', '.join(actions)}]"
+        lines.append(f"  - Repo: {short_url}{annotation}")
+
+    # Format PRs with interactions
+    for url in sorted(refs.get("prs", set())):
+        short_url = url.replace("https://github.com/", "").replace("https://gitlab.com/", "").replace("https://bitbucket.org/", "")
+        annotation = ""
+        if interactions and url in interactions.prs:
+            actions = sorted(interactions.prs[url])
+            annotation = f" [{', '.join(actions)}]"
+        lines.append(f"  - PR: {short_url}{annotation}")
+
+    # Format issues with interactions
+    for url in sorted(refs.get("issues", set())):
+        short_url = url.replace("https://github.com/", "").replace("https://gitlab.com/", "").replace("https://bitbucket.org/", "")
+        annotation = ""
+        if interactions and url in interactions.issues:
+            actions = sorted(interactions.issues[url])
+            annotation = f" [{', '.join(actions)}]"
+        lines.append(f"  - Issue: {short_url}{annotation}")
+
+    # Format unpushed commits warning
+    for path in sorted(unpushed_commits):
+        display_path = path.replace(str(Path.home()), "~")
+        lines.append(f"  - ⚠️ Unpushed: {display_path}")
+
+    return lines
+
+
 def _format_summary_markdown(results: list[dict], *, include_outputs: bool = True) -> str:
     """Format summary results as markdown."""
     lines = []
@@ -1931,11 +2038,10 @@ def _format_summary_markdown(results: list[dict], *, include_outputs: bool = Tru
         # Format as a list item with date and goal
         lines.append(f"- **{r['short_id']}** ({date_str}): {r['goal']}")
 
-        # Add outputs as sub-items if present
+        # Add refs/outputs as sub-items if present
         if include_outputs and r.get("outputs"):
-            for out in r["outputs"]:
-                short_url = out["url"].replace("https://github.com/", "")
-                lines.append(f"  - {out['action']}: {short_url}")
+            ref_lines = _format_refs_for_markdown(r["outputs"])
+            lines.extend(ref_lines)
 
     return "\n".join(lines)
 
