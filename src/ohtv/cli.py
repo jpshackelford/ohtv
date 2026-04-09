@@ -2156,8 +2156,65 @@ def _display_conversation_header(conv_id: str, title: str) -> None:
     console.print(f"[dim]{conv_id}[/dim]")
 
 
+def _extract_context_urls(events_dir: Path) -> set[str]:
+    """Extract URLs from system context (SystemPromptEvent) to exclude from refs.
+
+    These are URLs that appear in skills, prompts, or other system-injected context
+    rather than actual repository work done during the conversation.
+    """
+    context_urls: set[str] = set()
+
+    # Look for SystemPromptEvent (typically event-00000)
+    for event_file in sorted(events_dir.glob("event-*.json")):
+        try:
+            event = json.loads(event_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        if event.get("kind") != "SystemPromptEvent":
+            continue
+
+        # Extract URLs from dynamic_context (contains skills info)
+        dynamic_ctx = event.get("dynamic_context", {})
+        if isinstance(dynamic_ctx, dict):
+            ctx_text = dynamic_ctx.get("text", "")
+            if ctx_text:
+                _extract_all_urls(ctx_text, context_urls)
+
+        # Extract URLs from system_prompt
+        sys_prompt = event.get("system_prompt", {})
+        if isinstance(sys_prompt, dict):
+            prompt_text = sys_prompt.get("text", "")
+            if prompt_text:
+                _extract_all_urls(prompt_text, context_urls)
+
+        # Also check tools descriptions (may contain example URLs)
+        tools = event.get("tools", [])
+        for tool in tools:
+            if isinstance(tool, dict):
+                desc = tool.get("description", "")
+                if desc:
+                    _extract_all_urls(desc, context_urls)
+
+    return context_urls
+
+
+def _extract_all_urls(text: str, url_set: set[str]) -> None:
+    """Extract all git hosting URLs from text into the given set."""
+    for pattern_name, pattern in GIT_URL_PATTERNS.items():
+        for match in pattern.finditer(text):
+            url = match.group(0).rstrip(".,;:)]}>")
+            # Normalize to base URL (without .git suffix)
+            url = url.rstrip("/").removesuffix(".git")
+            url_set.add(url)
+
+
 def _extract_refs_from_conversation(conv_dir: Path) -> dict[str, set[str]]:
-    """Extract all git references from conversation events."""
+    """Extract all git references from conversation events.
+
+    Excludes URLs that appear in system context (skills, prompts) as these
+    are not actual repos worked on during the conversation.
+    """
     refs: dict[str, set[str]] = {
         "repos": set(),
         "issues": set(),
@@ -2168,12 +2225,31 @@ def _extract_refs_from_conversation(conv_dir: Path) -> dict[str, set[str]]:
     if not events_dir.exists():
         return refs
 
+    # First pass: get URLs to exclude (from system context)
+    context_urls = _extract_context_urls(events_dir)
+
+    # Second pass: extract refs from all events
     for event_file in sorted(events_dir.glob("event-*.json")):
         try:
             content = event_file.read_text()
             _extract_refs_from_text(content, refs)
         except (json.JSONDecodeError, OSError):
             continue
+
+    # Filter out context URLs from repos
+    # (PRs and issues are specific enough that they're unlikely to be in context)
+    filtered_repos = set()
+    for repo_url in refs["repos"]:
+        normalized = repo_url.rstrip("/").removesuffix(".git")
+        # Check if this URL or any prefix of it appears in context
+        is_context = any(
+            normalized == ctx_url or normalized.startswith(ctx_url + "/")
+            for ctx_url in context_urls
+        )
+        if not is_context:
+            filtered_repos.add(repo_url)
+
+    refs["repos"] = filtered_repos
 
     return refs
 
