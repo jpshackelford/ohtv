@@ -827,6 +827,7 @@ def _count_events_by_type(events: list[dict]) -> dict[str, int]:
         "user_messages": 0,
         "agent_messages": 0,
         "actions": 0,
+        "thinking": 0,
         "observations": 0,
         "finish": 0,
         "other": 0,
@@ -843,6 +844,8 @@ def _count_events_by_type(events: list[dict]) -> dict[str, int]:
                 tool_name = event.get("tool_name", "")
                 if tool_name == "finish":
                     counts["finish"] += 1
+                elif tool_name == "think":
+                    counts["thinking"] += 1
                 else:
                     counts["actions"] += 1
             elif kind == "MessageEvent":
@@ -983,6 +986,7 @@ def _format_show_stats(
             f"  User messages:    {event_counts['user_messages']}",
             f"  Agent messages:   {event_counts['agent_messages']}",
             f"  Actions:          {event_counts['actions']}",
+            f"  Thinking:         {event_counts['thinking']}",
             f"  Observations:     {event_counts['observations']}",
             f"  Finish:           {event_counts['finish']}",
             "  ─────────────────────",
@@ -990,7 +994,7 @@ def _format_show_stats(
         ]
         return "\n".join(lines)
 
-    # Markdown format (default)
+    # Markdown format
     lines = [
         f"# Conversation: {conv_id}",
     ]
@@ -1007,6 +1011,7 @@ def _format_show_stats(
         f"| User messages | {event_counts['user_messages']} |",
         f"| Agent messages | {event_counts['agent_messages']} |",
         f"| Actions | {event_counts['actions']} |",
+        f"| Thinking | {event_counts['thinking']} |",
         f"| Observations | {event_counts['observations']} |",
         f"| Finish | {event_counts['finish']} |",
         f"| **Total** | **{total}** |",
