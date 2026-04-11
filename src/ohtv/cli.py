@@ -2976,21 +2976,37 @@ def db_process(stage: str, force: bool, conversation: str | None, verbose: bool)
             conn.commit()
             return
         
-        # Process conversations
+        # Process conversations with progress bar
+        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+        
         processed = 0
         errors = 0
         
-        with console.status(f"[bold blue]Processing {len(conversations_to_process)} conversation(s)...[/bold blue]") as status:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("[dim]{task.fields[current]}[/dim]"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task(
+                f"Processing '{stage}'",
+                total=len(conversations_to_process),
+                current="",
+            )
+            
             for conv in conversations_to_process:
+                progress.update(task, current=conv.id[:12] + "...")
                 try:
-                    if verbose:
-                        status.update(f"[bold blue]Processing {conv.id}...[/bold blue]")
                     processor(conn, conv)
                     processed += 1
                 except Exception as e:
                     errors += 1
                     if verbose:
                         console.print(f"[red]Error processing {conv.id}:[/red] {e}")
+                progress.advance(task)
         
         conn.commit()
     
@@ -3017,6 +3033,7 @@ def db_scan(force: bool, remove_missing: bool, verbose: bool) -> None:
     Use --force after restoring from backup or copying files, as these
     operations may change mtimes without changing content.
     """
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
     from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
     
     db_path = get_db_path()
@@ -3027,7 +3044,28 @@ def db_scan(force: bool, remove_missing: bool, verbose: bool) -> None:
     
     with get_connection() as conn:
         migrate(conn)
-        result = scan_conversations(conn, force=force, remove_missing=remove_missing)
+        
+        # Use progress bar for scan
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Scanning"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("[dim]{task.fields[current]}[/dim]"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task("Scanning", total=None, current="discovering...")
+            
+            def on_progress(current: int, total: int, conv_id: str):
+                if progress.tasks[task].total != total:
+                    progress.update(task, total=total)
+                progress.update(task, completed=current, current=conv_id[:12] + "..." if conv_id else "")
+            
+            result = scan_conversations(
+                conn, force=force, remove_missing=remove_missing, on_progress=on_progress
+            )
+        
         conn.commit()
     
     # Display results

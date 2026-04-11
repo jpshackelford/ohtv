@@ -257,3 +257,31 @@ class TestScanConversations:
         store = ConversationStore(db_conn)
         assert store.get("local-conv") is not None
         assert store.get("cloud-conv") is not None
+    
+    def test_calls_progress_callback(self, db_conn, conversations_dir, monkeypatch):
+        """Should call progress callback for each conversation."""
+        local_dir = conversations_dir / ".openhands" / "conversations"
+        create_conversation(local_dir, "conv-1", num_events=2)
+        create_conversation(local_dir, "conv-2", num_events=3)
+        create_conversation(local_dir, "conv-3", num_events=1)
+        
+        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
+        
+        # Track callback calls
+        progress_calls = []
+        def on_progress(current, total, conv_id):
+            progress_calls.append((current, total, conv_id))
+        
+        scan_conversations(db_conn, on_progress=on_progress)
+        
+        # Should have calls for each conversation plus final completion
+        assert len(progress_calls) == 4  # 3 conversations + 1 completion
+        
+        # First call should be index 0
+        assert progress_calls[0][0] == 0
+        assert progress_calls[0][1] == 3  # total
+        
+        # Last call should signal completion
+        assert progress_calls[-1][0] == 3  # current == total
+        assert progress_calls[-1][1] == 3
+        assert progress_calls[-1][2] == ""  # empty conv_id on completion

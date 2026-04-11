@@ -5,9 +5,10 @@ current state (location, mtime, event count). Uses mtime as a fast
 filter to skip unchanged conversations.
 """
 
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-import sqlite3
+from typing import Callable
 
 from ohtv.config import get_openhands_dir
 from ohtv.db.models import Conversation
@@ -61,6 +62,7 @@ def scan_conversations(
     conn: sqlite3.Connection,
     force: bool = False,
     remove_missing: bool = False,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> ScanResult:
     """Scan filesystem for conversations and update database.
     
@@ -68,6 +70,7 @@ def scan_conversations(
         conn: Database connection
         force: If True, update all conversations regardless of mtime
         remove_missing: If True, remove DB entries for conversations no longer on disk
+        on_progress: Optional callback(current, total, conv_id) for progress updates
         
     Returns:
         ScanResult with counts of what changed
@@ -83,6 +86,8 @@ def scan_conversations(
     all_discovered.extend(discover_conversations(local_dir))
     all_discovered.extend(discover_conversations(cloud_dir))
     
+    total = len(all_discovered)
+    
     # Track IDs we've seen on disk
     seen_ids = set()
     
@@ -90,7 +95,10 @@ def scan_conversations(
     updated_count = 0
     unchanged_count = 0
     
-    for conv_id, conv_path in all_discovered:
+    for i, (conv_id, conv_path) in enumerate(all_discovered):
+        if on_progress:
+            on_progress(i, total, conv_id)
+        
         seen_ids.add(conv_id)
         events_dir = conv_path / "events"
         
@@ -120,6 +128,10 @@ def scan_conversations(
             updated_count += 1
         else:
             unchanged_count += 1
+    
+    # Signal completion
+    if on_progress:
+        on_progress(total, total, "")
     
     # Handle missing conversations
     removed_count = 0
