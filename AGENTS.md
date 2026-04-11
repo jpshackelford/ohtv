@@ -57,9 +57,21 @@ uv run ohtv --help         # Run CLI
    - **Migration system**: Uses simple file-based migrations in `src/ohtv/db/migrations/`. Each migration is a Python file with an `upgrade(conn)` function.
    - **Location**: Default `~/.openhands/ohtv.db`, override with `OHTV_DB_PATH` environment variable.
 
+10. **Incremental ingestion with multi-stage processing**: Designed for efficient handling of thousands of conversations with expensive (LLM) processing:
+    - **Change detection**: Uses `events_mtime` (directory modification time) as fast O(1) filter to skip unchanged conversations. Falls back to `event_count` comparison when mtime changes.
+    - **Processing stages**: Each processing job (refs extraction, objectives analysis, etc.) is tracked independently in `conversation_stages` table. Stages record the `event_count` at completion, enabling incremental re-processing when conversations grow.
+    - **Separation of concerns**: Registration (scan) is fast and cheap. Processing stages run independently and can be parallelized or run async.
+    - **Force reprocessing**: After backup/restore or file copies that change mtimes, use `--force` flag to clear stage tracking and reprocess.
+    - **Key tables**: `conversations` (with `events_mtime`, `event_count`), `conversation_stages` (stage completion tracking per conversation).
+
 ## Testing
 
-No automated tests. Manual testing with real conversation data:
+Automated unit tests for the `db` module (see `docs/TESTING.md` for details):
+```bash
+uv run pytest tests/unit/db -v         # Run all db unit tests
+```
+
+Manual testing with real conversation data:
 ```bash
 uv run ohtv list -A                    # All conversations
 uv run ohtv show <id> -m               # Messages

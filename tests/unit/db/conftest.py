@@ -10,6 +10,7 @@ from ohtv.db.stores import (
     LinkStore,
     ReferenceStore,
     RepoStore,
+    StageStore,
 )
 
 
@@ -50,3 +51,9 @@ def reference_store(db_conn):
 def link_store(db_conn):
     """LinkStore backed by the test database."""
     return LinkStore(db_conn)
+
+
+@pytest.fixture
+def stage_store(db_conn):
+    """StageStore backed by the test database."""
+    return StageStore(db_conn)

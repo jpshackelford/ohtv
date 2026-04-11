@@ -10,27 +10,47 @@ filesystem. The DB only tracks:
 - Repositories (canonical URLs, FQN, short names)
 - References (issues, PRs, etc.) with type discriminator
 - Links between conversations and these entities (read vs write access)
+- Processing stage completion for incremental ingestion
 """
 
 from ohtv.db.connection import get_connection, get_db_path
 from ohtv.db.migrations import migrate
-from ohtv.db.models import Conversation, LinkType, Reference, RefType, Repository
-from ohtv.db.stores import ConversationStore, LinkStore, ReferenceStore, RepoStore
+from ohtv.db.models import (
+    Conversation,
+    LinkType,
+    ProcessingStage,
+    Reference,
+    RefType,
+    Repository,
+)
+from ohtv.db.scanner import ScanResult, scan_conversations
+from ohtv.db.stores import (
+    ConversationStore,
+    LinkStore,
+    ReferenceStore,
+    RepoStore,
+    StageStore,
+)
 
 __all__ = [
     # Connection
     "get_connection",
     "get_db_path",
     "migrate",
+    # Scanner
+    "scan_conversations",
+    "ScanResult",
     # Models
     "Conversation",
-    "Repository",
+    "LinkType",
+    "ProcessingStage",
     "Reference",
     "RefType",
-    "LinkType",
+    "Repository",
     # Stores (data access)
     "ConversationStore",
-    "RepoStore",
-    "ReferenceStore",
     "LinkStore",
+    "ReferenceStore",
+    "RepoStore",
+    "StageStore",
 ]

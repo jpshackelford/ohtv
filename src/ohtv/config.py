@@ -58,3 +58,8 @@ def _get_api_key(home: Path) -> str | None:
 def get_manifest_path() -> Path:
     """Get path to sync manifest file."""
     return Path.home() / ".openhands" / "cloud" / "sync_manifest.json"
+
+
+def get_openhands_dir() -> Path:
+    """Get the base OpenHands directory (~/.openhands)."""
+    return Path.home() / ".openhands"
