@@ -1558,6 +1558,7 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-httpx" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -1572,6 +1573,7 @@ requires-dist = [
 dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-httpx", specifier = ">=0.30" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 
 [[package]]

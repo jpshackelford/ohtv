@@ -13,8 +13,9 @@ from fixtures.database import (
     DatabaseBuilder,
     create_test_db,
     db_with_github_refs,
-    db_with_single_conversation,
+    db_with_multi_repo,
     empty_db,
+    load_db_state,
 )
 
 
@@ -22,9 +23,10 @@ from fixtures.database import (
 __all__ = [
     "DatabaseBuilder",
     "create_test_db",
-    "empty_db", 
-    "db_with_single_conversation",
+    "empty_db",
     "db_with_github_refs",
+    "db_with_multi_repo",
+    "load_db_state",
 ]
 
 

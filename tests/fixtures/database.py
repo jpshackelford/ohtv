@@ -1,13 +1,20 @@
 """Fixtures for pre-populated database states.
 
-Provides factory functions and builders for creating test database states.
+Provides:
+- YAML-based fixture loading (preferred for test data)
+- DatabaseBuilder for programmatic construction (when needed)
 """
 
 import sqlite3
+from pathlib import Path
+
+import yaml
 
 from ohtv.db import migrate
 from ohtv.db.models import Conversation, LinkType, Reference, RefType, Repository
 from ohtv.db.stores import ConversationStore, LinkStore, ReferenceStore, RepoStore
+
+DB_STATES_DIR = Path(__file__).parent / "db_states"
 
 
 def create_test_db() -> sqlite3.Connection:
@@ -19,8 +26,114 @@ def create_test_db() -> sqlite3.Connection:
     return conn
 
 
+def load_db_state(name: str) -> sqlite3.Connection:
+    """Load a database state from a YAML fixture file.
+    
+    Args:
+        name: Name of the fixture file (without .yaml extension)
+              e.g., "github_refs" loads db_states/github_refs.yaml
+    
+    Returns:
+        In-memory database connection with the fixture data loaded
+        
+    Example YAML format:
+        conversations:
+          - id: conv-1
+            location: /path/to/conv-1
+        
+        repositories:
+          - canonical_url: https://github.com/owner/repo
+            fqn: owner/repo
+            short_name: repo
+        
+        references:
+          - type: issue  # or "pr"
+            url: https://github.com/owner/repo/issues/1
+            fqn: owner/repo#1
+            display_name: repo #1
+        
+        links:
+          repos:
+            - conversation: conv-1
+              repo_url: https://github.com/owner/repo
+              type: write  # or "read"
+          refs:
+            - conversation: conv-1
+              ref_url: https://github.com/owner/repo/issues/1
+              type: read
+    """
+    yaml_path = DB_STATES_DIR / f"{name}.yaml"
+    if not yaml_path.exists():
+        available = [p.stem for p in DB_STATES_DIR.glob("*.yaml")]
+        raise FileNotFoundError(
+            f"DB state fixture '{name}' not found. Available: {available}"
+        )
+    
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f)
+    
+    conn = create_test_db()
+    _load_yaml_data(conn, data)
+    conn.commit()
+    return conn
+
+
+def _load_yaml_data(conn: sqlite3.Connection, data: dict) -> None:
+    """Load YAML data into a database connection."""
+    conv_store = ConversationStore(conn)
+    repo_store = RepoStore(conn)
+    ref_store = ReferenceStore(conn)
+    link_store = LinkStore(conn)
+    
+    # Track IDs for linking
+    repo_ids: dict[str, int] = {}
+    ref_ids: dict[str, int] = {}
+    
+    # Load conversations
+    for conv in data.get("conversations", []):
+        conv_store.upsert(Conversation(id=conv["id"], location=conv["location"]))
+    
+    # Load repositories
+    for repo in data.get("repositories", []):
+        repo_id = repo_store.upsert(Repository(
+            id=None,
+            canonical_url=repo["canonical_url"],
+            fqn=repo["fqn"],
+            short_name=repo["short_name"],
+        ))
+        repo_ids[repo["canonical_url"]] = repo_id
+    
+    # Load references
+    for ref in data.get("references", []):
+        ref_type = RefType.ISSUE if ref["type"] == "issue" else RefType.PR
+        ref_id = ref_store.upsert(Reference(
+            id=None,
+            ref_type=ref_type,
+            url=ref["url"],
+            fqn=ref["fqn"],
+            display_name=ref["display_name"],
+        ))
+        ref_ids[ref["url"]] = ref_id
+    
+    # Load links
+    links = data.get("links", {})
+    
+    for link in links.get("repos", []):
+        link_type = LinkType.WRITE if link["type"] == "write" else LinkType.READ
+        repo_id = repo_ids[link["repo_url"]]
+        link_store.link_repo(link["conversation"], repo_id, link_type)
+    
+    for link in links.get("refs", []):
+        link_type = LinkType.WRITE if link["type"] == "write" else LinkType.READ
+        ref_id = ref_ids[link["ref_url"]]
+        link_store.link_ref(link["conversation"], ref_id, link_type)
+
+
 class DatabaseBuilder:
-    """Builder for creating pre-populated test databases.
+    """Builder for creating pre-populated test databases programmatically.
+    
+    Prefer YAML fixtures for static test data. Use this builder when you need
+    dynamic or parameterized test data.
     
     Usage:
         db = (DatabaseBuilder()
@@ -111,39 +224,18 @@ class DatabaseBuilder:
         return self._conn
 
 
-# Pre-built database states for common test scenarios
+# Convenience functions for common states (now backed by YAML)
 
 def empty_db() -> sqlite3.Connection:
     """Empty database with only migrations applied."""
-    return create_test_db()
-
-
-def db_with_single_conversation() -> sqlite3.Connection:
-    """Database with one conversation, no links."""
-    return (DatabaseBuilder()
-        .with_conversation("conv-1", "/path/to/conv-1")
-        .build())
+    return load_db_state("empty")
 
 
 def db_with_github_refs() -> sqlite3.Connection:
-    """Database with a conversation linked to GitHub repo, issue, and PR.
-    
-    This matches the sample conversation in fixtures/conversations/conv-with-github-refs/
-    """
-    return (DatabaseBuilder()
-        .with_conversation("conv-with-github-refs", "/conversations/conv-with-github-refs")
-        .with_repo("https://github.com/acme/webapp", "acme/webapp", "webapp")
-        .with_issue(
-            "https://github.com/acme/webapp/issues/42",
-            "acme/webapp#42",
-            "webapp #42"
-        )
-        .with_pr(
-            "https://github.com/acme/webapp/pull/99",
-            "acme/webapp#99",
-            "webapp #99"
-        )
-        .with_link_repo("conv-with-github-refs", "https://github.com/acme/webapp", LinkType.WRITE)
-        .with_link_ref("conv-with-github-refs", "https://github.com/acme/webapp/issues/42", LinkType.READ)
-        .with_link_ref("conv-with-github-refs", "https://github.com/acme/webapp/pull/99", LinkType.WRITE)
-        .build())
+    """Database with a conversation linked to GitHub repo, issue, and PR."""
+    return load_db_state("github_refs")
+
+
+def db_with_multi_repo() -> sqlite3.Connection:
+    """Database with multiple conversations across multiple repos."""
+    return load_db_state("multi_repo")

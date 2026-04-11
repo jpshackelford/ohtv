@@ -1,0 +1,9 @@
+# Database state: Empty (just migrations applied)
+# Use for tests that need to start from scratch
+
+conversations: []
+repositories: []
+references: []
+links:
+  repos: []
+  refs: []
