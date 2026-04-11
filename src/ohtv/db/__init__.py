@@ -15,11 +15,11 @@ filesystem. The DB only tracks:
 from ohtv.db.connection import get_connection, get_db_path
 from ohtv.db.migrations import migrate
 from ohtv.db.models import Conversation, LinkType, Reference, RefType, Repository
-from ohtv.db.repository import (
-    ConversationRepository,
-    LinkRepository,
-    ReferenceRepository,
-    RepoRepository,
+from ohtv.db.stores import (
+    ConversationStore,
+    LinkStore,
+    ReferenceStore,
+    RepoStore,
 )
 
 __all__ = [
@@ -33,9 +33,9 @@ __all__ = [
     "Reference",
     "RefType",
     "LinkType",
-    # Repositories (data access)
-    "ConversationRepository",
-    "RepoRepository",
-    "ReferenceRepository",
-    "LinkRepository",
+    # Stores (data access)
+    "ConversationStore",
+    "RepoStore",
+    "ReferenceStore",
+    "LinkStore",
 ]

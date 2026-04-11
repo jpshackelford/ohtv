@@ -1,4 +1,4 @@
-"""Repository pattern for database access.
+"""Data stores for database access.
 
 Provides clean interfaces for CRUD operations on indexed entities.
 """
@@ -15,7 +15,7 @@ from ohtv.db.models import (
 )
 
 
-class ConversationRepository:
+class ConversationStore:
     """Data access for conversations."""
     
     def __init__(self, conn: sqlite3.Connection):
@@ -48,7 +48,7 @@ class ConversationRepository:
         return cursor.rowcount > 0
 
 
-class RepoRepository:
+class RepoStore:
     """Data access for repositories."""
     
     def __init__(self, conn: sqlite3.Connection):
@@ -102,7 +102,7 @@ class RepoRepository:
         ]
 
 
-class ReferenceRepository:
+class ReferenceStore:
     """Data access for references (issues, PRs, etc)."""
     
     def __init__(self, conn: sqlite3.Connection):
@@ -184,7 +184,7 @@ class ReferenceRepository:
         ]
 
 
-class LinkRepository:
+class LinkStore:
     """Data access for conversation-entity links."""
     
     def __init__(self, conn: sqlite3.Connection):
