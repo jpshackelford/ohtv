@@ -8,9 +8,9 @@ from typing import Sequence
 
 from ohtv.db.models import (
     Conversation,
-    Issue,
     LinkType,
-    PullRequest,
+    Reference,
+    RefType,
     Repository,
 )
 
@@ -102,106 +102,80 @@ class RepoRepository:
         ]
 
 
-class IssueRepository:
-    """Data access for issues."""
+class ReferenceRepository:
+    """Data access for references (issues, PRs, etc)."""
     
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
     
-    def upsert(self, issue: Issue) -> int:
-        """Insert or update an issue. Returns the issue ID."""
+    def upsert(self, ref: Reference) -> int:
+        """Insert or update a reference. Returns the reference ID."""
         cursor = self.conn.execute(
             """
-            INSERT INTO issues (url, fqn, display_name)
-            VALUES (?, ?, ?)
+            INSERT INTO refs (ref_type, url, fqn, display_name)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(url) DO UPDATE SET
+                ref_type = excluded.ref_type,
                 fqn = excluded.fqn,
                 display_name = excluded.display_name
             RETURNING id
             """,
-            (issue.url, issue.fqn, issue.display_name),
+            (ref.ref_type.value, ref.url, ref.fqn, ref.display_name),
         )
         return cursor.fetchone()[0]
     
-    def get_by_url(self, url: str) -> Issue | None:
-        """Get an issue by its URL."""
+    def get_by_url(self, url: str) -> Reference | None:
+        """Get a reference by its URL."""
         cursor = self.conn.execute(
-            "SELECT id, url, fqn, display_name FROM issues WHERE url = ?",
+            "SELECT id, ref_type, url, fqn, display_name FROM refs WHERE url = ?",
             (url,),
         )
         row = cursor.fetchone()
         if row:
-            return Issue(
+            return Reference(
                 id=row["id"],
+                ref_type=RefType(row["ref_type"]),
                 url=row["url"],
                 fqn=row["fqn"],
                 display_name=row["display_name"],
             )
         return None
     
-    def search_by_fqn(self, fqn: str) -> Sequence[Issue]:
-        """Search issues by FQN pattern."""
-        cursor = self.conn.execute(
-            "SELECT id, url, fqn, display_name FROM issues WHERE fqn LIKE ?",
-            (f"%{fqn}%",),
-        )
+    def search_by_fqn(
+        self, fqn: str, ref_type: RefType | None = None
+    ) -> Sequence[Reference]:
+        """Search references by FQN pattern, optionally filtered by type."""
+        if ref_type:
+            cursor = self.conn.execute(
+                "SELECT id, ref_type, url, fqn, display_name FROM refs WHERE fqn LIKE ? AND ref_type = ?",
+                (f"%{fqn}%", ref_type.value),
+            )
+        else:
+            cursor = self.conn.execute(
+                "SELECT id, ref_type, url, fqn, display_name FROM refs WHERE fqn LIKE ?",
+                (f"%{fqn}%",),
+            )
         return [
-            Issue(
+            Reference(
                 id=row["id"],
+                ref_type=RefType(row["ref_type"]),
                 url=row["url"],
                 fqn=row["fqn"],
                 display_name=row["display_name"],
             )
             for row in cursor.fetchall()
         ]
-
-
-class PRRepository:
-    """Data access for pull requests."""
     
-    def __init__(self, conn: sqlite3.Connection):
-        self.conn = conn
-    
-    def upsert(self, pr: PullRequest) -> int:
-        """Insert or update a pull request. Returns the PR ID."""
+    def list_by_type(self, ref_type: RefType) -> Sequence[Reference]:
+        """List all references of a given type."""
         cursor = self.conn.execute(
-            """
-            INSERT INTO pull_requests (url, fqn, display_name)
-            VALUES (?, ?, ?)
-            ON CONFLICT(url) DO UPDATE SET
-                fqn = excluded.fqn,
-                display_name = excluded.display_name
-            RETURNING id
-            """,
-            (pr.url, pr.fqn, pr.display_name),
-        )
-        return cursor.fetchone()[0]
-    
-    def get_by_url(self, url: str) -> PullRequest | None:
-        """Get a PR by its URL."""
-        cursor = self.conn.execute(
-            "SELECT id, url, fqn, display_name FROM pull_requests WHERE url = ?",
-            (url,),
-        )
-        row = cursor.fetchone()
-        if row:
-            return PullRequest(
-                id=row["id"],
-                url=row["url"],
-                fqn=row["fqn"],
-                display_name=row["display_name"],
-            )
-        return None
-    
-    def search_by_fqn(self, fqn: str) -> Sequence[PullRequest]:
-        """Search PRs by FQN pattern."""
-        cursor = self.conn.execute(
-            "SELECT id, url, fqn, display_name FROM pull_requests WHERE fqn LIKE ?",
-            (f"%{fqn}%",),
+            "SELECT id, ref_type, url, fqn, display_name FROM refs WHERE ref_type = ?",
+            (ref_type.value,),
         )
         return [
-            PullRequest(
+            Reference(
                 id=row["id"],
+                ref_type=RefType(row["ref_type"]),
                 url=row["url"],
                 fqn=row["fqn"],
                 display_name=row["display_name"],
@@ -235,34 +209,23 @@ class LinkRepository:
             (conversation_id, repo_id, link_type.value),
         )
     
-    def link_issue(self, conversation_id: str, issue_id: int, link_type: LinkType) -> None:
-        """Link a conversation to an issue."""
+    def link_ref(self, conversation_id: str, ref_id: int, link_type: LinkType) -> None:
+        """Link a conversation to a reference (issue, PR, etc).
+        
+        If the conversation already has a link to this ref, updates the link type
+        only if the new type is WRITE (upgrades read to write).
+        """
         self.conn.execute(
             """
-            INSERT INTO conversation_issues (conversation_id, issue_id, link_type)
+            INSERT INTO conversation_refs (conversation_id, ref_id, link_type)
             VALUES (?, ?, ?)
-            ON CONFLICT(conversation_id, issue_id) DO UPDATE SET
+            ON CONFLICT(conversation_id, ref_id) DO UPDATE SET
                 link_type = CASE 
                     WHEN excluded.link_type = 'write' THEN 'write'
-                    ELSE conversation_issues.link_type
+                    ELSE conversation_refs.link_type
                 END
             """,
-            (conversation_id, issue_id, link_type.value),
-        )
-    
-    def link_pr(self, conversation_id: str, pr_id: int, link_type: LinkType) -> None:
-        """Link a conversation to a pull request."""
-        self.conn.execute(
-            """
-            INSERT INTO conversation_prs (conversation_id, pr_id, link_type)
-            VALUES (?, ?, ?)
-            ON CONFLICT(conversation_id, pr_id) DO UPDATE SET
-                link_type = CASE 
-                    WHEN excluded.link_type = 'write' THEN 'write'
-                    ELSE conversation_prs.link_type
-                END
-            """,
-            (conversation_id, pr_id, link_type.value),
+            (conversation_id, ref_id, link_type.value),
         )
     
     def get_conversations_for_repo(
@@ -289,35 +252,27 @@ class LinkRepository:
             )
         return [(row["conversation_id"], LinkType(row["link_type"])) for row in cursor.fetchall()]
     
-    def get_conversations_for_issue(
-        self, issue_id: int, link_type: LinkType | None = None
+    def get_conversations_for_ref(
+        self, ref_id: int, link_type: LinkType | None = None
     ) -> Sequence[tuple[str, LinkType]]:
-        """Get all conversations linked to an issue."""
+        """Get all conversations linked to a reference.
+        
+        Args:
+            ref_id: The reference ID
+            link_type: Optional filter for link type. If None, returns all.
+            
+        Returns:
+            List of (conversation_id, link_type) tuples
+        """
         if link_type:
             cursor = self.conn.execute(
-                "SELECT conversation_id, link_type FROM conversation_issues WHERE issue_id = ? AND link_type = ?",
-                (issue_id, link_type.value),
+                "SELECT conversation_id, link_type FROM conversation_refs WHERE ref_id = ? AND link_type = ?",
+                (ref_id, link_type.value),
             )
         else:
             cursor = self.conn.execute(
-                "SELECT conversation_id, link_type FROM conversation_issues WHERE issue_id = ?",
-                (issue_id,),
-            )
-        return [(row["conversation_id"], LinkType(row["link_type"])) for row in cursor.fetchall()]
-    
-    def get_conversations_for_pr(
-        self, pr_id: int, link_type: LinkType | None = None
-    ) -> Sequence[tuple[str, LinkType]]:
-        """Get all conversations linked to a pull request."""
-        if link_type:
-            cursor = self.conn.execute(
-                "SELECT conversation_id, link_type FROM conversation_prs WHERE pr_id = ? AND link_type = ?",
-                (pr_id, link_type.value),
-            )
-        else:
-            cursor = self.conn.execute(
-                "SELECT conversation_id, link_type FROM conversation_prs WHERE pr_id = ?",
-                (pr_id,),
+                "SELECT conversation_id, link_type FROM conversation_refs WHERE ref_id = ?",
+                (ref_id,),
             )
         return [(row["conversation_id"], LinkType(row["link_type"])) for row in cursor.fetchall()]
     
@@ -329,18 +284,23 @@ class LinkRepository:
         )
         return [(row["repo_id"], LinkType(row["link_type"])) for row in cursor.fetchall()]
     
-    def get_issues_for_conversation(self, conversation_id: str) -> Sequence[tuple[int, LinkType]]:
-        """Get all issues linked to a conversation."""
-        cursor = self.conn.execute(
-            "SELECT issue_id, link_type FROM conversation_issues WHERE conversation_id = ?",
-            (conversation_id,),
-        )
-        return [(row["issue_id"], LinkType(row["link_type"])) for row in cursor.fetchall()]
-    
-    def get_prs_for_conversation(self, conversation_id: str) -> Sequence[tuple[int, LinkType]]:
-        """Get all PRs linked to a conversation."""
-        cursor = self.conn.execute(
-            "SELECT pr_id, link_type FROM conversation_prs WHERE conversation_id = ?",
-            (conversation_id,),
-        )
-        return [(row["pr_id"], LinkType(row["link_type"])) for row in cursor.fetchall()]
+    def get_refs_for_conversation(
+        self, conversation_id: str, ref_type: RefType | None = None
+    ) -> Sequence[tuple[int, LinkType]]:
+        """Get all references linked to a conversation, optionally filtered by type."""
+        if ref_type:
+            cursor = self.conn.execute(
+                """
+                SELECT cr.ref_id, cr.link_type 
+                FROM conversation_refs cr
+                JOIN refs r ON cr.ref_id = r.id
+                WHERE cr.conversation_id = ? AND r.ref_type = ?
+                """,
+                (conversation_id, ref_type.value),
+            )
+        else:
+            cursor = self.conn.execute(
+                "SELECT ref_id, link_type FROM conversation_refs WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+        return [(row["ref_id"], LinkType(row["link_type"])) for row in cursor.fetchall()]

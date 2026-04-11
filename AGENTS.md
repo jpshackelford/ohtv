@@ -50,6 +50,7 @@ uv run ohtv --help         # Run CLI
 
 9. **SQLite indexing for labeling**: The `db` module provides lightweight indexing to label conversations by the repos, issues, and PRs they interact with. Key design:
    - **Minimal footprint**: Only stores conversation ID, disk location, and relationship links. Conversation content stays on filesystem.
+   - **Unified references**: Issues and PRs share a single `refs` table with a `ref_type` discriminator. Extensible for future types (discussions, commits, etc).
    - **Canonical URLs**: Repositories are tracked by their actual remote URL (if working on a fork, store the fork URL, not its upstream).
    - **FQN format**: `owner/repo` for repos, `owner/repo#123` for issues/PRs. Display names are human-friendly: `repo #123`.
    - **Link types**: `read` (referenced/viewed) or `write` (created/modified). `write` implies `read`, so only one link per relationship.

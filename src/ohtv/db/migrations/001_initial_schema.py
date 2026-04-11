@@ -3,11 +3,9 @@
 Creates tables for:
 - conversations: Basic tracking with ID and disk location
 - repositories: Git repos with canonical URL, FQN, and short name
-- issues: Issue references with URL, FQN, and display name
-- pull_requests: PR references with URL, FQN, and display name
+- references: Unified table for issues, PRs, etc. with type discriminator
 - conversation_repos: Links between conversations and repos
-- conversation_issues: Links between conversations and issues
-- conversation_prs: Links between conversations and PRs
+- conversation_refs: Links between conversations and references
 
 Link tables track whether the relationship is READ or WRITE.
 WRITE implies READ, so only one link type per relationship.
@@ -39,27 +37,19 @@ def upgrade(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX idx_repos_fqn ON repositories(fqn)")
     conn.execute("CREATE INDEX idx_repos_short_name ON repositories(short_name)")
     
-    # Issues: URL, FQN (owner/repo#123), display name (repo #123)
+    # Refs: unified table for issues, PRs, and future types
+    # ref_type: 'issue', 'pr', etc. (extensible)
     conn.execute("""
-        CREATE TABLE issues (
+        CREATE TABLE refs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ref_type TEXT NOT NULL CHECK(ref_type IN ('issue', 'pr')),
             url TEXT NOT NULL UNIQUE,
             fqn TEXT NOT NULL,
             display_name TEXT NOT NULL
         )
     """)
-    conn.execute("CREATE INDEX idx_issues_fqn ON issues(fqn)")
-    
-    # Pull requests: URL, FQN (owner/repo#456), display name (repo #456)
-    conn.execute("""
-        CREATE TABLE pull_requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            url TEXT NOT NULL UNIQUE,
-            fqn TEXT NOT NULL,
-            display_name TEXT NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX idx_prs_fqn ON pull_requests(fqn)")
+    conn.execute("CREATE INDEX idx_refs_type ON refs(ref_type)")
+    conn.execute("CREATE INDEX idx_refs_fqn ON refs(fqn)")
     
     # Link table: conversations <-> repositories
     # link_type: 'read' or 'write' (write implies read)
@@ -75,28 +65,15 @@ def upgrade(conn: sqlite3.Connection) -> None:
     """)
     conn.execute("CREATE INDEX idx_conv_repos_repo ON conversation_repos(repo_id)")
     
-    # Link table: conversations <-> issues
+    # Link table: conversations <-> refs (issues, PRs, etc.)
     conn.execute("""
-        CREATE TABLE conversation_issues (
+        CREATE TABLE conversation_refs (
             conversation_id TEXT NOT NULL,
-            issue_id INTEGER NOT NULL,
+            ref_id INTEGER NOT NULL,
             link_type TEXT NOT NULL CHECK(link_type IN ('read', 'write')),
-            PRIMARY KEY (conversation_id, issue_id),
+            PRIMARY KEY (conversation_id, ref_id),
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
-            FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+            FOREIGN KEY (ref_id) REFERENCES refs(id) ON DELETE CASCADE
         )
     """)
-    conn.execute("CREATE INDEX idx_conv_issues_issue ON conversation_issues(issue_id)")
-    
-    # Link table: conversations <-> pull requests
-    conn.execute("""
-        CREATE TABLE conversation_prs (
-            conversation_id TEXT NOT NULL,
-            pr_id INTEGER NOT NULL,
-            link_type TEXT NOT NULL CHECK(link_type IN ('read', 'write')),
-            PRIMARY KEY (conversation_id, pr_id),
-            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
-            FOREIGN KEY (pr_id) REFERENCES pull_requests(id) ON DELETE CASCADE
-        )
-    """)
-    conn.execute("CREATE INDEX idx_conv_prs_pr ON conversation_prs(pr_id)")
+    conn.execute("CREATE INDEX idx_conv_refs_ref ON conversation_refs(ref_id)")

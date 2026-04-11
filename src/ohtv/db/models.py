@@ -11,6 +11,7 @@ Design decisions:
 - FQN format: "owner/repo" for repos, "owner/repo#123" for issues/PRs
 - Display names are human-friendly: "repo #123" for issues/PRs
 - Link types: 'write' implies 'read', so only one link per relationship
+- Issues and PRs share a single 'references' table with a type discriminator
 """
 
 from dataclasses import dataclass
@@ -27,6 +28,15 @@ class LinkType(Enum):
     """
     READ = "read"
     WRITE = "write"
+
+
+class RefType(Enum):
+    """Type of reference (issue, PR, etc).
+    
+    Extensible for future reference types (discussions, commits, etc).
+    """
+    ISSUE = "issue"
+    PR = "pr"
 
 
 @dataclass
@@ -61,74 +71,20 @@ class Repository:
 
 
 @dataclass
-class Issue:
-    """A GitHub/GitLab/etc issue reference.
+class Reference:
+    """A reference to an issue, PR, or similar numbered item.
+    
+    Unified model for issues, PRs, and potentially other reference types.
     
     Attributes:
         id: Auto-generated database ID
-        url: Full URL to the issue
+        ref_type: Type of reference (issue, pr, etc)
+        url: Full URL to the reference
         fqn: Fully qualified name (e.g., owner/repo#123)
         display_name: Human-friendly display (e.g., repo #123)
     """
     id: int | None
+    ref_type: RefType
     url: str
     fqn: str
     display_name: str
-
-
-@dataclass
-class PullRequest:
-    """A GitHub PR / GitLab MR / etc reference.
-    
-    Attributes:
-        id: Auto-generated database ID
-        url: Full URL to the PR
-        fqn: Fully qualified name (e.g., owner/repo#456)
-        display_name: Human-friendly display (e.g., repo #456)
-    """
-    id: int | None
-    url: str
-    fqn: str
-    display_name: str
-
-
-@dataclass
-class ConversationRepoLink:
-    """Link between a conversation and a repository.
-    
-    Attributes:
-        conversation_id: The conversation identifier
-        repo_id: The repository database ID
-        link_type: READ or WRITE (WRITE implies READ)
-    """
-    conversation_id: str
-    repo_id: int
-    link_type: LinkType
-
-
-@dataclass
-class ConversationIssueLink:
-    """Link between a conversation and an issue.
-    
-    Attributes:
-        conversation_id: The conversation identifier
-        issue_id: The issue database ID
-        link_type: READ or WRITE (WRITE implies READ)
-    """
-    conversation_id: str
-    issue_id: int
-    link_type: LinkType
-
-
-@dataclass
-class ConversationPRLink:
-    """Link between a conversation and a pull request.
-    
-    Attributes:
-        conversation_id: The conversation identifier
-        pr_id: The pull request database ID
-        link_type: READ or WRITE (WRITE implies READ)
-    """
-    conversation_id: str
-    pr_id: int
-    link_type: LinkType

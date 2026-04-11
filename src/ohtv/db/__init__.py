@@ -8,18 +8,17 @@ The database is intentionally minimal - conversation content remains on the
 filesystem. The DB only tracks:
 - Conversation identifiers and their disk locations
 - Repositories (canonical URLs, FQN, short names)
-- Issues and PRs (URLs, FQN, display names)
+- References (issues, PRs, etc.) with type discriminator
 - Links between conversations and these entities (read vs write access)
 """
 
 from ohtv.db.connection import get_connection, get_db_path
 from ohtv.db.migrations import migrate
-from ohtv.db.models import Conversation, Issue, LinkType, PullRequest, Repository
+from ohtv.db.models import Conversation, LinkType, Reference, RefType, Repository
 from ohtv.db.repository import (
     ConversationRepository,
-    IssueRepository,
     LinkRepository,
-    PRRepository,
+    ReferenceRepository,
     RepoRepository,
 )
 
@@ -31,13 +30,12 @@ __all__ = [
     # Models
     "Conversation",
     "Repository",
-    "Issue",
-    "PullRequest",
+    "Reference",
+    "RefType",
     "LinkType",
     # Repositories (data access)
     "ConversationRepository",
     "RepoRepository",
-    "IssueRepository",
-    "PRRepository",
+    "ReferenceRepository",
     "LinkRepository",
 ]

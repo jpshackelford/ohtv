@@ -2861,11 +2861,9 @@ def db_status() -> None:
         tables = [
             ("conversations", "Conversations"),
             ("repositories", "Repositories"),
-            ("issues", "Issues"),
-            ("pull_requests", "Pull Requests"),
+            ("refs", "References (issues/PRs)"),
             ("conversation_repos", "Repo Links"),
-            ("conversation_issues", "Issue Links"),
-            ("conversation_prs", "PR Links"),
+            ("conversation_refs", "Reference Links"),
         ]
         
         console.print("\n[bold]Records:[/bold]")
@@ -2873,6 +2871,16 @@ def db_status() -> None:
             cursor = conn.execute(f"SELECT COUNT(*) FROM {table_name}")
             count = cursor.fetchone()[0]
             console.print(f"  {display_name}: {count}")
+        
+        # Show breakdown by ref type
+        cursor = conn.execute(
+            "SELECT ref_type, COUNT(*) FROM refs GROUP BY ref_type"
+        )
+        ref_counts = cursor.fetchall()
+        if ref_counts:
+            console.print("\n[bold]References by type:[/bold]")
+            for row in ref_counts:
+                console.print(f"  {row[0]}: {row[1]}")
 
 
 if __name__ == "__main__":
