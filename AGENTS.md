@@ -55,7 +55,7 @@ uv run ohtv --help         # Run CLI
    - **FQN format**: `owner/repo` for repos, `owner/repo#123` for issues/PRs. Display names are human-friendly: `repo #123`.
    - **Link types**: `read` (referenced/viewed) or `write` (created/modified). `write` implies `read`, so only one link per relationship.
    - **Migration system**: Uses simple file-based migrations in `src/ohtv/db/migrations/`. Each migration is a Python file with an `upgrade(conn)` function.
-   - **Location**: Default `~/.openhands/ohtv.db`, override with `OHTV_DB_PATH` environment variable.
+   - **Location**: Default `~/.ohtv/index.db`, override with `OHTV_DB_PATH` environment variable.
 
 10. **Incremental ingestion with multi-stage processing**: Designed for efficient handling of thousands of conversations with expensive (LLM) processing:
     - **Change detection**: Uses `events_mtime` (directory modification time) as fast O(1) filter to skip unchanged conversations. Falls back to `event_count` comparison when mtime changes.
@@ -63,6 +63,10 @@ uv run ohtv --help         # Run CLI
     - **Separation of concerns**: Registration (scan) is fast and cheap. Processing stages run independently and can be parallelized or run async.
     - **Force reprocessing**: After backup/restore or file copies that change mtimes, use `--force` flag to clear stage tracking and reprocess.
     - **Key tables**: `conversations` (with `events_mtime`, `event_count`), `conversation_stages` (stage completion tracking per conversation).
+
+11. **Data directory separation**: ohtv uses two directories:
+    - **`~/.openhands/`**: Read-only source data (conversations from CLI and synced cloud). Only `sync` writes here.
+    - **`~/.ohtv/`**: All ohtv-generated data (database, logs, sync manifest, cache). Override with `OHTV_DIR` environment variable.
 
 ## Testing
 

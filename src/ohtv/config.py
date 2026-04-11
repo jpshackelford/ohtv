@@ -57,9 +57,24 @@ def _get_api_key(home: Path) -> str | None:
 
 def get_manifest_path() -> Path:
     """Get path to sync manifest file."""
-    return Path.home() / ".openhands" / "cloud" / "sync_manifest.json"
+    return get_ohtv_dir() / "sync_manifest.json"
 
 
 def get_openhands_dir() -> Path:
-    """Get the base OpenHands directory (~/.openhands)."""
+    """Get the base OpenHands directory (~/.openhands).
+    
+    This is read-only for ohtv, except for sync which writes conversations.
+    """
     return Path.home() / ".openhands"
+
+
+def get_ohtv_dir() -> Path:
+    """Get the ohtv data directory (~/.ohtv).
+    
+    All ohtv-generated data (database, cache, logs, sync manifest) is stored here.
+    Can be overridden with OHTV_DIR environment variable.
+    """
+    env_dir = os.environ.get("OHTV_DIR")
+    if env_dir:
+        return Path(env_dir).expanduser()
+    return Path.home() / ".ohtv"

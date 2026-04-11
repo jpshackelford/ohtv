@@ -6,17 +6,19 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
+from ohtv.config import get_ohtv_dir
+
 
 def get_db_path() -> Path:
     """Get the path to the SQLite database file.
     
-    Default location: ~/.openhands/ohtv.db
+    Default location: ~/.ohtv/index.db
     Can be overridden with OHTV_DB_PATH environment variable.
     """
     env_path = os.environ.get("OHTV_DB_PATH")
     if env_path:
         return Path(env_path).expanduser()
-    return Path.home() / ".openhands" / "ohtv.db"
+    return get_ohtv_dir() / "index.db"
 
 
 @contextmanager

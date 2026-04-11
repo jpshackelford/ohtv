@@ -3,15 +3,21 @@
 import logging
 import logging.handlers
 import sys
-from pathlib import Path
 
-LOG_DIR = Path.home() / ".openhands" / "cloud" / "logs"
-LOG_FILE = LOG_DIR / "ohtv.log"
+from ohtv.config import get_ohtv_dir
+
+
+def _get_log_dir():
+    return get_ohtv_dir() / "logs"
+
+
+def _get_log_file():
+    return _get_log_dir() / "ohtv.log"
 
 
 def setup_logging(verbose: bool = False) -> logging.Logger:
     """Configure logging to file and optionally console."""
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _get_log_dir().mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger("ohtv")
     logger.setLevel(logging.DEBUG)
@@ -41,7 +47,7 @@ def _add_file_handler(logger: logging.Logger) -> None:
     from logging.handlers import RotatingFileHandler
 
     handler = RotatingFileHandler(
-        LOG_FILE,
+        _get_log_file(),
         maxBytes=1_000_000,  # 1MB
         backupCount=3,
     )
