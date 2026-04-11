@@ -2832,6 +2832,51 @@ def db_init(verbose: bool) -> None:
         console.print(f"[dim]Database up to date: {db_path}[/dim]")
 
 
+@db.command("scan")
+@click.option("--force", "-f", is_flag=True, help="Update all conversations regardless of mtime")
+@click.option("--remove-missing", is_flag=True, help="Remove DB entries for conversations no longer on disk")
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+def db_scan(force: bool, remove_missing: bool, verbose: bool) -> None:
+    """Scan filesystem and register conversations in the database.
+    
+    Discovers conversations from both local CLI (~/.openhands/conversations/)
+    and synced cloud (~/.openhands/cloud/conversations/) directories.
+    
+    Uses mtime for fast change detection - only updates conversations whose
+    events directory has been modified since last scan.
+    
+    Use --force after restoring from backup or copying files, as these
+    operations may change mtimes without changing content.
+    """
+    from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
+    
+    db_path = get_db_path()
+    
+    # Auto-init if needed
+    if not db_path.exists():
+        console.print("[dim]Initializing database...[/dim]")
+    
+    with get_connection() as conn:
+        migrate(conn)
+        result = scan_conversations(conn, force=force, remove_missing=remove_missing)
+        conn.commit()
+    
+    # Display results
+    if result.new_registered > 0:
+        console.print(f"[green]✓[/green] Registered {result.new_registered} new conversation(s)")
+    
+    if result.updated > 0:
+        console.print(f"[green]✓[/green] Updated {result.updated} conversation(s)")
+    
+    if result.removed > 0:
+        console.print(f"[yellow]![/yellow] Removed {result.removed} missing conversation(s)")
+    
+    if result.new_registered == 0 and result.updated == 0 and result.removed == 0:
+        console.print(f"[dim]No changes. {result.unchanged} conversation(s) up to date.[/dim]")
+    elif verbose:
+        console.print(f"[dim]{result.unchanged} unchanged, {result.total_on_disk} total on disk[/dim]")
+
+
 @db.command("status")
 def db_status() -> None:
     """Show database status and statistics."""
