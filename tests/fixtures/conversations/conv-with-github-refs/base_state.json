@@ -1,0 +1,14 @@
+{
+  "id": "conv-with-github-refs",
+  "title": "Fix bug in authentication module",
+  "selected_repository": "acme/webapp",
+  "selected_branch": "main",
+  "created_at": "2026-04-01T10:00:00.000000Z",
+  "updated_at": "2026-04-01T10:30:00.000000Z",
+  "agent": {
+    "llm": {
+      "model": "claude-sonnet-4"
+    },
+    "tools": []
+  }
+}

@@ -25,3 +25,7 @@ packages = ["src/ohtv"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "pytest-httpx>=0.30"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]

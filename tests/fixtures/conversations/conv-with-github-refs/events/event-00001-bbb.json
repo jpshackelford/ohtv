@@ -1,0 +1,18 @@
+{
+  "id": "bbb",
+  "timestamp": "2026-04-01T10:01:00.000000",
+  "source": "agent",
+  "kind": "ActionEvent",
+  "thought": [
+    {
+      "type": "text",
+      "text": "I'll fetch the issue details to understand the bug."
+    }
+  ],
+  "action": {
+    "url": "https://github.com/acme/webapp/issues/42",
+    "kind": "BrowseURLAction"
+  },
+  "tool_name": "browser",
+  "tool_call_id": "tool-001"
+}

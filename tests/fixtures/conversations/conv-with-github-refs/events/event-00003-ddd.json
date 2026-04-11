@@ -1,0 +1,19 @@
+{
+  "id": "ddd",
+  "timestamp": "2026-04-01T10:02:30.000000",
+  "source": "environment",
+  "kind": "ObservationEvent",
+  "tool_name": "terminal",
+  "tool_call_id": "tool-002",
+  "action_id": "ccc",
+  "observation": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Creating pull request for main\n\nhttps://github.com/acme/webapp/pull/99\n"
+      }
+    ],
+    "exit_code": 0,
+    "kind": "TerminalObservation"
+  }
+}
