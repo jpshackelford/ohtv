@@ -2832,6 +2832,108 @@ def db_init(verbose: bool) -> None:
         console.print(f"[dim]Database up to date: {db_path}[/dim]")
 
 
+@db.command("process")
+@click.argument("stage", type=click.Choice(["refs"]))
+@click.option("--force", "-f", is_flag=True, help="Reprocess all conversations, ignoring stage completion")
+@click.option("--conversation", "-c", help="Process only this conversation ID")
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+def db_process(stage: str, force: bool, conversation: str | None, verbose: bool) -> None:
+    """Run a processing stage on conversations.
+    
+    Processes conversations that need it (never processed or have new events).
+    Use --force to reprocess all conversations regardless of status.
+    
+    \b
+    Available stages:
+      refs  - Extract repository, issue, and PR references
+    """
+    from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
+    from ohtv.db.stages import STAGES
+    from ohtv.db.stores import ConversationStore, StageStore
+    
+    if stage not in STAGES:
+        console.print(f"[red]Error:[/red] Unknown stage '{stage}'")
+        raise SystemExit(1)
+    
+    processor = STAGES[stage]
+    db_path = get_db_path()
+    
+    # Auto-init and scan if needed
+    if not db_path.exists():
+        console.print("[dim]Initializing database...[/dim]")
+    
+    with get_connection() as conn:
+        migrate(conn)
+        
+        # Auto-scan to ensure conversations are registered
+        scan_result = scan_conversations(conn)
+        if scan_result.new_registered > 0:
+            console.print(f"[dim]Registered {scan_result.new_registered} new conversation(s)[/dim]")
+        
+        conv_store = ConversationStore(conn)
+        stage_store = StageStore(conn)
+        
+        # Determine which conversations to process
+        if conversation:
+            # Process specific conversation
+            conv = conv_store.get(conversation)
+            if not conv:
+                console.print(f"[red]Error:[/red] Conversation '{conversation}' not found in database")
+                console.print("[dim]Run 'ohtv db scan' first to register conversations[/dim]")
+                raise SystemExit(1)
+            
+            if force:
+                stage_store.clear_stage(stage, conversation)
+            
+            if stage_store.needs_processing(conversation, stage, conv.event_count):
+                conversations_to_process = [conv]
+            else:
+                conversations_to_process = []
+                console.print(f"[dim]Conversation already processed for '{stage}' stage[/dim]")
+        else:
+            # Process all pending conversations
+            if force:
+                cleared = stage_store.clear_stage(stage)
+                if verbose and cleared > 0:
+                    console.print(f"[dim]Cleared {cleared} stage record(s)[/dim]")
+            
+            pending = stage_store.get_pending_conversations(stage)
+            conversations_to_process = []
+            for conv_id, event_count in pending:
+                conv = conv_store.get(conv_id)
+                if conv:
+                    conversations_to_process.append(conv)
+        
+        if not conversations_to_process:
+            console.print(f"[dim]No conversations need processing for '{stage}' stage[/dim]")
+            conn.commit()
+            return
+        
+        # Process conversations
+        processed = 0
+        errors = 0
+        
+        with console.status(f"[bold blue]Processing {len(conversations_to_process)} conversation(s)...[/bold blue]") as status:
+            for conv in conversations_to_process:
+                try:
+                    if verbose:
+                        status.update(f"[bold blue]Processing {conv.id}...[/bold blue]")
+                    processor(conn, conv)
+                    processed += 1
+                except Exception as e:
+                    errors += 1
+                    if verbose:
+                        console.print(f"[red]Error processing {conv.id}:[/red] {e}")
+        
+        conn.commit()
+    
+    # Display results
+    if processed > 0:
+        console.print(f"[green]✓[/green] Processed {processed} conversation(s) for '{stage}' stage")
+    if errors > 0:
+        console.print(f"[yellow]![/yellow] {errors} error(s) during processing")
+
+
 @db.command("scan")
 @click.option("--force", "-f", is_flag=True, help="Update all conversations regardless of mtime")
 @click.option("--remove-missing", is_flag=True, help="Remove DB entries for conversations no longer on disk")
