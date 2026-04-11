@@ -1386,8 +1386,9 @@ def _format_action_details(tool_name: str, action: dict) -> str:
 @main.command()
 @click.argument("conversation_id")
 @click.option("--actions", "-a", is_flag=True, help="Show only refs with write actions (created, pushed, etc.)")
+@click.option("--no-index", is_flag=True, help="Skip database indexing (faster, but refs won't be queryable)")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
-def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
+def refs(conversation_id: str, actions: bool, no_index: bool, verbose: bool) -> None:
     """Extract repository, issue, and PR references from a conversation.
 
     Shows what actions were taken on each reference:
@@ -1397,6 +1398,9 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
 
     Also warns about unpushed commits: directories where git commit was run
     but no git push followed.
+
+    By default, indexes the conversation in the database for future queries.
+    Use --no-index to skip this (faster for one-off lookups).
 
     References without detected interactions are shown without annotation.
     Use --actions to show only refs where write actions were detected.
@@ -1416,7 +1420,11 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
     conv_id, title = _get_conversation_info(conv_dir)
     _display_conversation_header(conv_id, title)
 
-    # Extract references from events
+    # Index conversation in DB (unless --no-index)
+    if not no_index:
+        _ensure_refs_indexed(conv_id, conv_dir, verbose)
+
+    # Extract references from events (for detailed display)
     extracted = _extract_refs_from_conversation(conv_dir)
 
     if not any(extracted.values()):
@@ -1431,6 +1439,65 @@ def refs(conversation_id: str, actions: bool, verbose: bool) -> None:
         _display_actions_only(interactions)
     else:
         _display_refs(extracted, interactions)
+
+
+def _ensure_refs_indexed(conv_id: str, conv_dir: Path, verbose: bool = False) -> None:
+    """Ensure conversation is indexed with refs in the database.
+    
+    Runs scan + refs processing if needed, silently.
+    """
+    from ohtv.db import get_connection, migrate, scan_conversations
+    from ohtv.db.scanner import count_events
+    from ohtv.db.stages import process_refs
+    from ohtv.db.stores import ConversationStore, StageStore
+    
+    with get_connection() as conn:
+        migrate(conn)
+        
+        # Check if conversation needs processing
+        conv_store = ConversationStore(conn)
+        stage_store = StageStore(conn)
+        
+        conv = conv_store.get(conv_id)
+        events_dir = conv_dir / "events"
+        current_event_count = count_events(events_dir)
+        
+        needs_processing = False
+        
+        if conv is None:
+            # Not registered - register it
+            from ohtv.db.models import Conversation
+            from ohtv.db.scanner import get_events_mtime
+            
+            conv = Conversation(
+                id=conv_id,
+                location=str(conv_dir),
+                events_mtime=get_events_mtime(events_dir),
+                event_count=current_event_count,
+            )
+            conv_store.upsert(conv)
+            needs_processing = True
+            if verbose:
+                console.print(f"[dim]Registered conversation in database[/dim]")
+        elif stage_store.needs_processing(conv_id, "refs", current_event_count):
+            # Update event count if needed
+            if conv.event_count != current_event_count:
+                from ohtv.db.scanner import get_events_mtime
+                conv = Conversation(
+                    id=conv_id,
+                    location=str(conv_dir),
+                    events_mtime=get_events_mtime(events_dir),
+                    event_count=current_event_count,
+                )
+                conv_store.upsert(conv)
+            needs_processing = True
+        
+        if needs_processing:
+            if verbose:
+                console.print(f"[dim]Indexing refs...[/dim]")
+            process_refs(conn, conv)
+        
+        conn.commit()
 
 
 @main.command()

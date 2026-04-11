@@ -2,6 +2,7 @@
 
 import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -196,3 +197,78 @@ class TestProcessRefs:
             pr_link = next((link for ref_id, link in ref_links if ref_id == pr.id), None)
             if pr_link:
                 assert pr_link == LinkType.WRITE
+
+
+class TestEnsureRefsIndexed:
+    """Tests for _ensure_refs_indexed function from CLI."""
+    
+    @pytest.fixture
+    def sample_conversation_dir(self, tmp_path):
+        """Create a sample conversation directory."""
+        fixtures_dir = Path(__file__).parent.parent.parent.parent / "fixtures" / "conversations"
+        src = fixtures_dir / "conv-with-github-refs"
+        dest = tmp_path / "conv-with-github-refs"
+        shutil.copytree(src, dest)
+        return dest
+    
+    def test_indexes_new_conversation(self, tmp_path, sample_conversation_dir, monkeypatch):
+        """Should register and process refs for new conversation."""
+        from ohtv.cli import _ensure_refs_indexed
+        
+        # Use a fresh DB
+        db_path = tmp_path / "test.db"
+        monkeypatch.setenv("OHTV_DB_PATH", str(db_path))
+        
+        conv_id = "conv-with-github-refs"
+        
+        # Call ensure indexed
+        _ensure_refs_indexed(conv_id, sample_conversation_dir, verbose=False)
+        
+        # Check conversation is in DB
+        from ohtv.db import get_connection
+        from ohtv.db.stores import ConversationStore, StageStore
+        
+        with get_connection() as conn:
+            conv_store = ConversationStore(conn)
+            conv = conv_store.get(conv_id)
+            
+            assert conv is not None
+            assert conv.id == conv_id
+            
+            # Check stage is complete
+            stage_store = StageStore(conn)
+            stage = stage_store.get(conv_id, "refs")
+            
+            assert stage is not None
+    
+    def test_skips_already_processed_conversation(self, tmp_path, sample_conversation_dir, monkeypatch):
+        """Should not reprocess already-indexed conversation."""
+        from ohtv.cli import _ensure_refs_indexed
+        
+        db_path = tmp_path / "test.db"
+        monkeypatch.setenv("OHTV_DB_PATH", str(db_path))
+        
+        conv_id = "conv-with-github-refs"
+        
+        # First call - should process
+        _ensure_refs_indexed(conv_id, sample_conversation_dir, verbose=False)
+        
+        # Get stage completion time
+        from ohtv.db import get_connection
+        from ohtv.db.stores import StageStore
+        
+        with get_connection() as conn:
+            stage_store = StageStore(conn)
+            stage1 = stage_store.get(conv_id, "refs")
+            completed_at1 = stage1.completed_at
+        
+        # Second call - should skip
+        _ensure_refs_indexed(conv_id, sample_conversation_dir, verbose=False)
+        
+        with get_connection() as conn:
+            stage_store = StageStore(conn)
+            stage2 = stage_store.get(conv_id, "refs")
+            completed_at2 = stage2.completed_at
+        
+        # Completion time should be the same (not reprocessed)
+        assert completed_at1 == completed_at2
