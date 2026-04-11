@@ -48,23 +48,14 @@ uv run ohtv --help         # Run CLI
    
    Both options always show exit codes for terminal commands and working directory in debug mode.
 
-9. **SQLite indexing for labeling**: The `db` module provides lightweight indexing to label conversations by the repos, issues, and PRs they interact with. Key design:
-   - **Minimal footprint**: Only stores conversation ID, disk location, and relationship links. Conversation content stays on filesystem.
-   - **Unified references**: Issues and PRs share a single `refs` table with a `ref_type` discriminator. Extensible for future types (discussions, commits, etc).
-   - **Canonical URLs**: Repositories are tracked by their actual remote URL (if working on a fork, store the fork URL, not its upstream).
-   - **FQN format**: `owner/repo` for repos, `owner/repo#123` for issues/PRs. Display names are human-friendly: `repo #123`.
-   - **Link types**: `read` (referenced/viewed) or `write` (created/modified). `write` implies `read`, so only one link per relationship.
-   - **Migration system**: Uses simple file-based migrations in `src/ohtv/db/migrations/`. Each migration is a Python file with an `upgrade(conn)` function.
-   - **Location**: Default `~/.ohtv/index.db`, override with `OHTV_DB_PATH` environment variable.
+9. **SQLite indexing system**: The `db` module provides lightweight indexing for conversations and their relationships to repositories, issues, and PRs. See `docs/DATABASE.md` for full documentation. Key points:
+   - **Minimal footprint**: Only metadata and relationships; content stays on filesystem
+   - **Two-phase pipeline**: Fast registration (`ohtv db scan`) + incremental processing (`ohtv db process <stage>`)
+   - **Change detection**: Uses mtime as fast filter, event_count as checkpoint
+   - **Auto-indexing**: `ohtv refs <id>` automatically indexes when viewing
+   - **Location**: `~/.ohtv/index.db` (override with `OHTV_DB_PATH`)
 
-10. **Incremental ingestion with multi-stage processing**: Designed for efficient handling of thousands of conversations with expensive (LLM) processing:
-    - **Change detection**: Uses `events_mtime` (directory modification time) as fast O(1) filter to skip unchanged conversations. Falls back to `event_count` comparison when mtime changes.
-    - **Processing stages**: Each processing job (refs extraction, objectives analysis, etc.) is tracked independently in `conversation_stages` table. Stages record the `event_count` at completion, enabling incremental re-processing when conversations grow.
-    - **Separation of concerns**: Registration (scan) is fast and cheap. Processing stages run independently and can be parallelized or run async.
-    - **Force reprocessing**: After backup/restore or file copies that change mtimes, use `--force` flag to clear stage tracking and reprocess.
-    - **Key tables**: `conversations` (with `events_mtime`, `event_count`), `conversation_stages` (stage completion tracking per conversation).
-
-11. **Data directory separation**: ohtv uses two directories:
+10. **Data directory separation**: ohtv uses two directories:
     - **`~/.openhands/`**: Read-only source data (conversations from CLI and synced cloud). Only `sync` writes here.
     - **`~/.ohtv/`**: All ohtv-generated data (database, logs, sync manifest, cache). Override with `OHTV_DIR` environment variable.
 
