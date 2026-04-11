@@ -178,7 +178,7 @@ ohtv show abc123 -A -r -n 5
 
 ### `ohtv refs` - Extract Git References
 
-Extracts and displays all repository, issue, and PR/MR references found in a conversation, with annotations showing what actions were taken.
+Extracts and displays all repository, issue, and PR/MR references found in a conversation, with annotations showing what actions were taken. Automatically indexes the conversation in the database for future queries.
 
 ```bash
 # Show all references with interaction annotations
@@ -186,6 +186,9 @@ ohtv refs abc123
 
 # Show only refs where write actions were detected
 ohtv refs abc123 --actions
+
+# Skip database indexing (faster for one-off lookups)
+ohtv refs abc123 --no-index
 ```
 
 **Detected Interactions:**
@@ -197,6 +200,7 @@ ohtv refs abc123 --actions
 | Flag | Description |
 |------|-------------|
 | `-a, --actions` | Show only refs with write actions |
+| `--no-index` | Skip database indexing |
 
 ---
 
@@ -360,17 +364,132 @@ ohtv sync --quiet
 
 ---
 
+### `ohtv db` - Database Management
+
+Manages the SQLite index database that tracks conversations and their relationships to repositories, issues, and PRs. The database enables fast lookups and future aggregate queries.
+
+See [docs/DATABASE.md](docs/DATABASE.md) for detailed documentation.
+
+#### `ohtv db init` - Initialize Database
+
+Creates or migrates the database schema.
+
+```bash
+ohtv db init
+```
+
+#### `ohtv db scan` - Register Conversations
+
+Scans the filesystem and registers conversations in the database. Uses modification time for fast change detection.
+
+```bash
+# Scan and register new/changed conversations
+ohtv db scan
+
+# Force update all conversations (after backup restore)
+ohtv db scan --force
+
+# Remove entries for deleted conversations
+ohtv db scan --remove-missing
+
+# Verbose output
+ohtv db scan -v
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `-f, --force` | Update all conversations regardless of mtime |
+| `--remove-missing` | Remove DB entries for conversations no longer on disk |
+| `-v, --verbose` | Show detailed output |
+
+#### `ohtv db process` - Run Processing Stages
+
+Runs processing stages on registered conversations. Each stage extracts specific data and stores it in the database.
+
+```bash
+# Process refs (repos, issues, PRs) for all pending conversations
+ohtv db process refs
+
+# Force reprocess all conversations
+ohtv db process refs --force
+
+# Process a specific conversation
+ohtv db process refs --conversation abc123
+
+# Verbose output
+ohtv db process refs -v
+```
+
+**Available Stages:**
+| Stage | Description |
+|-------|-------------|
+| `refs` | Extract repository, issue, and PR references |
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `-f, --force` | Reprocess all conversations |
+| `-c, --conversation ID` | Process only this conversation |
+| `-v, --verbose` | Show detailed output |
+
+#### `ohtv db status` - Show Database Status
+
+Displays database statistics.
+
+```bash
+ohtv db status
+```
+
+**Example Output:**
+```
+Database: /Users/you/.ohtv/index.db
+Size: 156.2 KB
+
+Records:
+  Conversations: 42
+  Repositories: 15
+  References (issues/PRs): 28
+  Repo Links: 52
+  Reference Links: 71
+
+References by type:
+  issue: 12
+  pr: 16
+```
+
+---
+
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `OH_API_KEY` | OpenHands Cloud API key | Required for `sync` |
 | `OHTV_CLOUD_URL` | Cloud base URL | `https://app.all-hands.dev` |
+| `OHTV_DIR` | ohtv data directory (database, logs, cache) | `~/.ohtv` |
+| `OHTV_DB_PATH` | Direct path to database file | `~/.ohtv/index.db` |
 | `OHTV_CONVERSATIONS_DIR` | Local CLI conversations directory | `~/.openhands/conversations` |
 | `OHTV_CLOUD_CONVERSATIONS_DIR` | Synced cloud conversations directory | `~/.openhands/cloud/conversations` |
+| `LLM_API_KEY` | API key for LLM provider | Required for `objectives`, `summary` |
+| `LLM_MODEL` | Default LLM model | Provider default |
+| `LLM_BASE_URL` | Custom LLM base URL | Provider default |
+| `LLM_TIMEOUT` | LLM request timeout in seconds | `300` |
+
+## Data Directories
+
+ohtv uses two directory trees:
+
+- **`~/.openhands/`** - OpenHands source data (read-only for ohtv, except `sync`)
+  - `conversations/` - Local CLI conversations
+  - `cloud/conversations/` - Synced cloud conversations
+
+- **`~/.ohtv/`** - ohtv-generated data (override with `OHTV_DIR`)
+  - `index.db` - SQLite database
+  - `logs/ohtv.log` - Application logs
+  - `sync_manifest.json` - Cloud sync state
 
 ## Logging
 
-Logs are written to `~/.openhands/cloud/logs/ohtv.log`:
+Logs are written to `~/.ohtv/logs/ohtv.log`:
 - Rotates at 1MB, keeps 3 backups
 - Use `-v, --verbose` on any command to also print debug output to console
