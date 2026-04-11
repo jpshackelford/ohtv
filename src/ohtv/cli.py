@@ -2794,5 +2794,86 @@ def _display_refs(refs: dict[str, set[str]], interactions: RefInteractions | Non
             console.print(f"  • [yellow]{display_path}[/yellow]")
 
 
+# =============================================================================
+# Database Commands
+# =============================================================================
+
+
+@main.group()
+def db() -> None:
+    """Manage the conversation index database."""
+
+
+@db.command("init")
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed migration output")
+def db_init(verbose: bool) -> None:
+    """Initialize or migrate the database.
+    
+    Creates the database if it doesn't exist, or applies any pending
+    migrations if it does. Safe to run multiple times.
+    """
+    from ohtv.db import get_connection, get_db_path, migrate
+    
+    db_path = get_db_path()
+    existed = db_path.exists()
+    
+    with get_connection() as conn:
+        applied = migrate(conn)
+    
+    if not existed:
+        console.print(f"[green]✓[/green] Created database: {db_path}")
+    
+    if applied:
+        console.print(f"[green]✓[/green] Applied {len(applied)} migration(s):")
+        for migration_name in applied:
+            if verbose:
+                console.print(f"  • {migration_name}")
+    elif existed:
+        console.print(f"[dim]Database up to date: {db_path}[/dim]")
+
+
+@db.command("status")
+def db_status() -> None:
+    """Show database status and statistics."""
+    from ohtv.db import get_connection, get_db_path
+    
+    db_path = get_db_path()
+    
+    if not db_path.exists():
+        console.print(f"[yellow]Database not initialized.[/yellow]")
+        console.print(f"Run [bold]ohtv db init[/bold] to create it.")
+        return
+    
+    # Get file size
+    size_bytes = db_path.stat().st_size
+    if size_bytes < 1024:
+        size_str = f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        size_str = f"{size_bytes / 1024:.1f} KB"
+    else:
+        size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+    
+    console.print(f"[bold]Database:[/bold] {db_path}")
+    console.print(f"[bold]Size:[/bold] {size_str}")
+    
+    with get_connection() as conn:
+        # Count records in each table
+        tables = [
+            ("conversations", "Conversations"),
+            ("repositories", "Repositories"),
+            ("issues", "Issues"),
+            ("pull_requests", "Pull Requests"),
+            ("conversation_repos", "Repo Links"),
+            ("conversation_issues", "Issue Links"),
+            ("conversation_prs", "PR Links"),
+        ]
+        
+        console.print("\n[bold]Records:[/bold]")
+        for table_name, display_name in tables:
+            cursor = conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+            count = cursor.fetchone()[0]
+            console.print(f"  {display_name}: {count}")
+
+
 if __name__ == "__main__":
     main()

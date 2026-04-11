@@ -13,12 +13,13 @@ uv run ohtv --help         # Run CLI
 
 ## Code Structure
 
-- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, sync, objectives, summary)
+- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, sync, objectives, summary, db)
 - `src/ohtv/config.py` - Configuration management
 - `src/ohtv/sync.py` - Cloud sync logic
 - `src/ohtv/sources/` - Data sources (local, cloud)
 - `src/ohtv/exporter.py` - Output formatting
 - `src/ohtv/analysis/` - LLM-based analysis features (objectives extraction, summary)
+- `src/ohtv/db/` - SQLite-based indexing for conversation labeling
 
 ## Key Design Decisions
 
@@ -47,6 +48,14 @@ uv run ohtv --help         # Run CLI
    
    Both options always show exit codes for terminal commands and working directory in debug mode.
 
+9. **SQLite indexing for labeling**: The `db` module provides lightweight indexing to label conversations by the repos, issues, and PRs they interact with. Key design:
+   - **Minimal footprint**: Only stores conversation ID, disk location, and relationship links. Conversation content stays on filesystem.
+   - **Canonical URLs**: Repositories are tracked by their actual remote URL (if working on a fork, store the fork URL, not its upstream).
+   - **FQN format**: `owner/repo` for repos, `owner/repo#123` for issues/PRs. Display names are human-friendly: `repo #123`.
+   - **Link types**: `read` (referenced/viewed) or `write` (created/modified). `write` implies `read`, so only one link per relationship.
+   - **Migration system**: Uses simple file-based migrations in `src/ohtv/db/migrations/`. Each migration is a Python file with an `upgrade(conn)` function.
+   - **Location**: Default `~/.openhands/ohtv.db`, override with `OHTV_DB_PATH` environment variable.
+
 ## Testing
 
 No automated tests. Manual testing with real conversation data:
@@ -60,6 +69,8 @@ uv run ohtv refs <id>                  # Git references
 uv run ohtv objectives <id>            # Objective analysis (requires LLM_API_KEY)
 uv run ohtv summary -D                 # Today's conversation summaries (requires LLM_API_KEY)
 uv run ohtv summary -W                 # This week's summaries
+uv run ohtv db init                    # Initialize/migrate database
+uv run ohtv db status                  # Show database statistics
 ```
 
 ## Reference Documentation
