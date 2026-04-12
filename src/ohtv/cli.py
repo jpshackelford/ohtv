@@ -2379,10 +2379,15 @@ def _extract_all_urls(text: str, url_set: set[str]) -> None:
 
 
 def _extract_refs_from_conversation(conv_dir: Path) -> dict[str, set[str]]:
-    """Extract all git references from conversation events.
+    """Extract git references from conversation events.
 
-    Excludes URLs that appear in system context (skills, prompts) as these
-    are not actual repos worked on during the conversation.
+    Filters out noise by:
+    1. Excluding refs from noisy MCP tools (web search, fetch, browser)
+    2. Excluding refs from noisy terminal commands (curl, gh list, gh search, etc.)
+    3. Excluding refs from system context (skills, prompts)
+
+    This ensures we only capture refs that represent actual work, not
+    incidental mentions from web searches, changelogs, or bulk listings.
     """
     refs: dict[str, set[str]] = {
         "repos": set(),
@@ -2397,10 +2402,16 @@ def _extract_refs_from_conversation(conv_dir: Path) -> dict[str, set[str]]:
     # First pass: get URLs to exclude (from system context)
     context_urls = _extract_context_urls(events_dir)
 
-    # Second pass: extract refs from all events
+    # Second pass: extract refs from events, filtering by event type
     for event_file in sorted(events_dir.glob("event-*.json")):
         try:
             content = event_file.read_text()
+            data = json.loads(content)
+
+            # Check if this event should be excluded
+            if _is_noisy_event(data):
+                continue
+
             _extract_refs_from_text(content, refs)
         except (json.JSONDecodeError, OSError):
             continue
@@ -2421,6 +2432,67 @@ def _extract_refs_from_conversation(conv_dir: Path) -> dict[str, set[str]]:
     refs["repos"] = filtered_repos
 
     return refs
+
+
+# MCP tools that return web content (changelogs, search results, etc.)
+_NOISY_MCP_TOOL_PATTERNS = [
+    "tavily",       # Web search/extract
+    "fetch",        # Web fetching
+    "playwright",   # Browser automation
+    "browser",      # Browser tools
+]
+
+# Terminal commands that produce bulk/noisy output
+_NOISY_TERMINAL_COMMANDS = [
+    # Web fetching
+    "curl ",
+    "curl\t",
+    "wget ",
+    "wget\t",
+    # Bulk listing commands
+    "gh pr list",
+    "gh issue list",
+    "gh run list",
+    "gh release list",
+    # Search commands (return many results)
+    "gh search ",
+    # Release notes contain many historical PRs
+    "gh release view",
+]
+
+
+def _is_noisy_event(data: dict) -> bool:
+    """Check if an event is likely to produce noisy refs.
+
+    Returns True if the event should be excluded from ref extraction.
+    """
+    # Check for noisy MCP tool observations
+    observation = data.get("observation")
+    if isinstance(observation, dict):
+        obs_kind = observation.get("kind", "")
+        tool_name = observation.get("tool_name", "")
+
+        # MCPToolObservation with noisy tool
+        if "MCPToolObservation" in obs_kind or tool_name:
+            tool_lower = tool_name.lower()
+            for pattern in _NOISY_MCP_TOOL_PATTERNS:
+                if pattern in tool_lower:
+                    return True
+
+        # BrowserObservation
+        if obs_kind == "BrowserObservation":
+            return True
+
+        # TerminalObservation with noisy command
+        if obs_kind == "TerminalObservation":
+            command = observation.get("command", "")
+            if isinstance(command, str):
+                cmd_lower = command.lower()
+                for pattern in _NOISY_TERMINAL_COMMANDS:
+                    if pattern in cmd_lower:
+                        return True
+
+    return False
 
 
 def _extract_refs_from_text(text: str, refs: dict[str, set[str]]) -> None:
@@ -2483,14 +2555,16 @@ def _normalize_repo_url(match: re.Match) -> str:
 
 def _is_real_ref(url: str) -> bool:
     """Check if URL is a real reference (not a template or placeholder)."""
+    url_lower = url.lower()
+    
     # Skip template patterns
     template_indicators = [
         "{", "}", "...", "example", "username", "repo.git",
         "/user/", "/owner/", "/repo/", "/your-", "/my-",
     ]
-    url_lower = url.lower()
     if any(t in url_lower for t in template_indicators):
         return False
+    
     # Skip common placeholder names
     placeholder_patterns = [
         r"/USER/", r"/OWNER/", r"/REPO$", r"/REPO/",
@@ -2499,9 +2573,46 @@ def _is_real_ref(url: str) -> bool:
     for pattern in placeholder_patterns:
         if re.search(pattern, url, re.IGNORECASE):
             return False
+    
     # Skip API URLs
     if "api.github.com" in url:
         return False
+    
+    # Skip GitHub non-repo paths that look like repos
+    github_non_repo_paths = [
+        "/orgs/", "/organizations/", "/user-attachments/",
+        "/apps/", "/settings/", "/marketplace/", "/sponsors/",
+        "/features/", "/enterprise/", "/pricing/", "/security/",
+        "/login/", "/users/",  # OAuth and user profile pages
+    ]
+    if any(path in url_lower for path in github_non_repo_paths):
+        return False
+    
+    # Skip GitLab/Bitbucket system paths
+    gitlab_system_paths = [
+        "gitlab.com/api/", "gitlab.com/help/",
+        "gitlab.com/org/", "gitlab.com/team/",  # Generic placeholders in docs
+    ]
+    if any(path in url_lower for path in gitlab_system_paths):
+        return False
+    
+    bitbucket_system_paths = [
+        "bitbucket.org/site/",  # OAuth endpoints
+    ]
+    if any(path in url_lower for path in bitbucket_system_paths):
+        return False
+    
+    # Skip generic placeholder repo names commonly used in docs/examples
+    # These appear as github.com/org/plugin, github.com/openai/plugins etc.
+    generic_repo_names = [
+        "/org/plugin", "/org/plugins",
+        "/team/plugin", "/team/plugins",
+        "/openai/plugins",  # Common example in MCP docs
+        "/oauth/",  # OAuth examples (e.g., gitlab.com/oauth/discovery)
+    ]
+    if any(name in url_lower for name in generic_repo_names):
+        return False
+    
     return True
 
 
