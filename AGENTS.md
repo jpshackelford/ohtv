@@ -132,3 +132,26 @@ uv run ohtv db status                  # Database statistics
 **Test fixtures**: `tests/unit/db/stages/fixtures/push_pr_scenarios.py` contains sanitized scenarios documenting expected behavior.
 
 **Known issue**: The `refs` command display shows `[created]` but not `[pushed]` annotation because the display code uses event parsing instead of database links. The WRITE links are correctly stored in the database.
+
+## Active Work: Git Checkout Branch Tracking
+
+**Branch**: `feature/sqlite-indexing`
+
+**Problem**: When `git push` doesn't have branch info in command or output (e.g., "Everything up-to-date"), we need to infer the branch from prior `git checkout` or `git switch` commands.
+
+**Fixture data created**: `tests/unit/db/stages/fixtures/checkout_scenarios.py`
+- 8 scenarios covering checkout tracking edge cases
+- Key scenario: `SCENARIO_PUSH_NEEDS_INFERENCE` - push with no branch info
+
+**Next steps**:
+1. Add helper functions to extract working directory from commands (`cd /path && git ...`)
+2. Add helper to extract branch from checkout/switch command + output
+3. Modify `git_operations.py` recognizer to look backward for checkouts when push has no branch
+4. Add unit tests for the new extraction helpers
+5. Add integration tests using the checkout scenarios
+
+**Key challenges** (documented in fixtures):
+- Extracting repo path from `cd /path && git checkout...` commands
+- Handling path variations (`;` vs `&&`, spacing)
+- Detecting detached HEAD state (no current branch)
+- Tracking branch state per repo when working in multiple repos
