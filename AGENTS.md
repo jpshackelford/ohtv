@@ -79,13 +79,23 @@ uv run ohtv --help         # Run CLI
 
 14. **Conversation ID normalization**: The database stores IDs without dashes (from directory names), but LocalSource returns IDs with dashes (from `base_state.json`). The `filters` module normalizes both formats when filtering, so this mismatch is transparent to users.
 
-15. **Terminal confirmation prompts**: When prompting for user confirmation in CLI commands, use Rich's `Confirm.ask()` instead of Click's `click.confirm()`. Rich's ANSI-styled output can corrupt terminal state when mixed with Click's input handling, causing garbled input (showing `^M^M^M...` instead of processing Enter key). Always pass the same console instance:
+15. **Terminal confirmation prompts**: When prompting for user confirmation in CLI commands, use Rich's `Confirm.ask()` with the same console instance for consistency:
     ```python
     from rich.prompt import Confirm
     if not Confirm.ask("Are you sure?", console=console, default=False):
         console.print("[dim]Cancelled.[/dim]")
         return
     ```
+
+## Troubleshooting
+
+### Terminal shows `^M^M^M` when typing input
+
+If you see garbled input like `^M^M^M^M^M` when responding to confirmation prompts, your terminal is in a corrupted state. This typically happens after an OpenHands CLI session exits without properly restoring terminal settings.
+
+**Fix:** Run `reset` or `stty sane` in your terminal to restore normal input handling. The `clear` command does NOT fix this - it only clears the screen, not terminal modes.
+
+This is an OpenHands issue, not an ohtv bug. The terminal state corruption persists until explicitly reset.
 
 ## Testing
 
