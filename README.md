@@ -218,7 +218,10 @@ Extracts and displays repository, issue, and PR/MR references from one or more c
 # Show all references with interaction annotations
 ohtv refs abc123
 
-# Show only refs where write actions were detected
+# Show only refs where write actions were detected (pushed, created, etc.)
+ohtv refs abc123 --write-only
+
+# Show refs with any detected interactions (including read actions like cloned)
 ohtv refs abc123 --actions
 
 # Output just PR URLs, one per line (for piping)
@@ -236,13 +239,13 @@ ohtv refs abc123 --no-index
 # All PRs from today's conversations, one per line
 ohtv refs -D --prs-only -1
 
-# All repos touched this week
-ohtv refs -W --repos-only -1
+# All repos touched this week (with write actions)
+ohtv refs -W --repos-only --write-only -1
 
 # All refs from conversations that touched a specific PR
 ohtv refs --pr owner/repo#42 -1
 
-# Refs with write actions from today, comma-separated
+# Refs with any interactions from today, comma-separated
 ohtv refs -D --actions --format csv
 
 # All refs from today as JSON
@@ -258,9 +261,12 @@ ohtv refs -D --format json
 | `json` | JSON object with refs by type |
 
 **Detected Interactions:**
-- **Repositories:** `cloned`, `pushed`
-- **Pull Requests:** `created`, `pushed`, `commented`, `merged`, `closed`, `reviewed`
-- **Issues:** `created`, `commented`, `closed`
+
+| Type | Write Actions | Read Actions |
+|------|--------------|--------------|
+| Repositories | `pushed`, `committed` | `cloned` |
+| Pull Requests | `created`, `pushed`, `commented`, `merged`, `closed`, `reviewed` | `viewed` |
+| Issues | `created`, `commented`, `closed` | `viewed` |
 
 **Options:**
 | Flag | Description |
@@ -281,7 +287,8 @@ ohtv refs -D --format json
 | `--issues-only` | Output only issue references |
 | `-F, --format` | Output format: `table`, `lines`, `csv`, `json` |
 | `-1` | Shorthand for `--format lines` |
-| `-a, --actions` | Show only refs with write actions |
+| `-a, --actions` | Show only refs with detected interactions (read or write) |
+| `-w, --write-only` | Show only refs with write actions (pushed, created, etc.) |
 | `--no-index` | Skip database indexing |
 | `-v, --verbose` | Show debug output |
 

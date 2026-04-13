@@ -227,9 +227,11 @@ def _determine_link_type(interactions: set[str]) -> LinkType:
     
     Note: 'cloned' is READ because cloning is research/setup, not modification.
     Actual changes require commit + push.
+    
+    See also WRITE_ACTIONS constant in cli.py for the canonical definition.
     """
+    # Keep in sync with WRITE_ACTIONS in cli.py
     write_actions = {"pushed", "committed", "created", "commented", "reviewed", "merged", "closed"}
-    # read_actions = {"cloned", "fetched", "pulled", "viewed", "browsed", "api_called"}
     
     if interactions & write_actions:
         return LinkType.WRITE

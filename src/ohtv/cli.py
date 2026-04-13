@@ -79,6 +79,12 @@ REPO_INTERACTIONS = {"cloned", "pushed", "committed"}
 PR_INTERACTIONS = {"created", "pushed", "commented", "merged", "closed", "reviewed"}
 ISSUE_INTERACTIONS = {"created", "commented", "closed"}
 
+# Write vs Read action categorization
+# Write actions modify state in the remote system
+# Read actions only retrieve/view information (cloning downloads but doesn't modify remote)
+WRITE_ACTIONS = {"pushed", "committed", "created", "commented", "reviewed", "merged", "closed"}
+READ_ACTIONS = {"cloned", "fetched", "pulled", "viewed", "browsed", "api_called"}
+
 # Command patterns to detect interactions
 INTERACTION_COMMAND_PATTERNS = {
     # Write interactions
@@ -1852,7 +1858,8 @@ def _format_action_details(tool_name: str, action: dict) -> str:
     help="Output format (default: table for rich display, or specify for machine-readable)",
 )
 @click.option("-1", "one_per_line", is_flag=True, help="Shorthand for --format lines")
-@click.option("--actions", "-a", is_flag=True, help="Show only refs with write actions (created, pushed, etc.)")
+@click.option("--actions", "-a", is_flag=True, help="Show only refs with detected interactions (read or write)")
+@click.option("--write-only", "-w", is_flag=True, help="Show only refs with write actions (pushed, created, merged, etc.)")
 @click.option("--no-index", is_flag=True, help="Skip database indexing (faster, but refs won't be queryable)")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def refs(
@@ -1874,6 +1881,7 @@ def refs(
     fmt: str | None,
     one_per_line: bool,
     actions: bool,
+    write_only: bool,
     no_index: bool,
     verbose: bool,
 ) -> None:
@@ -1931,6 +1939,7 @@ def refs(
             issues_only=issues_only,
             fmt=fmt,
             actions=actions,
+            write_only=write_only,
             no_index=no_index,
             verbose=verbose,
         )
@@ -1954,6 +1963,7 @@ def refs(
             issues_only=issues_only,
             fmt=fmt,
             actions=actions,
+            write_only=write_only,
             no_index=no_index,
             verbose=verbose,
         )
@@ -1979,6 +1989,7 @@ def _refs_single_conversation(
     issues_only: bool,
     fmt: str | None,
     actions: bool,
+    write_only: bool,
     no_index: bool,
     verbose: bool,
 ) -> None:
@@ -2020,14 +2031,23 @@ def _refs_single_conversation(
     # Detect interactions for each ref
     interactions = _detect_interactions_from_conversation(conv_dir, extracted)
 
-    # Filter by actions if requested
-    if actions:
-        extracted = _filter_refs_by_actions(extracted, interactions)
+    # Filter by write actions only if requested
+    if write_only:
+        extracted = _filter_refs_by_write_actions(extracted, interactions)
         if not any(extracted.values()):
             if fmt in ("lines", "csv", "json"):
                 _output_refs_formatted(extracted, fmt)
             else:
                 console.print("[dim]No write actions detected.[/dim]")
+            return
+    # Filter by any actions if requested (read or write)
+    elif actions:
+        extracted = _filter_refs_by_actions(extracted, interactions)
+        if not any(extracted.values()):
+            if fmt in ("lines", "csv", "json"):
+                _output_refs_formatted(extracted, fmt)
+            else:
+                console.print("[dim]No interactions detected.[/dim]")
             return
 
     # Output based on format
@@ -2036,7 +2056,9 @@ def _refs_single_conversation(
     else:
         # Rich display (default)
         _display_conversation_header(conv_id, title)
-        if actions:
+        if write_only:
+            _display_write_actions_only(interactions)
+        elif actions:
             _display_actions_only(interactions)
         else:
             _display_refs(extracted, interactions)
@@ -2061,6 +2083,7 @@ def _refs_multi_conversation(
     issues_only: bool,
     fmt: str | None,
     actions: bool,
+    write_only: bool,
     no_index: bool,
     verbose: bool,
 ) -> None:
@@ -2126,8 +2149,12 @@ def _refs_multi_conversation(
         # Extract refs
         extracted = _extract_refs_from_conversation(conv_dir)
 
-        # Filter by actions if requested
-        if actions:
+        # Filter by write actions only if requested
+        if write_only:
+            interactions = _detect_interactions_from_conversation(conv_dir, extracted)
+            extracted = _filter_refs_by_write_actions(extracted, interactions)
+        # Filter by any actions if requested (read or write)
+        elif actions:
             interactions = _detect_interactions_from_conversation(conv_dir, extracted)
             extracted = _filter_refs_by_actions(extracted, interactions)
 
@@ -2164,12 +2191,48 @@ def _filter_refs_by_actions(
     refs: dict[str, set[str]],
     interactions: RefInteractions,
 ) -> dict[str, set[str]]:
-    """Filter refs to only include those with detected actions."""
+    """Filter refs to only include those with any detected interactions (read or write)."""
     return {
         "repos": refs["repos"] & set(interactions.repos.keys()),
         "issues": refs["issues"] & set(interactions.issues.keys()),
         "prs": refs["prs"] & set(interactions.prs.keys()),
     }
+
+
+def _filter_refs_by_write_actions(
+    refs: dict[str, set[str]],
+    interactions: RefInteractions,
+) -> dict[str, set[str]]:
+    """Filter refs to only include those with write actions (not just read).
+    
+    Write actions: pushed, committed, created, commented, reviewed, merged, closed
+    Read actions (excluded): cloned, fetched, pulled, viewed, browsed, api_called
+    """
+    result: dict[str, set[str]] = {
+        "repos": set(),
+        "issues": set(),
+        "prs": set(),
+    }
+    
+    # Filter repos - only include if any interaction is a write action
+    for url in refs["repos"]:
+        url_actions = interactions.repos.get(url, set())
+        if url_actions & WRITE_ACTIONS:
+            result["repos"].add(url)
+    
+    # Filter issues - only include if any interaction is a write action
+    for url in refs["issues"]:
+        url_actions = interactions.issues.get(url, set())
+        if url_actions & WRITE_ACTIONS:
+            result["issues"].add(url)
+    
+    # Filter PRs - only include if any interaction is a write action
+    for url in refs["prs"]:
+        url_actions = interactions.prs.get(url, set())
+        if url_actions & WRITE_ACTIONS:
+            result["prs"].add(url)
+    
+    return result
 
 
 def _output_refs_formatted(refs: dict[str, set[str]], fmt: str) -> None:
@@ -3787,7 +3850,7 @@ def _detect_interactions_from_conversation(conv_dir: Path, refs: dict[str, set[s
 
 
 def _display_actions_only(interactions: RefInteractions) -> None:
-    """Display only refs with detected write actions."""
+    """Display refs with any detected interactions (read or write)."""
     # Collect all interactions with their URLs
     action_items: list[tuple[str, str, str]] = []  # (action, url, category)
 
@@ -3800,6 +3863,9 @@ def _display_actions_only(interactions: RefInteractions) -> None:
         "reviewed": 5,
         "closed": 6,
         "cloned": 7,
+        "fetched": 8,
+        "pulled": 9,
+        "viewed": 10,
     }
 
     for url, url_actions in interactions.repos.items():
@@ -3813,6 +3879,69 @@ def _display_actions_only(interactions: RefInteractions) -> None:
     for url, url_actions in interactions.issues.items():
         for action in url_actions:
             action_items.append((action, url, "issue"))
+
+    if not action_items and not interactions.unpushed_commits:
+        console.print("\n[dim]No interactions detected.[/dim]")
+        return
+
+    if action_items:
+        # Sort by priority
+        action_items.sort(key=lambda x: action_priority.get(x[0], 99))
+
+        console.print()
+        for action, url, category in action_items:
+            # Shorten URL for display
+            short_url = url.replace("https://github.com/", "")
+            # Color based on action type
+            if action in ("created", "merged"):
+                style = "green"
+            elif action in ("pushed", "commented", "reviewed"):
+                style = "yellow"
+            elif action in WRITE_ACTIONS:
+                style = "cyan"
+            else:
+                style = "dim"
+            console.print(f"  [{style}]{action}[/{style}] {short_url}")
+
+    # Show warning for unpushed commits
+    if interactions.unpushed_commits:
+        console.print("\n[bold yellow]⚠ Unpushed Commits[/bold yellow]")
+        for path in sorted(interactions.unpushed_commits):
+            # Shorten home directory paths for readability
+            display_path = path.replace(str(Path.home()), "~")
+            console.print(f"  • [yellow]{display_path}[/yellow]")
+
+
+def _display_write_actions_only(interactions: RefInteractions) -> None:
+    """Display refs with only write actions (excluding read-only like cloned, viewed)."""
+    # Collect only write interactions with their URLs
+    action_items: list[tuple[str, str, str]] = []  # (action, url, category)
+
+    # Priority order for write actions (most significant first)
+    action_priority = {
+        "created": 1,
+        "merged": 2,
+        "pushed": 3,
+        "commented": 4,
+        "reviewed": 5,
+        "closed": 6,
+        "committed": 7,
+    }
+
+    for url, url_actions in interactions.repos.items():
+        for action in url_actions:
+            if action in WRITE_ACTIONS:
+                action_items.append((action, url, "repo"))
+
+    for url, url_actions in interactions.prs.items():
+        for action in url_actions:
+            if action in WRITE_ACTIONS:
+                action_items.append((action, url, "pr"))
+
+    for url, url_actions in interactions.issues.items():
+        for action in url_actions:
+            if action in WRITE_ACTIONS:
+                action_items.append((action, url, "issue"))
 
     if not action_items and not interactions.unpushed_commits:
         console.print("\n[dim]No write actions detected.[/dim]")
@@ -3832,7 +3961,7 @@ def _display_actions_only(interactions: RefInteractions) -> None:
             elif action in ("pushed", "commented", "reviewed"):
                 style = "yellow"
             else:
-                style = "dim"
+                style = "cyan"
             console.print(f"  [{style}]{action}[/{style}] {short_url}")
 
     # Show warning for unpushed commits
