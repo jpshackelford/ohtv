@@ -17,6 +17,20 @@ COMMIT_MSG_PATTERN = re.compile(r"\[.+?\]\s+(.+)")
 # Pattern to extract branch/remote info from push output
 PUSH_TARGET_PATTERN = re.compile(r"To\s+([^\s]+)")
 
+# Pattern to extract branch from push output
+# Matches lines like:
+#   abc123..def456  branch-name -> branch-name
+#   * [new branch]  branch-name -> branch-name
+PUSH_BRANCH_PATTERN = re.compile(
+    r"(?:[a-f0-9.]+|\*\s+\[new branch\])\s+([^\s]+)\s+->\s+([^\s]+)"
+)
+
+# Pattern to extract branch from git push command
+# Matches: git push origin branch-name, git push -u origin branch-name
+PUSH_COMMAND_BRANCH_PATTERN = re.compile(
+    r"git\s+push\s+(?:-[a-z]+\s+)*(?:\w+)\s+([^\s;|&]+)"
+)
+
 
 def recognize_git_operations(
     event: dict,
@@ -70,6 +84,15 @@ def recognize_git_operations(
         if context.action_succeeded():
             output = context.get_observation_content()
             push_target = _extract_push_target(output)
+            branch = _extract_push_branch(command, output)
+            repo_info = _extract_repo_from_push_target(push_target)
+            
+            metadata = {}
+            if branch:
+                metadata["branch"] = branch
+            if repo_info:
+                metadata["owner"] = repo_info["owner"]
+                metadata["repo"] = repo_info["repo"]
             
             actions.append(
                 ConversationAction(
@@ -77,7 +100,7 @@ def recognize_git_operations(
                     conversation_id=context.conversation_id,
                     action_type=ActionType.GIT_PUSH,
                     target=push_target,
-                    metadata=None,
+                    metadata=metadata if metadata else None,
                     event_id=event.get("id"),
                 )
             )
@@ -99,4 +122,53 @@ def _extract_push_target(output: str) -> str | None:
     match = PUSH_TARGET_PATTERN.search(output)
     if match:
         return match.group(1).strip()
+    return None
+
+
+def _extract_push_branch(command: str, output: str) -> str | None:
+    """Extract branch name from git push command or output.
+    
+    Tries to extract from output first (most reliable), then from command.
+    Output format: abc123..def456  branch-name -> branch-name
+    """
+    # First try to extract from output (more reliable)
+    match = PUSH_BRANCH_PATTERN.search(output)
+    if match:
+        # Return the local branch name (first group)
+        return match.group(1).strip()
+    
+    # Fall back to command parsing
+    match = PUSH_COMMAND_BRANCH_PATTERN.search(command)
+    if match:
+        return match.group(1).strip()
+    
+    return None
+
+
+def _extract_repo_from_push_target(push_target: str | None) -> dict | None:
+    """Extract owner and repo from a push target URL.
+    
+    Handles both HTTPS and SSH formats:
+    - https://github.com/owner/repo.git
+    - git@github.com:owner/repo.git
+    """
+    if not push_target:
+        return None
+    
+    # HTTPS format: https://github.com/owner/repo.git
+    https_match = re.search(
+        r"https://github\.com/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+?)(?:\.git)?$",
+        push_target
+    )
+    if https_match:
+        return {"owner": https_match.group(1), "repo": https_match.group(2)}
+    
+    # SSH format: git@github.com:owner/repo.git
+    ssh_match = re.search(
+        r"git@github\.com:([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+?)(?:\.git)?$",
+        push_target
+    )
+    if ssh_match:
+        return {"owner": ssh_match.group(1), "repo": ssh_match.group(2)}
+    
     return None

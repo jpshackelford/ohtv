@@ -3219,11 +3219,14 @@ def _extract_refs_from_conversation(conv_dir: Path) -> dict[str, set[str]]:
 
     This ensures we only capture refs that represent actual work, not
     incidental mentions from web searches, changelogs, or bulk listings.
+    
+    Also queries the database for branch refs (from branch_context stage).
     """
     refs: dict[str, set[str]] = {
         "repos": set(),
         "issues": set(),
         "prs": set(),
+        "branches": set(),
     }
 
     events_dir = conv_dir / "events"
@@ -3261,8 +3264,44 @@ def _extract_refs_from_conversation(conv_dir: Path) -> dict[str, set[str]]:
             filtered_repos.add(repo_url)
 
     refs["repos"] = filtered_repos
+    
+    # Query database for branch refs (from branch_context stage)
+    refs["branches"] = _get_branch_refs_from_db(conv_dir)
 
     return refs
+
+
+def _get_branch_refs_from_db(conv_dir: Path) -> set[str]:
+    """Get branch refs from the database for a conversation."""
+    from ohtv.db import get_connection, get_db_path
+    from ohtv.db.models import RefType
+    from ohtv.db.stores import LinkStore, ReferenceStore
+    from ohtv.filters import normalize_conversation_id
+    
+    db_path = get_db_path()
+    if not db_path.exists():
+        return set()
+    
+    # Get conversation ID from directory name
+    conv_id = normalize_conversation_id(conv_dir.name)
+    
+    try:
+        with get_connection(db_path) as conn:
+            link_store = LinkStore(conn)
+            ref_store = ReferenceStore(conn)
+            
+            # Get all refs linked to this conversation
+            ref_links = link_store.get_refs_for_conversation(conv_id)
+            
+            branch_urls = set()
+            for ref_id, link_type in ref_links:
+                ref = ref_store.get_by_id(ref_id)
+                if ref and ref.ref_type == RefType.BRANCH:
+                    branch_urls.add(ref.url)
+            
+            return branch_urls
+    except Exception:
+        return set()
 
 
 # MCP tools that return web content (changelogs, search results, etc.)
@@ -3974,10 +4013,11 @@ def _display_refs(refs: dict[str, set[str]], interactions: RefInteractions | Non
         ("Repositories", "repos", "blue"),
         ("Issues", "issues", "yellow"),
         ("Pull Requests / Merge Requests", "prs", "green"),
+        ("Branches", "branches", "cyan"),
     ]
 
     for title, key, color in categories:
-        urls = sorted(refs[key])
+        urls = sorted(refs.get(key, set()))
         if urls:
             console.print(f"\n[bold {color}]{title}[/bold {color}]")
             for url in urls:
@@ -4039,7 +4079,7 @@ def db_init(verbose: bool) -> None:
 
 
 @db.command("process")
-@click.argument("stage", type=click.Choice(["refs", "actions", "all"]))
+@click.argument("stage", type=click.Choice(["refs", "actions", "branch_context", "push_pr_links", "all"]))
 @click.option("--force", "-f", is_flag=True, help="Reprocess all conversations, ignoring stage completion")
 @click.option("--conversation", "-c", help="Process only this conversation ID")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
@@ -4051,9 +4091,11 @@ def db_process(stage: str, force: bool, conversation: str | None, verbose: bool)
     
     \b
     Available stages:
-      refs     - Extract repository, issue, and PR references
-      actions  - Recognize actions (file edits, git ops, PRs, etc.)
-      all      - Run all stages in sequence
+      refs           - Extract repository, issue, and PR references
+      actions        - Recognize actions (file edits, git ops, PRs, etc.)
+      branch_context - Track branches and create branch refs
+      push_pr_links  - Correlate git pushes with PRs via branch matching
+      all            - Run all stages in sequence
     """
     from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
     from ohtv.db.stages import STAGES

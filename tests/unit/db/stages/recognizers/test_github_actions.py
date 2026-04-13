@@ -4,7 +4,10 @@ import pytest
 
 from ohtv.db.models.action import ActionType
 from ohtv.db.stages.recognizers.context import RecognizerContext
-from ohtv.db.stages.recognizers.github_actions import recognize_github_actions
+from ohtv.db.stages.recognizers.github_actions import (
+    recognize_github_actions,
+    _extract_pr_create_branch,
+)
 
 
 class TestRecognizeGitHubActions:
@@ -353,3 +356,111 @@ class TestRecognizeGitHubActions:
         
         assert len(actions) == 1
         assert actions[0].action_type == ActionType.CLOSE_ISSUE
+    
+    def test_pr_create_extracts_head_branch(self, make_context):
+        """Should extract head branch from gh pr create output."""
+        action_event = {
+            "id": "event-14",
+            "kind": "ActionEvent",
+            "tool_name": "terminal",
+            "action": {
+                "command": "gh pr create --title 'Add feature' --body 'Details'",
+            }
+        }
+        obs_event = {
+            "kind": "ObservationEvent",
+            "observation": {
+                "exit_code": 0,
+                "content": [{
+                    "type": "text",
+                    "text": "Creating pull request for feature/my-branch into main in OpenHands/software-agent-sdk\n\nhttps://github.com/OpenHands/software-agent-sdk/pull/123"
+                }],
+            }
+        }
+        
+        context = make_context([action_event, obs_event])
+        actions = recognize_github_actions(action_event, context)
+        
+        assert len(actions) == 1
+        action = actions[0]
+        assert action.action_type == ActionType.OPEN_PR
+        assert action.target == "https://github.com/OpenHands/software-agent-sdk/pull/123"
+        assert action.metadata is not None
+        assert action.metadata.get("head_branch") == "feature/my-branch"
+        assert action.metadata.get("owner") == "OpenHands"
+        assert action.metadata.get("repo") == "software-agent-sdk"
+    
+    def test_pr_create_extracts_draft_pr_branch(self, make_context):
+        """Should extract head branch from draft PR creation."""
+        action_event = {
+            "id": "event-15",
+            "kind": "ActionEvent",
+            "tool_name": "terminal",
+            "action": {
+                "command": "gh pr create --draft --title 'WIP'",
+            }
+        }
+        obs_event = {
+            "kind": "ObservationEvent",
+            "observation": {
+                "exit_code": 0,
+                "content": [{
+                    "type": "text",
+                    "text": "Creating draft pull request for wip-branch into main in owner/repo\n\nhttps://github.com/owner/repo/pull/456"
+                }],
+            }
+        }
+        
+        context = make_context([action_event, obs_event])
+        actions = recognize_github_actions(action_event, context)
+        
+        assert len(actions) == 1
+        action = actions[0]
+        assert action.metadata is not None
+        assert action.metadata.get("head_branch") == "wip-branch"
+
+
+class TestExtractPRCreateBranch:
+    """Tests for head branch extraction from gh pr create output."""
+    
+    def test_extracts_from_standard_output(self):
+        """Should extract branch from standard PR creation output."""
+        output = "Creating pull request for feature/branch into main in owner/repo"
+        result = _extract_pr_create_branch(output)
+        assert result == {
+            "branch": "feature/branch",
+            "owner": "owner",
+            "repo": "repo",
+        }
+    
+    def test_extracts_from_draft_pr_output(self):
+        """Should extract branch from draft PR creation output."""
+        output = "Creating draft pull request for fix/bug into develop in org/project"
+        result = _extract_pr_create_branch(output)
+        assert result == {
+            "branch": "fix/bug",
+            "owner": "org",
+            "repo": "project",
+        }
+    
+    def test_handles_complex_branch_names(self):
+        """Should handle branch names with special characters."""
+        output = "Creating pull request for jps/some-feature-123 into main in OpenHands/sdk"
+        result = _extract_pr_create_branch(output)
+        assert result["branch"] == "jps/some-feature-123"
+    
+    def test_returns_none_for_no_match(self):
+        """Should return None when pattern doesn't match."""
+        output = "https://github.com/owner/repo/pull/123"
+        result = _extract_pr_create_branch(output)
+        assert result is None
+    
+    def test_strips_ansi_codes_from_branch_name(self):
+        """Should strip ANSI escape codes from branch names."""
+        # Real output from gh CLI with color codes
+        output = "Creating pull request for \x1b[0;36madd-city-weather-plugin\x1b[0m into main in owner/repo"
+        result = _extract_pr_create_branch(output)
+        assert result is not None
+        assert result["branch"] == "add-city-weather-plugin"  # No ANSI codes
+        assert result["owner"] == "owner"
+        assert result["repo"] == "repo"

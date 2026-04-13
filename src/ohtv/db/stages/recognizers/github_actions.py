@@ -26,6 +26,12 @@ GH_ISSUE_CLOSE = re.compile(r"gh\s+issue\s+close")
 PR_URL_PATTERN = re.compile(r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)")
 ISSUE_URL_PATTERN = re.compile(r"https://github\.com/([^/]+)/([^/]+)/issues/(\d+)")
 
+# Pattern to extract head branch from gh pr create output
+# Matches: "Creating pull request for feature-branch into main in owner/repo"
+PR_CREATE_BRANCH_PATTERN = re.compile(
+    r"Creating (?:draft )?pull request for\s+([^\s]+)\s+into\s+[^\s]+\s+in\s+([^/\s]+)/([^\s]+)"
+)
+
 # GitLab patterns
 GL_MR_CREATE = re.compile(r"glab\s+mr\s+create")
 GL_MR_COMMENT = re.compile(r"glab\s+mr\s+comment")
@@ -81,6 +87,13 @@ def recognize_github_actions(
         if context.action_succeeded():
             output = context.get_observation_content()
             pr_url = _extract_pr_url(output)
+            branch_info = _extract_pr_create_branch(output)
+            
+            metadata = {"source": "github" if "gh " in command else "gitlab"}
+            if branch_info:
+                metadata["head_branch"] = branch_info["branch"]
+                metadata["owner"] = branch_info["owner"]
+                metadata["repo"] = branch_info["repo"]
             
             actions.append(
                 ConversationAction(
@@ -88,7 +101,7 @@ def recognize_github_actions(
                     conversation_id=context.conversation_id,
                     action_type=ActionType.OPEN_PR,
                     target=pr_url,
-                    metadata={"source": "github" if "gh " in command else "gitlab"},
+                    metadata=metadata,
                     event_id=event.get("id"),
                 )
             )
@@ -246,6 +259,33 @@ def _extract_pr_url(output: str) -> str | None:
     if match:
         return match.group(0)
     return None
+
+
+def _extract_pr_create_branch(output: str) -> dict | None:
+    """Extract head branch and repo info from gh pr create output.
+    
+    Parses output like: "Creating pull request for feature-branch into main in owner/repo"
+    Returns dict with branch, owner, repo or None if not found.
+    """
+    # Strip ANSI escape codes (color formatting from gh CLI)
+    clean_output = _strip_ansi(output)
+    match = PR_CREATE_BRANCH_PATTERN.search(clean_output)
+    if match:
+        return {
+            "branch": match.group(1),
+            "owner": match.group(2),
+            "repo": match.group(3),
+        }
+    return None
+
+
+# Pattern to match ANSI escape sequences
+ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*m')
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    return ANSI_ESCAPE.sub('', text)
 
 
 def _extract_issue_url(output: str) -> str | None:

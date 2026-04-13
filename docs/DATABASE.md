@@ -138,10 +138,11 @@ Each stage is independent and tracked separately:
 |-------|-------------|-------------|
 | `refs` | Extract repos, issues, PRs | `ohtv db process refs` |
 | `actions` | Recognize actions (edits, git, PRs, etc.) | `ohtv db process actions` |
+| `push_pr_links` | Correlate git pushes with PRs via branch | `ohtv db process push_pr_links` |
 | *(future)* `objectives` | LLM-based goal extraction | `ohtv db process objectives` |
 
 Stages can be:
-- Run in any order
+- Run in any order (though `push_pr_links` requires `actions` to have run first)
 - Rerun with `--force` to reprocess all
 - Run for specific conversation with `--conversation`
 

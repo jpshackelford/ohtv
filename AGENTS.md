@@ -68,6 +68,12 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
         return
     ```
 
+15. **Push-to-PR correlation**: Git pushes are linked to PRs via branch name matching:
+    - The `actions` stage extracts branch info from `git push` output and `gh pr create` output
+    - The `push_pr_links` stage correlates push actions with PRs based on matching branches
+    - This enables accurate "pushed" tracking for specific PRs rather than just repositories
+    - Branch matching uses repo-qualified keys (owner/repo:branch) with fallback to branch-only matching
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input
