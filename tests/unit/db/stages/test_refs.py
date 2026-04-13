@@ -102,14 +102,34 @@ class TestDetermineLinkType:
         assert _determine_link_type({"created"}) == LinkType.WRITE
         assert _determine_link_type({"commented"}) == LinkType.WRITE
         assert _determine_link_type({"merged"}) == LinkType.WRITE
+        assert _determine_link_type({"committed"}) == LinkType.WRITE
+        assert _determine_link_type({"reviewed"}) == LinkType.WRITE
+        assert _determine_link_type({"closed"}) == LinkType.WRITE
     
     def test_returns_read_for_empty_interactions(self):
         """Should return READ when no interactions detected."""
         assert _determine_link_type(set()) == LinkType.READ
     
+    def test_returns_read_for_read_actions(self):
+        """Should return READ for read/research actions."""
+        # Cloning is research/setup, not actual modification
+        assert _determine_link_type({"cloned"}) == LinkType.READ
+        assert _determine_link_type({"fetched"}) == LinkType.READ
+        assert _determine_link_type({"pulled"}) == LinkType.READ
+        assert _determine_link_type({"viewed"}) == LinkType.READ
+        assert _determine_link_type({"browsed"}) == LinkType.READ
+        assert _determine_link_type({"api_called"}) == LinkType.READ
+    
+    def test_returns_write_when_mixed_read_write(self):
+        """Should return WRITE if any write action is present."""
+        # Clone + push = WRITE (actual modification happened)
+        assert _determine_link_type({"cloned", "pushed"}) == LinkType.WRITE
+        assert _determine_link_type({"viewed", "commented"}) == LinkType.WRITE
+        assert _determine_link_type({"fetched", "pulled", "pushed"}) == LinkType.WRITE
+    
     def test_returns_read_for_unknown_actions(self):
         """Should return READ for unknown action types."""
-        assert _determine_link_type({"viewed", "opened"}) == LinkType.READ
+        assert _determine_link_type({"opened"}) == LinkType.READ
 
 
 class TestProcessRefs:

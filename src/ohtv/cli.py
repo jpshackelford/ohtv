@@ -81,6 +81,7 @@ ISSUE_INTERACTIONS = {"created", "commented", "closed"}
 
 # Command patterns to detect interactions
 INTERACTION_COMMAND_PATTERNS = {
+    # Write interactions
     "git_push": re.compile(r"git\s+push"),
     "git_clone": re.compile(r"git\s+clone"),
     "git_commit": re.compile(r"git\s+commit"),
@@ -92,6 +93,17 @@ INTERACTION_COMMAND_PATTERNS = {
     "gh_issue_create": re.compile(r"gh\s+issue\s+create"),
     "gh_issue_comment": re.compile(r"gh\s+issue\s+comment\s+(\d+)"),
     "gh_issue_close": re.compile(r"gh\s+issue\s+close\s+(\d+)"),
+    # Read/research interactions
+    "git_fetch": re.compile(r"git\s+fetch"),
+    "git_pull": re.compile(r"git\s+pull"),
+    "gh_repo_view": re.compile(r"gh\s+repo\s+view"),
+    "gh_repo_clone": re.compile(r"gh\s+repo\s+clone"),
+    "gh_api": re.compile(r"gh\s+api\s+"),
+    "gh_browse": re.compile(r"gh\s+browse"),
+    "gh_pr_view": re.compile(r"gh\s+pr\s+view\s+(\d+)"),
+    "gh_pr_diff": re.compile(r"gh\s+pr\s+diff\s+(\d+)"),
+    "gh_pr_checks": re.compile(r"gh\s+pr\s+checks\s+(\d+)"),
+    "gh_issue_view": re.compile(r"gh\s+issue\s+view\s+(\d+)"),
 }
 
 # Pattern to extract working directory from cd command
@@ -111,6 +123,7 @@ CLONE_URL_PATTERN = re.compile(r"git\s+clone\s+(?:--[a-z-]+\s+)*(?:https://githu
 
 # Map command patterns to interaction types
 PATTERN_TO_INTERACTION = {
+    # Write interactions
     "git_push": ("repo", "pushed"),
     "git_clone": ("repo", "cloned"),
     "git_commit": ("repo", "committed"),
@@ -122,6 +135,17 @@ PATTERN_TO_INTERACTION = {
     "gh_issue_create": ("issue", "created"),
     "gh_issue_comment": ("issue", "commented"),
     "gh_issue_close": ("issue", "closed"),
+    # Read/research interactions
+    "git_fetch": ("repo", "fetched"),
+    "git_pull": ("repo", "pulled"),
+    "gh_repo_view": ("repo", "viewed"),
+    "gh_repo_clone": ("repo", "cloned"),
+    "gh_api": ("repo", "api_called"),
+    "gh_browse": ("repo", "browsed"),
+    "gh_pr_view": ("pr", "viewed"),
+    "gh_pr_diff": ("pr", "viewed"),
+    "gh_pr_checks": ("pr", "viewed"),
+    "gh_issue_view": ("issue", "viewed"),
 }
 
 
@@ -3061,7 +3085,7 @@ def _extract_ref_from_command(command: str, output: str, pattern_type: str) -> E
             )
 
     # For git clone - extract repo from command
-    if pattern_type == "git_clone":
+    if pattern_type in ("git_clone", "gh_repo_clone"):
         clone_match = CLONE_URL_PATTERN.search(command)
         if clone_match:
             # Groups 1,2 for https, groups 3,4 for ssh
@@ -3077,6 +3101,137 @@ def _extract_ref_from_command(command: str, output: str, pattern_type: str) -> E
                     repo=repo,
                     number=None,
                     url=f"https://github.com/{owner}/{repo}",
+                )
+        # gh repo clone uses owner/repo format directly
+        if pattern_type == "gh_repo_clone":
+            gh_clone_match = re.search(r"gh\s+repo\s+clone\s+([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)", command)
+            if gh_clone_match:
+                return ExtractedRef(
+                    ref_type="repo",
+                    owner=gh_clone_match.group(1),
+                    repo=gh_clone_match.group(2),
+                    number=None,
+                    url=f"https://github.com/{gh_clone_match.group(1)}/{gh_clone_match.group(2)}",
+                )
+
+    # For git fetch/pull - extract repo from output or use --repo flag
+    if pattern_type in ("git_fetch", "git_pull"):
+        # Check for remote URL in output (e.g., "From https://github.com/owner/repo")
+        from_match = re.search(r"From\s+https://github\.com/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)", output)
+        if from_match:
+            return ExtractedRef(
+                ref_type="repo",
+                owner=from_match.group(1),
+                repo=from_match.group(2),
+                number=None,
+                url=f"https://github.com/{from_match.group(1)}/{from_match.group(2)}",
+            )
+        # Also check for SSH format
+        from_ssh_match = re.search(r"From\s+git@github\.com:([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)", output)
+        if from_ssh_match:
+            repo_name = from_ssh_match.group(2)
+            if repo_name.endswith(".git"):
+                repo_name = repo_name[:-4]
+            return ExtractedRef(
+                ref_type="repo",
+                owner=from_ssh_match.group(1),
+                repo=repo_name,
+                number=None,
+                url=f"https://github.com/{from_ssh_match.group(1)}/{repo_name}",
+            )
+
+    # For gh repo view - extract owner/repo from command
+    if pattern_type == "gh_repo_view":
+        # gh repo view owner/repo or gh repo view (uses current repo)
+        view_match = re.search(r"gh\s+repo\s+view\s+([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)", command)
+        if view_match:
+            return ExtractedRef(
+                ref_type="repo",
+                owner=view_match.group(1),
+                repo=view_match.group(2),
+                number=None,
+                url=f"https://github.com/{view_match.group(1)}/{view_match.group(2)}",
+            )
+        # If no explicit repo, try to get from output
+        if owner and repo:
+            return ExtractedRef(
+                ref_type="repo",
+                owner=owner,
+                repo=repo,
+                number=None,
+                url=f"https://github.com/{owner}/{repo}",
+            )
+
+    # For gh api - extract repo from URL path
+    if pattern_type == "gh_api":
+        # gh api repos/owner/repo/... or gh api /repos/owner/repo/...
+        api_match = re.search(r"gh\s+api\s+/?repos/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)", command)
+        if api_match:
+            return ExtractedRef(
+                ref_type="repo",
+                owner=api_match.group(1),
+                repo=api_match.group(2),
+                number=None,
+                url=f"https://github.com/{api_match.group(1)}/{api_match.group(2)}",
+            )
+
+    # For gh browse - use --repo flag or current repo context
+    if pattern_type == "gh_browse":
+        if owner and repo:
+            return ExtractedRef(
+                ref_type="repo",
+                owner=owner,
+                repo=repo,
+                number=None,
+                url=f"https://github.com/{owner}/{repo}",
+            )
+
+    # For gh pr view/diff/checks - extract PR number and repo
+    if pattern_type in ("gh_pr_view", "gh_pr_diff", "gh_pr_checks"):
+        num_match = re.search(r"gh\s+pr\s+(?:view|diff|checks)\s+(\d+)", command)
+        if num_match:
+            number = int(num_match.group(1))
+            if owner and repo:
+                return ExtractedRef(
+                    ref_type="pr",
+                    owner=owner,
+                    repo=repo,
+                    number=number,
+                    url=f"https://github.com/{owner}/{repo}/pull/{number}",
+                )
+            # Try to get repo from output
+            pr_url_match = OUTPUT_PR_PATTERN.search(output)
+            if pr_url_match:
+                return ExtractedRef(
+                    ref_type="pr",
+                    owner=pr_url_match.group(1),
+                    repo=pr_url_match.group(2),
+                    number=int(pr_url_match.group(3)),
+                    url=f"https://github.com/{pr_url_match.group(1)}/{pr_url_match.group(2)}/pull/{pr_url_match.group(3)}",
+                )
+
+    # For gh issue view - extract issue number and repo
+    if pattern_type == "gh_issue_view":
+        num_match = re.search(r"gh\s+issue\s+view\s+(\d+)", command)
+        if num_match:
+            number = int(num_match.group(1))
+            if owner and repo:
+                return ExtractedRef(
+                    ref_type="issue",
+                    owner=owner,
+                    repo=repo,
+                    number=number,
+                    url=f"https://github.com/{owner}/{repo}/issues/{number}",
+                )
+            # Try to get repo from output
+            issue_url_match = OUTPUT_ISSUE_PATTERN.search(output)
+            if issue_url_match:
+                return ExtractedRef(
+                    ref_type="issue",
+                    owner=issue_url_match.group(1),
+                    repo=issue_url_match.group(2),
+                    number=int(issue_url_match.group(3)),
+                    url=f"https://github.com/{issue_url_match.group(1)}/{issue_url_match.group(2)}/issues/{issue_url_match.group(3)}",
                 )
 
     return None

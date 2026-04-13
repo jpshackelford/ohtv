@@ -54,16 +54,17 @@ def process_refs(conn: sqlite3.Connection, conversation: Conversation) -> None:
     link_store = LinkStore(conn)
     stage_store = StageStore(conn)
     
-    # Process repositories
+    # Process repositories - only those with detected interactions
+    # This filters out incidental mentions (URLs in error messages, user pastes, etc.)
     for repo_url in refs["repos"]:
+        repo_interactions = interactions.repos.get(repo_url, set())
+        if not repo_interactions:
+            continue  # Skip repos with no detected interactions
+        
         repo = _parse_repo_url(repo_url)
         if repo:
             repo_id = repo_store.upsert(repo)
-            
-            # Determine link type based on interactions
-            repo_interactions = interactions.repos.get(repo_url, set())
             link_type = _determine_link_type(repo_interactions)
-            
             link_store.link_repo(conversation.id, repo_id, link_type)
     
     # Process PRs
@@ -221,10 +222,14 @@ def _parse_ref_url(url: str, ref_type: RefType) -> Reference | None:
 def _determine_link_type(interactions: set[str]) -> LinkType:
     """Determine link type based on detected interactions.
     
-    Write interactions: pushed, created, commented, reviewed, merged, closed, cloned
-    Read interactions: (implicit - if we found a ref but no write action)
+    Write interactions: pushed, committed, created, commented, reviewed, merged, closed
+    Read interactions: cloned, fetched, pulled, viewed, browsed, api_called
+    
+    Note: 'cloned' is READ because cloning is research/setup, not modification.
+    Actual changes require commit + push.
     """
-    write_actions = {"pushed", "created", "commented", "reviewed", "merged", "closed", "cloned"}
+    write_actions = {"pushed", "committed", "created", "commented", "reviewed", "merged", "closed"}
+    # read_actions = {"cloned", "fetched", "pulled", "viewed", "browsed", "api_called"}
     
     if interactions & write_actions:
         return LinkType.WRITE
