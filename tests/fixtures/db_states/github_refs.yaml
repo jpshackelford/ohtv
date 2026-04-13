@@ -1,0 +1,37 @@
+# Database state: Conversation with GitHub repo, issue, and PR references
+# Matches the sample conversation in conversations/conv-with-github-refs/
+
+conversations:
+  - id: conv-with-github-refs
+    location: /conversations/conv-with-github-refs
+
+repositories:
+  - canonical_url: https://github.com/acme/webapp
+    fqn: acme/webapp
+    short_name: webapp
+
+references:
+  - type: issue
+    url: https://github.com/acme/webapp/issues/42
+    fqn: acme/webapp#42
+    display_name: webapp #42
+
+  - type: pr
+    url: https://github.com/acme/webapp/pull/99
+    fqn: acme/webapp#99
+    display_name: webapp #99
+
+links:
+  repos:
+    - conversation: conv-with-github-refs
+      repo_url: https://github.com/acme/webapp
+      type: write
+
+  refs:
+    - conversation: conv-with-github-refs
+      ref_url: https://github.com/acme/webapp/issues/42
+      type: read
+
+    - conversation: conv-with-github-refs
+      ref_url: https://github.com/acme/webapp/pull/99
+      type: write

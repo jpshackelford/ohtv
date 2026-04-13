@@ -1,0 +1,59 @@
+# Database state: Multiple conversations across multiple repos
+# For testing queries that filter/aggregate across repos
+
+conversations:
+  - id: conv-1
+    location: /conversations/conv-1
+  - id: conv-2
+    location: /conversations/conv-2
+  - id: conv-3
+    location: /conversations/conv-3
+
+repositories:
+  - canonical_url: https://github.com/acme/frontend
+    fqn: acme/frontend
+    short_name: frontend
+
+  - canonical_url: https://github.com/acme/backend
+    fqn: acme/backend
+    short_name: backend
+
+references:
+  - type: issue
+    url: https://github.com/acme/frontend/issues/10
+    fqn: acme/frontend#10
+    display_name: frontend #10
+
+  - type: pr
+    url: https://github.com/acme/backend/pull/20
+    fqn: acme/backend#20
+    display_name: backend #20
+
+links:
+  repos:
+    # conv-1 worked on frontend (write)
+    - conversation: conv-1
+      repo_url: https://github.com/acme/frontend
+      type: write
+
+    # conv-2 worked on backend (write)
+    - conversation: conv-2
+      repo_url: https://github.com/acme/backend
+      type: write
+
+    # conv-3 read from both repos
+    - conversation: conv-3
+      repo_url: https://github.com/acme/frontend
+      type: read
+    - conversation: conv-3
+      repo_url: https://github.com/acme/backend
+      type: read
+
+  refs:
+    - conversation: conv-1
+      ref_url: https://github.com/acme/frontend/issues/10
+      type: read
+
+    - conversation: conv-2
+      ref_url: https://github.com/acme/backend/pull/20
+      type: write

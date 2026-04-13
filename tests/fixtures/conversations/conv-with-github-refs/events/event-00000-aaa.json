@@ -1,0 +1,15 @@
+{
+  "id": "aaa",
+  "timestamp": "2026-04-01T10:00:00.000000",
+  "source": "user",
+  "kind": "MessageEvent",
+  "llm_message": {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "Please fix the bug described in https://github.com/acme/webapp/issues/42"
+      }
+    ]
+  }
+}

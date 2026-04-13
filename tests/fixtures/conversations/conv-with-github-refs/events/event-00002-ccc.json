@@ -1,0 +1,18 @@
+{
+  "id": "ccc",
+  "timestamp": "2026-04-01T10:02:00.000000",
+  "source": "agent",
+  "kind": "ActionEvent",
+  "thought": [
+    {
+      "type": "text",
+      "text": "I'll create a PR to fix this issue."
+    }
+  ],
+  "action": {
+    "command": "gh pr create --title 'Fix auth bug' --body 'Fixes #42'",
+    "kind": "TerminalAction"
+  },
+  "tool_name": "terminal",
+  "tool_call_id": "tool-002"
+}
