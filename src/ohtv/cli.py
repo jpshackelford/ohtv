@@ -2211,9 +2211,10 @@ def summary(
     SUMMARY_CONFIRM_THRESHOLD = 20
     
     if len(conversations) > SUMMARY_CONFIRM_THRESHOLD and not yes:
+        from rich.prompt import Confirm
         console.print(f"[yellow]Warning:[/yellow] About to analyze {len(conversations)} conversations.")
         console.print("[dim]This may take a while and use significant LLM tokens.[/dim]")
-        if not click.confirm("Do you want to continue?"):
+        if not Confirm.ask("Do you want to continue?", console=console, default=False):
             console.print("[dim]Aborted. Use --yes to skip this confirmation.[/dim]")
             return
 
@@ -3639,10 +3640,11 @@ def db_reset(yes: bool) -> None:
         size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
     
     if not yes:
+        from rich.prompt import Confirm
         console.print(f"[yellow]Warning:[/yellow] This will delete the database at:")
         console.print(f"  {db_path} ({size_str})")
         console.print()
-        if not click.confirm("Are you sure?", default=False):
+        if not Confirm.ask("Are you sure?", console=console, default=False):
             console.print("[dim]Cancelled.[/dim]")
             return
     

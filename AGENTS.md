@@ -79,6 +79,14 @@ uv run ohtv --help         # Run CLI
 
 14. **Conversation ID normalization**: The database stores IDs without dashes (from directory names), but LocalSource returns IDs with dashes (from `base_state.json`). The `filters` module normalizes both formats when filtering, so this mismatch is transparent to users.
 
+15. **Terminal confirmation prompts**: When prompting for user confirmation in CLI commands, use Rich's `Confirm.ask()` instead of Click's `click.confirm()`. Rich's ANSI-styled output can corrupt terminal state when mixed with Click's input handling, causing garbled input (showing `^M^M^M...` instead of processing Enter key). Always pass the same console instance:
+    ```python
+    from rich.prompt import Confirm
+    if not Confirm.ask("Are you sure?", console=console, default=False):
+        console.print("[dim]Cancelled.[/dim]")
+        return
+    ```
+
 ## Testing
 
 Automated unit tests (see `docs/TESTING.md` for details):
