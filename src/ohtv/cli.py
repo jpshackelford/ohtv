@@ -275,6 +275,113 @@ def sync(
         raise SystemExit(1)
 
 
+@main.command()
+@click.argument("action", required=False, type=click.Choice(["set"]))
+@click.argument("key", required=False)
+@click.argument("value", required=False)
+def config(action: str | None, key: str | None, value: str | None) -> None:
+    """View and manage ohtv configuration.
+    
+    \b
+    Without arguments, shows current configuration with sources.
+    
+    \b
+    Usage:
+      ohtv config                    Show current configuration
+      ohtv config set KEY VALUE      Set a configuration value
+    
+    \b
+    Configurable keys:
+      local_conversations_dir   Path to local CLI conversations
+      cloud_conversations_dir   Path to synced cloud conversations
+      cloud_base_url            OpenHands Cloud API URL
+      source                    Default source: 'local' or 'cloud'
+    
+    \b
+    Configuration priority (highest first):
+      1. Environment variables (OHTV_*, OH_API_KEY)
+      2. Config file (~/.ohtv/config.toml)
+      3. Defaults
+    """
+    from ohtv.config import CONFIGURABLE_KEYS, save_config_value
+    
+    if action == "set":
+        if not key or not value:
+            console.print("[red]Error:[/red] Usage: ohtv config set KEY VALUE")
+            raise SystemExit(1)
+        try:
+            save_config_value(key, value)
+            console.print(f"[green]✓[/green] Set {key} = {value}")
+            console.print(f"[dim]Saved to {Config.from_env().with_sources().config_file_path}[/dim]")
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise SystemExit(1)
+        return
+    
+    # Show configuration
+    _show_config()
+
+
+def _show_config() -> None:
+    """Display current configuration with sources."""
+    cfg = Config.from_env().with_sources()
+    
+    table = Table(title="Configuration", show_header=True)
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value")
+    table.add_column("Source", style="dim")
+    
+    def _source_style(source: str) -> str:
+        if source == "env":
+            return "[yellow]env[/yellow]"
+        elif source == "file":
+            return "[green]file[/green]"
+        return "[dim]default[/dim]"
+    
+    table.add_row(
+        "local_conversations_dir",
+        str(cfg.local_conversations_dir.value),
+        _source_style(cfg.local_conversations_dir.source),
+    )
+    table.add_row(
+        "cloud_conversations_dir",
+        str(cfg.cloud_conversations_dir.value),
+        _source_style(cfg.cloud_conversations_dir.source),
+    )
+    table.add_row(
+        "cloud_base_url",
+        str(cfg.cloud_base_url.value),
+        _source_style(cfg.cloud_base_url.source),
+    )
+    table.add_row(
+        "api_key",
+        str(cfg.api_key.value),
+        _source_style(cfg.api_key.source),
+    )
+    table.add_row(
+        "source",
+        str(cfg.source.value),
+        _source_style(cfg.source.source),
+    )
+    
+    console.print()
+    console.print(table)
+    
+    # Show data directories
+    console.print()
+    console.print("[bold]Data Directories[/bold]")
+    ohtv_dir = cfg.ohtv_dir
+    console.print(f"  ohtv_dir:      {ohtv_dir.value} ({_source_style(ohtv_dir.source)})")
+    console.print(f"  manifest:      {cfg.manifest_path}")
+    console.print(f"  config_file:   {cfg.config_file_path}")
+    
+    # Show if manifest exists
+    if cfg.manifest_path.exists():
+        console.print(f"  [green]✓[/green] manifest exists")
+    else:
+        console.print(f"  [yellow]![/yellow] manifest not found")
+
+
 def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
     """Run all processing stages after sync."""
     from ohtv.db import get_connection, migrate, scan_conversations
