@@ -808,7 +808,7 @@ def show(
 def _show_actions_summary(conv_id: str) -> None:
     """Show recognized actions from the database."""
     from ohtv.db import get_connection, get_db_path
-    from ohtv.db.stores import ActionStore
+    from ohtv.db.stores import ActionStore, StageStore
     
     db_path = get_db_path()
     if not db_path.exists():
@@ -820,7 +820,13 @@ def _show_actions_summary(conv_id: str) -> None:
         actions = action_store.get_by_conversation(conv_id)
         
         if not actions:
-            console.print("\n[dim]No actions indexed (run 'ohtv db process actions' first)[/dim]")
+            # Check if actions stage has been processed for this conversation
+            stage_store = StageStore(conn)
+            stage_record = stage_store.get(conv_id, "actions")
+            if stage_record:
+                console.print("\n[dim]No recognized actions in this conversation[/dim]")
+            else:
+                console.print("\n[dim]Actions not indexed (run 'ohtv db process actions' first)[/dim]")
             return
         
         # Group actions by type for summary
