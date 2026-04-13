@@ -43,6 +43,22 @@ class RepoStore:
             )
         return None
     
+    def get_by_id(self, repo_id: int) -> Repository | None:
+        """Get a repository by its ID."""
+        cursor = self.conn.execute(
+            "SELECT id, canonical_url, fqn, short_name FROM repositories WHERE id = ?",
+            (repo_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return Repository(
+                id=row["id"],
+                canonical_url=row["canonical_url"],
+                fqn=row["fqn"],
+                short_name=row["short_name"],
+            )
+        return None
+    
     def search_by_name(self, name: str) -> Sequence[Repository]:
         """Search repositories by FQN or short name."""
         cursor = self.conn.execute(

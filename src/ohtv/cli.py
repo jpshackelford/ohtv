@@ -689,6 +689,7 @@ def _filter_by_action(
 @click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
 @click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
 @click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
+@click.option("--refs", "-R", "show_refs", is_flag=True, help="Show git refs (repos, PRs, issues) from database")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def list_conversations(
     reverse: bool,
@@ -705,6 +706,7 @@ def list_conversations(
     pr_filter: str | None,
     repo_filter: str | None,
     action_filter: str | None,
+    show_refs: bool,
     verbose: bool,
 ) -> None:
     """List available conversations from local and cloud sources."""
@@ -755,8 +757,15 @@ def list_conversations(
     # Track if we're using default limit (for hint message)
     using_default_limit = not show_all and limit is None
 
+    # Load refs from database if requested
+    refs_map: dict[str, list[str]] | None = None
+    if show_refs:
+        refs_map = _load_refs_for_conversations(conversations)
+
     # Format output
-    output_text = _format_list_output(conversations, fmt, total_count, local_count, cloud_count)
+    output_text = _format_list_output(
+        conversations, fmt, total_count, local_count, cloud_count, refs_map=refs_map
+    )
 
     # Write to file or stdout
     if output:
@@ -769,6 +778,7 @@ def list_conversations(
                 conversations, total_count, local_count, cloud_count,
                 show_hint=using_default_limit and len(conversations) < total_count,
                 possible_match_ids=possible_match_ids,
+                refs_map=refs_map,
             )
         else:
             # For JSON and CSV, use plain print to avoid rich styling
@@ -790,27 +800,82 @@ def _load_all_conversations(config: Config) -> list[ConversationInfo]:
     return conversations
 
 
+def _load_refs_for_conversations(
+    conversations: list[ConversationInfo],
+) -> dict[str, list[str]]:
+    """Load refs from database for a list of conversations.
+    
+    Returns a dict mapping conversation_id -> list of ref display strings.
+    Refs are formatted as "repo#N" for PRs/issues, or "owner/repo" for repos.
+    """
+    from ohtv.db import get_connection, get_db_path, LinkStore, ReferenceStore, RepoStore
+    from ohtv.filters import normalize_conversation_id
+    
+    refs_map: dict[str, list[str]] = {}
+    
+    db_path = get_db_path()
+    if not db_path.exists():
+        return refs_map
+    
+    with get_connection() as conn:
+        link_store = LinkStore(conn)
+        ref_store = ReferenceStore(conn)
+        repo_store = RepoStore(conn)
+        
+        for conv in conversations:
+            refs_list: list[str] = []
+            # Normalize ID (database stores without dashes)
+            conv_id = normalize_conversation_id(conv.id)
+            
+            # Get repos for this conversation
+            repo_links = link_store.get_repos_for_conversation(conv_id)
+            for repo_id, link_type in repo_links:
+                repo = repo_store.get_by_id(repo_id)
+                if repo:
+                    # Use short_name for brevity in table
+                    refs_list.append(repo.short_name)
+            
+            # Get refs (PRs/issues) for this conversation
+            ref_links = link_store.get_refs_for_conversation(conv_id)
+            for ref_id, link_type in ref_links:
+                ref = ref_store.get_by_id(ref_id)
+                if ref:
+                    # Use display_name (e.g., "repo #123")
+                    refs_list.append(ref.display_name)
+            
+            if refs_list:
+                refs_map[conv.id] = refs_list
+    
+    return refs_map
+
+
 def _format_list_output(
     conversations: list[ConversationInfo],
     fmt: str,
     total_count: int,
     local_count: int,
     cloud_count: int,
+    *,
+    refs_map: dict[str, list[str]] | None = None,
 ) -> str:
     """Format conversation list for output."""
     if fmt == "json":
-        return _format_list_json(conversations)
+        return _format_list_json(conversations, refs_map=refs_map)
     if fmt == "csv":
-        return _format_list_csv(conversations)
+        return _format_list_csv(conversations, refs_map=refs_map)
     # Table format is handled separately with rich
     return ""
 
 
-def _format_list_json(conversations: list[ConversationInfo]) -> str:
+def _format_list_json(
+    conversations: list[ConversationInfo],
+    *,
+    refs_map: dict[str, list[str]] | None = None,
+) -> str:
     """Format conversations as JSON."""
     items = []
     for conv in conversations:
-        items.append({
+        item = {
             "id": conv.id,
             "source": conv.source,
             "title": conv.title,
@@ -819,15 +884,25 @@ def _format_list_json(conversations: list[ConversationInfo]) -> str:
             "duration_seconds": conv.duration.total_seconds() if conv.duration else None,
             "event_count": conv.event_count,
             "selected_repository": conv.selected_repository,
-        })
+        }
+        if refs_map is not None:
+            item["refs"] = refs_map.get(conv.id, [])
+        items.append(item)
     return json.dumps(items, indent=2)
 
 
-def _format_list_csv(conversations: list[ConversationInfo]) -> str:
+def _format_list_csv(
+    conversations: list[ConversationInfo],
+    *,
+    refs_map: dict[str, list[str]] | None = None,
+) -> str:
     """Format conversations as CSV."""
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["id", "source", "started", "duration", "events", "title", "repository"])
+    headers = ["id", "source", "started", "duration", "events", "title", "repository"]
+    if refs_map is not None:
+        headers.append("refs")
+    writer.writerow(headers)
 
     for conv in conversations:
         # Convert UTC to local time for display
@@ -835,7 +910,7 @@ def _format_list_csv(conversations: list[ConversationInfo]) -> str:
         if conv.created_at:
             local_time = conv.created_at.astimezone()
             started = local_time.strftime("%Y-%m-%d %H:%M")
-        writer.writerow([
+        row = [
             conv.id,
             conv.source,
             started,
@@ -843,7 +918,10 @@ def _format_list_csv(conversations: list[ConversationInfo]) -> str:
             conv.event_count or "",
             conv.title or "",
             conv.selected_repository or "",
-        ])
+        ]
+        if refs_map is not None:
+            row.append("; ".join(refs_map.get(conv.id, [])))
+        writer.writerow(row)
 
     return output.getvalue()
 
@@ -856,6 +934,7 @@ def _print_list_table(
     *,
     show_hint: bool = False,
     possible_match_ids: set[str] | None = None,
+    refs_map: dict[str, list[str]] | None = None,
 ) -> None:
     """Print conversations as a rich table."""
     from ohtv.filters import normalize_conversation_id
@@ -887,13 +966,21 @@ def _print_list_table(
         if normalize_conversation_id(conv.id) in normalized_possible:
             id_display = f"{conv.short_id}[yellow]*[/yellow]"
         
+        # Build title cell content (title + optional refs)
+        title_text = (conv.title or "")[:60] + ("..." if conv.title and len(conv.title) > 60 else "")
+        if refs_map is not None:
+            refs = refs_map.get(conv.id, [])
+            if refs:
+                refs_str = ", ".join(refs)
+                title_text = f"{title_text}\n[dim]Refs: {refs_str}[/dim]"
+        
         table.add_row(
             id_display,
             f"[{source_style}]{conv.source}[/{source_style}]",
             started,
             _format_duration(conv.duration) if conv.duration else "",
             str(conv.event_count),
-            (conv.title or "")[:60] + ("..." if conv.title and len(conv.title) > 60 else ""),
+            title_text,
         )
 
     console.print(table)

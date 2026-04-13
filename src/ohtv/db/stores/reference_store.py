@@ -45,6 +45,23 @@ class ReferenceStore:
             )
         return None
     
+    def get_by_id(self, ref_id: int) -> Reference | None:
+        """Get a reference by its ID."""
+        cursor = self.conn.execute(
+            "SELECT id, ref_type, url, fqn, display_name FROM refs WHERE id = ?",
+            (ref_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            return Reference(
+                id=row["id"],
+                ref_type=RefType(row["ref_type"]),
+                url=row["url"],
+                fqn=row["fqn"],
+                display_name=row["display_name"],
+            )
+        return None
+    
     def search_by_fqn(
         self, fqn: str, ref_type: RefType | None = None
     ) -> Sequence[Reference]:
