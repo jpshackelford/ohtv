@@ -69,12 +69,24 @@ conversation_refs                # Conversation ↔ Issue/PR links
 └── link_type (TEXT)             # "read" or "write"
 ```
 
+### Actions Table
+
+```
+actions                          # Recognized actions in conversations
+├── id (INTEGER PRIMARY KEY)
+├── conversation_id (TEXT)       # FK to conversations
+├── action_type (TEXT)           # e.g., "edit-code", "open-pr"
+├── target (TEXT)                # File path, URL, etc.
+├── metadata (TEXT)              # JSON for additional details
+└── event_id (TEXT)              # ID of triggering event
+```
+
 ### Processing State
 
 ```
 conversation_stages              # Tracks processing completion
 ├── conversation_id (TEXT)
-├── stage_name (TEXT)            # e.g., "refs", "objectives"
+├── stage_name (TEXT)            # e.g., "refs", "actions"
 ├── event_count (INTEGER)        # Event count when processed
 └── completed_at (TEXT)          # ISO timestamp
 ```
@@ -125,12 +137,55 @@ Each stage is independent and tracked separately:
 | Stage | Description | CLI Command |
 |-------|-------------|-------------|
 | `refs` | Extract repos, issues, PRs | `ohtv db process refs` |
+| `actions` | Recognize actions (edits, git, PRs, etc.) | `ohtv db process actions` |
 | *(future)* `objectives` | LLM-based goal extraction | `ohtv db process objectives` |
 
 Stages can be:
 - Run in any order
 - Rerun with `--force` to reprocess all
 - Run for specific conversation with `--conversation`
+
+### Action Types
+
+The `actions` stage recognizes these action types:
+
+| Category | Action Type | Description |
+|----------|-------------|-------------|
+| **File Edits** | `edit-code` | Edits to code files (.py, .js, .ts, etc.) |
+| | `edit-docs` | Edits to documentation (.md, .rst, etc.) |
+| | `edit-other` | Edits to other file types |
+| | `study-code` | Viewing code files (without editing) |
+| **Git** | `git-commit` | Git commit operations |
+| | `git-push` | Git push operations |
+| **PRs/MRs** | `open-pr` | Creating a pull request |
+| | `pr-comment` | Commenting on a PR |
+| | `pr-review` | Reviewing a PR (gh command or /codereview skill) |
+| | `pr-edit` | Editing PR title/description |
+| | `merge-pr` | Merging PR into target branch |
+| | `close-pr` | Closing PR without merging |
+| | `check-ci` | Checking CI status |
+| **Issues** | `open-issue` | Creating an issue |
+| | `issue-comment` | Commenting on an issue |
+| | `issue-edit` | Editing issue title/description |
+| | `close-issue` | Closing an issue |
+| **Notion** | `read-notion` | Reading Notion pages/databases |
+| | `write-notion` | Creating/updating Notion pages |
+| **Research** | `web-research` | Web browsing/research |
+
+#### Extensible Recognizers
+
+Action recognition uses a modular recognizer system in `src/ohtv/db/stages/recognizers/`:
+
+- `file_edits.py` - EDIT_CODE, EDIT_DOCS, EDIT_OTHER, STUDY_CODE
+- `git_operations.py` - GIT_COMMIT, GIT_PUSH
+- `github_actions.py` - OPEN_PR, PR_*, ISSUE_*, CHECK_CI, MERGE_PR, CLOSE_*
+- `notion_actions.py` - READ_NOTION, WRITE_NOTION (MCP tools and API calls)
+- `research.py` - WEB_RESEARCH
+- `skill_invocations.py` - PR_REVIEW (via /codereview slash commands)
+
+To add a new recognizer:
+1. Create a function `recognize_foo(event, context) -> list[ConversationAction]`
+2. Register it in the `RECOGNIZERS` list in `__init__.py`
 
 ## Link Types
 

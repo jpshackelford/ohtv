@@ -662,6 +662,7 @@ def _format_duration(duration: timedelta | None) -> str:
 @click.option("--thinking", "-t", is_flag=True, help="Include thinking/reasoning blocks")
 @click.option("--timestamps", "-T", is_flag=True, help="Include timestamps on events")
 @click.option("--refs", "-R", "show_refs", is_flag=True, help="Show git refs with write actions")
+@click.option("--actions", "-X", "show_actions", is_flag=True, help="Show recognized actions (from DB)")
 @click.option("--all", "-A", "include_all", is_flag=True, help="Include everything")
 @click.option("--messages", "-m", is_flag=True, help="Shorthand for -u -a -f")
 @click.option("--stats", "-S", is_flag=True, help="Show only statistics, no content")
@@ -689,6 +690,7 @@ def show(
     thinking: bool,
     timestamps: bool,
     show_refs: bool,
+    show_actions: bool,
     include_all: bool,
     messages: bool,
     stats: bool,
@@ -719,6 +721,7 @@ def show(
         full_output = show_outputs = True
         debug_tool_call = thinking = timestamps = True
         show_refs = True
+        show_actions = True
     if messages:
         user_messages = agent_messages = include_finish = True
 
@@ -745,6 +748,9 @@ def show(
         # Show refs after stats if requested
         if show_refs:
             _show_refs_summary(conv_dir)
+        # Show actions if requested
+        if show_actions:
+            _show_actions_summary(conv_id)
         return
 
     # Filter events based on flags
@@ -793,6 +799,61 @@ def show(
     # Show refs after main output if requested
     if show_refs:
         _show_refs_summary(conv_dir)
+    
+    # Show actions if requested
+    if show_actions:
+        _show_actions_summary(conv_id)
+
+
+def _show_actions_summary(conv_id: str) -> None:
+    """Show recognized actions from the database."""
+    from ohtv.db import get_connection, get_db_path
+    from ohtv.db.stores import ActionStore
+    
+    db_path = get_db_path()
+    if not db_path.exists():
+        console.print("\n[dim]Actions not available (run 'ohtv db init' first)[/dim]")
+        return
+    
+    with get_connection() as conn:
+        action_store = ActionStore(conn)
+        actions = action_store.get_by_conversation(conv_id)
+        
+        if not actions:
+            console.print("\n[dim]No actions indexed (run 'ohtv db process actions' first)[/dim]")
+            return
+        
+        # Group actions by type for summary
+        by_type: dict[str, list] = {}
+        for action in actions:
+            type_name = action.action_type.value
+            if type_name not in by_type:
+                by_type[type_name] = []
+            by_type[type_name].append(action)
+        
+        console.print("\n[bold]Recognized Actions[/bold]")
+        
+        # Sort by count descending
+        for type_name in sorted(by_type.keys(), key=lambda t: -len(by_type[t])):
+            action_list = by_type[type_name]
+            count = len(action_list)
+            
+            # Show count and some examples
+            if count <= 3:
+                targets = [a.target for a in action_list if a.target]
+                target_str = ", ".join(targets[:3]) if targets else ""
+                if target_str:
+                    console.print(f"  {type_name}: {count} ({target_str})")
+                else:
+                    console.print(f"  {type_name}: {count}")
+            else:
+                # Show count with sample
+                samples = [a.target for a in action_list[:2] if a.target]
+                sample_str = ", ".join(samples) if samples else ""
+                if sample_str:
+                    console.print(f"  {type_name}: {count} ({sample_str}, ...)")
+                else:
+                    console.print(f"  {type_name}: {count}")
 
 
 def _show_refs_summary(conv_dir: Path) -> None:
@@ -3011,7 +3072,7 @@ def db_init(verbose: bool) -> None:
 
 
 @db.command("process")
-@click.argument("stage", type=click.Choice(["refs"]))
+@click.argument("stage", type=click.Choice(["refs", "actions", "all"]))
 @click.option("--force", "-f", is_flag=True, help="Reprocess all conversations, ignoring stage completion")
 @click.option("--conversation", "-c", help="Process only this conversation ID")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
@@ -3023,8 +3084,26 @@ def db_process(stage: str, force: bool, conversation: str | None, verbose: bool)
     
     \b
     Available stages:
-      refs  - Extract repository, issue, and PR references
+      refs     - Extract repository, issue, and PR references
+      actions  - Recognize actions (file edits, git ops, PRs, etc.)
+      all      - Run all stages in sequence
     """
+    from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
+    from ohtv.db.stages import STAGES
+    from ohtv.db.stores import ConversationStore, StageStore
+    
+    # Handle "all" - run all stages in sequence
+    if stage == "all":
+        for stage_name in STAGES:
+            console.print(f"\n[bold]Running stage: {stage_name}[/bold]")
+            _run_process_stage(stage_name, force, conversation, verbose)
+        return
+    
+    _run_process_stage(stage, force, conversation, verbose)
+
+
+def _run_process_stage(stage: str, force: bool, conversation: str | None, verbose: bool) -> None:
+    """Run a single processing stage."""
     from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
     from ohtv.db.stages import STAGES
     from ohtv.db.stores import ConversationStore, StageStore
@@ -3199,6 +3278,7 @@ def db_scan(force: bool, remove_missing: bool, verbose: bool) -> None:
 def db_status() -> None:
     """Show database status and statistics."""
     from ohtv.db import get_connection, get_db_path
+    from ohtv.db.stores import ActionStore
     
     db_path = get_db_path()
     
@@ -3227,6 +3307,7 @@ def db_status() -> None:
             ("refs", "References (issues/PRs)"),
             ("conversation_repos", "Repo Links"),
             ("conversation_refs", "Reference Links"),
+            ("actions", "Actions"),
         ]
         
         console.print("\n[bold]Records:[/bold]")
@@ -3244,6 +3325,52 @@ def db_status() -> None:
             console.print("\n[bold]References by type:[/bold]")
             for row in ref_counts:
                 console.print(f"  {row[0]}: {row[1]}")
+        
+        # Show breakdown by action type
+        action_store = ActionStore(conn)
+        action_counts = action_store.count_by_type()
+        if action_counts:
+            console.print("\n[bold]Actions by type:[/bold]")
+            for action_type, count in action_counts.items():
+                console.print(f"  {action_type}: {count}")
+
+
+@db.command("reset")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+def db_reset(yes: bool) -> None:
+    """Delete the database and start fresh.
+    
+    This removes all indexed data including conversations, refs, and actions.
+    The source conversation files are NOT affected.
+    """
+    from ohtv.db import get_db_path
+    
+    db_path = get_db_path()
+    
+    if not db_path.exists():
+        console.print("[dim]No database to delete.[/dim]")
+        return
+    
+    # Get size for display
+    size_bytes = db_path.stat().st_size
+    if size_bytes < 1024:
+        size_str = f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        size_str = f"{size_bytes / 1024:.1f} KB"
+    else:
+        size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+    
+    if not yes:
+        console.print(f"[yellow]Warning:[/yellow] This will delete the database at:")
+        console.print(f"  {db_path} ({size_str})")
+        console.print()
+        if not click.confirm("Are you sure?"):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+    
+    db_path.unlink()
+    console.print(f"[green]✓[/green] Deleted database ({size_str})")
+    console.print("[dim]Run 'ohtv db init' or 'ohtv db process all' to recreate.[/dim]")
 
 
 if __name__ == "__main__":

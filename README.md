@@ -157,6 +157,7 @@ ohtv show abc123 -A -r -n 5
 | `-t, --thinking` | Show thinking/reasoning blocks (think actions) |
 | `-T, --timestamps` | Include timestamps on events |
 | `-R, --refs` | Show git refs with write actions at end |
+| `-X, --actions` | Show recognized actions from the database |
 
 **Shorthand Flags:**
 | Flag | Equivalent to |
@@ -411,6 +412,12 @@ Runs processing stages on registered conversations. Each stage extracts specific
 # Process refs (repos, issues, PRs) for all pending conversations
 ohtv db process refs
 
+# Process actions (file edits, git ops, PRs, etc.)
+ohtv db process actions
+
+# Run all stages in sequence
+ohtv db process all
+
 # Force reprocess all conversations
 ohtv db process refs --force
 
@@ -425,6 +432,8 @@ ohtv db process refs -v
 | Stage | Description |
 |-------|-------------|
 | `refs` | Extract repository, issue, and PR references |
+| `actions` | Recognize actions (file edits, git ops, PRs, issues, Notion, etc.) |
+| `all` | Run all stages in sequence |
 
 **Options:**
 | Flag | Description |
@@ -432,6 +441,23 @@ ohtv db process refs -v
 | `-f, --force` | Reprocess all conversations |
 | `-c, --conversation ID` | Process only this conversation |
 | `-v, --verbose` | Show detailed output |
+
+#### `ohtv db reset` - Delete Database
+
+Deletes the database to start fresh. Source conversation files are NOT affected.
+
+```bash
+# Delete with confirmation prompt
+ohtv db reset
+
+# Delete without confirmation
+ohtv db reset --yes
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `-y, --yes` | Skip confirmation prompt |
 
 #### `ohtv db status` - Show Database Status
 
@@ -444,18 +470,24 @@ ohtv db status
 **Example Output:**
 ```
 Database: /Users/you/.ohtv/index.db
-Size: 156.2 KB
+Size: 6.1 MB
 
 Records:
-  Conversations: 42
-  Repositories: 15
-  References (issues/PRs): 28
-  Repo Links: 52
-  Reference Links: 71
+  Conversations: 1297
+  Repositories: 156
+  References (issues/PRs): 428
+  Repo Links: 892
+  Reference Links: 1245
+  Actions: 17770
 
-References by type:
-  issue: 12
-  pr: 16
+Actions by type:
+  edit-code: 5258
+  study-code: 4098
+  edit-docs: 1840
+  git-commit: 1569
+  git-push: 1335
+  check-ci: 1290
+  ...
 ```
 
 ---
