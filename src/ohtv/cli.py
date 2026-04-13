@@ -408,7 +408,7 @@ def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
         for stage_name, processor in STAGES.items():
             needs_processing = []
             for conv in all_convs:
-                if not stage_store.is_complete(conv.id, stage_name, conv.event_count):
+                if stage_store.needs_processing(conv.id, stage_name, conv.event_count):
                     needs_processing.append(conv)
             
             if not needs_processing:
