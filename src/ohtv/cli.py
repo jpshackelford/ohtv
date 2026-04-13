@@ -2384,9 +2384,21 @@ def _get_conversation_outputs(conv_dir: Path) -> dict:
         - refs: dict with 'repos', 'prs', 'issues' sets of URLs
         - interactions: RefInteractions object with write actions
         - unpushed_commits: set of directory paths with commits but no push
+    
+    Note: Repos are filtered to only include those with detected interactions,
+    to avoid noise from incidental mentions (error messages, user pastes, etc.).
+    PRs and issues are kept as-is since their URLs are specific enough.
     """
     refs = _extract_refs_from_conversation(conv_dir)
     interactions = _detect_interactions_from_conversation(conv_dir, refs)
+
+    # Filter repos to only those with detected interactions
+    # This matches the behavior of database indexing in refs.py
+    filtered_repos = {
+        url for url in refs["repos"]
+        if url in interactions.repos
+    }
+    refs["repos"] = filtered_repos
 
     return {
         "refs": refs,
