@@ -10,6 +10,7 @@ import re
 import sqlite3
 from pathlib import Path
 
+from ohtv.actions import WRITE_ACTIONS
 from ohtv.db.models import Conversation, LinkType, Reference, RefType, Repository
 from ohtv.db.stores import (
     LinkStore,
@@ -222,17 +223,9 @@ def _parse_ref_url(url: str, ref_type: RefType) -> Reference | None:
 def _determine_link_type(interactions: set[str]) -> LinkType:
     """Determine link type based on detected interactions.
     
-    Write interactions: pushed, committed, created, commented, reviewed, merged, closed
-    Read interactions: cloned, fetched, pulled, viewed, browsed, api_called
-    
-    Note: 'cloned' is READ because cloning is research/setup, not modification.
-    Actual changes require commit + push.
-    
-    See also WRITE_ACTIONS constant in cli.py for the canonical definition.
+    Uses WRITE_ACTIONS from ohtv.actions module for categorization.
+    If any interaction is a write action, the link type is WRITE.
     """
-    # Keep in sync with WRITE_ACTIONS in cli.py
-    write_actions = {"pushed", "committed", "created", "commented", "reviewed", "merged", "closed"}
-    
-    if interactions & write_actions:
+    if interactions & WRITE_ACTIONS:
         return LinkType.WRITE
     return LinkType.READ

@@ -14,6 +14,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.tree import Tree
 
+from ohtv.actions import READ_ACTIONS, WRITE_ACTIONS
 from ohtv.config import Config
 
 
@@ -78,12 +79,6 @@ MIN_DATETIME = datetime.min.replace(tzinfo=timezone.utc)
 REPO_INTERACTIONS = {"cloned", "pushed", "committed"}
 PR_INTERACTIONS = {"created", "pushed", "commented", "merged", "closed", "reviewed"}
 ISSUE_INTERACTIONS = {"created", "commented", "closed"}
-
-# Write vs Read action categorization
-# Write actions modify state in the remote system
-# Read actions only retrieve/view information (cloning downloads but doesn't modify remote)
-WRITE_ACTIONS = {"pushed", "committed", "created", "commented", "reviewed", "merged", "closed"}
-READ_ACTIONS = {"cloned", "fetched", "pulled", "viewed", "browsed", "api_called"}
 
 # Command patterns to detect interactions
 INTERACTION_COMMAND_PATTERNS = {
