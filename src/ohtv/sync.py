@@ -85,7 +85,7 @@ class SyncManager:
         self.config = config
         self.manifest_path = get_manifest_path()
         self.manifest = SyncManifest.load(self.manifest_path)
-        self.exporter = TrajectoryExporter(config.cloud_conversations_dir)
+        self.exporter = TrajectoryExporter(config.synced_conversations_dir)
 
     def sync(
         self,
@@ -102,7 +102,7 @@ class SyncManager:
         log.info("Starting sync (force=%s, cutoff=%s, dry_run=%s)", force, cutoff, dry_run)
 
         try:
-            with CloudClient(self.config.cloud_base_url, self.config.api_key) as client:
+            with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
                 conversations = client.search_all_conversations(updated_since=cutoff)
                 conversations = self._add_failed_conversations(conversations)
                 log.info("Found %d conversations to process", len(conversations))

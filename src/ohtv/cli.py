@@ -293,8 +293,8 @@ def config(action: str | None, key: str | None, value: str | None) -> None:
     \b
     Configurable keys:
       local_conversations_dir   Path to local CLI conversations
-      cloud_conversations_dir   Path to synced cloud conversations
-      cloud_base_url            OpenHands Cloud API URL
+      synced_conversations_dir   Path to synced cloud conversations
+      cloud_api_url            OpenHands Cloud API URL
       source                    Default source: 'local' or 'cloud'
     
     \b
@@ -344,14 +344,14 @@ def _show_config() -> None:
         _source_style(cfg.local_conversations_dir.source),
     )
     table.add_row(
-        "cloud_conversations_dir",
-        str(cfg.cloud_conversations_dir.value),
-        _source_style(cfg.cloud_conversations_dir.source),
+        "synced_conversations_dir",
+        str(cfg.synced_conversations_dir.value),
+        _source_style(cfg.synced_conversations_dir.source),
     )
     table.add_row(
-        "cloud_base_url",
-        str(cfg.cloud_base_url.value),
-        _source_style(cfg.cloud_base_url.source),
+        "cloud_api_url",
+        str(cfg.cloud_api_url.value),
+        _source_style(cfg.cloud_api_url.source),
     )
     table.add_row(
         "api_key",
@@ -961,7 +961,7 @@ def _load_all_conversations(config: Config) -> list[ConversationInfo]:
     conversations.extend(local_source.list_conversations())
 
     # Load cloud conversations (synced)
-    cloud_source = LocalSource(config.cloud_conversations_dir, source_name="cloud")
+    cloud_source = LocalSource(config.synced_conversations_dir, source_name="cloud")
     conversations.extend(cloud_source.list_conversations())
 
     return conversations
@@ -3221,7 +3221,7 @@ def _find_conversation_dir(config: Config, conv_id: str) -> tuple[Path, bool] | 
     # Search both directories - local first, then cloud
     dirs_to_search = [
         (config.local_conversations_dir, False),  # (path, is_cloud)
-        (config.cloud_conversations_dir, True),
+        (config.synced_conversations_dir, True),
     ]
 
     all_matches: list[tuple[Path, bool]] = []

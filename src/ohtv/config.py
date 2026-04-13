@@ -19,8 +19,8 @@ except ImportError:
 # Config keys that can be set via `ohtv config set`
 CONFIGURABLE_KEYS = {
     "local_conversations_dir": "Path to local CLI conversations",
-    "cloud_conversations_dir": "Path to synced cloud conversations", 
-    "cloud_base_url": "OpenHands Cloud API URL",
+    "synced_conversations_dir": "Path to synced cloud conversations", 
+    "cloud_api_url": "OpenHands Cloud API URL",
     "source": "Default source: 'local' or 'cloud'",
 }
 
@@ -43,8 +43,8 @@ class ConfigWithSources:
     """Configuration with source tracking for display."""
     
     local_conversations_dir: ConfigValue
-    cloud_conversations_dir: ConfigValue
-    cloud_base_url: ConfigValue
+    synced_conversations_dir: ConfigValue
+    cloud_api_url: ConfigValue
     api_key: ConfigValue
     source: ConfigValue
     ohtv_dir: ConfigValue
@@ -57,8 +57,8 @@ class Config:
     """Configuration for ohtv."""
 
     local_conversations_dir: Path
-    cloud_conversations_dir: Path
-    cloud_base_url: str
+    synced_conversations_dir: Path
+    cloud_api_url: str
     api_key: str | None
     source: str  # "local" or "cloud"
     _sources: dict[str, str] = field(default_factory=dict, repr=False)
@@ -71,19 +71,19 @@ class Config:
         sources: dict[str, str] = {}
         
         local_dir, local_src = _get_local_conversations_dir(home, file_config)
-        cloud_dir, cloud_src = _get_cloud_conversations_dir(home, file_config)
-        cloud_url, url_src = _get_cloud_base_url(file_config)
+        cloud_dir, cloud_src = _get_synced_conversations_dir(home, file_config)
+        cloud_url, url_src = _get_cloud_api_url(file_config)
         source_val, source_src = _get_source(file_config)
         
         sources["local_conversations_dir"] = local_src
-        sources["cloud_conversations_dir"] = cloud_src
-        sources["cloud_base_url"] = url_src
+        sources["synced_conversations_dir"] = cloud_src
+        sources["cloud_api_url"] = url_src
         sources["source"] = source_src
         
         return cls(
             local_conversations_dir=local_dir,
-            cloud_conversations_dir=cloud_dir,
-            cloud_base_url=cloud_url,
+            synced_conversations_dir=cloud_dir,
+            cloud_api_url=cloud_url,
             api_key=_get_api_key(home),
             source=source_val,
             _sources=sources,
@@ -100,8 +100,8 @@ class Config:
         
         return ConfigWithSources(
             local_conversations_dir=ConfigValue(self.local_conversations_dir, self._sources.get("local_conversations_dir", "default")),
-            cloud_conversations_dir=ConfigValue(self.cloud_conversations_dir, self._sources.get("cloud_conversations_dir", "default")),
-            cloud_base_url=ConfigValue(self.cloud_base_url, self._sources.get("cloud_base_url", "default")),
+            synced_conversations_dir=ConfigValue(self.synced_conversations_dir, self._sources.get("synced_conversations_dir", "default")),
+            cloud_api_url=ConfigValue(self.cloud_api_url, self._sources.get("cloud_api_url", "default")),
             api_key=ConfigValue("****" if api_key else None, api_source),
             source=ConfigValue(self.source, self._sources.get("source", "default")),
             ohtv_dir=ConfigValue(ohtv_dir, ohtv_source),
@@ -130,23 +130,23 @@ def _get_local_conversations_dir(home: Path, file_config: dict) -> tuple[Path, s
     return home / ".openhands" / "conversations", "default"
 
 
-def _get_cloud_conversations_dir(home: Path, file_config: dict) -> tuple[Path, str]:
+def _get_synced_conversations_dir(home: Path, file_config: dict) -> tuple[Path, str]:
     """Get cloud conversations directory with source."""
-    env_dir = os.environ.get("OHTV_CLOUD_CONVERSATIONS_DIR")
+    env_dir = os.environ.get("OHTV_SYNCED_CONVERSATIONS_DIR")
     if env_dir:
         return Path(env_dir).expanduser(), "env"
-    file_dir = file_config.get("cloud_conversations_dir")
+    file_dir = file_config.get("synced_conversations_dir")
     if file_dir:
         return Path(file_dir).expanduser(), "file"
     return home / ".openhands" / "cloud" / "conversations", "default"
 
 
-def _get_cloud_base_url(file_config: dict) -> tuple[str, str]:
+def _get_cloud_api_url(file_config: dict) -> tuple[str, str]:
     """Get cloud base URL with source."""
-    env_url = os.environ.get("OHTV_CLOUD_URL")
+    env_url = os.environ.get("OHTV_CLOUD_API_URL")
     if env_url:
         return env_url, "env"
-    file_url = file_config.get("cloud_base_url")
+    file_url = file_config.get("cloud_api_url")
     if file_url:
         return file_url, "file"
     return "https://app.all-hands.dev", "default"
