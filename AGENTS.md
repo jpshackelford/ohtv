@@ -113,13 +113,22 @@ uv run ohtv db status                  # Database statistics
 - `REFERENCE_CLOUD_API.md` - OpenHands Cloud V1 API endpoints
 - `REFERENCE_TRAJECTORY_FORMAT_COMPARISON.md` - Local vs cloud trajectory formats
 
-## Active Work: Temporal PR Linking
+## Completed: Temporal PR Linking
 
 **Branch**: `feature/sqlite-indexing`
 
-**Next steps** (see `docs/DESIGN_TEMPORAL_PR_LINKING.md`):
-1. Implement temporal forward linking in `push_pr_links.py`
-2. Add backward pass to link orphan pushes to subsequent PRs
-3. Test with real conversation `a711cbbc61f0` (6 PRs, multiple branches)
+**Implemented features**:
+1. ✅ Temporal forward linking: Pushes after PR creation link to active PR per branch
+2. ✅ Backward pass: Pushes before PR creation link to first subsequent PR on same branch
+3. ✅ Tested with real conversation `a711cbbc61f0` (all 6 PRs have WRITE links)
+4. ✅ 216 tests passing
+
+**Key implementation details**:
+- `push_pr_links.py` processes events in temporal order (by action ID)
+- Tracks "active PR" per branch key (`owner/repo:branch`)
+- Orphan pushes (before any PR) are collected and linked in backward pass
+- Requires actions stage to be reprocessed if data has ANSI escape codes in branch names
 
 **Test fixtures**: `tests/unit/db/stages/fixtures/push_pr_scenarios.py` contains sanitized scenarios documenting expected behavior.
+
+**Known issue**: The `refs` command display shows `[created]` but not `[pushed]` annotation because the display code uses event parsing instead of database links. The WRITE links are correctly stored in the database.

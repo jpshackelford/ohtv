@@ -8,7 +8,8 @@ from ohtv.db.models import Conversation, LinkType, Reference, RefType
 from ohtv.db.models.action import ActionType, ConversationAction
 from ohtv.db.stages.push_pr_links import (
     process_push_pr_links,
-    _build_branch_pr_map,
+    _get_pr_branch_key,
+    _get_push_branch_key,
     _make_branch_key,
 )
 from ohtv.db.stores import ActionStore, LinkStore, ReferenceStore, StageStore
@@ -36,93 +37,71 @@ def conversation():
     )
 
 
-class TestBuildBranchPRMap:
-    """Tests for building branch-to-PR mapping."""
+class TestGetBranchKey:
+    """Tests for extracting branch keys from actions."""
     
-    def test_builds_map_from_open_pr_actions(self):
-        """Should build map from OPEN_PR actions with branch info."""
-        actions = [
-            ConversationAction(
-                id=1,
-                conversation_id="conv-1",
-                action_type=ActionType.OPEN_PR,
-                target="https://github.com/owner/repo/pull/123",
-                metadata={
-                    "head_branch": "feature/branch",
-                    "owner": "owner",
-                    "repo": "repo",
-                    "source": "github",
-                },
-            ),
-        ]
-        
-        result = _build_branch_pr_map(actions)
-        
-        # Should only have fully qualified key (no branch-only fallback)
-        assert result.get("owner/repo:feature/branch") == "https://github.com/owner/repo/pull/123"
-        assert "feature/branch" not in result  # No branch-only key
+    def test_get_pr_branch_key_with_full_metadata(self):
+        """Should extract branch key from OPEN_PR with full metadata."""
+        action = ConversationAction(
+            id=1,
+            conversation_id="conv-1",
+            action_type=ActionType.OPEN_PR,
+            target="https://github.com/owner/repo/pull/123",
+            metadata={
+                "head_branch": "feature/branch",
+                "owner": "owner",
+                "repo": "repo",
+            },
+        )
+        assert _get_pr_branch_key(action) == "owner/repo:feature/branch"
     
-    def test_ignores_non_open_pr_actions(self):
-        """Should ignore actions that aren't OPEN_PR."""
-        actions = [
-            ConversationAction(
-                id=1,
-                conversation_id="conv-1",
-                action_type=ActionType.GIT_PUSH,
-                target="https://github.com/owner/repo.git",
-                metadata={"branch": "main"},
-            ),
-        ]
-        
-        result = _build_branch_pr_map(actions)
-        assert len(result) == 0
+    def test_get_pr_branch_key_missing_branch(self):
+        """Should return None when head_branch is missing."""
+        action = ConversationAction(
+            id=1,
+            conversation_id="conv-1",
+            action_type=ActionType.OPEN_PR,
+            target="https://github.com/owner/repo/pull/123",
+            metadata={"owner": "owner", "repo": "repo"},
+        )
+        assert _get_pr_branch_key(action) is None
     
-    def test_ignores_pr_without_branch_info(self):
-        """Should ignore OPEN_PR actions without head_branch metadata."""
-        actions = [
-            ConversationAction(
-                id=1,
-                conversation_id="conv-1",
-                action_type=ActionType.OPEN_PR,
-                target="https://github.com/owner/repo/pull/123",
-                metadata={"source": "github"},  # No head_branch
-            ),
-        ]
-        
-        result = _build_branch_pr_map(actions)
-        assert len(result) == 0
+    def test_get_pr_branch_key_missing_owner(self):
+        """Should return None when owner is missing."""
+        action = ConversationAction(
+            id=1,
+            conversation_id="conv-1",
+            action_type=ActionType.OPEN_PR,
+            target="https://github.com/owner/repo/pull/123",
+            metadata={"head_branch": "feature/branch", "repo": "repo"},
+        )
+        assert _get_pr_branch_key(action) is None
     
-    def test_handles_multiple_prs(self):
-        """Should handle multiple PRs with different branches."""
-        actions = [
-            ConversationAction(
-                id=1,
-                conversation_id="conv-1",
-                action_type=ActionType.OPEN_PR,
-                target="https://github.com/owner/repo/pull/123",
-                metadata={
-                    "head_branch": "feature/a",
-                    "owner": "owner",
-                    "repo": "repo",
-                },
-            ),
-            ConversationAction(
-                id=2,
-                conversation_id="conv-1",
-                action_type=ActionType.OPEN_PR,
-                target="https://github.com/owner/repo/pull/456",
-                metadata={
-                    "head_branch": "feature/b",
-                    "owner": "owner",
-                    "repo": "repo",
-                },
-            ),
-        ]
-        
-        result = _build_branch_pr_map(actions)
-        # Keys are fully qualified (owner/repo:branch)
-        assert result.get("owner/repo:feature/a") == "https://github.com/owner/repo/pull/123"
-        assert result.get("owner/repo:feature/b") == "https://github.com/owner/repo/pull/456"
+    def test_get_push_branch_key_with_full_metadata(self):
+        """Should extract branch key from GIT_PUSH with full metadata."""
+        action = ConversationAction(
+            id=1,
+            conversation_id="conv-1",
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={
+                "branch": "feature/branch",
+                "owner": "owner",
+                "repo": "repo",
+            },
+        )
+        assert _get_push_branch_key(action) == "owner/repo:feature/branch"
+    
+    def test_get_push_branch_key_missing_owner(self):
+        """Should return None when owner is missing (conservative behavior)."""
+        action = ConversationAction(
+            id=1,
+            conversation_id="conv-1",
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={"branch": "feature/branch"},
+        )
+        assert _get_push_branch_key(action) is None
 
 
 class TestMakeBranchKey:
@@ -307,5 +286,217 @@ class TestProcessPushPRLinks:
         process_push_pr_links(db_connection, conversation)
         
         # Verify NO link was created (conservative behavior)
+        refs = link_store.get_refs_for_conversation(conversation.id)
+        assert len(refs) == 0
+
+
+class TestTemporalLinking:
+    """Tests for temporal push-to-PR linking."""
+    
+    def test_push_before_pr_links_backward(self, db_connection, conversation):
+        """Pushes before PR creation should link via backward pass."""
+        action_store = ActionStore(db_connection)
+        ref_store = ReferenceStore(db_connection)
+        link_store = LinkStore(db_connection)
+        
+        # Create PR reference
+        pr_url = "https://github.com/owner/repo/pull/55"
+        ref_id = ref_store.upsert(Reference(
+            id=None,
+            ref_type=RefType.PR,
+            url=pr_url,
+            fqn="owner/repo#55",
+            display_name="repo #55",
+        ))
+        
+        # Push 1 (before PR)
+        action_store.insert(ConversationAction(
+            id=None,
+            conversation_id=conversation.id,
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={"branch": "feature/new-cli", "owner": "owner", "repo": "repo"},
+        ))
+        
+        # Push 2 (before PR)
+        action_store.insert(ConversationAction(
+            id=None,
+            conversation_id=conversation.id,
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={"branch": "feature/new-cli", "owner": "owner", "repo": "repo"},
+        ))
+        
+        # PR created
+        action_store.insert(ConversationAction(
+            id=None,
+            conversation_id=conversation.id,
+            action_type=ActionType.OPEN_PR,
+            target=pr_url,
+            metadata={"head_branch": "feature/new-cli", "owner": "owner", "repo": "repo"},
+        ))
+        
+        # Push 3 (after PR)
+        action_store.insert(ConversationAction(
+            id=None,
+            conversation_id=conversation.id,
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={"branch": "feature/new-cli", "owner": "owner", "repo": "repo"},
+        ))
+        
+        process_push_pr_links(db_connection, conversation)
+        
+        # All pushes should link to the PR (WRITE link created)
+        refs = link_store.get_refs_for_conversation(conversation.id)
+        assert len(refs) == 1
+        linked_ref_id, link_type = refs[0]
+        assert linked_ref_id == ref_id
+        assert link_type == LinkType.WRITE
+    
+    def test_branch_reuse_links_to_correct_pr(self, db_connection, conversation):
+        """Multiple PRs on same branch should link pushes to correct PR temporally."""
+        action_store = ActionStore(db_connection)
+        ref_store = ReferenceStore(db_connection)
+        link_store = LinkStore(db_connection)
+        
+        # Create PR references
+        pr1_url = "https://github.com/owner/repo/pull/20"
+        pr2_url = "https://github.com/owner/repo/pull/25"
+        pr1_id = ref_store.upsert(Reference(
+            id=None, ref_type=RefType.PR, url=pr1_url,
+            fqn="owner/repo#20", display_name="repo #20",
+        ))
+        pr2_id = ref_store.upsert(Reference(
+            id=None, ref_type=RefType.PR, url=pr2_url,
+            fqn="owner/repo#25", display_name="repo #25",
+        ))
+        
+        # First PR on 'develop' branch
+        action_store.insert(ConversationAction(
+            id=None,
+            conversation_id=conversation.id,
+            action_type=ActionType.OPEN_PR,
+            target=pr1_url,
+            metadata={"head_branch": "develop", "owner": "owner", "repo": "repo"},
+        ))
+        
+        # Push to first PR
+        action_store.insert(ConversationAction(
+            id=None,
+            conversation_id=conversation.id,
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={"branch": "develop", "owner": "owner", "repo": "repo"},
+        ))
+        
+        # Second PR on same branch (after first was merged)
+        action_store.insert(ConversationAction(
+            id=None,
+            conversation_id=conversation.id,
+            action_type=ActionType.OPEN_PR,
+            target=pr2_url,
+            metadata={"head_branch": "develop", "owner": "owner", "repo": "repo"},
+        ))
+        
+        # Push to second PR
+        action_store.insert(ConversationAction(
+            id=None,
+            conversation_id=conversation.id,
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={"branch": "develop", "owner": "owner", "repo": "repo"},
+        ))
+        
+        process_push_pr_links(db_connection, conversation)
+        
+        # Both PRs should have WRITE links (temporal linking works)
+        refs = link_store.get_refs_for_conversation(conversation.id)
+        ref_ids = {r[0] for r in refs}
+        assert pr1_id in ref_ids, "First PR should have WRITE link"
+        assert pr2_id in ref_ids, "Second PR should have WRITE link"
+    
+    def test_multi_branch_temporal_linking(self, db_connection, conversation):
+        """Multiple branches with PRs should link correctly."""
+        action_store = ActionStore(db_connection)
+        ref_store = ReferenceStore(db_connection)
+        link_store = LinkStore(db_connection)
+        
+        # Create PR references for two different branches
+        pr_a_url = "https://github.com/owner/repo/pull/10"
+        pr_b_url = "https://github.com/owner/repo/pull/11"
+        pr_a_id = ref_store.upsert(Reference(
+            id=None, ref_type=RefType.PR, url=pr_a_url,
+            fqn="owner/repo#10", display_name="repo #10",
+        ))
+        pr_b_id = ref_store.upsert(Reference(
+            id=None, ref_type=RefType.PR, url=pr_b_url,
+            fqn="owner/repo#11", display_name="repo #11",
+        ))
+        
+        # Push to branch A (before its PR)
+        action_store.insert(ConversationAction(
+            id=None, conversation_id=conversation.id,
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={"branch": "fix/typo", "owner": "owner", "repo": "repo"},
+        ))
+        
+        # Create PR for branch A
+        action_store.insert(ConversationAction(
+            id=None, conversation_id=conversation.id,
+            action_type=ActionType.OPEN_PR,
+            target=pr_a_url,
+            metadata={"head_branch": "fix/typo", "owner": "owner", "repo": "repo"},
+        ))
+        
+        # Push to branch B (before its PR)
+        action_store.insert(ConversationAction(
+            id=None, conversation_id=conversation.id,
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={"branch": "fix/link", "owner": "owner", "repo": "repo"},
+        ))
+        
+        # Create PR for branch B
+        action_store.insert(ConversationAction(
+            id=None, conversation_id=conversation.id,
+            action_type=ActionType.OPEN_PR,
+            target=pr_b_url,
+            metadata={"head_branch": "fix/link", "owner": "owner", "repo": "repo"},
+        ))
+        
+        process_push_pr_links(db_connection, conversation)
+        
+        # Both PRs should have WRITE links from their respective branches
+        refs = link_store.get_refs_for_conversation(conversation.id)
+        ref_ids = {r[0] for r in refs}
+        assert pr_a_id in ref_ids, "PR A should have WRITE link from branch A push"
+        assert pr_b_id in ref_ids, "PR B should have WRITE link from branch B push"
+    
+    def test_orphan_push_no_pr_no_link(self, db_connection, conversation):
+        """Push without any subsequent PR should not create a link."""
+        action_store = ActionStore(db_connection)
+        link_store = LinkStore(db_connection)
+        
+        # Push to main branch (no PR)
+        action_store.insert(ConversationAction(
+            id=None, conversation_id=conversation.id,
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={"branch": "main", "owner": "owner", "repo": "repo"},
+        ))
+        
+        # Push to feature branch (also no PR)
+        action_store.insert(ConversationAction(
+            id=None, conversation_id=conversation.id,
+            action_type=ActionType.GIT_PUSH,
+            target="https://github.com/owner/repo.git",
+            metadata={"branch": "feature/orphan", "owner": "owner", "repo": "repo"},
+        ))
+        
+        process_push_pr_links(db_connection, conversation)
+        
+        # No links should be created
         refs = link_store.get_refs_for_conversation(conversation.id)
         assert len(refs) == 0

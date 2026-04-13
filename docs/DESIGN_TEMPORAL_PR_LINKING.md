@@ -198,10 +198,10 @@ Process real conversation data and verify:
 
 ## Success Criteria
 
-- [ ] All 7 test scenarios pass with correct linking
-- [ ] Real conversation `a711cbbc61f0` shows pushes linked to correct PRs
-- [ ] `refs` command shows push annotations on PRs
-- [ ] No regression in existing tests (211 tests)
+- [x] All 7 test scenarios pass with correct linking (16 tests in test_push_pr_links.py)
+- [x] Real conversation `a711cbbc61f0` shows pushes linked to correct PRs (all 6 PRs have WRITE links)
+- [ ] `refs` command shows push annotations on PRs (display not yet updated to use DB links)
+- [x] No regression in existing tests (216 tests passing)
 
 ## References
 

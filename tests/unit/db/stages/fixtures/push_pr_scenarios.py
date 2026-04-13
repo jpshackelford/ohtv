@@ -228,10 +228,9 @@ SCENARIO_PUSH_BEFORE_PR = {
     ],
     "expected_links": [
         # All pushes (before and after) should link to the PR
-        # NOTE: Current implementation may not link pre-PR pushes correctly
+        # Temporal linking handles pre-PR pushes via backward pass
         ("conv-pushfirst-001", "https://github.com/acme/tools/pull/55"),
     ],
-    "notes": "Pushes before PR creation require temporal-aware linking (not yet implemented)",
 }
 
 
@@ -333,16 +332,13 @@ SCENARIO_BRANCH_REUSE = {
             owner="acme", repo="lib", branch="develop",
         ),
     ],
-    "expected_links_ideal": [
-        # Ideally: push #2 -> PR #20, push #4 -> PR #25
+    "expected_links": [
+        # Temporal linking correctly links each push to its active PR:
+        # push #2 -> PR #20 (active when push occurred)
+        # push #4 -> PR #25 (active when push occurred)
         ("conv-reuse-001", "https://github.com/acme/lib/pull/20"),
         ("conv-reuse-001", "https://github.com/acme/lib/pull/25"),
     ],
-    "expected_links_current": [
-        # Current behavior: both link to PR #25 (last in map)
-        ("conv-reuse-001", "https://github.com/acme/lib/pull/25"),
-    ],
-    "notes": "Requires temporal ordering to link correctly (not yet implemented)",
 }
 
 
