@@ -68,11 +68,16 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
         return
     ```
 
-15. **Push-to-PR correlation**: Git pushes are linked to PRs via branch name matching:
-    - The `actions` stage extracts branch info from `git push` output and `gh pr create` output
-    - The `push_pr_links` stage correlates push actions with PRs based on matching branches
-    - This enables accurate "pushed" tracking for specific PRs rather than just repositories
-    - Branch matching uses repo-qualified keys (owner/repo:branch) with fallback to branch-only matching
+15. **Branch and PR tracking**: 
+    - **Branch refs**: Branches are first-class refs (like issues/PRs). The `branch_context` stage creates branch refs from GIT_PUSH actions
+    - **Push-PR linking**: The `push_pr_links` stage correlates pushes with PRs via branch matching
+    - **Conservative approach**: Only links when full owner/repo/branch qualification exists on both sides
+    - **Current limitation**: Temporal ordering not yet implemented (pushes before PR creation don't link correctly)
+    - **Design doc**: See `docs/DESIGN_TEMPORAL_PR_LINKING.md` for planned improvements
+
+16. **Processing stage order**: `refs → actions → branch_context → push_pr_links`
+    - Each stage can run independently but has dependencies
+    - `all` runs all stages in correct order
 
 ## Troubleshooting
 
@@ -104,5 +109,17 @@ uv run ohtv db status                  # Database statistics
 - `README.md` - Full command reference and usage
 - `docs/DATABASE.md` - SQLite indexing system
 - `docs/TESTING.md` - Test infrastructure
+- `docs/DESIGN_TEMPORAL_PR_LINKING.md` - Design for temporal push-PR linking (next phase)
 - `REFERENCE_CLOUD_API.md` - OpenHands Cloud V1 API endpoints
 - `REFERENCE_TRAJECTORY_FORMAT_COMPARISON.md` - Local vs cloud trajectory formats
+
+## Active Work: Temporal PR Linking
+
+**Branch**: `feature/sqlite-indexing`
+
+**Next steps** (see `docs/DESIGN_TEMPORAL_PR_LINKING.md`):
+1. Implement temporal forward linking in `push_pr_links.py`
+2. Add backward pass to link orphan pushes to subsequent PRs
+3. Test with real conversation `a711cbbc61f0` (6 PRs, multiple branches)
+
+**Test fixtures**: `tests/unit/db/stages/fixtures/push_pr_scenarios.py` contains sanitized scenarios documenting expected behavior.
