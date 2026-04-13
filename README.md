@@ -77,6 +77,23 @@ ohtv list --week
 
 # Show conversations from a specific week
 ohtv list --week 2024-03-15
+
+# Filter by PR (requires indexed database)
+ohtv list --pr OpenPaw#17           # Short name
+ohtv list --pr owner/repo#123       # Fully qualified
+ohtv list --pr https://github.com/owner/repo/pull/123  # URL
+
+# Filter by repository
+ohtv list --repo OpenPaw            # Partial match (any repo containing "OpenPaw")
+ohtv list --repo owner/repo         # Fully qualified
+ohtv list --repo https://github.com/owner/repo  # URL
+
+# Filter by action type (requires indexed database)
+ohtv list --action pushed           # Conversations that pushed to any repo
+ohtv list --action open-pr          # Conversations that opened PRs
+
+# Combine action + repo for precise filtering
+ohtv list --action pushed --repo OpenPaw  # Pushed specifically to OpenPaw
 ```
 
 **Options:**
@@ -93,7 +110,22 @@ ohtv list --week 2024-03-15
 | `-U, --until DATE` | Show conversations up to DATE |
 | `-D, --day [DATE]` | Show conversations from a single day (default: today) |
 | `-W, --week [DATE]` | Show conversations from the week containing DATE (default: today, weeks start Sunday) |
+| `--pr PATTERN` | Filter by PR reference (URL, `owner/repo#N`, or `repo#N`) |
+| `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
+| `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`, `git-commit`) |
 | `-v, --verbose` | Show debug output |
+
+**Action Type Aliases:**
+
+| Alias | Action Type |
+|-------|-------------|
+| `pushed`, `push` | `git-push` |
+| `committed`, `commit` | `git-commit` |
+| `opened-pr`, `create-pr` | `open-pr` |
+| `merged`, `merge` | `merge-pr` |
+| `ci`, `checks` | `check-ci` |
+
+**Note:** PR, repo, and action filters require the database to be indexed. Run `ohtv db scan && ohtv db process all` first.
 
 ---
 
@@ -279,6 +311,14 @@ ohtv summary -F markdown
 
 # Output as JSON
 ohtv summary -F json
+
+# Filter by PR, repo, or action (same as list command)
+ohtv summary --pr OpenPaw#17
+ohtv summary --repo OpenPaw
+ohtv summary --action pushed --repo OpenPaw
+
+# Skip confirmation for large result sets
+ohtv summary --action pushed --yes
 ```
 
 **Example Output (table):**
@@ -314,11 +354,15 @@ Showing 2 of 150 (2/2 cached)
 | `-U, --until DATE` | Analyze conversations up to DATE |
 | `-D, --day [DATE]` | Analyze conversations from a single day (default: today) |
 | `-W, --week [DATE]` | Analyze conversations from the week containing DATE |
+| `--pr PATTERN` | Filter by PR reference (URL, `owner/repo#N`, or `repo#N`) |
+| `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
+| `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`) |
 | `--reverse` | Show oldest first |
 | `-r, --refresh` | Force re-analysis (ignore cache) |
 | `-m, --model` | LLM model to use for analysis |
 | `-F, --format` | Output format: `table`, `json`, `markdown` |
 | `--no-outputs` | Don't show outputs (repos, PRs, issues modified) |
+| `-y, --yes` | Skip confirmation for large result sets (>20 conversations) |
 | `-v, --verbose` | Show debug output |
 
 **Environment Variables:**

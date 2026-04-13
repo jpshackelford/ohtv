@@ -390,6 +390,259 @@ def _filter_by_date_range(
     return filtered
 
 
+def _filter_by_pr(
+    conversations: list[ConversationInfo],
+    pr_filter: str,
+) -> list[ConversationInfo]:
+    """Filter conversations by PR reference.
+    
+    Requires the database to be initialized and refs to be indexed.
+    """
+    from ohtv.filters import (
+        filter_conversations_by_ids,
+        get_conversation_ids_for_pr,
+        is_db_available,
+    )
+    
+    if not is_db_available():
+        console.print("[yellow]Warning:[/yellow] Database not initialized. Run 'ohtv db scan && ohtv db process refs' first.")
+        console.print("[dim]PR filtering requires indexed conversations.[/dim]")
+        return []
+    
+    conversation_ids, matched_prs = get_conversation_ids_for_pr(pr_filter)
+    
+    if not matched_prs:
+        console.print(f"[yellow]Warning:[/yellow] No PRs found matching '{pr_filter}'")
+        console.print("[dim]Try 'ohtv db status' to check indexed PRs.[/dim]")
+        return []
+    
+    if len(matched_prs) > 1:
+        console.print(f"[dim]Matched {len(matched_prs)} PRs: {', '.join(matched_prs)}[/dim]")
+    else:
+        console.print(f"[dim]Filtering by PR: {matched_prs[0]}[/dim]")
+    
+    return filter_conversations_by_ids(conversations, conversation_ids)
+
+
+def _parse_date_filters(
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
+) -> tuple[datetime | None, datetime | None]:
+    """Parse date filter options and apply shortcuts.
+    
+    Returns:
+        Tuple of (since, until) datetime objects
+    """
+    since = _parse_date_option(since_date)
+    until = _parse_date_option(until_date)
+    
+    # Handle --day shortcut
+    if day_date is not None:
+        day = _parse_date_option(day_date)
+        if day:
+            day_start, day_end = _get_day_bounds(day)
+            since = since or day_start
+            until = until or day_end
+    
+    # Handle --week shortcut
+    if week_date is not None:
+        week = _parse_date_option(week_date)
+        if week:
+            week_start, week_end = _get_week_bounds(week)
+            since = since or week_start
+            until = until or week_end
+    
+    return since, until
+
+
+@dataclass
+class FilterResult:
+    """Result of applying conversation filters."""
+    conversations: list[ConversationInfo]
+    possible_match_ids: set[str]  # IDs that are ambiguous matches (action+repo)
+    show_all: bool  # Whether filters imply showing all results
+
+
+def _apply_conversation_filters(
+    config: Config,
+    *,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    pr_filter: str | None = None,
+    repo_filter: str | None = None,
+    action_filter: str | None = None,
+    include_empty: bool = False,
+    initial_show_all: bool = False,
+) -> FilterResult:
+    """Apply all conversation filters and return filtered results.
+    
+    This centralizes the filtering logic used by both `list` and `summary` commands.
+    
+    Args:
+        config: Application configuration
+        since: Filter conversations after this datetime
+        until: Filter conversations before this datetime
+        pr_filter: PR reference filter (URL, FQN, or short name)
+        repo_filter: Repository filter (URL, FQN, or name)
+        action_filter: Action type filter (e.g., "git-push", "pushed")
+        include_empty: Include conversations with 0 events
+        initial_show_all: Initial value for show_all flag
+        
+    Returns:
+        FilterResult with filtered conversations and metadata
+    """
+    show_all = initial_show_all
+    
+    # Any filter implies --all (show all matching records)
+    if any([since, until, pr_filter, repo_filter, action_filter]):
+        show_all = True
+    
+    # Load conversations from both sources
+    conversations = _load_all_conversations(config)
+    
+    # Filter out empty conversations unless requested
+    if not include_empty:
+        conversations = [c for c in conversations if c.event_count > 0]
+    
+    # Apply date filtering
+    conversations = _filter_by_date_range(conversations, since, until)
+    
+    # Apply PR filtering (requires database)
+    if pr_filter is not None:
+        conversations = _filter_by_pr(conversations, pr_filter)
+    
+    # Track possible matches (for action+repo combined filter)
+    possible_match_ids: set[str] = set()
+    
+    # Apply action filtering (optionally combined with repo for precise matching)
+    if action_filter is not None:
+        conversations, possible_match_ids = _filter_by_action(
+            conversations, action_filter, repo_filter
+        )
+        # If action+repo combined, skip separate repo filter
+        if repo_filter is not None:
+            repo_filter = None  # Already handled in _filter_by_action
+    
+    # Apply repo filtering (requires database) - only if not already combined with action
+    if repo_filter is not None:
+        conversations = _filter_by_repo(conversations, repo_filter)
+    
+    return FilterResult(
+        conversations=conversations,
+        possible_match_ids=possible_match_ids,
+        show_all=show_all,
+    )
+
+
+def _filter_by_repo(
+    conversations: list[ConversationInfo],
+    repo_filter: str,
+) -> list[ConversationInfo]:
+    """Filter conversations by repository reference.
+    
+    Requires the database to be initialized and refs to be indexed.
+    """
+    from ohtv.filters import (
+        filter_conversations_by_ids,
+        get_conversation_ids_for_repo,
+        is_db_available,
+    )
+    
+    if not is_db_available():
+        console.print("[yellow]Warning:[/yellow] Database not initialized. Run 'ohtv db scan && ohtv db process refs' first.")
+        console.print("[dim]Repo filtering requires indexed conversations.[/dim]")
+        return []
+    
+    conversation_ids, matched_repos = get_conversation_ids_for_repo(repo_filter)
+    
+    if not matched_repos:
+        console.print(f"[yellow]Warning:[/yellow] No repos found matching '{repo_filter}'")
+        console.print("[dim]Try 'ohtv db status' to check indexed repos.[/dim]")
+        return []
+    
+    if len(matched_repos) > 1:
+        console.print(f"[dim]Matched {len(matched_repos)} repos: {', '.join(matched_repos)}[/dim]")
+    else:
+        console.print(f"[dim]Filtering by repo: {matched_repos[0]}[/dim]")
+    
+    return filter_conversations_by_ids(conversations, conversation_ids)
+
+
+def _filter_by_action(
+    conversations: list[ConversationInfo],
+    action_filter: str,
+    repo_filter: str | None = None,
+) -> tuple[list[ConversationInfo], set[str]]:
+    """Filter conversations by action type, optionally combined with repo.
+    
+    When combined with repo filter, tries to do precise matching:
+    - If action has target URL, match against repo URL (definite match)
+    - If action has no target, match on write link to repo (possible match)
+    
+    Returns:
+        Tuple of (filtered_conversations, possible_match_ids)
+        - possible_match_ids: IDs marked with * (ambiguous matches)
+    """
+    from ohtv.filters import (
+        filter_conversations_by_ids,
+        get_conversation_ids_for_action,
+        get_conversation_ids_for_action_and_repo,
+        get_valid_action_types,
+        is_db_available,
+        normalize_action_type,
+    )
+    
+    if not is_db_available():
+        console.print("[yellow]Warning:[/yellow] Database not initialized. Run 'ohtv db scan && ohtv db process actions' first.")
+        console.print("[dim]Action filtering requires indexed conversations.[/dim]")
+        return [], set()
+    
+    action_type = normalize_action_type(action_filter)
+    valid_types = get_valid_action_types()
+    
+    if action_type not in valid_types:
+        console.print(f"[yellow]Warning:[/yellow] Unknown action type '{action_filter}'")
+        console.print(f"[dim]Valid types: {', '.join(sorted(valid_types))}[/dim]")
+        return [], set()
+    
+    if repo_filter:
+        # Combined action + repo filter with precise matching
+        definite, possible, action_type, matched_repos = get_conversation_ids_for_action_and_repo(
+            action_filter, repo_filter
+        )
+        
+        if not matched_repos:
+            console.print(f"[yellow]Warning:[/yellow] No repos found matching '{repo_filter}'")
+            return [], set()
+        
+        all_matches = definite | possible
+        
+        if not all_matches:
+            console.print(f"[dim]No conversations with '{action_type}' action for {', '.join(matched_repos)}[/dim]")
+            return [], set()
+        
+        repo_info = matched_repos[0] if len(matched_repos) == 1 else f"{len(matched_repos)} repos"
+        
+        if possible:
+            console.print(f"[dim]Filtering by action '{action_type}' + repo ({repo_info}): {len(definite)} definite, {len(possible)} possible matches[/dim]")
+        else:
+            console.print(f"[dim]Filtering by action '{action_type}' + repo ({repo_info}): {len(definite)} matches[/dim]")
+        
+        return filter_conversations_by_ids(conversations, all_matches), possible
+    else:
+        # Action filter only
+        conversation_ids, action_type = get_conversation_ids_for_action(action_filter)
+        
+        if not conversation_ids:
+            console.print(f"[dim]No conversations with '{action_type}' action[/dim]")
+            return [], set()
+        
+        console.print(f"[dim]Filtering by action '{action_type}': {len(conversation_ids)} matches[/dim]")
+        return filter_conversations_by_ids(conversations, conversation_ids), set()
+
+
 @main.command("list")
 @click.option("--reverse", "-r", is_flag=True, help="Show oldest first (default: newest first)")
 @click.option("--max", "-n", "limit", type=int, help="Maximum conversations to show (default: 10)")
@@ -409,6 +662,9 @@ def _filter_by_date_range(
               help="Show conversations from a single day (default: today)")
 @click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
               help="Show conversations from the week containing DATE (default: today, weeks start Sunday)")
+@click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
+@click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
+@click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def list_conversations(
     reverse: bool,
@@ -422,52 +678,39 @@ def list_conversations(
     until_date: str | None,
     day_date: str | None,
     week_date: str | None,
+    pr_filter: str | None,
+    repo_filter: str | None,
+    action_filter: str | None,
     verbose: bool,
 ) -> None:
     """List available conversations from local and cloud sources."""
     _init_logging(verbose=verbose)
     config = Config.from_env()
 
-    # Parse date filters
-    since = _parse_date_option(since_date)
-    until = _parse_date_option(until_date)
+    # Parse date filters and apply shortcuts
+    since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
 
-    # Handle --day shortcut
-    if day_date is not None:
-        day = _parse_date_option(day_date)
-        if day:
-            day_start, day_end = _get_day_bounds(day)
-            since = since or day_start
-            until = until or day_end
-
-    # Handle --week shortcut
-    if week_date is not None:
-        week = _parse_date_option(week_date)
-        if week:
-            week_start, week_end = _get_week_bounds(week)
-            since = since or week_start
-            until = until or week_end
-
-    # Date filters imply --all (show all matching records)
-    if since is not None or until is not None:
-        show_all = True
-
-    # Load conversations from both sources
-    conversations = _load_all_conversations(config)
-
-    # Filter out empty conversations (0 events) unless --include-empty
-    if not include_empty:
-        conversations = [c for c in conversations if c.event_count > 0]
-
-    # Apply date filtering
-    conversations = _filter_by_date_range(conversations, since, until)
+    # Apply all conversation filters
+    filter_result = _apply_conversation_filters(
+        config,
+        since=since,
+        until=until,
+        pr_filter=pr_filter,
+        repo_filter=repo_filter,
+        action_filter=action_filter,
+        include_empty=include_empty,
+        initial_show_all=show_all,
+    )
+    
+    conversations = filter_result.conversations
+    possible_match_ids = filter_result.possible_match_ids
+    show_all = filter_result.show_all
 
     total_count = len(conversations)
     local_count = sum(1 for c in conversations if c.source == "local")
     cloud_count = total_count - local_count
 
     # Sort by created_at (newest first by default)
-    # Use a sort key that handles None and normalizes timezone awareness
     conversations = sorted(
         conversations,
         key=lambda c: _normalize_datetime_for_sort(c.created_at),
@@ -475,12 +718,15 @@ def list_conversations(
     )
 
     # Apply offset and limit
-    # Default to 10 unless --all or explicit -n is provided
+    # Explicit -n takes precedence over show_all implied by filters
     if offset:
         conversations = conversations[offset:]
-    if not show_all:
-        effective_limit = limit if limit is not None else 10
-        conversations = conversations[:effective_limit]
+    if limit is not None:
+        # Explicit limit always applies
+        conversations = conversations[:limit]
+    elif not show_all:
+        # Default limit when no filters and no explicit -n
+        conversations = conversations[:10]
 
     # Track if we're using default limit (for hint message)
     using_default_limit = not show_all and limit is None
@@ -498,6 +744,7 @@ def list_conversations(
             _print_list_table(
                 conversations, total_count, local_count, cloud_count,
                 show_hint=using_default_limit and len(conversations) < total_count,
+                possible_match_ids=possible_match_ids,
             )
         else:
             # For JSON and CSV, use plain print to avoid rich styling
@@ -584,8 +831,14 @@ def _print_list_table(
     cloud_count: int,
     *,
     show_hint: bool = False,
+    possible_match_ids: set[str] | None = None,
 ) -> None:
     """Print conversations as a rich table."""
+    from ohtv.filters import normalize_conversation_id
+    
+    if possible_match_ids is None:
+        possible_match_ids = set()
+    
     table = Table(show_header=True, header_style="bold")
     table.add_column("ID", style="cyan", width=7)
     table.add_column("Source", width=6)
@@ -594,6 +847,9 @@ def _print_list_table(
     table.add_column("Events", width=6, justify="right")
     table.add_column("Title", no_wrap=False)
 
+    # Normalize possible_match_ids for comparison (they may not have dashes)
+    normalized_possible = {normalize_conversation_id(pid) for pid in possible_match_ids}
+    
     for conv in conversations:
         source_style = "blue" if conv.source == "cloud" else "green"
         # Convert UTC to local time for display
@@ -601,8 +857,14 @@ def _print_list_table(
         if conv.created_at:
             local_time = conv.created_at.astimezone()
             started = local_time.strftime("%Y-%m-%d %H:%M")
+        
+        # Mark possible matches with * suffix
+        id_display = conv.short_id
+        if normalize_conversation_id(conv.id) in normalized_possible:
+            id_display = f"{conv.short_id}[yellow]*[/yellow]"
+        
         table.add_row(
-            conv.short_id,
+            id_display,
             f"[{source_style}]{conv.source}[/{source_style}]",
             started,
             _format_duration(conv.duration) if conv.duration else "",
@@ -624,6 +886,10 @@ def _print_list_table(
     if parts:
         summary += f" ({', '.join(parts)})"
     console.print(f"[dim]{summary}[/dim]")
+    
+    # Legend for possible matches
+    if possible_match_ids:
+        console.print(f"[dim][yellow]*[/yellow] = possible match (action target not available)[/dim]")
 
     # Hint for default limit
     if show_hint:
@@ -1846,6 +2112,9 @@ def _display_outputs(conv_dir: Path) -> None:
               help="Analyze conversations from a single day (default: today)")
 @click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
               help="Analyze conversations from the week containing DATE (default: today)")
+@click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
+@click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
+@click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
 @click.option("--reverse", is_flag=True, help="Show oldest first (default: newest first)")
 @click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (ignore cache)")
 @click.option("--model", "-m", help="LLM model to use for analysis")
@@ -1856,6 +2125,7 @@ def _display_outputs(conv_dir: Path) -> None:
     help="Output format (default: table)",
 )
 @click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation for large result sets")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def summary(
     limit: int | None,
@@ -1865,11 +2135,15 @@ def summary(
     until_date: str | None,
     day_date: str | None,
     week_date: str | None,
+    pr_filter: str | None,
+    repo_filter: str | None,
+    action_filter: str | None,
     reverse: bool,
     refresh: bool,
     model: str | None,
     fmt: str,
     no_outputs: bool,
+    yes: bool,
     verbose: bool,
 ) -> None:
     """Summarize goals for multiple conversations.
@@ -1892,39 +2166,23 @@ def summary(
     _init_logging(verbose=verbose)
     config = Config.from_env()
 
-    # Parse date filters (reuse list command's logic)
-    since = _parse_date_option(since_date)
-    until = _parse_date_option(until_date)
+    # Parse date filters and apply shortcuts
+    since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
 
-    # Handle --day shortcut
-    if day_date is not None:
-        day = _parse_date_option(day_date)
-        if day:
-            day_start, day_end = _get_day_bounds(day)
-            since = since or day_start
-            until = until or day_end
-
-    # Handle --week shortcut
-    if week_date is not None:
-        week = _parse_date_option(week_date)
-        if week:
-            week_start, week_end = _get_week_bounds(week)
-            since = since or week_start
-            until = until or week_end
-
-    # Date filters imply --all (show all matching records)
-    if since is not None or until is not None:
-        show_all = True
-
-    # Load conversations from both sources
-    conversations = _load_all_conversations(config)
-
-    # Filter out empty conversations
-    conversations = [c for c in conversations if c.event_count > 0]
-
-    # Apply date filtering
-    conversations = _filter_by_date_range(conversations, since, until)
-
+    # Apply all conversation filters (reuses same logic as list command)
+    filter_result = _apply_conversation_filters(
+        config,
+        since=since,
+        until=until,
+        pr_filter=pr_filter,
+        repo_filter=repo_filter,
+        action_filter=action_filter,
+        include_empty=False,  # Summary always excludes empty
+        initial_show_all=show_all,
+    )
+    
+    conversations = filter_result.conversations
+    show_all = filter_result.show_all
     total_count = len(conversations)
 
     # Sort by created_at (newest first by default)
@@ -1935,15 +2193,29 @@ def summary(
     )
 
     # Apply offset and limit
+    # Explicit -n takes precedence over show_all implied by filters
     if offset:
         conversations = conversations[offset:]
-    if not show_all:
-        effective_limit = limit if limit is not None else 10
-        conversations = conversations[:effective_limit]
+    if limit is not None:
+        # Explicit limit always applies
+        conversations = conversations[:limit]
+    elif not show_all:
+        # Default limit when no filters and no explicit -n
+        conversations = conversations[:10]
 
     if not conversations:
         console.print("[dim]No conversations found matching the criteria.[/dim]")
         return
+
+    # Safety threshold for LLM analysis - require confirmation for large batches
+    SUMMARY_CONFIRM_THRESHOLD = 20
+    
+    if len(conversations) > SUMMARY_CONFIRM_THRESHOLD and not yes:
+        console.print(f"[yellow]Warning:[/yellow] About to analyze {len(conversations)} conversations.")
+        console.print("[dim]This may take a while and use significant LLM tokens.[/dim]")
+        if not click.confirm("Do you want to continue?"):
+            console.print("[dim]Aborted. Use --yes to skip this confirmation.[/dim]")
+            return
 
     # Import analysis module
     try:

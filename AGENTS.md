@@ -59,16 +59,43 @@ uv run ohtv --help         # Run CLI
     - **`~/.openhands/`**: Read-only source data (conversations from CLI and synced cloud). Only `sync` writes here.
     - **`~/.ohtv/`**: All ohtv-generated data (database, logs, sync manifest, cache). Override with `OHTV_DIR` environment variable.
 
+11. **PR filtering**: The `list` and `summary` commands support `--pr` to filter conversations by PR reference. Requires indexed refs (`ohtv db scan && ohtv db process refs`). Supported formats:
+    - **URL**: `--pr https://github.com/owner/repo/pull/123`
+    - **FQN**: `--pr owner/repo#123`
+    - **Short name**: `--pr repo#123` or `--pr "repo #123"`
+    
+    The search uses precise matching - searching for `#1` won't match `#10` or `#100`.
+
+12. **Repo filtering**: The `list` and `summary` commands support `--repo` to filter conversations by repository. Requires indexed refs. Supported formats:
+    - **URL**: `--repo https://github.com/owner/repo`
+    - **FQN**: `--repo owner/repo`
+    - **Short name**: `--repo repo` (matches any repo containing "repo" in name)
+
+13. **Action filtering**: The `list` and `summary` commands support `--action` to filter by action type. Requires indexed actions (`ohtv db scan && ohtv db process actions`).
+    - Aliases supported: `pushed`/`push` → `git-push`, `merged` → `merge-pr`, `ci` → `check-ci`
+    - **Combined with `--repo`**: Uses precise matching where possible. If action has target URL (97% of git-push have targets), matches against repo URL. Otherwise marks as "possible match" with `*` indicator.
+    - Example: `ohtv list --action pushed --repo OpenPaw` shows conversations that pushed to OpenPaw
+    - **Summary safety**: `summary` prompts for confirmation when analyzing >20 conversations (use `--yes` to skip)
+
+14. **Conversation ID normalization**: The database stores IDs without dashes (from directory names), but LocalSource returns IDs with dashes (from `base_state.json`). The `filters` module normalizes both formats when filtering, so this mismatch is transparent to users.
+
 ## Testing
 
-Automated unit tests for the `db` module (see `docs/TESTING.md` for details):
+Automated unit tests (see `docs/TESTING.md` for details):
 ```bash
 uv run pytest tests/unit/db -v         # Run all db unit tests
+uv run pytest tests/unit/test_filters.py -v  # Run filter unit tests
 ```
 
 Manual testing with real conversation data:
 ```bash
 uv run ohtv list -A                    # All conversations
+uv run ohtv list --pr repo#123         # Filter by PR (short name)
+uv run ohtv list --pr owner/repo#123   # Filter by PR (FQN)
+uv run ohtv list --repo owner/repo     # Filter by repo (FQN)
+uv run ohtv list --repo reponame       # Filter by repo (partial match)
+uv run ohtv list --action pushed       # Filter by action type
+uv run ohtv list --action pushed --repo OpenPaw  # Combined action+repo filter
 uv run ohtv show <id> -m               # Messages
 uv run ohtv show <id> -s -d -o         # Actions with human-readable details and truncated outputs
 uv run ohtv show <id> -s -d -O         # Actions with full outputs
@@ -77,6 +104,8 @@ uv run ohtv refs <id>                  # Git references
 uv run ohtv objectives <id>            # Objective analysis (requires LLM_API_KEY)
 uv run ohtv summary -D                 # Today's conversation summaries (requires LLM_API_KEY)
 uv run ohtv summary -W                 # This week's summaries
+uv run ohtv summary --pr repo#123      # Summaries for conversations related to a PR
+uv run ohtv summary --repo reponame    # Summaries for conversations related to a repo
 uv run ohtv db init                    # Initialize/migrate database
 uv run ohtv db status                  # Show database statistics
 ```
