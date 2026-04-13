@@ -228,6 +228,7 @@ def main() -> None:
 @click.option("--since", type=click.DateTime(), help="Only sync conversations updated after date")
 @click.option("--dry-run", is_flag=True, help="Show what would sync without downloading")
 @click.option("--status", "-s", is_flag=True, help="Show sync status")
+@click.option("--process", "-p", is_flag=True, help="Run all processing stages after sync")
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output for cron jobs")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def sync(
@@ -235,10 +236,15 @@ def sync(
     since: datetime | None,
     dry_run: bool,
     status: bool,
+    process: bool,
     quiet: bool,
     verbose: bool,
 ) -> None:
-    """Sync cloud conversations to local storage."""
+    """Sync cloud conversations to local storage.
+    
+    Use --process to automatically run database indexing after sync,
+    equivalent to running 'ohtv db process all'.
+    """
     _init_logging(verbose=verbose)
 
     config = Config.from_env()
@@ -256,12 +262,65 @@ def sync(
         result = _run_sync(manager, force, since, dry_run, quiet)
         if not quiet:
             _show_result(result, dry_run)
+        
+        # Run processing stages if requested (and not dry-run)
+        if process and not dry_run:
+            _run_post_sync_processing(quiet, verbose)
+            
     except SyncAuthError as e:
         console.print(f"[red]Authentication error:[/red] {e}")
         raise SystemExit(1)
     except SyncAbortedError as e:
         console.print(f"[red]Sync aborted:[/red] {e}")
         raise SystemExit(1)
+
+
+def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
+    """Run all processing stages after sync."""
+    from ohtv.db import get_connection, migrate, scan_conversations
+    from ohtv.db.stages import STAGES
+    from ohtv.db.stores import ConversationStore, StageStore
+    
+    if not quiet:
+        console.print("\n[bold]Running processing stages...[/bold]")
+    
+    with get_connection() as conn:
+        migrate(conn)
+        
+        # Scan to register any new conversations
+        scan_result = scan_conversations(conn)
+        if not quiet and scan_result.new_registered > 0:
+            console.print(f"[dim]Registered {scan_result.new_registered} new conversation(s)[/dim]")
+        
+        conv_store = ConversationStore(conn)
+        stage_store = StageStore(conn)
+        
+        # Get conversations that need processing
+        all_convs = conv_store.list_all()
+        
+        for stage_name, processor in STAGES.items():
+            needs_processing = []
+            for conv in all_convs:
+                if not stage_store.is_complete(conv.id, stage_name, conv.event_count):
+                    needs_processing.append(conv)
+            
+            if not needs_processing:
+                if not quiet:
+                    console.print(f"  {stage_name}: [dim]up to date[/dim]")
+                continue
+            
+            if not quiet:
+                console.print(f"  {stage_name}: processing {len(needs_processing)} conversation(s)...")
+            
+            for conv in needs_processing:
+                try:
+                    processor(conn, conv)
+                except Exception as e:
+                    if verbose:
+                        console.print(f"    [red]Error processing {conv.id}:[/red] {e}")
+    
+    if not quiet:
+        console.print("[green]✓[/green] Processing complete")
 
 
 def _show_status(manager: SyncManager) -> None:

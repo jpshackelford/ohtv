@@ -46,6 +46,9 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
    - Two-phase: `db scan` (fast registration) + `db process <stage>` (incremental)
    - Change detection: mtime as fast filter, event_count as checkpoint
    - Auto-indexing: `refs <id>` indexes automatically
+   - **Sync with processing**: Use `ohtv sync --process` to sync and run all stages
+   - **Stage order**: refs → actions → branch_context → push_pr_links (defined in `stages/__init__.py`)
+   - **Dependency caveat**: Stages don't validate dependencies - running a stage before its dependencies completes successfully but does nothing useful (marks itself complete with empty results). Always use `db process all` or `sync --process` to ensure correct ordering.
 
 10. **Data directory separation**:
     - `~/.openhands/`: Read-only source data (only `sync` writes here)

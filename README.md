@@ -439,6 +439,9 @@ Downloads conversations from OpenHands Cloud. Requires `OH_API_KEY` environment 
 # Sync incrementally (only downloads changes)
 ohtv sync
 
+# Sync and run all processing stages (recommended)
+ohtv sync --process
+
 # Force re-download everything
 ohtv sync --force
 
@@ -462,6 +465,7 @@ ohtv sync --quiet
 | `--since DATE` | Only sync conversations updated after date |
 | `--dry-run` | Show what would sync without downloading |
 | `-s, --status` | Show sync status |
+| `-p, --process` | Run all processing stages after sync |
 | `-q, --quiet` | Minimal output for cron jobs |
 
 ---
