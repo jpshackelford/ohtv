@@ -211,8 +211,9 @@ ohtv show abc123 -A -r -n 5
 
 ### `ohtv refs` - Extract Git References
 
-Extracts and displays all repository, issue, and PR/MR references found in a conversation, with annotations showing what actions were taken. Automatically indexes the conversation in the database for future queries.
+Extracts and displays repository, issue, and PR/MR references from one or more conversations. Supports both single-conversation mode (rich display) and multi-conversation mode (aggregated output for automation).
 
+**Single Conversation Mode:**
 ```bash
 # Show all references with interaction annotations
 ohtv refs abc123
@@ -220,9 +221,41 @@ ohtv refs abc123
 # Show only refs where write actions were detected
 ohtv refs abc123 --actions
 
+# Output just PR URLs, one per line (for piping)
+ohtv refs abc123 --prs-only -1
+
+# Output as JSON
+ohtv refs abc123 --format json
+
 # Skip database indexing (faster for one-off lookups)
 ohtv refs abc123 --no-index
 ```
+
+**Multi-Conversation Mode (requires at least one filter):**
+```bash
+# All PRs from today's conversations, one per line
+ohtv refs -D --prs-only -1
+
+# All repos touched this week
+ohtv refs -W --repos-only -1
+
+# All refs from conversations that touched a specific PR
+ohtv refs --pr owner/repo#42 -1
+
+# Refs with write actions from today, comma-separated
+ohtv refs -D --actions --format csv
+
+# All refs from today as JSON
+ohtv refs -D --format json
+```
+
+**Output Formats:**
+| Format | Description |
+|--------|-------------|
+| `table` | Rich formatted display (default) |
+| `lines` | One URL per line (for piping) |
+| `csv` | Comma-separated URLs |
+| `json` | JSON object with refs by type |
 
 **Detected Interactions:**
 - **Repositories:** `cloned`, `pushed`
@@ -232,8 +265,25 @@ ohtv refs abc123 --no-index
 **Options:**
 | Flag | Description |
 |------|-------------|
+| `-n, --max N` | Maximum conversations to process |
+| `-A, --all` | Process all matching conversations (no limit) |
+| `-k, --offset N` | Skip first N conversations |
+| `-S, --since DATE` | Process conversations from DATE onwards |
+| `-U, --until DATE` | Process conversations up to DATE |
+| `-D, --day [DATE]` | Process conversations from a single day (default: today) |
+| `-W, --week [DATE]` | Process conversations from the week containing DATE |
+| `--pr PATTERN` | Filter by PR reference |
+| `--repo PATTERN` | Filter by repository |
+| `--action TYPE` | Filter by action type |
+| `--reverse` | Show oldest first |
+| `--prs-only` | Output only PR/MR references |
+| `--repos-only` | Output only repository references |
+| `--issues-only` | Output only issue references |
+| `-F, --format` | Output format: `table`, `lines`, `csv`, `json` |
+| `-1` | Shorthand for `--format lines` |
 | `-a, --actions` | Show only refs with write actions |
 | `--no-index` | Skip database indexing |
+| `-v, --verbose` | Show debug output |
 
 ---
 

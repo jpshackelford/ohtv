@@ -1828,30 +1828,161 @@ def _format_action_details(tool_name: str, action: dict) -> str:
 
 
 @main.command()
-@click.argument("conversation_id")
+@click.argument("conversation_id", required=False)
+@click.option("--max", "-n", "limit", type=int, help="Maximum conversations to process")
+@click.option("--all", "-A", "show_all", is_flag=True, help="Process all matching conversations (no limit)")
+@click.option("--offset", "-k", type=int, default=0, help="Skip first N conversations")
+@click.option("--since", "-S", "since_date", help="Process conversations from DATE onwards")
+@click.option("--until", "-U", "until_date", help="Process conversations up to DATE")
+@click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
+              help="Process conversations from a single day (default: today)")
+@click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
+              help="Process conversations from the week containing DATE (default: today)")
+@click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
+@click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
+@click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
+@click.option("--reverse", is_flag=True, help="Show oldest first (default: newest first)")
+@click.option("--prs-only", is_flag=True, help="Output only PR/MR references")
+@click.option("--repos-only", is_flag=True, help="Output only repository references")
+@click.option("--issues-only", is_flag=True, help="Output only issue references")
+@click.option(
+    "--format", "-F", "fmt",
+    type=click.Choice(["table", "lines", "csv", "json"]),
+    default=None,
+    help="Output format (default: table for rich display, or specify for machine-readable)",
+)
+@click.option("-1", "one_per_line", is_flag=True, help="Shorthand for --format lines")
 @click.option("--actions", "-a", is_flag=True, help="Show only refs with write actions (created, pushed, etc.)")
 @click.option("--no-index", is_flag=True, help="Skip database indexing (faster, but refs won't be queryable)")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
-def refs(conversation_id: str, actions: bool, no_index: bool, verbose: bool) -> None:
-    """Extract repository, issue, and PR references from a conversation.
+def refs(
+    conversation_id: str | None,
+    limit: int | None,
+    show_all: bool,
+    offset: int,
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
+    pr_filter: str | None,
+    repo_filter: str | None,
+    action_filter: str | None,
+    reverse: bool,
+    prs_only: bool,
+    repos_only: bool,
+    issues_only: bool,
+    fmt: str | None,
+    one_per_line: bool,
+    actions: bool,
+    no_index: bool,
+    verbose: bool,
+) -> None:
+    """Extract repository, issue, and PR references from conversations.
+
+    \b
+    Single conversation mode:
+      ohtv refs abc123              # Rich display of refs from one conversation
+      ohtv refs abc123 --prs-only -1  # Just PR URLs, one per line
+
+    \b
+    Multi-conversation mode (requires at least one filter):
+      ohtv refs -D --prs-only -1      # All PRs from today's conversations
+      ohtv refs -W --repos-only       # Repos from this week
+      ohtv refs --pr owner/repo#42    # Refs from conversations that touched PR#42
+
+    \b
+    Output formats:
+      table   Rich formatted display (default for single conversation)
+      lines   One URL per line (for piping)
+      csv     Comma-separated URLs
+      json    JSON object with refs by type
 
     Shows what actions were taken on each reference:
     - Repositories: cloned, pushed
     - Pull Requests: created, pushed, commented, merged, closed, reviewed
     - Issues: created, commented, closed
 
-    Also warns about unpushed commits: directories where git commit was run
-    but no git push followed.
-
-    By default, indexes the conversation in the database for future queries.
+    By default, indexes conversations in the database for future queries.
     Use --no-index to skip this (faster for one-off lookups).
-
-    References without detected interactions are shown without annotation.
-    Use --actions to show only refs where write actions were detected.
     """
     _init_logging(verbose=verbose)
     config = Config.from_env()
 
+    # Handle -1 shorthand
+    if one_per_line:
+        fmt = "lines"
+
+    # Validate ref type filters (mutually exclusive)
+    type_filters = [prs_only, repos_only, issues_only]
+    if sum(type_filters) > 1:
+        console.print("[red]Error:[/red] --prs-only, --repos-only, and --issues-only are mutually exclusive")
+        raise SystemExit(1)
+
+    # Determine mode based on arguments
+    has_filters = any([since_date, until_date, day_date, week_date, pr_filter, repo_filter, action_filter])
+
+    if conversation_id:
+        # Single conversation mode
+        _refs_single_conversation(
+            config=config,
+            conversation_id=conversation_id,
+            prs_only=prs_only,
+            repos_only=repos_only,
+            issues_only=issues_only,
+            fmt=fmt,
+            actions=actions,
+            no_index=no_index,
+            verbose=verbose,
+        )
+    elif has_filters:
+        # Multi-conversation mode
+        _refs_multi_conversation(
+            config=config,
+            limit=limit,
+            show_all=show_all,
+            offset=offset,
+            since_date=since_date,
+            until_date=until_date,
+            day_date=day_date,
+            week_date=week_date,
+            pr_filter=pr_filter,
+            repo_filter=repo_filter,
+            action_filter=action_filter,
+            reverse=reverse,
+            prs_only=prs_only,
+            repos_only=repos_only,
+            issues_only=issues_only,
+            fmt=fmt,
+            actions=actions,
+            no_index=no_index,
+            verbose=verbose,
+        )
+    else:
+        # No conversation_id and no filters - show help
+        console.print("[yellow]Usage:[/yellow] Provide a conversation ID or at least one filter.")
+        console.print()
+        console.print("Examples:")
+        console.print("  ohtv refs abc123              # Refs from specific conversation")
+        console.print("  ohtv refs -D --prs-only -1    # PRs from today, one per line")
+        console.print("  ohtv refs -W                  # All refs from this week")
+        console.print()
+        console.print("Run [bold]ohtv refs --help[/bold] for full options.")
+        raise SystemExit(1)
+
+
+def _refs_single_conversation(
+    *,
+    config: Config,
+    conversation_id: str,
+    prs_only: bool,
+    repos_only: bool,
+    issues_only: bool,
+    fmt: str | None,
+    actions: bool,
+    no_index: bool,
+    verbose: bool,
+) -> None:
+    """Handle refs command for a single conversation."""
     # Search both local and cloud sources
     result = _find_conversation_dir(config, conversation_id)
 
@@ -1862,27 +1993,205 @@ def refs(conversation_id: str, actions: bool, no_index: bool, verbose: bool) -> 
 
     # Get conversation metadata
     conv_id, title = _get_conversation_info(conv_dir)
-    _display_conversation_header(conv_id, title)
 
     # Index conversation in DB (unless --no-index)
     if not no_index:
         _ensure_refs_indexed(conv_id, conv_dir, verbose)
 
-    # Extract references from events (for detailed display)
+    # Extract references from events
     extracted = _extract_refs_from_conversation(conv_dir)
 
+    # Apply type filter if specified
+    if prs_only:
+        extracted = {"repos": set(), "issues": set(), "prs": extracted["prs"]}
+    elif repos_only:
+        extracted = {"repos": extracted["repos"], "issues": set(), "prs": set()}
+    elif issues_only:
+        extracted = {"repos": set(), "issues": extracted["issues"], "prs": set()}
+
     if not any(extracted.values()):
-        console.print("[dim]No repository references found.[/dim]")
+        if fmt in ("lines", "csv", "json"):
+            # Machine-readable: output empty result
+            _output_refs_formatted(extracted, fmt)
+        else:
+            console.print("[dim]No repository references found.[/dim]")
         return
 
     # Detect interactions for each ref
     interactions = _detect_interactions_from_conversation(conv_dir, extracted)
 
-    # Show only actions summary if requested
+    # Filter by actions if requested
     if actions:
-        _display_actions_only(interactions)
+        extracted = _filter_refs_by_actions(extracted, interactions)
+        if not any(extracted.values()):
+            if fmt in ("lines", "csv", "json"):
+                _output_refs_formatted(extracted, fmt)
+            else:
+                console.print("[dim]No write actions detected.[/dim]")
+            return
+
+    # Output based on format
+    if fmt in ("lines", "csv", "json"):
+        _output_refs_formatted(extracted, fmt)
     else:
-        _display_refs(extracted, interactions)
+        # Rich display (default)
+        _display_conversation_header(conv_id, title)
+        if actions:
+            _display_actions_only(interactions)
+        else:
+            _display_refs(extracted, interactions)
+
+
+def _refs_multi_conversation(
+    *,
+    config: Config,
+    limit: int | None,
+    show_all: bool,
+    offset: int,
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
+    pr_filter: str | None,
+    repo_filter: str | None,
+    action_filter: str | None,
+    reverse: bool,
+    prs_only: bool,
+    repos_only: bool,
+    issues_only: bool,
+    fmt: str | None,
+    actions: bool,
+    no_index: bool,
+    verbose: bool,
+) -> None:
+    """Handle refs command for multiple conversations (filtered)."""
+    # Parse date filters
+    since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
+
+    # Apply conversation filters
+    filter_result = _apply_conversation_filters(
+        config,
+        since=since,
+        until=until,
+        pr_filter=pr_filter,
+        repo_filter=repo_filter,
+        action_filter=action_filter,
+        include_empty=False,
+        initial_show_all=show_all,
+    )
+
+    conversations = filter_result.conversations
+    show_all = filter_result.show_all
+
+    # Sort by created_at (newest first by default)
+    conversations = sorted(
+        conversations,
+        key=lambda c: _normalize_datetime_for_sort(c.created_at),
+        reverse=not reverse,
+    )
+
+    # Apply offset and limit
+    if offset:
+        conversations = conversations[offset:]
+    if limit is not None:
+        conversations = conversations[:limit]
+    elif not show_all:
+        conversations = conversations[:10]
+
+    if not conversations:
+        if fmt in ("lines", "csv", "json"):
+            _output_refs_formatted({"repos": set(), "issues": set(), "prs": set()}, fmt)
+        else:
+            console.print("[dim]No conversations found matching the criteria.[/dim]")
+        return
+
+    # Aggregate refs from all conversations
+    aggregated: dict[str, set[str]] = {
+        "repos": set(),
+        "issues": set(),
+        "prs": set(),
+    }
+
+    for conv in conversations:
+        # Find conversation directory
+        result = _find_conversation_dir(config, conv.id)
+        if not result:
+            continue
+        conv_dir, _ = result
+
+        # Index if needed
+        if not no_index:
+            _ensure_refs_indexed(conv.id, conv_dir, verbose)
+
+        # Extract refs
+        extracted = _extract_refs_from_conversation(conv_dir)
+
+        # Filter by actions if requested
+        if actions:
+            interactions = _detect_interactions_from_conversation(conv_dir, extracted)
+            extracted = _filter_refs_by_actions(extracted, interactions)
+
+        # Aggregate
+        aggregated["repos"].update(extracted["repos"])
+        aggregated["issues"].update(extracted["issues"])
+        aggregated["prs"].update(extracted["prs"])
+
+    # Apply type filter
+    if prs_only:
+        aggregated = {"repos": set(), "issues": set(), "prs": aggregated["prs"]}
+    elif repos_only:
+        aggregated = {"repos": aggregated["repos"], "issues": set(), "prs": set()}
+    elif issues_only:
+        aggregated = {"repos": set(), "issues": aggregated["issues"], "prs": set()}
+
+    if not any(aggregated.values()):
+        if fmt in ("lines", "csv", "json"):
+            _output_refs_formatted(aggregated, fmt)
+        else:
+            console.print("[dim]No repository references found.[/dim]")
+        return
+
+    # Output based on format
+    if fmt in ("lines", "csv", "json"):
+        _output_refs_formatted(aggregated, fmt)
+    else:
+        # Rich display for table format or default
+        console.print(f"[dim]Aggregated from {len(conversations)} conversation(s)[/dim]")
+        _display_refs(aggregated, interactions=None)
+
+
+def _filter_refs_by_actions(
+    refs: dict[str, set[str]],
+    interactions: RefInteractions,
+) -> dict[str, set[str]]:
+    """Filter refs to only include those with detected actions."""
+    return {
+        "repos": refs["repos"] & set(interactions.repos.keys()),
+        "issues": refs["issues"] & set(interactions.issues.keys()),
+        "prs": refs["prs"] & set(interactions.prs.keys()),
+    }
+
+
+def _output_refs_formatted(refs: dict[str, set[str]], fmt: str) -> None:
+    """Output refs in machine-readable format."""
+    # Collect all URLs
+    all_urls: list[str] = []
+    all_urls.extend(sorted(refs["repos"]))
+    all_urls.extend(sorted(refs["issues"]))
+    all_urls.extend(sorted(refs["prs"]))
+
+    if fmt == "lines":
+        for url in all_urls:
+            print(url)
+    elif fmt == "csv":
+        print(",".join(all_urls))
+    elif fmt == "json":
+        output = {
+            "repos": sorted(refs["repos"]),
+            "issues": sorted(refs["issues"]),
+            "prs": sorted(refs["prs"]),
+        }
+        print(json.dumps(output, indent=2))
 
 
 def _ensure_refs_indexed(conv_id: str, conv_dir: Path, verbose: bool = False) -> None:
@@ -1890,8 +2199,9 @@ def _ensure_refs_indexed(conv_id: str, conv_dir: Path, verbose: bool = False) ->
     
     Runs scan + refs processing if needed, silently.
     """
-    from ohtv.db import get_connection, migrate, scan_conversations
-    from ohtv.db.scanner import count_events
+    from ohtv.db import get_connection, migrate
+    from ohtv.db.models import Conversation
+    from ohtv.db.scanner import count_events, get_events_mtime
     from ohtv.db.stages import process_refs
     from ohtv.db.stores import ConversationStore, StageStore
     
@@ -1910,9 +2220,6 @@ def _ensure_refs_indexed(conv_id: str, conv_dir: Path, verbose: bool = False) ->
         
         if conv is None:
             # Not registered - register it
-            from ohtv.db.models import Conversation
-            from ohtv.db.scanner import get_events_mtime
-            
             conv = Conversation(
                 id=conv_id,
                 location=str(conv_dir),
@@ -1926,7 +2233,6 @@ def _ensure_refs_indexed(conv_id: str, conv_dir: Path, verbose: bool = False) ->
         elif stage_store.needs_processing(conv_id, "refs", current_event_count):
             # Update event count if needed
             if conv.event_count != current_event_count:
-                from ohtv.db.scanner import get_events_mtime
                 conv = Conversation(
                     id=conv_id,
                     location=str(conv_dir),
@@ -2684,6 +2990,10 @@ def _find_conversation_dir(config: Config, conv_id: str) -> tuple[Path, bool] | 
     Returns:
         Tuple of (directory_path, is_cloud_source) or None if not found
     """
+    # Normalize conv_id - remove dashes for directory lookup
+    # (ConversationInfo.id has dashes, but directory names don't)
+    normalized_id = conv_id.replace("-", "")
+    
     # Search both directories - local first, then cloud
     dirs_to_search = [
         (config.local_conversations_dir, False),  # (path, is_cloud)
@@ -2696,13 +3006,13 @@ def _find_conversation_dir(config: Config, conv_id: str) -> tuple[Path, bool] | 
         if not base_dir.exists():
             continue
 
-        # Try exact match first
-        exact = base_dir / conv_id
+        # Try exact match first (with normalized ID)
+        exact = base_dir / normalized_id
         if exact.exists():
             return (exact, is_cloud)
 
-        # Collect prefix matches
-        matches = [(d, is_cloud) for d in base_dir.iterdir() if d.is_dir() and d.name.startswith(conv_id)]
+        # Collect prefix matches (using normalized ID for comparison)
+        matches = [(d, is_cloud) for d in base_dir.iterdir() if d.is_dir() and d.name.startswith(normalized_id)]
         all_matches.extend(matches)
 
     if len(all_matches) == 1:

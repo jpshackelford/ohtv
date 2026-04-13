@@ -53,9 +53,14 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
 
 11. **Filter matching**: PR/repo/action filters require indexed database (`db scan && db process all`). PR filter uses precise matching (`#1` won't match `#10`). Action+repo combined filter uses target URLs when available.
 
-12. **Conversation ID normalization**: Database stores IDs without dashes; LocalSource returns with dashes. The `filters` module normalizes both formats.
+12. **Conversation ID normalization**: Database stores IDs without dashes; LocalSource returns with dashes. The `filters` module and `_find_conversation_dir` normalize both formats (removing dashes before directory lookup).
 
-13. **Terminal confirmation prompts**: Use Rich's `Confirm.ask()` with the same console instance:
+13. **Refs command dual mode**: The `refs` command supports two modes:
+    - **Single conversation mode**: `refs <id>` - Shows rich display with interaction annotations
+    - **Multi-conversation mode**: `refs -D` (or other filters) - Aggregates and deduplicates refs across conversations
+    - Machine-readable formats (`-1`, `--format lines|csv|json`) suppress rich output for automation
+
+14. **Terminal confirmation prompts**: Use Rich's `Confirm.ask()` with the same console instance:
     ```python
     from rich.prompt import Confirm
     if not Confirm.ask("Are you sure?", console=console, default=False):
@@ -82,7 +87,9 @@ uv run pytest tests/unit/test_filters.py -v
 uv run ohtv list -A                    # All conversations
 uv run ohtv show <id> -m               # Messages
 uv run ohtv show <id> -s -d -o         # Actions with details + outputs
-uv run ohtv refs <id>                  # Git references
+uv run ohtv refs <id>                  # Git references (rich display)
+uv run ohtv refs -D --prs-only -1      # Today's PRs, one per line
+uv run ohtv refs -W --format json      # This week's refs as JSON
 uv run ohtv db status                  # Database statistics
 ```
 
