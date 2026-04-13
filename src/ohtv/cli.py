@@ -3343,7 +3343,6 @@ def db_reset(yes: bool) -> None:
     This removes all indexed data including conversations, refs, and actions.
     The source conversation files are NOT affected.
     """
-    from rich.prompt import Confirm
     from ohtv.db import get_db_path
     
     db_path = get_db_path()
@@ -3365,7 +3364,7 @@ def db_reset(yes: bool) -> None:
         console.print(f"[yellow]Warning:[/yellow] This will delete the database at:")
         console.print(f"  {db_path} ({size_str})")
         console.print()
-        if not Confirm.ask("Are you sure?", console=console, default=False):
+        if not click.confirm("Are you sure?", default=False):
             console.print("[dim]Cancelled.[/dim]")
             return
     
