@@ -133,25 +133,31 @@ uv run ohtv db status                  # Database statistics
 
 **Known issue**: The `refs` command display shows `[created]` but not `[pushed]` annotation because the display code uses event parsing instead of database links. The WRITE links are correctly stored in the database.
 
-## Active Work: Git Checkout Branch Tracking
+## Completed: Git Checkout Branch Tracking
 
 **Branch**: `feature/sqlite-indexing`
 
-**Problem**: When `git push` doesn't have branch info in command or output (e.g., "Everything up-to-date"), we need to infer the branch from prior `git checkout` or `git switch` commands.
+**Problem solved**: When `git push` doesn't have branch info in command or output (e.g., "Everything up-to-date"), we now infer the branch from prior `git checkout` or `git switch` commands.
 
-**Fixture data created**: `tests/unit/db/stages/fixtures/checkout_scenarios.py`
-- 8 scenarios covering checkout tracking edge cases
-- Key scenario: `SCENARIO_PUSH_NEEDS_INFERENCE` - push with no branch info
+**Implementation**:
+- `extract_working_directory()` - Extracts path from `cd /path && git...` patterns
+- `extract_checkout_branch()` - Extracts branch from checkout/switch command + output
+- `is_checkout_command()` - Detects git checkout/switch commands
+- `find_checkout_branch_for_path()` - Searches backward through events for last checkout
+- Push recognition now uses checkout inference when no branch in output
 
-**Next steps**:
-1. Add helper functions to extract working directory from commands (`cd /path && git ...`)
-2. Add helper to extract branch from checkout/switch command + output
-3. Modify `git_operations.py` recognizer to look backward for checkouts when push has no branch
-4. Add unit tests for the new extraction helpers
-5. Add integration tests using the checkout scenarios
+**Tests**: 244 total tests passing (28 new for checkout tracking)
+- `TestExtractWorkingDirectory` - 6 tests
+- `TestExtractCheckoutBranch` - 8 tests
+- `TestIsCheckoutCommand` - 7 tests
+- `TestFindCheckoutBranchForPath` - 5 tests
+- `TestCheckoutInferenceInPush` - 2 integration tests
 
-**Key challenges** (documented in fixtures):
-- Extracting repo path from `cd /path && git checkout...` commands
-- Handling path variations (`;` vs `&&`, spacing)
-- Detecting detached HEAD state (no current branch)
-- Tracking branch state per repo when working in multiple repos
+**Fixture data**: `tests/unit/db/stages/fixtures/checkout_scenarios.py` - 8 scenarios
+
+**Key features**:
+- Tracks branch state per repo path independently
+- Handles detached HEAD state (returns None)
+- Supports both `git checkout` and `git switch` variants
+- Prefers push output over checkout inference when available
+- Marks inferred branches with `branch_inferred: true` in metadata
