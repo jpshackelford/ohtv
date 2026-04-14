@@ -7,6 +7,7 @@ from ohtv.analysis.cache import (
     load_events,
 )
 from ohtv.analysis.objectives import (
+    AnalysisResult,
     ContextLevel,
     DetailLevel,
     Objective,
@@ -23,6 +24,7 @@ __all__ = [
     "compute_content_hash",
     "load_events",
     # Objective analysis
+    "AnalysisResult",
     "ContextLevel",
     "DetailLevel",
     "Objective",

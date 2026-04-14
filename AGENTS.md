@@ -37,33 +37,35 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
 
 6. **LLM timeout**: Default 300s. Override with `LLM_TIMEOUT` env var. CLI shows spinner during analysis.
 
-7. **Human-readable action details**: `-d` flag formats tool calls for readability (e.g., `$ git status` for terminal). Use `--debug-tool-call` for raw JSON.
+7. **LLM cost tracking**: `analyze_objectives()` returns an `AnalysisResult` dataclass containing `analysis` (ObjectiveAnalysis), `cost` (float, dollars), and `from_cache` (bool). The `summary` command displays running cost in the progress bar during analysis and shows total cost after completion. Cost is obtained from `response.metrics.accumulated_cost` via the OpenHands SDK LLM class.
 
-8. **Output truncation**: `-o` truncates to 2000 chars; `-O` shows full output. Both show exit codes.
+8. **Human-readable action details**: `-d` flag formats tool calls for readability (e.g., `$ git status` for terminal). Use `--debug-tool-call` for raw JSON.
 
-9. **SQLite indexing**: Lightweight index for conversations and relationships. See `docs/DATABASE.md`. Key points:
-   - Minimal footprint: metadata only, content stays on filesystem
-   - Two-phase: `db scan` (fast registration) + `db process <stage>` (incremental)
-   - Change detection: mtime as fast filter, event_count as checkpoint
-   - Auto-indexing: `refs <id>` indexes automatically
-   - **Sync with processing**: Use `ohtv sync --process` to sync and run all stages
-   - **Stage order**: refs → actions → branch_context → push_pr_links (defined in `stages/__init__.py`)
-   - **Dependency caveat**: Stages don't validate dependencies - running a stage before its dependencies completes successfully but does nothing useful (marks itself complete with empty results). Always use `db process all` or `sync --process` to ensure correct ordering.
+9. **Output truncation**: `-o` truncates to 2000 chars; `-O` shows full output. Both show exit codes.
 
-10. **Data directory separation**:
+10. **SQLite indexing**: Lightweight index for conversations and relationships. See `docs/DATABASE.md`. Key points:
+    - Minimal footprint: metadata only, content stays on filesystem
+    - Two-phase: `db scan` (fast registration) + `db process <stage>` (incremental)
+    - Change detection: mtime as fast filter, event_count as checkpoint
+    - Auto-indexing: `refs <id>` indexes automatically
+    - **Sync with processing**: Use `ohtv sync --process` to sync and run all stages
+    - **Stage order**: refs → actions → branch_context → push_pr_links (defined in `stages/__init__.py`)
+    - **Dependency caveat**: Stages don't validate dependencies - running a stage before its dependencies completes successfully but does nothing useful (marks itself complete with empty results). Always use `db process all` or `sync --process` to ensure correct ordering.
+
+11. **Data directory separation**:
     - `~/.openhands/`: Read-only source data (only `sync` writes here)
     - `~/.ohtv/`: All ohtv-generated data (database, logs, cache). Override with `OHTV_DIR`.
 
-11. **Filter matching**: PR/repo/action filters require indexed database (`db scan && db process all`). PR filter uses precise matching (`#1` won't match `#10`). Action+repo combined filter uses target URLs when available.
+12. **Filter matching**: PR/repo/action filters require indexed database (`db scan && db process all`). PR filter uses precise matching (`#1` won't match `#10`). Action+repo combined filter uses target URLs when available.
 
-12. **Conversation ID normalization**: Database stores IDs without dashes; LocalSource returns with dashes. The `filters` module and `_find_conversation_dir` normalize both formats (removing dashes before directory lookup).
+13. **Conversation ID normalization**: Database stores IDs without dashes; LocalSource returns with dashes. The `filters` module and `_find_conversation_dir` normalize both formats (removing dashes before directory lookup).
 
-13. **Refs command dual mode**: The `refs` command supports two modes:
+14. **Refs command dual mode**: The `refs` command supports two modes:
     - **Single conversation mode**: `refs <id>` - Shows rich display with interaction annotations
     - **Multi-conversation mode**: `refs -D` (or other filters) - Aggregates and deduplicates refs across conversations
     - Machine-readable formats (`-1`, `--format lines|csv|json`) suppress rich output for automation
 
-14. **Terminal confirmation prompts**: Use Rich's `Confirm.ask()` with the same console instance:
+15. **Terminal confirmation prompts**: Use Rich's `Confirm.ask()` with the same console instance:
     ```python
     from rich.prompt import Confirm
     if not Confirm.ask("Are you sure?", console=console, default=False):
@@ -71,14 +73,14 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
         return
     ```
 
-15. **Branch and PR tracking**: 
+16. **Branch and PR tracking**: 
     - **Branch refs**: Branches are first-class refs (like issues/PRs). The `branch_context` stage creates branch refs from GIT_PUSH actions
     - **Push-PR linking**: The `push_pr_links` stage correlates pushes with PRs via branch matching
     - **Conservative approach**: Only links when full owner/repo/branch qualification exists on both sides
     - **Current limitation**: Temporal ordering not yet implemented (pushes before PR creation don't link correctly)
     - **Design doc**: See `docs/DESIGN_TEMPORAL_PR_LINKING.md` for planned improvements
 
-16. **Processing stage order**: `refs → actions → branch_context → push_pr_links`
+17. **Processing stage order**: `refs → actions → branch_context → push_pr_links`
     - Each stage can run independently but has dependencies
     - `all` runs all stages in correct order
 

@@ -12,6 +12,7 @@ conversations. See experiments/objective_extraction_comparison.py for details.
 
 import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -81,6 +82,20 @@ class ObjectiveAnalysis(CachedAnalysis):
     # Detailed fields (detailed mode)
     primary_objectives: list[Objective] = []
     summary: str | None = None
+
+
+@dataclass
+class AnalysisResult:
+    """Result of an objective analysis, including cost metrics.
+    
+    Attributes:
+        analysis: The objective analysis result
+        cost: LLM cost in dollars (0.0 if cached)
+        from_cache: Whether the result was loaded from cache
+    """
+    analysis: ObjectiveAnalysis
+    cost: float = 0.0
+    from_cache: bool = False
 
 
 ANALYSIS_CACHE_FILENAME = "objective_analysis.json"
@@ -418,7 +433,7 @@ def analyze_objectives(
     detail: DetailLevel = "brief",
     assess: bool = False,
     force_refresh: bool = False,
-) -> ObjectiveAnalysis:
+) -> AnalysisResult:
     """Analyze a conversation to extract user objectives.
 
     Args:
@@ -437,7 +452,7 @@ def analyze_objectives(
         force_refresh: If True, ignore cached analysis
 
     Returns:
-        ObjectiveAnalysis with identified objectives
+        AnalysisResult containing ObjectiveAnalysis and cost metrics
 
     Raises:
         ValueError: If no messages found in conversation
@@ -455,7 +470,7 @@ def analyze_objectives(
         cached = get_cached_analysis(conv_dir, effective_context, detail, assess)
         if cached:
             log.debug("Using cached analysis from %s", cached.analyzed_at)
-            return cached
+            return AnalysisResult(analysis=cached, cost=0.0, from_cache=True)
 
     # Load events and build transcript
     events = load_events(conv_dir)
@@ -533,6 +548,9 @@ def analyze_objectives(
             f"(e.g., export LLM_TIMEOUT=600 for 10 minutes)."
         ) from e
 
+    # Extract cost from response metrics
+    cost = response.metrics.accumulated_cost
+
     # Extract text from response
     response_text = ""
     for content_item in response.message.content:
@@ -603,6 +621,6 @@ def analyze_objectives(
 
     # Cache the result
     _cache_manager.save(conv_dir, analysis)
-    log.debug("Analysis complete and cached")
+    log.debug("Analysis complete and cached (cost: $%.4f)", cost)
 
-    return analysis
+    return AnalysisResult(analysis=analysis, cost=cost, from_cache=False)

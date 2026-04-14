@@ -2557,6 +2557,7 @@ def objectives(
 
     # Check for cached analysis first if not refreshing
     analysis = None
+    analysis_cost = 0.0
     if not refresh:
         analysis = get_cached_analysis(conv_dir, context=context, detail=detail, assess=assess)  # type: ignore[arg-type]
 
@@ -2573,9 +2574,11 @@ def objectives(
 
         try:
             with console.status(f"[bold blue]{status_msg}...[/bold blue]"):
-                analysis = analyze_objectives(
+                result = analyze_objectives(
                     conv_dir, model=model, context=context, detail=detail, assess=assess, force_refresh=refresh  # type: ignore[arg-type]
                 )
+                analysis = result.analysis
+                analysis_cost = result.cost
         except ValueError as e:
             console.print(f"[red]Error:[/red] {e}")
             raise SystemExit(1)
@@ -2602,6 +2605,10 @@ def objectives(
         # Show outputs (repos, PRs, issues) unless suppressed
         if not no_outputs:
             _display_outputs(conv_dir)
+        
+        # Show cost if LLM was called
+        if analysis_cost > 0:
+            console.print(f"\n[dim]LLM cost: [green]${analysis_cost:.4f}[/green][/dim]")
 
 
 def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis") -> None:
@@ -2894,6 +2901,7 @@ def summary(
     # Analyze each conversation with progress indicator
     results: list[dict] = []
     errors: list[tuple[str, str]] = []
+    total_cost = 0.0
 
     # Show progress for LLM analysis (skip if all cached)
     show_progress = uncached_count > 0
@@ -2902,6 +2910,7 @@ def summary(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
+        TextColumn("[green]$[/green]{task.fields[cost]:.4f}"),
         console=console,
         transient=True,
     ) if show_progress else nullcontext()
@@ -2912,6 +2921,7 @@ def summary(
             task = progress.add_task(
                 f"Analyzing {uncached_count} conversations...",
                 total=uncached_count,
+                cost=0.0,
             )
 
         for conv in conversations:
@@ -2925,46 +2935,40 @@ def summary(
 
             conv_dir, _ = result
 
-            # Check cache first (use minimal context, brief detail, no assessment)
-            analysis = None
-            from_cache = False
-            if not refresh:
-                analysis = get_cached_analysis(
-                    conv_dir, context="minimal", detail="brief", assess=False
+            # Run analysis (handles caching internally)
+            try:
+                analysis_result = analyze_objectives(
+                    conv_dir,
+                    model=model,
+                    context="minimal",
+                    detail="brief",
+                    assess=False,
+                    force_refresh=refresh,
                 )
-                from_cache = analysis is not None
-
-            # Run analysis if not cached
-            if analysis is None:
-                try:
-                    analysis = analyze_objectives(
-                        conv_dir,
-                        model=model,
-                        context="minimal",
-                        detail="brief",
-                        assess=False,
-                        force_refresh=refresh,
-                    )
-                except (ValueError, RuntimeError) as e:
-                    errors.append((conv.short_id, str(e)[:50]))
+                analysis = analysis_result.analysis
+                from_cache = analysis_result.from_cache
+                
+                # Track cost and update progress
+                if not from_cache:
+                    total_cost += analysis_result.cost
                     if task is not None:
-                        progress.advance(task)
-                    continue
-                except Exception as e:
-                    if "api_key" in str(e).lower() or "LLM_" in str(e):
-                        console.print(
-                            "\n[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
-                        )
-                        console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
-                        raise SystemExit(1)
-                    errors.append((conv.short_id, str(e)[:50]))
-                    if task is not None:
-                        progress.advance(task)
-                    continue
-
-                # Advance progress after successful LLM analysis
+                        progress.update(task, advance=1, cost=total_cost)
+            except (ValueError, RuntimeError) as e:
+                errors.append((conv.short_id, str(e)[:50]))
                 if task is not None:
                     progress.advance(task)
+                continue
+            except Exception as e:
+                if "api_key" in str(e).lower() or "LLM_" in str(e):
+                    console.print(
+                        "\n[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
+                    )
+                    console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
+                    raise SystemExit(1)
+                errors.append((conv.short_id, str(e)[:50]))
+                if task is not None:
+                    progress.advance(task)
+                continue
 
             # Store result (include conv_dir for outputs extraction)
             results.append({
@@ -3020,6 +3024,10 @@ def summary(
         print(_format_summary_markdown(results, include_outputs=not no_outputs))
     else:
         _print_summary_table(results, total_count, len(errors), include_outputs=not no_outputs)
+
+    # Show cost summary if any LLM calls were made
+    if total_cost > 0 and fmt == "table":
+        console.print(f"[dim]LLM cost: [green]${total_cost:.4f}[/green][/dim]")
 
     # Show errors if any
     if errors and fmt == "table":
