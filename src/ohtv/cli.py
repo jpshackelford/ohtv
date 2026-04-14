@@ -2848,23 +2848,49 @@ def summary(
         console.print("[dim]No conversations found matching the criteria.[/dim]")
         return
 
-    # Safety threshold for LLM analysis - require confirmation for large batches
-    SUMMARY_CONFIRM_THRESHOLD = 20
-    
-    if len(conversations) > SUMMARY_CONFIRM_THRESHOLD and not yes:
-        from rich.prompt import Confirm
-        console.print(f"[yellow]Warning:[/yellow] About to analyze {len(conversations)} conversations.")
-        console.print("[dim]This may take a while and use significant LLM tokens.[/dim]")
-        if not Confirm.ask("Do you want to continue?", console=console, default=False):
-            console.print("[dim]Aborted. Use --yes to skip this confirmation.[/dim]")
-            return
-
     # Import analysis module
     try:
         from ohtv.analysis import analyze_objectives, get_cached_analysis
     except ImportError as e:
         console.print(f"[red]Error:[/red] Analysis module not available: {e}")
         raise SystemExit(1)
+
+    # Safety threshold for LLM analysis - require confirmation for large batches
+    # Only check cache and prompt when above threshold and not bypassing with --yes
+    SUMMARY_CONFIRM_THRESHOLD = 20
+    
+    if len(conversations) > SUMMARY_CONFIRM_THRESHOLD and not yes:
+        # Count how many actually need new LLM computation
+        if refresh:
+            # --refresh forces all to be recomputed
+            uncached_count = len(conversations)
+        else:
+            # Check cache status for each conversation
+            uncached_count = 0
+            for conv in conversations:
+                result = _find_conversation_dir(config, conv.lookup_id)
+                if result:
+                    conv_dir, _ = result
+                    cached = get_cached_analysis(
+                        conv_dir, context="minimal", detail="brief", assess=False
+                    )
+                    if cached is None:
+                        uncached_count += 1
+                else:
+                    # Can't find dir = will fail anyway, count as uncached
+                    uncached_count += 1
+        
+        # Only prompt if we actually need to run LLM on many conversations
+        if uncached_count > SUMMARY_CONFIRM_THRESHOLD:
+            from rich.prompt import Confirm
+            cached_count = len(conversations) - uncached_count
+            console.print(f"[yellow]Warning:[/yellow] About to analyze {uncached_count} conversations with LLM.")
+            if cached_count > 0:
+                console.print(f"[dim]({cached_count} already cached and will be skipped)[/dim]")
+            console.print("[dim]This may take a while and use significant LLM tokens.[/dim]")
+            if not Confirm.ask("Do you want to continue?", console=console, default=False):
+                console.print("[dim]Aborted. Use --yes to skip this confirmation.[/dim]")
+                return
 
     # Analyze each conversation with progress indicator
     results: list[dict] = []
