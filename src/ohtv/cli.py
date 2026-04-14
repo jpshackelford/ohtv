@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import re
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -2856,65 +2857,70 @@ def summary(
         raise SystemExit(1)
 
     # Safety threshold for LLM analysis - require confirmation for large batches
-    # Only check cache and prompt when above threshold and not bypassing with --yes
     SUMMARY_CONFIRM_THRESHOLD = 20
     
-    if len(conversations) > SUMMARY_CONFIRM_THRESHOLD and not yes:
-        # Count how many actually need new LLM computation
-        if refresh:
-            # --refresh forces all to be recomputed
-            uncached_count = len(conversations)
-        else:
-            # Check cache status for each conversation
-            uncached_count = 0
-            for conv in conversations:
-                result = _find_conversation_dir(config, conv.lookup_id)
-                if result:
-                    conv_dir, _ = result
-                    cached = get_cached_analysis(
-                        conv_dir, context="minimal", detail="brief", assess=False
-                    )
-                    if cached is None:
-                        uncached_count += 1
-                else:
-                    # Can't find dir = will fail anyway, count as uncached
+    # Count how many actually need LLM computation (for progress bar and confirmation)
+    if refresh:
+        # --refresh forces all to be recomputed
+        uncached_count = len(conversations)
+    else:
+        # Check cache status for each conversation
+        uncached_count = 0
+        for conv in conversations:
+            result = _find_conversation_dir(config, conv.lookup_id)
+            if result:
+                conv_dir, _ = result
+                cached = get_cached_analysis(
+                    conv_dir, context="minimal", detail="brief", assess=False
+                )
+                if cached is None:
                     uncached_count += 1
-        
-        # Only prompt if we actually need to run LLM on many conversations
-        if uncached_count > SUMMARY_CONFIRM_THRESHOLD:
-            from rich.prompt import Confirm
-            cached_count = len(conversations) - uncached_count
-            console.print(f"[yellow]Warning:[/yellow] About to analyze {uncached_count} conversations with LLM.")
-            if cached_count > 0:
-                console.print(f"[dim]({cached_count} already cached and will be skipped)[/dim]")
-            console.print("[dim]This may take a while and use significant LLM tokens.[/dim]")
-            if not Confirm.ask("Do you want to continue?", console=console, default=False):
-                console.print("[dim]Aborted. Use --yes to skip this confirmation.[/dim]")
-                return
+            else:
+                # Can't find dir = will fail anyway, count as uncached
+                uncached_count += 1
+    
+    # Only prompt if we actually need to run LLM on many conversations
+    if uncached_count > SUMMARY_CONFIRM_THRESHOLD and not yes:
+        from rich.prompt import Confirm
+        cached_count = len(conversations) - uncached_count
+        console.print(f"[yellow]Warning:[/yellow] About to analyze {uncached_count} conversations with LLM.")
+        if cached_count > 0:
+            console.print(f"[dim]({cached_count} already cached and will be skipped)[/dim]")
+        console.print("[dim]This may take a while and use significant LLM tokens.[/dim]")
+        if not Confirm.ask("Do you want to continue?", console=console, default=False):
+            console.print("[dim]Aborted. Use --yes to skip this confirmation.[/dim]")
+            return
 
     # Analyze each conversation with progress indicator
     results: list[dict] = []
     errors: list[tuple[str, str]] = []
 
-    with Progress(
+    # Show progress for LLM analysis (skip if all cached)
+    show_progress = uncached_count > 0
+    progress_ctx = Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
         console=console,
         transient=True,
-    ) as progress:
-        task = progress.add_task(
-            f"Analyzing {len(conversations)} conversations...",
-            total=len(conversations),
-        )
+    ) if show_progress else nullcontext()
+
+    with progress_ctx as progress:
+        task = None
+        if show_progress:
+            task = progress.add_task(
+                f"Analyzing {uncached_count} conversations...",
+                total=uncached_count,
+            )
 
         for conv in conversations:
             # Find conversation directory (use lookup_id which is the directory name)
             result = _find_conversation_dir(config, conv.lookup_id)
             if not result:
                 errors.append((conv.short_id, "Not found"))
-                progress.advance(task)
+                if task is not None:
+                    progress.advance(task)
                 continue
 
             conv_dir, _ = result
@@ -2941,7 +2947,8 @@ def summary(
                     )
                 except (ValueError, RuntimeError) as e:
                     errors.append((conv.short_id, str(e)[:50]))
-                    progress.advance(task)
+                    if task is not None:
+                        progress.advance(task)
                     continue
                 except Exception as e:
                     if "api_key" in str(e).lower() or "LLM_" in str(e):
@@ -2951,8 +2958,13 @@ def summary(
                         console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
                         raise SystemExit(1)
                     errors.append((conv.short_id, str(e)[:50]))
-                    progress.advance(task)
+                    if task is not None:
+                        progress.advance(task)
                     continue
+
+                # Advance progress after successful LLM analysis
+                if task is not None:
+                    progress.advance(task)
 
             # Store result (include conv_dir for outputs extraction)
             results.append({
@@ -2964,8 +2976,6 @@ def summary(
                 "cached": from_cache,
                 "conv_dir": conv_dir,
             })
-
-            progress.advance(task)
 
     # Extract outputs for each conversation if needed
     if not no_outputs:
