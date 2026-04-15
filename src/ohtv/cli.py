@@ -302,7 +302,7 @@ def _run_force_reset(
     
     if not quiet:
         console.print(f"[yellow]Warning:[/yellow] This will delete {current_count} local conversation(s) "
-                      f"and sync only the {max_new} most recent from cloud.")
+                      f"and sync up to {max_new} of the most recent from cloud.")
         console.print()
         if dry_run:
             console.print("[yellow]DRY RUN[/yellow] - showing what would be synced:")

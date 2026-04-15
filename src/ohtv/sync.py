@@ -2,6 +2,7 @@
 
 import json
 import logging
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -234,7 +235,6 @@ class SyncManager:
 
     def _cleanup_conversation_dir(self, conv_id: str) -> None:
         """Remove existing conversation directory before re-download."""
-        import shutil
         conv_dir = self.config.synced_conversations_dir / conv_id
         if conv_dir.exists():
             log.debug("Cleaning up existing directory for %s", conv_id)
@@ -380,8 +380,6 @@ class SyncManager:
             dry_run: Show what would happen without making changes
             on_progress: Callback for progress updates
         """
-        import shutil
-        
         if not self.config.api_key:
             raise ValueError("API key required. Set OH_API_KEY environment variable.")
 
@@ -389,7 +387,9 @@ class SyncManager:
 
         try:
             with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
-                # Fetch all conversations (API returns newest first by updated_at)
+                # Fetch all conversations from cloud.
+                # Note: API returns conversations sorted by updated_at descending (newest first).
+                # See REFERENCE_CLOUD_API.md for sort order documentation.
                 conversations = client.search_all_conversations()
                 log.info("Found %d total conversations in cloud", len(conversations))
                 
