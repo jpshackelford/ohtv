@@ -2813,6 +2813,19 @@ def _display_outputs(conv_dir: Path) -> None:
 @click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (ignore cache)")
 @click.option("--model", "-m", help="LLM model to use for analysis")
 @click.option(
+    "--detail", "-d",
+    type=click.Choice(["brief", "standard", "detailed"]),
+    default="standard",
+    help="Detail level for analysis output (default: standard)",
+)
+@click.option(
+    "--context", "-c",
+    type=click.Choice(["minimal", "default", "full"]),
+    default="minimal",
+    help="Context level for analysis (default: minimal)",
+)
+@click.option("--assess", "-a", is_flag=True, help="Include assessment in analysis")
+@click.option(
     "--format", "-F", "fmt",
     type=click.Choice(["table", "json", "markdown"]),
     default="table",
@@ -2835,6 +2848,9 @@ def summary(
     reverse: bool,
     refresh: bool,
     model: str | None,
+    detail: str,
+    context: str,
+    assess: bool,
     fmt: str,
     no_outputs: bool,
     yes: bool,
