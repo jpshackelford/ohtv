@@ -2913,7 +2913,7 @@ def summary(
             if result:
                 conv_dir, _ = result
                 cached = get_cached_analysis(
-                    conv_dir, context="minimal", detail="brief", assess=False
+                    conv_dir, context=context, detail=detail, assess=assess
                 )
                 if cached is None:
                     uncached_count += 1
@@ -2938,8 +2938,8 @@ def summary(
     errors: list[tuple[str, str]] = []
     total_cost = 0.0
 
-    # Show progress for LLM analysis (skip if all cached)
-    show_progress = uncached_count > 0
+    # Show progress for LLM analysis (skip if all cached or in quiet mode)
+    show_progress = uncached_count > 0 and not quiet
     progress_ctx = Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -2975,9 +2975,9 @@ def summary(
                 analysis_result = analyze_objectives(
                     conv_dir,
                     model=model,
-                    context="minimal",
-                    detail="brief",
-                    assess=False,
+                    context=context,
+                    detail=detail,
+                    assess=assess,
                     force_refresh=refresh,
                 )
                 analysis = analysis_result.analysis
