@@ -225,9 +225,10 @@ def main() -> None:
 
 
 @main.command()
-@click.option("--force", "-f", is_flag=True, help="Re-download all conversations")
+@click.option("--force", "-f", is_flag=True, help="Re-download all conversations (cleans local data first)")
 @click.option("--since", type=click.DateTime(), help="Only sync conversations updated after date")
 @click.option("--dry-run", is_flag=True, help="Show what would sync without downloading")
+@click.option("--max-new", "-n", type=int, help="Maximum number of NEW conversations to sync")
 @click.option("--status", "-s", is_flag=True, help="Show sync status")
 @click.option("--process", "-p", is_flag=True, help="Run all processing stages after sync")
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output for cron jobs")
@@ -236,6 +237,7 @@ def sync(
     force: bool,
     since: datetime | None,
     dry_run: bool,
+    max_new: int | None,
     status: bool,
     process: bool,
     quiet: bool,
@@ -243,8 +245,14 @@ def sync(
 ) -> None:
     """Sync cloud conversations to local storage.
     
+    Use -n/--max-new to limit the number of NEW conversations synced.
+    Updates to existing conversations are always synced (no limit).
+    
     Use --process to automatically run database indexing after sync,
     equivalent to running 'ohtv db process all'.
+    
+    Combining --force with -n resets local storage to only the N most
+    recent conversations (destructive operation, requires confirmation).
     """
     _init_logging(verbose=verbose)
 
@@ -260,7 +268,12 @@ def sync(
         return
 
     try:
-        result = _run_sync(manager, force, since, dry_run, quiet)
+        # Handle --force -n combination (reset to N newest)
+        if force and max_new is not None:
+            result = _run_force_reset(manager, max_new, dry_run, quiet)
+        else:
+            result = _run_sync(manager, force, since, dry_run, max_new, quiet)
+        
         if not quiet:
             _show_result(result, dry_run)
         
@@ -274,6 +287,32 @@ def sync(
     except SyncAbortedError as e:
         console.print(f"[red]Sync aborted:[/red] {e}")
         raise SystemExit(1)
+
+
+def _run_force_reset(
+    manager: SyncManager,
+    max_new: int,
+    dry_run: bool,
+    quiet: bool,
+) -> SyncResult:
+    """Handle --force -n combination: reset to N newest conversations."""
+    from rich.prompt import Confirm
+    
+    current_count = manager.get_local_conversation_count()
+    
+    if not quiet:
+        console.print(f"[yellow]Warning:[/yellow] This will delete {current_count} local conversation(s) "
+                      f"and sync only the {max_new} most recent from cloud.")
+        console.print()
+        if dry_run:
+            console.print("[yellow]DRY RUN[/yellow] - showing what would be synced:")
+        else:
+            if not Confirm.ask("Proceed?", console=console, default=False):
+                console.print("[dim]Cancelled.[/dim]")
+                raise SystemExit(0)
+    
+    on_progress = None if quiet else _make_progress_callback()
+    return manager.reset_to_n_newest(max_new, dry_run=dry_run, on_progress=on_progress)
 
 
 @main.command()
@@ -462,25 +501,27 @@ def _run_sync(
     force: bool,
     since: datetime | None,
     dry_run: bool,
+    max_new: int | None,
     quiet: bool,
 ) -> SyncResult:
     """Execute sync with progress display."""
     if not quiet:
-        _print_sync_header(force, since, dry_run)
+        _print_sync_header(force, since, dry_run, max_new)
 
     on_progress = None if quiet else _make_progress_callback()
-    return manager.sync(force=force, since=since, dry_run=dry_run, on_progress=on_progress)
+    return manager.sync(force=force, since=since, dry_run=dry_run, max_new=max_new, on_progress=on_progress)
 
 
-def _print_sync_header(force: bool, since: datetime | None, dry_run: bool) -> None:
+def _print_sync_header(force: bool, since: datetime | None, dry_run: bool, max_new: int | None) -> None:
     """Print sync operation header."""
     mode = "[yellow]DRY RUN[/yellow] " if dry_run else ""
+    limit_suffix = f" (max {max_new} new)" if max_new is not None else ""
     if force:
-        console.print(f"{mode}Syncing all cloud conversations (force)...")
+        console.print(f"{mode}Syncing all cloud conversations (force){limit_suffix}...")
     elif since:
-        console.print(f"{mode}Syncing conversations since {since.isoformat()}...")
+        console.print(f"{mode}Syncing conversations since {since.isoformat()}{limit_suffix}...")
     else:
-        console.print(f"{mode}Syncing cloud conversations...")
+        console.print(f"{mode}Syncing cloud conversations{limit_suffix}...")
 
 
 def _make_progress_callback():
@@ -488,7 +529,13 @@ def _make_progress_callback():
 
     def callback(conv_id: str, title: str, action: str) -> None:
         short_id = conv_id[:7]
-        status_style = {"new": "green", "updated": "yellow", "unchanged": "dim", "failed": "red"}
+        status_style = {
+            "new": "green",
+            "updated": "yellow",
+            "unchanged": "dim",
+            "failed": "red",
+            "skipped": "dim cyan",
+        }
         style = status_style.get(action, "")
         console.print(f"  [{style}]{short_id}[/{style}] {title[:40]}... ({action})")
 
@@ -508,6 +555,8 @@ def _show_result(result: SyncResult, dry_run: bool) -> None:
     console.print(f"  Unchanged: {result.unchanged}")
     if result.failed:
         console.print(f"  [red]Failed:    {result.failed}[/red]")
+    if result.skipped_new:
+        console.print(f"  [cyan]Skipped:   {result.skipped_new} additional available[/cyan]")
 
     if result.errors:
         _show_errors(result.errors)

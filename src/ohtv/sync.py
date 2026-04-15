@@ -32,6 +32,7 @@ class SyncResult:
     updated: int = 0
     unchanged: int = 0
     failed: int = 0
+    skipped_new: int = 0  # New conversations skipped due to max_new limit
     errors: list[tuple[str, str]] = field(default_factory=list)
     failed_ids: list[str] = field(default_factory=list)
 
@@ -42,6 +43,10 @@ class SyncResult:
     @property
     def has_failures(self) -> bool:
         return self.failed > 0
+
+    @property
+    def has_skipped_new(self) -> bool:
+        return self.skipped_new > 0
 
 
 @dataclass
@@ -92,21 +97,30 @@ class SyncManager:
         force: bool = False,
         since: datetime | None = None,
         dry_run: bool = False,
+        max_new: int | None = None,
         on_progress: Callable[[str, str, str], None] | None = None,
     ) -> SyncResult:
-        """Sync conversations from cloud."""
+        """Sync conversations from cloud.
+        
+        Args:
+            force: Re-download all conversations (clears local before re-download)
+            since: Only sync conversations updated after this date
+            dry_run: Show what would sync without downloading
+            max_new: Maximum number of NEW conversations to sync (no limit on updates)
+            on_progress: Callback for progress updates (conv_id, title, action)
+        """
         if not self.config.api_key:
             raise ValueError("API key required. Set OH_API_KEY environment variable.")
 
         cutoff = self._determine_cutoff(force, since)
-        log.info("Starting sync (force=%s, cutoff=%s, dry_run=%s)", force, cutoff, dry_run)
+        log.info("Starting sync (force=%s, cutoff=%s, dry_run=%s, max_new=%s)", force, cutoff, dry_run, max_new)
 
         try:
             with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
                 conversations = client.search_all_conversations(updated_since=cutoff)
                 conversations = self._add_failed_conversations(conversations)
                 log.info("Found %d conversations to process", len(conversations))
-                return self._process_conversations(client, conversations, force, dry_run, on_progress)
+                return self._process_conversations(client, conversations, force, dry_run, max_new, on_progress)
         except httpx.HTTPStatusError as e:
             log.error("HTTP error during sync: %s %s", e.response.status_code, e.response.reason_phrase)
             if e.response.status_code in (401, 403):
@@ -152,6 +166,7 @@ class SyncManager:
         conversations: list[dict],
         force: bool,
         dry_run: bool,
+        max_new: int | None,
         on_progress: Callable[[str, str, str], None] | None,
     ) -> SyncResult:
         """Process each conversation that needs syncing."""
@@ -160,7 +175,7 @@ class SyncManager:
         max_consecutive_failures = 5
 
         for conv in conversations:
-            action = self._sync_one(client, conv, force, dry_run, on_progress, result)
+            action = self._sync_one(client, conv, force, dry_run, max_new, on_progress, result)
             self._update_result(result, action)
             consecutive_failures = self._check_abort(action, consecutive_failures, max_consecutive_failures)
 
@@ -184,20 +199,31 @@ class SyncManager:
         conv: dict,
         force: bool,
         dry_run: bool,
+        max_new: int | None,
         on_progress: Callable[[str, str, str], None] | None,
         result: SyncResult,
     ) -> str:
-        """Sync a single conversation. Returns action taken: 'new', 'updated', 'unchanged', 'failed'."""
+        """Sync a single conversation. Returns action taken: 'new', 'updated', 'unchanged', 'failed', 'skipped'."""
         conv_id = conv["id"]
         cloud_updated_at = conv.get("updated_at", "")
         title = conv.get("title", "")[:50]
 
         planned_action = self._determine_action(conv_id, cloud_updated_at, force)
 
+        # Check if we should skip this new conversation due to max_new limit
+        if planned_action == "new" and max_new is not None and result.new >= max_new:
+            if on_progress:
+                on_progress(conv_id, title, "skipped")
+            return "skipped"
+
         if planned_action == "unchanged" or dry_run:
             if on_progress:
                 on_progress(conv_id, title, planned_action)
             return planned_action
+
+        # For force mode, clean up existing directory before re-download
+        if force and planned_action == "updated":
+            self._cleanup_conversation_dir(conv_id)
 
         actual_action = self._download_and_update(
             client, conv, conv_id, cloud_updated_at, planned_action, result
@@ -205,6 +231,14 @@ class SyncManager:
         if on_progress:
             on_progress(conv_id, title, actual_action)
         return actual_action
+
+    def _cleanup_conversation_dir(self, conv_id: str) -> None:
+        """Remove existing conversation directory before re-download."""
+        import shutil
+        conv_dir = self.config.synced_conversations_dir / conv_id
+        if conv_dir.exists():
+            log.debug("Cleaning up existing directory for %s", conv_id)
+            shutil.rmtree(conv_dir)
 
     def _determine_action(self, conv_id: str, cloud_updated_at: str, force: bool) -> str:
         """Determine what action to take for a conversation."""
@@ -285,21 +319,30 @@ class SyncManager:
             result.unchanged += 1
         elif action == "failed":
             result.failed += 1
+        elif action == "skipped":
+            result.skipped_new += 1
 
     def _finalize_sync(self, result: SyncResult) -> None:
         """Update and save manifest after sync."""
         self.manifest.failed_ids = result.failed_ids
         self.manifest.sync_count += 1
 
-        if not result.has_failures:
-            self.manifest.last_sync_at = datetime.now(timezone.utc)
-            log.info("Sync complete. Total conversations: %d", len(self.manifest.conversations))
-        else:
+        # Don't advance cutoff if there were failures or skipped new conversations
+        if result.has_failures:
             log.warning(
                 "Sync complete with %d failures. Not advancing cutoff. "
                 "Run 'ohtv sync' again to retry failed conversations.",
                 result.failed,
             )
+        elif result.has_skipped_new:
+            log.info(
+                "Sync complete. Synced %d new, %d additional available. "
+                "Not advancing cutoff so skipped conversations remain visible.",
+                result.new, result.skipped_new,
+            )
+        else:
+            self.manifest.last_sync_at = datetime.now(timezone.utc)
+            log.info("Sync complete. Total conversations: %d", len(self.manifest.conversations))
 
         self.manifest.save(self.manifest_path)
 
@@ -313,6 +356,101 @@ class SyncManager:
             "total_events": total_events,
             "pending_retries": len(self.manifest.failed_ids),
         }
+
+    def get_local_conversation_count(self) -> int:
+        """Get count of locally synced conversations."""
+        return len(self.manifest.conversations)
+
+    def reset_to_n_newest(
+        self,
+        n: int,
+        dry_run: bool = False,
+        on_progress: Callable[[str, str, str], None] | None = None,
+    ) -> SyncResult:
+        """Reset local storage to only the N most recently updated conversations.
+        
+        This is a destructive operation that:
+        1. Deletes all existing local conversation data
+        2. Clears the manifest
+        3. Downloads only the N most recently updated conversations from cloud
+        4. Sets last_sync_at to current time
+        
+        Args:
+            n: Number of conversations to keep
+            dry_run: Show what would happen without making changes
+            on_progress: Callback for progress updates
+        """
+        import shutil
+        
+        if not self.config.api_key:
+            raise ValueError("API key required. Set OH_API_KEY environment variable.")
+
+        log.info("Resetting to %d newest conversations (dry_run=%s)", n, dry_run)
+
+        try:
+            with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
+                # Fetch all conversations (API returns newest first by updated_at)
+                conversations = client.search_all_conversations()
+                log.info("Found %d total conversations in cloud", len(conversations))
+                
+                # Take only first N
+                conversations_to_sync = conversations[:n]
+                
+                if dry_run:
+                    result = SyncResult()
+                    for conv in conversations_to_sync:
+                        if on_progress:
+                            on_progress(conv["id"], conv.get("title", "")[:50], "new")
+                        result.new += 1
+                    result.skipped_new = len(conversations) - n if len(conversations) > n else 0
+                    return result
+
+                # Clear existing data
+                synced_dir = self.config.synced_conversations_dir
+                if synced_dir.exists():
+                    log.info("Clearing existing synced conversations directory")
+                    shutil.rmtree(synced_dir)
+                synced_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Clear manifest
+                self.manifest.conversations = {}
+                self.manifest.failed_ids = []
+                
+                # Download the N newest conversations
+                result = SyncResult()
+                consecutive_failures = 0
+                max_consecutive_failures = 5
+                
+                for conv in conversations_to_sync:
+                    action = self._download_and_update(
+                        client, conv, conv["id"], conv.get("updated_at", ""), "new", result
+                    )
+                    self._update_result(result, action)
+                    if on_progress:
+                        on_progress(conv["id"], conv.get("title", "")[:50], action)
+                    consecutive_failures = self._check_abort(action, consecutive_failures, max_consecutive_failures)
+                
+                # Track how many were available but not synced
+                if len(conversations) > n:
+                    result.skipped_new = len(conversations) - n
+                
+                # Update manifest - set last_sync_at to now since we're starting fresh
+                self.manifest.sync_count += 1
+                if not result.has_failures:
+                    self.manifest.last_sync_at = datetime.now(timezone.utc)
+                self.manifest.failed_ids = result.failed_ids
+                self.manifest.save(self.manifest_path)
+                
+                return result
+                
+        except httpx.HTTPStatusError as e:
+            log.error("HTTP error during reset: %s %s", e.response.status_code, e.response.reason_phrase)
+            if e.response.status_code in (401, 403):
+                raise SyncAuthError(f"Authentication failed (HTTP {e.response.status_code}). Check your API key.")
+            raise
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            log.error("Network error during reset: %s", e)
+            raise SyncAbortedError(f"Network error: {e}")
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
