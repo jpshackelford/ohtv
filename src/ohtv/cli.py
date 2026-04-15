@@ -2826,7 +2826,23 @@ def _display_outputs(conv_dir: Path) -> None:
 )
 @click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation for large result sets")
+@click.option("--quiet", "-q", is_flag=True, help="Generate/cache summaries without displaying output")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@click.option(
+    "--detail",
+    "-d",
+    type=click.Choice(["brief", "standard", "detailed"]),
+    default="brief",
+    help="Output detail: brief (default), standard (with outcomes), detailed (full analysis)",
+)
+@click.option(
+    "--context",
+    "-c",
+    type=click.Choice(["minimal", "default", "full"]),
+    default="minimal",
+    help="Context level: minimal (user only), default (user+finish), full (all messages)",
+)
+@click.option("--assess", "-a", is_flag=True, help="Assess whether objectives were achieved")
 def summary(
     limit: int | None,
     show_all: bool,
@@ -2844,12 +2860,16 @@ def summary(
     fmt: str,
     no_outputs: bool,
     yes: bool,
+    quiet: bool,
     verbose: bool,
+    detail: str,
+    context: str,
+    assess: bool,
 ) -> None:
     """Summarize goals for multiple conversations.
 
     Analyzes selected conversations and displays a table of their goals.
-    Uses the most token-efficient settings (minimal context, brief output)
+    By default, uses the most token-efficient settings (minimal context, brief output)
     and caches results to avoid repeated LLM calls.
 
     \b
@@ -2858,6 +2878,21 @@ def summary(
       -W           This week's conversations
       -S 2024-01-01  Conversations since Jan 1, 2024
       -U 2024-06-30  Conversations until June 30, 2024
+
+    \b
+    Detail levels:
+      brief     - Just the goal (1-2 sentences) [default]
+      standard  - Goal + primary/secondary outcomes (3-6 bullets each)
+      detailed  - Full hierarchical objectives with subordinates
+
+    \b
+    Context levels (how much conversation to analyze):
+      minimal   - User messages only (lowest tokens) [default]
+      default   - User messages + finish action
+      full      - All messages (highest accuracy, most tokens)
+
+    Use --assess to add status assessment (achieved/not achieved/in_progress).
+    Note: Non-default settings will use more tokens when analyzing large result sets.
 
     Requires LLM_API_KEY environment variable to be set.
     """
@@ -2929,7 +2964,7 @@ def summary(
             if result:
                 conv_dir, _ = result
                 cached = get_cached_analysis(
-                    conv_dir, context="minimal", detail="brief", assess=False
+                    conv_dir, context=context, detail=detail, assess=assess
                 )
                 if cached is None:
                     uncached_count += 1
@@ -2954,8 +2989,8 @@ def summary(
     errors: list[tuple[str, str]] = []
     total_cost = 0.0
 
-    # Show progress for LLM analysis (skip if all cached)
-    show_progress = uncached_count > 0
+    # Show progress for LLM analysis (skip if all cached or in quiet mode)
+    show_progress = uncached_count > 0 and not quiet
     progress_ctx = Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -2991,9 +3026,9 @@ def summary(
                 analysis_result = analyze_objectives(
                     conv_dir,
                     model=model,
-                    context="minimal",
-                    detail="brief",
-                    assess=False,
+                    context=context,
+                    detail=detail,
+                    assess=assess,
                     force_refresh=refresh,
                 )
                 analysis = analysis_result.analysis
@@ -3031,6 +3066,10 @@ def summary(
                 "cached": from_cache,
                 "conv_dir": conv_dir,
             })
+
+    # Skip all output if --quiet is enabled
+    if quiet:
+        return
 
     # Extract outputs for each conversation if needed
     if not no_outputs:
