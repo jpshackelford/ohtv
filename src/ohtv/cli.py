@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import logging
 import re
 from contextlib import nullcontext
 from dataclasses import dataclass, field
@@ -17,6 +18,8 @@ from rich.tree import Tree
 
 from ohtv.actions import READ_ACTIONS, WRITE_ACTIONS
 from ohtv.config import Config
+
+log = logging.getLogger("ohtv")
 
 
 # Commands that use LLM and consume tokens
@@ -965,28 +968,17 @@ def _generate_unique_source_names(paths: list[Path]) -> list[str]:
     if not paths:
         return []
     
-    # Reserved names that shouldn't be used
-    reserved = {"local", "cloud"}
-    
-    # Extract basenames
     basenames = [path.name for path in paths]
-    
-    # Track name usage and generate unique names
     name_counts: dict[str, int] = {}
     unique_names: list[str] = []
     
     for basename in basenames:
-        # Sanitize the basename to make it a valid source name
         name = basename.lower().replace(" ", "_").replace("-", "_")
-        
-        # If it's a reserved name or already used, add a suffix
-        original_name = name
-        counter = 1
-        while name in reserved or name in name_counts:
-            name = f"{original_name}_{counter}"
-            counter += 1
-        
-        name_counts[name] = 1
+        if name in name_counts:
+            name_counts[name] += 1
+            name = f"{name}_{name_counts[name]}"
+        else:
+            name_counts[name] = 0
         unique_names.append(name)
     
     return unique_names
@@ -1005,8 +997,16 @@ def _load_all_conversations(config: Config) -> list[ConversationInfo]:
     conversations.extend(cloud_source.list_conversations())
 
     # Load extra conversation paths
+    # Note: Extra paths are assumed to use UTC timestamps (like cloud conversations).
+    # If you're pointing to local CLI conversations, timestamps may display incorrectly.
     extra_source_names = _generate_unique_source_names(config.extra_conversation_paths)
     for path, source_name in zip(config.extra_conversation_paths, extra_source_names):
+        if not path.exists():
+            log.warning("Skipping nonexistent conversation path: %s", path)
+            continue
+        if not path.is_dir():
+            log.warning("Skipping non-directory conversation path: %s", path)
+            continue
         extra_source = LocalSource(path, source_name=source_name)
         conversations.extend(extra_source.list_conversations())
 
