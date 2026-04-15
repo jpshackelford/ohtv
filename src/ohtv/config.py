@@ -22,6 +22,7 @@ CONFIGURABLE_KEYS = {
     "synced_conversations_dir": "Path to synced cloud conversations", 
     "cloud_api_url": "OpenHands Cloud API URL",
     "source": "Default source: 'local' or 'cloud'",
+    "extra_conversation_paths": "Additional conversation directories (colon-separated)",
 }
 
 
@@ -47,6 +48,7 @@ class ConfigWithSources:
     cloud_api_url: ConfigValue
     api_key: ConfigValue
     source: ConfigValue
+    extra_conversation_paths: ConfigValue
     ohtv_dir: ConfigValue
     manifest_path: Path
     config_file_path: Path
@@ -61,6 +63,7 @@ class Config:
     cloud_api_url: str
     api_key: str | None
     source: str  # "local" or "cloud"
+    extra_conversation_paths: list[Path]
     _sources: dict[str, str] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -74,11 +77,13 @@ class Config:
         cloud_dir, cloud_src = _get_synced_conversations_dir(home, file_config)
         cloud_url, url_src = _get_cloud_api_url(file_config)
         source_val, source_src = _get_source(file_config)
+        extra_paths, extra_src = _get_extra_conversation_paths(file_config)
         
         sources["local_conversations_dir"] = local_src
         sources["synced_conversations_dir"] = cloud_src
         sources["cloud_api_url"] = url_src
         sources["source"] = source_src
+        sources["extra_conversation_paths"] = extra_src
         
         return cls(
             local_conversations_dir=local_dir,
@@ -86,6 +91,7 @@ class Config:
             cloud_api_url=cloud_url,
             api_key=_get_api_key(home),
             source=source_val,
+            extra_conversation_paths=extra_paths,
             _sources=sources,
         )
     
@@ -98,12 +104,16 @@ class Config:
         ohtv_dir = get_ohtv_dir()
         ohtv_source = "env" if os.environ.get("OHTV_DIR") else "default"
         
+        # Format extra paths for display
+        extra_paths_str = ":".join(str(p) for p in self.extra_conversation_paths) if self.extra_conversation_paths else None
+        
         return ConfigWithSources(
             local_conversations_dir=ConfigValue(self.local_conversations_dir, self._sources.get("local_conversations_dir", "default")),
             synced_conversations_dir=ConfigValue(self.synced_conversations_dir, self._sources.get("synced_conversations_dir", "default")),
             cloud_api_url=ConfigValue(self.cloud_api_url, self._sources.get("cloud_api_url", "default")),
             api_key=ConfigValue("****" if api_key else None, api_source),
             source=ConfigValue(self.source, self._sources.get("source", "default")),
+            extra_conversation_paths=ConfigValue(extra_paths_str, self._sources.get("extra_conversation_paths", "default")),
             ohtv_dir=ConfigValue(ohtv_dir, ohtv_source),
             manifest_path=get_manifest_path(),
             config_file_path=get_config_file_path(),
@@ -161,6 +171,24 @@ def _get_source(file_config: dict) -> tuple[str, str]:
     if file_source:
         return file_source, "file"
     return "local", "default"
+
+
+def _get_extra_conversation_paths(file_config: dict) -> tuple[list[Path], str]:
+    """Get extra conversation paths with source tracking."""
+    env_paths = os.environ.get("OHTV_EXTRA_CONVERSATION_PATHS")
+    if env_paths:
+        paths = [Path(p.strip()).expanduser() for p in env_paths.split(":") if p.strip()]
+        return paths, "env"
+    file_paths = file_config.get("extra_conversation_paths")
+    if file_paths:
+        if isinstance(file_paths, str):
+            paths = [Path(p.strip()).expanduser() for p in file_paths.split(":") if p.strip()]
+        elif isinstance(file_paths, list):
+            paths = [Path(p).expanduser() for p in file_paths]
+        else:
+            paths = []
+        return paths, "file"
+    return [], "default"
 
 
 def _get_api_key(home: Path) -> str | None:

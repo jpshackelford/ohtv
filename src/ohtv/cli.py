@@ -953,8 +953,47 @@ def list_conversations(
             print(output_text)
 
 
+def _generate_unique_source_names(paths: list[Path]) -> list[str]:
+    """Generate unique source names from directory basenames with collision handling.
+    
+    Args:
+        paths: List of paths to conversation directories
+        
+    Returns:
+        List of unique source names, one for each path
+    """
+    if not paths:
+        return []
+    
+    # Reserved names that shouldn't be used
+    reserved = {"local", "cloud"}
+    
+    # Extract basenames
+    basenames = [path.name for path in paths]
+    
+    # Track name usage and generate unique names
+    name_counts: dict[str, int] = {}
+    unique_names: list[str] = []
+    
+    for basename in basenames:
+        # Sanitize the basename to make it a valid source name
+        name = basename.lower().replace(" ", "_").replace("-", "_")
+        
+        # If it's a reserved name or already used, add a suffix
+        original_name = name
+        counter = 1
+        while name in reserved or name in name_counts:
+            name = f"{original_name}_{counter}"
+            counter += 1
+        
+        name_counts[name] = 1
+        unique_names.append(name)
+    
+    return unique_names
+
+
 def _load_all_conversations(config: Config) -> list[ConversationInfo]:
-    """Load conversations from both local and cloud directories."""
+    """Load conversations from local, cloud, and extra directories."""
     conversations: list[ConversationInfo] = []
 
     # Load local conversations
@@ -964,6 +1003,12 @@ def _load_all_conversations(config: Config) -> list[ConversationInfo]:
     # Load cloud conversations (synced)
     cloud_source = LocalSource(config.synced_conversations_dir, source_name="cloud")
     conversations.extend(cloud_source.list_conversations())
+
+    # Load extra conversation paths
+    extra_source_names = _generate_unique_source_names(config.extra_conversation_paths)
+    for path, source_name in zip(config.extra_conversation_paths, extra_source_names):
+        extra_source = LocalSource(path, source_name=source_name)
+        conversations.extend(extra_source.list_conversations())
 
     return conversations
 
@@ -3253,20 +3298,25 @@ def _format_summary_markdown(results: list[dict], *, include_outputs: bool = Tru
 
 
 def _find_conversation_dir(config: Config, conv_id: str) -> tuple[Path, bool] | None:
-    """Find conversation directory across both local and cloud sources.
+    """Find conversation directory across local, cloud, and extra sources.
 
     Returns:
         Tuple of (directory_path, is_cloud_source) or None if not found
+        Note: is_cloud_source indicates whether timestamps are UTC (True) or local (False)
     """
     # Normalize conv_id - remove dashes for directory lookup
     # (ConversationInfo.id has dashes, but directory names don't)
     normalized_id = conv_id.replace("-", "")
     
-    # Search both directories - local first, then cloud
+    # Search all directories - local first, then cloud, then extra
     dirs_to_search = [
         (config.local_conversations_dir, False),  # (path, is_cloud)
         (config.synced_conversations_dir, True),
     ]
+    
+    # Add extra paths (assume UTC timestamps like cloud)
+    for extra_path in config.extra_conversation_paths:
+        dirs_to_search.append((extra_path, True))
 
     all_matches: list[tuple[Path, bool]] = []
 
