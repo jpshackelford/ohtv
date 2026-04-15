@@ -953,8 +953,47 @@ def list_conversations(
             print(output_text)
 
 
+def _generate_unique_source_names(paths: list[Path]) -> list[str]:
+    """Generate unique source names from directory basenames with collision handling.
+    
+    Args:
+        paths: List of paths to conversation directories
+        
+    Returns:
+        List of unique source names, one for each path
+    """
+    if not paths:
+        return []
+    
+    # Reserved names that shouldn't be used
+    reserved = {"local", "cloud"}
+    
+    # Extract basenames
+    basenames = [path.name for path in paths]
+    
+    # Track name usage and generate unique names
+    name_counts: dict[str, int] = {}
+    unique_names: list[str] = []
+    
+    for basename in basenames:
+        # Sanitize the basename to make it a valid source name
+        name = basename.lower().replace(" ", "_").replace("-", "_")
+        
+        # If it's a reserved name or already used, add a suffix
+        original_name = name
+        counter = 1
+        while name in reserved or name in name_counts:
+            name = f"{original_name}_{counter}"
+            counter += 1
+        
+        name_counts[name] = 1
+        unique_names.append(name)
+    
+    return unique_names
+
+
 def _load_all_conversations(config: Config) -> list[ConversationInfo]:
-    """Load conversations from both local and cloud directories."""
+    """Load conversations from local, cloud, and extra directories."""
     conversations: list[ConversationInfo] = []
 
     # Load local conversations
@@ -964,6 +1003,12 @@ def _load_all_conversations(config: Config) -> list[ConversationInfo]:
     # Load cloud conversations (synced)
     cloud_source = LocalSource(config.synced_conversations_dir, source_name="cloud")
     conversations.extend(cloud_source.list_conversations())
+
+    # Load extra conversation paths
+    extra_source_names = _generate_unique_source_names(config.extra_conversation_paths)
+    for path, source_name in zip(config.extra_conversation_paths, extra_source_names):
+        extra_source = LocalSource(path, source_name=source_name)
+        conversations.extend(extra_source.list_conversations())
 
     return conversations
 
@@ -2878,13 +2923,25 @@ def summary(
             if result:
                 conv_dir, _ = result
                 cached = get_cached_analysis(
-                    conv_dir, context="minimal", detail="brief", assess=False
+                    conv_dir, context=context, detail=detail, assess=assess
                 )
                 if cached is None:
                     uncached_count += 1
             else:
                 # Can't find dir = will fail anyway, count as uncached
                 uncached_count += 1
+    
+    # Warn about non-default settings with large result sets
+    is_non_default = detail != "brief" or context != "minimal" or assess
+    if is_non_default and len(conversations) > 10:
+        console.print(
+            "[yellow]Warning:[/yellow] Using non-default analysis settings with "
+            f"{len(conversations)} conversations will use more LLM tokens."
+        )
+        console.print(
+            "[dim]Consider using default settings (--detail=brief --context=minimal) "
+            "for large batches.[/dim]"
+        )
     
     # Only prompt if we actually need to run LLM on many conversations
     if uncached_count > SUMMARY_CONFIRM_THRESHOLD and not yes:
@@ -2940,9 +2997,9 @@ def summary(
                 analysis_result = analyze_objectives(
                     conv_dir,
                     model=model,
-                    context="minimal",
-                    detail="brief",
-                    assess=False,
+                    context=context,
+                    detail=detail,
+                    assess=assess,
                     force_refresh=refresh,
                 )
                 analysis = analysis_result.analysis
