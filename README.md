@@ -113,6 +113,8 @@ ohtv list --action pushed --repo OpenPaw  # Pushed specifically to OpenPaw
 | `--pr PATTERN` | Filter by PR reference (URL, `owner/repo#N`, or `repo#N`) |
 | `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
 | `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`, `git-commit`) |
+| `-E, --with-errors` | Include error info column (agent/LLM errors) |
+| `--errors-only` | Show only conversations with agent/LLM errors |
 | `-v, --verbose` | Show debug output |
 
 **Action Type Aliases:**
@@ -291,6 +293,61 @@ ohtv refs -D --format json
 | `-w, --write-only` | Show only refs with write actions (pushed, created, etc.) |
 | `--no-index` | Skip database indexing |
 | `-v, --verbose` | Show debug output |
+
+---
+
+### `ohtv errors` - Show Agent/LLM Error Summary
+
+Analyzes a conversation for agent and LLM errors that impacted agent behavior. This includes:
+
+- **ConversationErrorEvent**: Terminal errors that stop the conversation (LLM errors, budget exceeded, API failures)
+- **AgentErrorEvent**: Agent-level errors (sandbox restarts, tool validation failures)
+
+Note: This does NOT track routine terminal command failures (non-zero exit codes), which are normal during development.
+
+```bash
+# Show error summary for a conversation
+ohtv errors abc123
+
+# Output as JSON (for automation)
+ohtv errors abc123 --format json
+```
+
+**Example Output:**
+```
+Error Summary for 03465880-dbe...
+please clone https://github.com/...
+
+Overview: 1 error(s) TERMINAL
+Execution status: error
+
+Terminal Error(s):
+  [9] 2026-04-14 13:37:49 ConversationError
+       Code: LLMBadRequestError
+       Detail: litellm.BadRequestError: Error code: 400 - ...
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `-F, --format` | Output format: `text` (default), `json` |
+| `-v, --verbose` | Show debug output |
+
+**Error Filtering in `list` Command:**
+
+You can also filter conversations by error status:
+
+```bash
+# Show only conversations with agent/LLM errors
+ohtv list --errors-only
+
+# Include error column in regular listing
+ohtv list -E  # or --with-errors
+
+# Combine with other filters
+ohtv list --errors-only --day
+ohtv list --errors-only --week
+```
 
 ---
 

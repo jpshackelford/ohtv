@@ -13,11 +13,12 @@ uv run ohtv --help         # Run CLI
 
 ## Code Structure
 
-- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, sync, objectives, summary, db)
+- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, errors, sync, objectives, summary, db)
 - `src/ohtv/config.py` - Configuration management
 - `src/ohtv/sync.py` - Cloud sync logic
 - `src/ohtv/sources/` - Data sources (local, cloud)
 - `src/ohtv/exporter.py` - Output formatting
+- `src/ohtv/errors.py` - Agent/LLM error analysis (ConversationErrorEvent, AgentErrorEvent)
 - `src/ohtv/analysis/` - LLM-based analysis features (objectives extraction, summary)
 - `src/ohtv/db/` - SQLite-based indexing for conversation labeling
 
@@ -84,6 +85,13 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - Each stage can run independently but has dependencies
     - `all` runs all stages in correct order
 
+18. **Error analysis**: The `errors` module (`src/ohtv/errors.py`) tracks agent/LLM errors that impact agent behavior:
+    - **ConversationErrorEvent**: Terminal errors (LLM errors, budget exceeded, API failures)
+    - **AgentErrorEvent**: Agent-level errors (sandbox restarts, tool validation failures)
+    - Does NOT track routine terminal command failures (non-zero exit codes)
+    - Errors are classified as TERMINAL (conversation stopped) or RECOVERED (agent continued)
+    - Used by `ohtv errors <id>` command and `ohtv list --errors-only` filter
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input
@@ -96,8 +104,9 @@ Terminal is in corrupted state (usually after OpenHands CLI exits improperly).
 
 ```bash
 # Unit tests (see docs/TESTING.md)
-uv run pytest tests/unit/db -v
-uv run pytest tests/unit/test_filters.py -v
+uv run python -m pytest tests/unit/db -v
+uv run python -m pytest tests/unit/test_filters.py -v
+uv run python -m pytest tests/unit/test_errors.py -v
 
 # Manual testing - see README.md for full command reference
 uv run ohtv list -A                    # All conversations
@@ -106,6 +115,8 @@ uv run ohtv show <id> -s -d -o         # Actions with details + outputs
 uv run ohtv refs <id>                  # Git references (rich display)
 uv run ohtv refs -D --prs-only -1      # Today's PRs, one per line
 uv run ohtv refs -W --format json      # This week's refs as JSON
+uv run ohtv errors <id>                # Agent/LLM error summary
+uv run ohtv list --errors-only         # List conversations with errors
 uv run ohtv db status                  # Database statistics
 ```
 

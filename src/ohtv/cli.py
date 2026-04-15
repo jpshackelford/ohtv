@@ -676,6 +676,7 @@ def _apply_conversation_filters(
     action_filter: str | None = None,
     include_empty: bool = False,
     initial_show_all: bool = False,
+    errors_only: bool = False,
 ) -> FilterResult:
     """Apply all conversation filters and return filtered results.
     
@@ -690,6 +691,7 @@ def _apply_conversation_filters(
         action_filter: Action type filter (e.g., "git-push", "pushed")
         include_empty: Include conversations with 0 events
         initial_show_all: Initial value for show_all flag
+        errors_only: Only include conversations with agent/LLM errors
         
     Returns:
         FilterResult with filtered conversations and metadata
@@ -697,7 +699,7 @@ def _apply_conversation_filters(
     show_all = initial_show_all
     
     # Any filter implies --all (show all matching records)
-    if any([since, until, pr_filter, repo_filter, action_filter]):
+    if any([since, until, pr_filter, repo_filter, action_filter, errors_only]):
         show_all = True
     
     # Load conversations from both sources
@@ -729,6 +731,10 @@ def _apply_conversation_filters(
     # Apply repo filtering (requires database) - only if not already combined with action
     if repo_filter is not None:
         conversations = _filter_by_repo(conversations, repo_filter)
+    
+    # Apply error filtering
+    if errors_only:
+        conversations = _filter_by_errors(config, conversations)
     
     return FilterResult(
         conversations=conversations,
@@ -844,6 +850,86 @@ def _filter_by_action(
         return filter_conversations_by_ids(conversations, conversation_ids), set()
 
 
+def _filter_by_errors(
+    config: Config,
+    conversations: list[ConversationInfo],
+) -> list[ConversationInfo]:
+    """Filter conversations to only those with agent/LLM errors.
+    
+    Analyzes each conversation for ConversationErrorEvent and AgentErrorEvent.
+    Also populates error_count, error_types, has_terminal_error fields.
+    """
+    from ohtv.errors import analyze_conversation_lazy, format_error_type_counts
+    
+    filtered = []
+    for conv in conversations:
+        conv_dir = _get_conversation_dir(config, conv)
+        if conv_dir is None:
+            continue
+        
+        summary = analyze_conversation_lazy(conv_dir, conv.id)
+        if summary and summary.has_errors:
+            # Populate error fields on ConversationInfo
+            conv.error_count = summary.total_errors
+            conv.error_types = summary.error_counts
+            conv.has_terminal_error = summary.has_terminal_error
+            conv.execution_status = summary.execution_status
+            filtered.append(conv)
+    
+    if filtered:
+        console.print(f"[dim]Found {len(filtered)} conversation(s) with errors[/dim]")
+    else:
+        console.print("[dim]No conversations with agent/LLM errors found[/dim]")
+    
+    return filtered
+
+
+def _get_conversation_dir(config: Config, conv: ConversationInfo) -> Path | None:
+    """Get the directory path for a conversation."""
+    lookup_id = conv.lookup_id
+    
+    if conv.source == "local":
+        conv_dir = config.local_conversations_dir / lookup_id
+    elif conv.source == "cloud":
+        conv_dir = config.synced_conversations_dir / lookup_id
+    else:
+        # Extra source - need to find the right directory
+        for extra_dir in config.extra_conversation_paths:
+            conv_dir = extra_dir / lookup_id
+            if conv_dir.exists():
+                return conv_dir
+        return None
+    
+    return conv_dir if conv_dir.exists() else None
+
+
+def _populate_error_info(
+    config: Config,
+    conversations: list[ConversationInfo],
+) -> None:
+    """Populate error fields for conversations that don't have them yet."""
+    from ohtv.errors import analyze_conversation_lazy
+    
+    for conv in conversations:
+        if conv.error_count is not None:
+            continue  # Already populated
+        
+        conv_dir = _get_conversation_dir(config, conv)
+        if conv_dir is None:
+            continue
+        
+        summary = analyze_conversation_lazy(conv_dir, conv.id)
+        if summary:
+            conv.error_count = summary.total_errors
+            conv.error_types = summary.error_counts
+            conv.has_terminal_error = summary.has_terminal_error
+            conv.execution_status = summary.execution_status
+        else:
+            conv.error_count = 0
+            conv.error_types = {}
+            conv.has_terminal_error = False
+
+
 @main.command("list")
 @click.option("--reverse", "-r", is_flag=True, help="Show oldest first (default: newest first)")
 @click.option("--max", "-n", "limit", type=int, help="Maximum conversations to show (default: 10)")
@@ -867,6 +953,8 @@ def _filter_by_action(
 @click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
 @click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
 @click.option("--refs", "-R", "show_refs", is_flag=True, help="Show git refs (repos, PRs, issues) from database")
+@click.option("--with-errors", "-E", "with_errors", is_flag=True, help="Include error info column (agent/LLM errors)")
+@click.option("--errors-only", "errors_only", is_flag=True, help="Show only conversations with agent/LLM errors")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def list_conversations(
     reverse: bool,
@@ -884,6 +972,8 @@ def list_conversations(
     repo_filter: str | None,
     action_filter: str | None,
     show_refs: bool,
+    with_errors: bool,
+    errors_only: bool,
     verbose: bool,
 ) -> None:
     """List available conversations from local and cloud sources."""
@@ -903,6 +993,7 @@ def list_conversations(
         action_filter=action_filter,
         include_empty=include_empty,
         initial_show_all=show_all,
+        errors_only=errors_only,
     )
     
     conversations = filter_result.conversations
@@ -939,9 +1030,15 @@ def list_conversations(
     if show_refs:
         refs_map = _load_refs_for_conversations(conversations)
 
+    # Populate error info if requested (and not already populated by errors_only filter)
+    show_errors = with_errors or errors_only
+    if show_errors and not errors_only:
+        _populate_error_info(config, conversations)
+
     # Format output
     output_text = _format_list_output(
-        conversations, fmt, total_count, local_count, cloud_count, refs_map=refs_map
+        conversations, fmt, total_count, local_count, cloud_count, 
+        refs_map=refs_map, show_errors=show_errors
     )
 
     # Write to file or stdout
@@ -956,6 +1053,7 @@ def list_conversations(
                 show_hint=using_default_limit and len(conversations) < total_count,
                 possible_match_ids=possible_match_ids,
                 refs_map=refs_map,
+                show_errors=show_errors,
             )
         else:
             # For JSON and CSV, use plain print to avoid rich styling
@@ -1076,12 +1174,13 @@ def _format_list_output(
     cloud_count: int,
     *,
     refs_map: dict[str, list[str]] | None = None,
+    show_errors: bool = False,
 ) -> str:
     """Format conversation list for output."""
     if fmt == "json":
-        return _format_list_json(conversations, refs_map=refs_map)
+        return _format_list_json(conversations, refs_map=refs_map, show_errors=show_errors)
     if fmt == "csv":
-        return _format_list_csv(conversations, refs_map=refs_map)
+        return _format_list_csv(conversations, refs_map=refs_map, show_errors=show_errors)
     # Table format is handled separately with rich
     return ""
 
@@ -1090,6 +1189,7 @@ def _format_list_json(
     conversations: list[ConversationInfo],
     *,
     refs_map: dict[str, list[str]] | None = None,
+    show_errors: bool = False,
 ) -> str:
     """Format conversations as JSON."""
     items = []
@@ -1106,6 +1206,11 @@ def _format_list_json(
         }
         if refs_map is not None:
             item["refs"] = refs_map.get(conv.id, [])
+        if show_errors and conv.error_count is not None:
+            item["error_count"] = conv.error_count
+            item["error_types"] = conv.error_types or {}
+            item["has_terminal_error"] = conv.has_terminal_error
+            item["execution_status"] = conv.execution_status
         items.append(item)
     return json.dumps(items, indent=2)
 
@@ -1114,6 +1219,7 @@ def _format_list_csv(
     conversations: list[ConversationInfo],
     *,
     refs_map: dict[str, list[str]] | None = None,
+    show_errors: bool = False,
 ) -> str:
     """Format conversations as CSV."""
     output = io.StringIO()
@@ -1121,6 +1227,8 @@ def _format_list_csv(
     headers = ["id", "source", "started", "duration", "events", "title", "repository"]
     if refs_map is not None:
         headers.append("refs")
+    if show_errors:
+        headers.extend(["errors", "error_types", "terminal"])
     writer.writerow(headers)
 
     for conv in conversations:
@@ -1140,6 +1248,11 @@ def _format_list_csv(
         ]
         if refs_map is not None:
             row.append("; ".join(refs_map.get(conv.id, [])))
+        if show_errors:
+            from ohtv.errors import format_error_type_counts
+            row.append(conv.error_count if conv.error_count else "")
+            row.append(format_error_type_counts(conv.error_types or {}))
+            row.append("yes" if conv.has_terminal_error else "")
         writer.writerow(row)
 
     return output.getvalue()
@@ -1154,8 +1267,10 @@ def _print_list_table(
     show_hint: bool = False,
     possible_match_ids: set[str] | None = None,
     refs_map: dict[str, list[str]] | None = None,
+    show_errors: bool = False,
 ) -> None:
     """Print conversations as a rich table."""
+    from ohtv.errors import format_error_type_counts
     from ohtv.filters import normalize_conversation_id
     
     if possible_match_ids is None:
@@ -1167,6 +1282,8 @@ def _print_list_table(
     table.add_column("Started", width=16)
     table.add_column("Duration", width=10, justify="right")
     table.add_column("Events", width=6, justify="right")
+    if show_errors:
+        table.add_column("Errors", width=20, no_wrap=False)
     table.add_column("Title", no_wrap=False)
 
     # Normalize possible_match_ids for comparison (they may not have dashes)
@@ -1193,14 +1310,28 @@ def _print_list_table(
                 refs_str = ", ".join(refs)
                 title_text = f"{title_text}\n[dim]Refs: {refs_str}[/dim]"
         
-        table.add_row(
+        # Build error info column
+        error_text = ""
+        if show_errors:
+            if conv.error_count and conv.error_count > 0:
+                type_counts = format_error_type_counts(conv.error_types or {})
+                severity_tag = "[red]TERMINAL[/red]" if conv.has_terminal_error else "[yellow]RECOVERED[/yellow]"
+                error_text = f"{conv.error_count} {severity_tag}\n[dim]{type_counts}[/dim]"
+            else:
+                error_text = "[dim]-[/dim]"
+        
+        row = [
             id_display,
             f"[{source_style}]{conv.source}[/{source_style}]",
             started,
             _format_duration(conv.duration) if conv.duration else "",
             str(conv.event_count),
-            title_text,
-        )
+        ]
+        if show_errors:
+            row.append(error_text)
+        row.append(title_text)
+        
+        table.add_row(*row)
 
     console.print(table)
 
@@ -2044,6 +2175,142 @@ def _format_action_details(tool_name: str, action: dict) -> str:
             parts.append(f"{k}={v}")
         return ", ".join(parts)
     return ""
+
+
+@main.command()
+@click.argument("conversation_id")
+@click.option(
+    "--format", "-F", "fmt",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format (default: text)",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+def errors(
+    conversation_id: str,
+    fmt: str,
+    verbose: bool,
+) -> None:
+    """Show agent/LLM error summary for a conversation.
+    
+    Analyzes a conversation for ConversationErrorEvent and AgentErrorEvent
+    occurrences. These are errors that impact agent behavior - not routine
+    terminal command failures.
+    
+    Terminal errors cause the conversation to stop. Recovered errors occurred
+    but the agent continued working.
+    
+    Example:
+    
+        ohtv errors abc123
+    """
+    from ohtv.errors import analyze_conversation, format_error_type_counts
+    
+    _init_logging(verbose=verbose)
+    config = Config.from_env()
+    
+    result = _find_conversation_dir(config, conversation_id)
+    if not result:
+        console.print(f"[red]Error:[/red] Conversation not found: {conversation_id}")
+        raise SystemExit(1)
+    conv_dir, is_cloud = result
+    
+    # Get conversation info
+    conv_id, title = _get_conversation_info(conv_dir)
+    
+    # Analyze for errors
+    summary = analyze_conversation(conv_dir, conv_id)
+    
+    if fmt == "json":
+        output = {
+            "conversation_id": summary.conversation_id,
+            "execution_status": summary.execution_status,
+            "total_errors": summary.total_errors,
+            "terminal_count": summary.terminal_count,
+            "recovered_count": summary.recovered_count,
+            "has_terminal_error": summary.has_terminal_error,
+            "error_counts": summary.error_counts,
+            "errors": [
+                {
+                    "event_index": e.event_index,
+                    "event_id": e.event_id,
+                    "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+                    "error_type": e.error_type.value,
+                    "severity": e.severity.value,
+                    "code": e.code,
+                    "message": e.message,
+                    "tool_name": e.tool_name,
+                }
+                for e in summary.errors
+            ],
+        }
+        print(json.dumps(output, indent=2))
+        return
+    
+    # Text output
+    console.print(f"[bold]Error Summary for[/bold] [cyan]{conv_id[:12]}...[/cyan]")
+    if title:
+        console.print(f"[dim]{title[:60]}{'...' if len(title) > 60 else ''}[/dim]")
+    console.print()
+    
+    if not summary.has_errors:
+        console.print("[green]✓[/green] No agent/LLM errors in this conversation")
+        if summary.execution_status:
+            console.print(f"[dim]Execution status: {summary.execution_status}[/dim]")
+        return
+    
+    # Overview
+    status_color = "red" if summary.has_terminal_error else "yellow"
+    status_text = "TERMINAL" if summary.has_terminal_error else "RECOVERED"
+    console.print(f"[bold]Overview:[/bold] {summary.total_errors} error(s) [{status_color}]{status_text}[/{status_color}]")
+    if summary.execution_status:
+        console.print(f"[dim]Execution status: {summary.execution_status}[/dim]")
+    console.print()
+    
+    # Terminal errors (if any)
+    terminal_errors = [e for e in summary.errors if e.severity.value == "terminal"]
+    if terminal_errors:
+        console.print("[bold red]Terminal Error(s):[/bold red]")
+        for err in terminal_errors:
+            _print_error_detail(err)
+        console.print()
+    
+    # Recovered errors (if any)
+    recovered_errors = [e for e in summary.errors if e.severity.value == "recovered"]
+    if recovered_errors:
+        console.print("[bold yellow]Recovered Error(s):[/bold yellow]")
+        for err in recovered_errors:
+            _print_error_detail(err)
+
+
+def _print_error_detail(err) -> None:
+    """Print details for a single error."""
+    from ohtv.errors import ErrorInfo
+    
+    # Timestamp
+    ts_str = ""
+    if err.timestamp:
+        local_time = err.timestamp.astimezone()
+        ts_str = local_time.strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Header line
+    console.print(f"  [dim][{err.event_index}][/dim] {ts_str} [bold]{err.error_type.value}[/bold]")
+    
+    # Code (if present)
+    if err.code:
+        console.print(f"       Code: [cyan]{err.code}[/cyan]")
+    
+    # Tool name (if present)
+    if err.tool_name:
+        console.print(f"       Tool: {err.tool_name}")
+    
+    # Message/detail
+    if err.message:
+        # Truncate long messages
+        msg = err.message
+        if len(msg) > 200:
+            msg = msg[:200] + "..."
+        console.print(f"       Detail: {msg}")
 
 
 @main.command()

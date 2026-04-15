@@ -1,7 +1,7 @@
 """Abstract data source interface."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 
@@ -17,6 +17,11 @@ class ConversationInfo:
     selected_repository: str | None = None
     source: str = "local"  # "local" or "cloud"
     dir_name: str | None = None  # Actual directory name (may differ from id)
+    # Error tracking fields (populated lazily)
+    error_count: int | None = None
+    error_types: dict[str, int] | None = None  # ErrorType name -> count
+    has_terminal_error: bool | None = None
+    execution_status: str | None = None  # From base_state.json
 
     @property
     def duration(self) -> timedelta | None:
