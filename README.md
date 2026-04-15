@@ -607,6 +607,7 @@ Actions by type:
 | `OHTV_DB_PATH` | Direct path to database file | `~/.ohtv/index.db` |
 | `OHTV_CONVERSATIONS_DIR` | Local CLI conversations directory | `~/.openhands/conversations` |
 | `OHTV_CLOUD_CONVERSATIONS_DIR` | Synced cloud conversations directory | `~/.openhands/cloud/conversations` |
+| `OHTV_EXTRA_CONVERSATION_PATHS` | Additional conversation directories (colon-separated paths) | None |
 | `LLM_API_KEY` | API key for LLM provider | Required for `objectives`, `summary` |
 | `LLM_MODEL` | Default LLM model | Provider default |
 | `LLM_BASE_URL` | Custom LLM base URL | Provider default |

@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import logging
 import re
 from contextlib import nullcontext
 from dataclasses import dataclass, field
@@ -17,6 +18,8 @@ from rich.tree import Tree
 
 from ohtv.actions import READ_ACTIONS, WRITE_ACTIONS
 from ohtv.config import Config
+
+log = logging.getLogger("ohtv")
 
 
 # Commands that use LLM and consume tokens
@@ -293,10 +296,11 @@ def config(action: str | None, key: str | None, value: str | None) -> None:
     
     \b
     Configurable keys:
-      local_conversations_dir   Path to local CLI conversations
+      local_conversations_dir    Path to local CLI conversations
       synced_conversations_dir   Path to synced cloud conversations
-      cloud_api_url            OpenHands Cloud API URL
-      source                    Default source: 'local' or 'cloud'
+      cloud_api_url              OpenHands Cloud API URL
+      source                     Default source: 'local' or 'cloud'
+      extra_conversation_paths   Additional conversation directories (colon-separated)
     
     \b
     Configuration priority (highest first):
@@ -363,6 +367,11 @@ def _show_config() -> None:
         "source",
         str(cfg.source.value),
         _source_style(cfg.source.source),
+    )
+    table.add_row(
+        "extra_conversation_paths",
+        str(cfg.extra_conversation_paths.value) if cfg.extra_conversation_paths.value else "[dim]None[/dim]",
+        _source_style(cfg.extra_conversation_paths.source),
     )
     
     console.print()
@@ -953,8 +962,36 @@ def list_conversations(
             print(output_text)
 
 
+def _generate_unique_source_names(paths: list[Path]) -> list[str]:
+    """Generate unique source names from directory basenames with collision handling.
+    
+    Args:
+        paths: List of paths to conversation directories
+        
+    Returns:
+        List of unique source names, one for each path
+    """
+    if not paths:
+        return []
+    
+    basenames = [path.name for path in paths]
+    name_counts: dict[str, int] = {}
+    unique_names: list[str] = []
+    
+    for basename in basenames:
+        name = basename.lower().replace(" ", "_").replace("-", "_")
+        if name in name_counts:
+            name_counts[name] += 1
+            name = f"{name}_{name_counts[name]}"
+        else:
+            name_counts[name] = 0
+        unique_names.append(name)
+    
+    return unique_names
+
+
 def _load_all_conversations(config: Config) -> list[ConversationInfo]:
-    """Load conversations from both local and cloud directories."""
+    """Load conversations from local, cloud, and extra directories."""
     conversations: list[ConversationInfo] = []
 
     # Load local conversations
@@ -964,6 +1001,20 @@ def _load_all_conversations(config: Config) -> list[ConversationInfo]:
     # Load cloud conversations (synced)
     cloud_source = LocalSource(config.synced_conversations_dir, source_name="cloud")
     conversations.extend(cloud_source.list_conversations())
+
+    # Load extra conversation paths
+    # Note: Extra paths are assumed to use UTC timestamps (like cloud conversations).
+    # If you're pointing to local CLI conversations, timestamps may display incorrectly.
+    extra_source_names = _generate_unique_source_names(config.extra_conversation_paths)
+    for path, source_name in zip(config.extra_conversation_paths, extra_source_names):
+        if not path.exists():
+            log.warning("Skipping nonexistent conversation path: %s", path)
+            continue
+        if not path.is_dir():
+            log.warning("Skipping non-directory conversation path: %s", path)
+            continue
+        extra_source = LocalSource(path, source_name=source_name)
+        conversations.extend(extra_source.list_conversations())
 
     return conversations
 
@@ -3253,20 +3304,25 @@ def _format_summary_markdown(results: list[dict], *, include_outputs: bool = Tru
 
 
 def _find_conversation_dir(config: Config, conv_id: str) -> tuple[Path, bool] | None:
-    """Find conversation directory across both local and cloud sources.
+    """Find conversation directory across local, cloud, and extra sources.
 
     Returns:
         Tuple of (directory_path, is_cloud_source) or None if not found
+        Note: is_cloud_source indicates whether timestamps are UTC (True) or local (False)
     """
     # Normalize conv_id - remove dashes for directory lookup
     # (ConversationInfo.id has dashes, but directory names don't)
     normalized_id = conv_id.replace("-", "")
     
-    # Search both directories - local first, then cloud
+    # Search all directories - local first, then cloud, then extra
     dirs_to_search = [
         (config.local_conversations_dir, False),  # (path, is_cloud)
         (config.synced_conversations_dir, True),
     ]
+    
+    # Add extra paths (assume UTC timestamps like cloud)
+    for extra_path in config.extra_conversation_paths:
+        dirs_to_search.append((extra_path, True))
 
     all_matches: list[tuple[Path, bool]] = []
 
