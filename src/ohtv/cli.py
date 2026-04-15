@@ -296,10 +296,11 @@ def config(action: str | None, key: str | None, value: str | None) -> None:
     
     \b
     Configurable keys:
-      local_conversations_dir   Path to local CLI conversations
+      local_conversations_dir    Path to local CLI conversations
       synced_conversations_dir   Path to synced cloud conversations
-      cloud_api_url            OpenHands Cloud API URL
-      source                    Default source: 'local' or 'cloud'
+      cloud_api_url              OpenHands Cloud API URL
+      source                     Default source: 'local' or 'cloud'
+      extra_conversation_paths   Additional conversation directories (colon-separated)
     
     \b
     Configuration priority (highest first):
@@ -366,6 +367,11 @@ def _show_config() -> None:
         "source",
         str(cfg.source.value),
         _source_style(cfg.source.source),
+    )
+    table.add_row(
+        "extra_conversation_paths",
+        str(cfg.extra_conversation_paths.value) if cfg.extra_conversation_paths.value else "[dim]None[/dim]",
+        _source_style(cfg.extra_conversation_paths.source),
     )
     
     console.print()
