@@ -3330,7 +3330,9 @@ def summary(
         # --refresh forces all to be recomputed
         uncached_count = len(conversations)
     else:
-        # Check cache status for each conversation
+        # Check cache status for each conversation (including skip markers)
+        from ohtv.analysis.objectives import _cache_manager
+        from ohtv.analysis.cache import load_events
         uncached_count = 0
         for conv in conversations:
             result = _find_conversation_dir(config, conv.lookup_id)
@@ -3340,7 +3342,11 @@ def summary(
                     conv_dir, context=context, detail=detail, assess=assess
                 )
                 if cached is None:
-                    uncached_count += 1
+                    # Also check for skip marker (counts as "cached" since we won't call LLM)
+                    events = load_events(conv_dir)
+                    skip_reason = _cache_manager.is_skipped(conv_dir, len(events))
+                    if skip_reason is None:
+                        uncached_count += 1
             else:
                 # Can't find dir = will fail anyway, count as uncached
                 uncached_count += 1

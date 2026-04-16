@@ -532,12 +532,26 @@ def analyze_objectives(
 
     # Validate we have content
     conv_id = conv_dir.name
+    event_count = len(data.events)
+
     if not data.events:
+        # Check if already marked as skipped
+        if not force_refresh:
+            skip_reason = _cache_manager.is_skipped(conv_dir, event_count)
+            if skip_reason:
+                raise ValueError(f"Skipped (cached): {skip_reason}")
+        _cache_manager.mark_skipped(conv_dir, event_count, "no_events")
         raise ValueError(f"No events found in conversation: {conv_id}")
+
     if not data.items:
+        # Check if already marked as skipped
+        if not force_refresh:
+            skip_reason = _cache_manager.is_skipped(conv_dir, event_count)
+            if skip_reason:
+                raise ValueError(f"Skipped (cached): {skip_reason}")
+        _cache_manager.mark_skipped(conv_dir, event_count, "no_analyzable_content")
         raise ValueError(f"No content found in conversation: {conv_id}")
 
-    event_count = len(data.events)
     with _timer("format_transcript"):
         transcript = format_transcript(data.items)
 

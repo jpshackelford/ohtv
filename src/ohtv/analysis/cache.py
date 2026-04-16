@@ -17,7 +17,7 @@ Cache invalidation strategy:
 import hashlib
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -254,5 +254,60 @@ class AnalysisCacheManager:
 
         cache_data["analyses"][cache_key] = analysis.model_dump(mode="json")
 
+        # Clear any skip marker since we successfully analyzed
+        cache_data.pop("skipped", None)
+
         self._save_cache_data(cache_file, cache_data)
         log.debug("Analysis cached to %s (key: %s)", cache_file, cache_key)
+
+    def is_skipped(self, conv_dir: Path, event_count: int) -> str | None:
+        """Check if conversation is marked as skipped.
+
+        Args:
+            conv_dir: Conversation directory
+            event_count: Current event count (for invalidation check)
+
+        Returns:
+            Skip reason if skipped and still valid, None otherwise.
+        """
+        cache_file = self.get_cache_file(conv_dir)
+        cache_data = self._load_cache_data(cache_file)
+
+        if cache_data is None:
+            return None
+
+        skipped = cache_data.get("skipped")
+        if not skipped:
+            return None
+
+        # Check if event count changed (conversation grew, should retry)
+        cached_event_count = cache_data.get("event_count")
+        if cached_event_count != event_count:
+            log.debug(
+                "Skip marker invalidated: event count changed (%s -> %d)",
+                cached_event_count,
+                event_count,
+            )
+            return None
+
+        return skipped.get("reason")
+
+    def mark_skipped(self, conv_dir: Path, event_count: int, reason: str) -> None:
+        """Mark a conversation as skipped (cannot be analyzed).
+
+        Args:
+            conv_dir: Conversation directory
+            event_count: Current event count
+            reason: Why the conversation was skipped
+        """
+        cache_file = self.get_cache_file(conv_dir)
+        cache_data = self._load_cache_data(cache_file) or {"analyses": {}}
+
+        cache_data["event_count"] = event_count
+        cache_data["skipped"] = {
+            "reason": reason,
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        self._save_cache_data(cache_file, cache_data)
+        log.debug("Conversation marked as skipped: %s (reason: %s)", conv_dir.name, reason)
