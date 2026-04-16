@@ -311,7 +311,7 @@ def extract_message_content(event: dict, include_critic: bool = False) -> str:
 def extract_action_summary(event: dict) -> str:
     """Extract a brief summary of an action."""
     tool_name = event.get("tool_name", "unknown")
-    action = event.get("action", {})
+    action = event.get("action") or {}
 
     if tool_name == "terminal":
         cmd = action.get("command", "")[:100]
