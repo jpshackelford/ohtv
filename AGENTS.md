@@ -13,13 +13,14 @@ uv run ohtv --help         # Run CLI
 
 ## Code Structure
 
-- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, errors, sync, objectives, summary, db)
+- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, errors, sync, objectives, summary, db, prompts)
 - `src/ohtv/config.py` - Configuration management
 - `src/ohtv/sync.py` - Cloud sync logic
 - `src/ohtv/sources/` - Data sources (local, cloud)
 - `src/ohtv/exporter.py` - Output formatting
 - `src/ohtv/errors.py` - Agent/LLM error analysis (ConversationErrorEvent, AgentErrorEvent)
 - `src/ohtv/analysis/` - LLM-based analysis features (objectives extraction, summary)
+- `src/ohtv/prompts/` - Customizable LLM prompt templates (markdown files)
 - `src/ohtv/db/` - SQLite-based indexing for conversation labeling
 
 ## Architecture & Design Decisions
@@ -134,6 +135,13 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - **Progress display**: Long-running tasks show progress bars
     - **Implementation**: `ensure_db_ready()` in `db/maintenance.py` handles all maintenance
 
+25. **Customizable prompts**: LLM analysis prompts are stored as markdown files for user customization:
+    - **Default prompts**: `src/ohtv/prompts/*.md` - 6 prompt variants (brief, standard, detailed × assess/no-assess)
+    - **User prompts**: `~/.ohtv/prompts/*.md` - Override defaults by copying and editing
+    - **Load order**: User prompts checked first, then package defaults
+    - **Management**: `ohtv prompts` command for init/list/show/reset operations
+    - **Implementation**: `get_prompt(name)` in `ohtv/prompts/__init__.py` handles loading
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input
@@ -160,6 +168,9 @@ uv run ohtv refs -W --format json      # This week's refs as JSON
 uv run ohtv errors <id>                # Agent/LLM error summary
 uv run ohtv list --errors-only         # List conversations with errors
 uv run ohtv db status                  # Database statistics
+uv run ohtv prompts                    # List prompt status
+uv run ohtv prompts init               # Copy prompts for customization
+uv run ohtv prompts show brief         # Show specific prompt content
 ```
 
 ## Reference Documentation

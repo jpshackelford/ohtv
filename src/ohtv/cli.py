@@ -5413,5 +5413,153 @@ def db_reset(yes: bool) -> None:
     console.print("[dim]Run 'ohtv db init' or 'ohtv db process all' to recreate.[/dim]")
 
 
+# =============================================================================
+# Prompts Commands
+# =============================================================================
+
+
+@main.command()
+@click.argument("action", required=False, type=click.Choice(["init", "list", "show", "reset"]))
+@click.argument("name", required=False)
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing user prompts")
+def prompts(action: str | None, name: str | None, force: bool) -> None:
+    """View and customize LLM analysis prompts.
+    
+    \b
+    Without arguments, shows prompt status (default vs customized).
+    
+    \b
+    Actions:
+      init   Copy all prompts to ~/.ohtv/prompts/ for customization
+      list   Show all prompts with their status
+      show   Display the content of a specific prompt
+      reset  Reset a specific prompt (or all) to defaults
+    
+    \b
+    Examples:
+      ohtv prompts              # Show prompt status
+      ohtv prompts init         # Copy prompts for customization
+      ohtv prompts init --force # Overwrite existing customizations
+      ohtv prompts show brief   # Show the brief prompt content
+      ohtv prompts reset brief  # Reset brief prompt to default
+      ohtv prompts reset --force # Reset all prompts to defaults
+    """
+    from ohtv.prompts import (
+        PROMPT_NAMES,
+        get_default_prompts_dir,
+        get_prompt,
+        get_user_prompts_dir,
+        init_user_prompts,
+        list_prompts,
+    )
+    
+    if action is None or action == "list":
+        _show_prompts_status(list_prompts(), get_user_prompts_dir())
+        return
+    
+    if action == "init":
+        copied = init_user_prompts(force=force)
+        if copied:
+            console.print(f"[green]✓[/green] Copied {len(copied)} prompt(s) to {get_user_prompts_dir()}/")
+            for prompt_name in copied:
+                console.print(f"  • {prompt_name}.md")
+            console.print()
+            console.print("[dim]Edit these files to customize prompts.[/dim]")
+        else:
+            console.print("[dim]All prompts already exist. Use --force to overwrite.[/dim]")
+        return
+    
+    if action == "show":
+        if not name:
+            console.print("[red]Error:[/red] Please specify a prompt name.")
+            console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+            return
+        if name not in PROMPT_NAMES:
+            console.print(f"[red]Error:[/red] Unknown prompt: {name}")
+            console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+            return
+        try:
+            content = get_prompt(name)
+            console.print(f"[bold]Prompt: {name}[/bold]")
+            console.print()
+            console.print(content)
+        except FileNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+        return
+    
+    if action == "reset":
+        user_dir = get_user_prompts_dir()
+        default_dir = get_default_prompts_dir()
+        
+        if name:
+            # Reset specific prompt
+            if name not in PROMPT_NAMES:
+                console.print(f"[red]Error:[/red] Unknown prompt: {name}")
+                console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+                return
+            
+            user_path = user_dir / f"{name}.md"
+            if not user_path.exists():
+                console.print(f"[dim]No user prompt to reset: {name}[/dim]")
+                return
+            
+            default_path = default_dir / f"{name}.md"
+            if default_path.exists():
+                user_path.write_text(default_path.read_text())
+                console.print(f"[green]✓[/green] Reset {name} to default")
+            else:
+                user_path.unlink()
+                console.print(f"[green]✓[/green] Removed {name} (will use built-in default)")
+        elif force:
+            # Reset all prompts
+            reset_count = 0
+            for prompt_name in PROMPT_NAMES:
+                user_path = user_dir / f"{prompt_name}.md"
+                default_path = default_dir / f"{prompt_name}.md"
+                if user_path.exists() and default_path.exists():
+                    user_path.write_text(default_path.read_text())
+                    reset_count += 1
+            if reset_count:
+                console.print(f"[green]✓[/green] Reset {reset_count} prompt(s) to defaults")
+            else:
+                console.print("[dim]No user prompts to reset.[/dim]")
+        else:
+            console.print("[yellow]Specify a prompt name or use --force to reset all.[/yellow]")
+            console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+        return
+
+
+def _show_prompts_status(prompts_list: list[dict], user_dir) -> None:
+    """Display prompt status in a table."""
+    table = Table(title="LLM Analysis Prompts")
+    table.add_column("Prompt", style="cyan")
+    table.add_column("Status")
+    table.add_column("Location", style="dim")
+    
+    for prompt_info in prompts_list:
+        name = prompt_info["name"]
+        status = prompt_info["status"]
+        
+        if status == "customized":
+            status_display = "[green]customized[/green]"
+            location = str(prompt_info["user_path"])
+        elif status == "copied":
+            status_display = "[dim]copied (unchanged)[/dim]"
+            location = str(prompt_info["user_path"])
+        elif status == "default":
+            status_display = "[dim]default[/dim]"
+            location = "(built-in)"
+        else:
+            status_display = "[red]missing[/red]"
+            location = ""
+        
+        table.add_row(name, status_display, location)
+    
+    console.print(table)
+    console.print()
+    console.print(f"[dim]User prompts directory: {user_dir}[/dim]")
+    console.print("[dim]Run 'ohtv prompts init' to copy prompts for customization.[/dim]")
+
+
 if __name__ == "__main__":
     main()

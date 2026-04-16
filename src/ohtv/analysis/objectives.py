@@ -120,157 +120,12 @@ DetailLevel = Literal["brief", "standard", "detailed"]
 # Status values for assessment
 STATUS_VALUES = "achieved|not_achieved|in_progress"
 
-# =============================================================================
-# Prompts without assessment (default)
-# =============================================================================
 
-PROMPT_BRIEF = """Analyze this conversation between a user and an AI coding assistant.
-
-In 1-2 sentences, describe the user's goal using imperative mood (e.g., "Add pagination to search results" not "The user wants to add pagination").
-
-Do not assess whether the goal was achieved. Just identify what they want.
-
-Respond with JSON:
-{"goal": "1-2 sentence description in imperative mood"}"""
-
-PROMPT_STANDARD = """Analyze this conversation between a user and an AI coding assistant.
-
-Identify:
-1. The user's primary goal (1-2 sentences)
-2. Primary outcomes or success criteria (3-6 bullets max)
-3. Secondary outcomes if any (3-6 bullets max)
-
-Do not assess whether goals were achieved. Just identify what the user wants.
-
-Respond with JSON:
-{
-  "goal": "1-2 sentence description of the primary goal",
-  "primary_outcomes": ["outcome 1", "outcome 2"],
-  "secondary_outcomes": ["outcome 1", "outcome 2"]
-}"""
-
-# =============================================================================
-# Prompts WITH assessment (--assess flag)
-#
-# Assessment philosophy: Be optimistic and decisive.
-# - Assume success unless there's clear evidence of failure
-# - Failure signals: user frustration, repeated retry requests, explicit errors,
-#   user giving up, negative feedback
-# - No "partially achieved" - make a decision
-# =============================================================================
-
-PROMPT_BRIEF_ASSESS = """Analyze this conversation between a user and an AI coding assistant.
-
-1. In 1-2 sentences, describe: What outcome does the user hope to achieve?
-2. Assess whether the goal was achieved.
-
-ASSESSMENT APPROACH: Be optimistic and decisive.
-- Assume SUCCESS unless there is clear evidence of failure
-- Failure signals: user frustration, requests to retry followed by giving up,
-  explicit errors that weren't resolved, negative feedback
-- Do NOT use "partially achieved" - decide achieved or not achieved
-
-Status values:
-- achieved: Goal was accomplished (default assumption unless failure signals present)
-- not_achieved: Clear evidence of failure (errors, user frustration, giving up)
-- in_progress: Conversation ended mid-work with no conclusion
-
-Respond with JSON:
-{
-  "goal": "1-2 sentence description of what the user wants to accomplish",
-  "status": "achieved|not_achieved|in_progress"
-}"""
-
-PROMPT_STANDARD_ASSESS = """Analyze this conversation between a user and an AI coding assistant.
-
-Identify:
-1. The user's primary goal (1-2 sentences)
-2. Primary outcomes or success criteria (3-6 bullets max)
-3. Secondary outcomes if any (3-6 bullets max)
-4. Overall status of goal achievement
-
-ASSESSMENT APPROACH: Be optimistic and decisive.
-- Assume SUCCESS unless there is clear evidence of failure
-- Failure signals: user frustration, requests to retry followed by giving up,
-  explicit errors that weren't resolved, negative feedback
-- Do NOT use "partially achieved" - decide achieved or not achieved
-
-Status values:
-- achieved: Goal was accomplished (default assumption unless failure signals present)
-- not_achieved: Clear evidence of failure (errors, user frustration, giving up)
-- in_progress: Conversation ended mid-work with no conclusion
-
-Respond with JSON:
-{
-  "goal": "1-2 sentence description of the primary goal",
-  "status": "achieved|not_achieved|in_progress",
-  "primary_outcomes": ["outcome 1", "outcome 2"],
-  "secondary_outcomes": ["outcome 1", "outcome 2"]
-}"""
-
-PROMPT_DETAILED = """You are an expert at analyzing software development conversations to identify user objectives.
-
-Given a conversation between a user and an AI coding assistant, identify:
-1. PRIMARY OBJECTIVES: The main goals the user is trying to accomplish
-2. SUBORDINATE OBJECTIVES: Supporting goals that help achieve the primary ones
-
-Do not assess whether objectives were achieved. Just identify what the user wants to accomplish
-and structure them hierarchically.
-
-Respond with a JSON object in this exact format:
-{
-  "primary_objectives": [
-    {
-      "description": "Clear description of the objective",
-      "subordinates": [
-        {
-          "description": "Description of subordinate objective",
-          "subordinates": []
-        }
-      ]
-    }
-  ],
-  "summary": "Brief overall summary of what the user was trying to accomplish"
-}"""
-
-PROMPT_DETAILED_ASSESS = """You are an expert at analyzing software development conversations to identify user objectives.
-
-Given a conversation between a user and an AI coding assistant, identify:
-1. PRIMARY OBJECTIVES: The main goals the user is trying to accomplish
-2. SUBORDINATE OBJECTIVES: Supporting goals that help achieve the primary ones
-
-ASSESSMENT APPROACH: Be optimistic and decisive.
-- Assume SUCCESS unless there is clear evidence of failure
-- Failure signals: user frustration, requests to retry followed by giving up,
-  explicit errors that weren't resolved, negative feedback
-- Do NOT use "partially achieved" - decide achieved or not achieved
-
-For each objective, assess its status:
-- achieved: Objective was accomplished (default assumption unless failure signals present)
-- not_achieved: Clear evidence of failure (errors, user frustration, giving up)
-- in_progress: Work is ongoing with no conclusion yet
-
-Provide brief evidence from the conversation to support your assessment.
-
-Respond with a JSON object in this exact format:
-{
-  "primary_objectives": [
-    {
-      "description": "Clear description of the objective",
-      "status": "achieved|not_achieved|in_progress",
-      "evidence": "Brief quote or reference from conversation",
-      "subordinates": [
-        {
-          "description": "Description of subordinate objective",
-          "status": "status",
-          "evidence": "evidence",
-          "subordinates": []
-        }
-      ]
-    }
-  ],
-  "summary": "Brief overall summary of what the user was trying to accomplish"
-}"""
+def _get_prompt_name(detail: str, assess: bool) -> str:
+    """Get the prompt name based on detail level and assess flag."""
+    if assess:
+        return f"{detail}_assess"
+    return detail
 
 
 # =============================================================================
@@ -571,15 +426,10 @@ def analyze_objectives(
 
     model_used = llm.model
 
-    # Select prompt based on detail level and assess flag
-    if detail == "detailed":
-        system_prompt = PROMPT_DETAILED_ASSESS if assess else PROMPT_DETAILED
-    elif assess:
-        # Assessment variants for brief/standard
-        system_prompt = PROMPT_BRIEF_ASSESS if detail == "brief" else PROMPT_STANDARD_ASSESS
-    else:
-        # No assessment
-        system_prompt = PROMPT_BRIEF if detail == "brief" else PROMPT_STANDARD
+    # Load prompt from prompts module (supports user customization)
+    from ohtv.prompts import get_prompt
+    prompt_name = _get_prompt_name(detail, assess)
+    system_prompt = get_prompt(prompt_name)
 
     # Estimate tokens and log analysis parameters
     approx_tokens = int(len(transcript.split()) * 1.3)
