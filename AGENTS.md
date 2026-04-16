@@ -35,7 +35,7 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
 
 4. **Timezone handling**: Cloud timestamps are UTC; local CLI timestamps lack timezone info. The codebase normalizes to UTC for sorting, then converts to local time for display. **Limitation:** Local timestamps are interpreted using the current machine's timezone - if data moves between machines with different timezones, times may display incorrectly.
 
-5. **LLM analysis caching**: The `objectives` and `summary` commands cache results keyed by parameter combination (context level, detail level, assess flag). Cache invalidates when event count changes (conversation grew). The `summary` command uses minimal context + brief detail for token efficiency.
+5. **LLM analysis caching**: The `objectives` and `summary` commands cache results keyed by parameter combination (context level, detail level, assess flag). Cache invalidates when event count changes (conversation grew) or when the prompt file changes (detected via prompt hash). The `summary` command uses minimal context + brief detail for token efficiency.
 
 6. **LLM timeout**: Default 300s. Override with `LLM_TIMEOUT` env var. CLI shows spinner during analysis.
 
@@ -140,7 +140,8 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - **User prompts**: `~/.ohtv/prompts/*.md` - Override defaults by copying and editing
     - **Load order**: User prompts checked first, then package defaults
     - **Management**: `ohtv prompts` command for init/list/show/reset operations
-    - **Implementation**: `get_prompt(name)` in `ohtv/prompts/__init__.py` handles loading
+    - **Implementation**: `get_prompt(name)` and `get_prompt_hash(name)` in `ohtv/prompts/__init__.py`
+    - **Cache invalidation**: Prompt hash (SHA256, first 16 chars) is stored with cached analysis; cache invalidates when prompt content changes
 
 ## Troubleshooting
 

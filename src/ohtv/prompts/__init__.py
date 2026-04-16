@@ -5,12 +5,14 @@ The system checks for user prompts in ~/.ohtv/prompts/ first, then
 falls back to the default prompts bundled with the package.
 
 Usage:
-    from ohtv.prompts import get_prompt
+    from ohtv.prompts import get_prompt, get_prompt_hash
     
     prompt = get_prompt("brief")  # Gets the brief analysis prompt
     prompt = get_prompt("brief_assess")  # Gets the brief analysis prompt with assessment
+    hash = get_prompt_hash("brief")  # Gets hash for cache invalidation
 """
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -39,14 +41,14 @@ def get_user_prompts_dir() -> Path:
     return get_ohtv_dir() / "prompts"
 
 
-def get_prompt(name: str) -> str:
-    """Load a prompt by name, checking user directory first, then defaults.
+def _get_prompt_path(name: str) -> Path:
+    """Get the path to a prompt file, checking user directory first.
     
     Args:
-        name: Prompt name without .md extension (e.g., "brief", "standard_assess")
+        name: Prompt name without .md extension
         
     Returns:
-        The prompt text content
+        Path to the prompt file
         
     Raises:
         ValueError: If the prompt name is unknown
@@ -60,16 +62,52 @@ def get_prompt(name: str) -> str:
     # Check user directory first
     user_path = get_user_prompts_dir() / filename
     if user_path.exists():
-        log.debug("Loading user prompt from %s", user_path)
-        return user_path.read_text()
+        return user_path
     
     # Fall back to default
     default_path = get_default_prompts_dir() / filename
     if default_path.exists():
-        log.debug("Loading default prompt from %s", default_path)
-        return default_path.read_text()
+        return default_path
     
     raise FileNotFoundError(f"Prompt file not found: {filename}")
+
+
+def get_prompt(name: str) -> str:
+    """Load a prompt by name, checking user directory first, then defaults.
+    
+    Args:
+        name: Prompt name without .md extension (e.g., "brief", "standard_assess")
+        
+    Returns:
+        The prompt text content
+        
+    Raises:
+        ValueError: If the prompt name is unknown
+        FileNotFoundError: If the prompt file cannot be found
+    """
+    path = _get_prompt_path(name)
+    log.debug("Loading prompt from %s", path)
+    return path.read_text()
+
+
+def get_prompt_hash(name: str) -> str:
+    """Get a hash of the prompt content for cache invalidation.
+    
+    This allows the analysis cache to detect when a prompt has been
+    modified and invalidate cached results that used the old prompt.
+    
+    Args:
+        name: Prompt name without .md extension (e.g., "brief", "standard_assess")
+        
+    Returns:
+        16-character hex hash of the prompt content
+        
+    Raises:
+        ValueError: If the prompt name is unknown
+        FileNotFoundError: If the prompt file cannot be found
+    """
+    content = get_prompt(name)
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
 def init_user_prompts(force: bool = False) -> list[str]:

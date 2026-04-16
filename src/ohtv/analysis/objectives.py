@@ -276,16 +276,22 @@ def get_cached_analysis(
     Cache is invalidated if:
     - Event count has changed (quick check for trajectory growth)
     - Content hash has changed (conversation was modified)
+    - Prompt hash has changed (prompt file was modified)
     - Context level has changed
     - Detail level has changed
     - Assess flag has changed
     """
+    from ohtv.prompts import get_prompt_hash
+    
     data = _prepare_data(conv_dir, context)
+    prompt_name = _get_prompt_name(detail, assess)
+    prompt_hash = get_prompt_hash(prompt_name)
 
     return _cache_manager.load_cached(
         conv_dir,
         data.events,
         data.content_hash,
+        prompt_hash=prompt_hash,
         context_level=context,
         detail_level=detail,
         assess=assess,
@@ -297,6 +303,7 @@ def _check_cache_with_data(
     context: ContextLevel,
     detail: DetailLevel,
     assess: bool,
+    prompt_hash: str,
 ) -> tuple[ObjectiveAnalysis | None, _PreparedData]:
     """Check cache and return both result and prepared data.
     
@@ -309,6 +316,7 @@ def _check_cache_with_data(
         conv_dir,
         data.events,
         data.content_hash,
+        prompt_hash=prompt_hash,
         context_level=context,
         detail_level=detail,
         assess=assess,
@@ -374,13 +382,18 @@ def analyze_objectives(
         effective_context = "default"
         log.debug("Upgrading context to 'default' for assessment (need finish action)")
 
+    # Get prompt hash early for cache validation
+    from ohtv.prompts import get_prompt_hash
+    prompt_name = _get_prompt_name(detail, assess)
+    prompt_hash = get_prompt_hash(prompt_name)
+
     # Check cache and get prepared data (avoids double-loading on cache miss)
     if force_refresh:
         # Still need to load data even when forcing refresh
         data = _prepare_data(conv_dir, effective_context)
         cached = None
     else:
-        cached, data = _check_cache_with_data(conv_dir, effective_context, detail, assess)
+        cached, data = _check_cache_with_data(conv_dir, effective_context, detail, assess, prompt_hash)
         if cached:
             log.debug("Using cached analysis from %s", cached.analyzed_at)
             return AnalysisResult(analysis=cached, cost=0.0, from_cache=True)
@@ -427,8 +440,8 @@ def analyze_objectives(
     model_used = llm.model
 
     # Load prompt from prompts module (supports user customization)
+    # (prompt_name already computed above for cache validation)
     from ohtv.prompts import get_prompt
-    prompt_name = _get_prompt_name(detail, assess)
     system_prompt = get_prompt(prompt_name)
 
     # Estimate tokens and log analysis parameters
@@ -529,6 +542,7 @@ def analyze_objectives(
             model_used=model_used,
             event_count=event_count,
             content_hash=data.content_hash,
+            prompt_hash=prompt_hash,
             context_level=effective_context,
             detail_level=detail,
             assess=assess,
@@ -543,6 +557,7 @@ def analyze_objectives(
             model_used=model_used,
             event_count=event_count,
             content_hash=data.content_hash,
+            prompt_hash=prompt_hash,
             context_level=effective_context,
             detail_level=detail,
             assess=assess,

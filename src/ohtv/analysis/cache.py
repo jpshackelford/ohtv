@@ -43,6 +43,7 @@ class CachedAnalysis(BaseModel):
     # Cache validation fields
     event_count: int
     content_hash: str
+    prompt_hash: str | None = None  # Hash of prompt used (for cache invalidation)
 
 
 def load_events(conv_dir: Path) -> list[dict]:
@@ -174,6 +175,7 @@ class AnalysisCacheManager:
         conv_dir: Path,
         events: list[dict],
         content_hash: str,
+        prompt_hash: str | None = None,
         **validation_kwargs,
     ) -> T | None:
         """Load cached analysis if valid.
@@ -182,6 +184,7 @@ class AnalysisCacheManager:
             conv_dir: Conversation directory
             events: Current events list
             content_hash: Current content hash
+            prompt_hash: Current prompt hash (if provided, must match cached value)
             **validation_kwargs: Parameters that identify the analysis type
                 (e.g., context_level, detail_level, assess). Used both as
                 cache key and for validation.
@@ -225,6 +228,17 @@ class AnalysisCacheManager:
         if analysis.content_hash != content_hash:
             log.debug("Cache invalidated for key '%s': content hash mismatch", cache_key)
             return None
+
+        # Validate prompt hash (if provided and cached analysis has one)
+        if prompt_hash is not None and analysis.prompt_hash is not None:
+            if analysis.prompt_hash != prompt_hash:
+                log.debug(
+                    "Cache invalidated for key '%s': prompt hash mismatch (%s -> %s)",
+                    cache_key,
+                    analysis.prompt_hash,
+                    prompt_hash,
+                )
+                return None
 
         # Validate that stored parameters match requested parameters
         for key, expected_value in validation_kwargs.items():
