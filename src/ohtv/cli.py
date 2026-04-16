@@ -1103,6 +1103,7 @@ def list_conversations(
                 possible_match_ids=possible_match_ids,
                 refs_map=refs_map,
                 show_errors=show_errors,
+                hide_title=errors_only,
             )
         else:
             # For JSON and CSV, use plain print to avoid rich styling
@@ -1317,6 +1318,7 @@ def _print_list_table(
     possible_match_ids: set[str] | None = None,
     refs_map: dict[str, list[str]] | None = None,
     show_errors: bool = False,
+    hide_title: bool = False,
 ) -> None:
     """Print conversations as a rich table."""
     from ohtv.errors import format_error_type_counts
@@ -1326,14 +1328,15 @@ def _print_list_table(
         possible_match_ids = set()
     
     table = Table(show_header=True, header_style="bold")
-    table.add_column("ID", style="cyan", width=7)
-    table.add_column("Source", width=6)
-    table.add_column("Started", width=16)
-    table.add_column("Duration", width=10, justify="right")
-    table.add_column("Events", width=6, justify="right")
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("Source", no_wrap=True)
+    table.add_column("Started", no_wrap=True)
+    table.add_column("Duration", justify="right", no_wrap=True)
+    table.add_column("Events", justify="right", no_wrap=True)
     if show_errors:
-        table.add_column("Errors", width=20, no_wrap=False)
-    table.add_column("Title", no_wrap=False)
+        table.add_column("Errors", no_wrap=True)
+    if not hide_title:
+        table.add_column("Title", no_wrap=False, max_width=40)
 
     # Normalize possible_match_ids for comparison (they may not have dashes)
     normalized_possible = {normalize_conversation_id(pid) for pid in possible_match_ids}
@@ -1364,8 +1367,11 @@ def _print_list_table(
         if show_errors:
             if conv.error_count and conv.error_count > 0:
                 type_counts = format_error_type_counts(conv.error_types or {})
-                severity_tag = "[red]TERMINAL[/red]" if conv.has_terminal_error else "[yellow]RECOVERED[/yellow]"
-                error_text = f"{conv.error_count} {severity_tag}\n[dim]{type_counts}[/dim]"
+                severity_tag = "[red]TERM[/red]" if conv.has_terminal_error else "[yellow]RCVD[/yellow]"
+                if type_counts:
+                    error_text = f"{conv.error_count} {severity_tag}: [dim]{type_counts}[/dim]"
+                else:
+                    error_text = f"{conv.error_count} {severity_tag}"
             else:
                 error_text = "[dim]-[/dim]"
         
@@ -1378,7 +1384,8 @@ def _print_list_table(
         ]
         if show_errors:
             row.append(error_text)
-        row.append(title_text)
+        if not hide_title:
+            row.append(title_text)
         
         table.add_row(*row)
 
