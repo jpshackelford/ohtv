@@ -92,6 +92,26 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - Errors are classified as TERMINAL (conversation stopped) or RECOVERED (agent continued)
     - Used by `ohtv errors <id>` command and `ohtv list --errors-only` filter
 
+19. **LLM analysis performance timing**: The `analysis/objectives.py` module has timing instrumentation. Check `~/.ohtv/logs/ohtv.log` for entries like:
+    ```
+    TIMING load_events: 11.3ms
+    TIMING import_sdk: 1962.5ms
+    TIMING llm_completion: 9152.9ms
+    Analysis complete and cached (cost: $0.0074, total: 11223.0ms)
+    ```
+    **Performance breakdown** (typical):
+    - `llm_completion`: ~90% of time (8-15 seconds per request)
+    - `import_sdk`: ~2 seconds on cold start (first request only)
+    - Event loading/transcript building: <100ms
+    - Cache operations: <10ms
+
+20. **Parallel LLM processing**: The `summary` command automatically uses parallel processing (20 workers) when analyzing multiple conversations. This is an internal optimization - no CLI option needed. Uses `ThreadPoolExecutor` with thread-safe counters. **Graceful shutdown**: SIGINT/SIGTERM signals are caught - in-flight LLM requests complete and cache is saved before exit, preventing data corruption. **Confirmation prompt**: Shows model name when analyzing >20 conversations.
+
+21. **Model configuration**: LLM model can be set via:
+    - CLI: `--model/-m` option on `summary` and `objectives` commands
+    - Environment: `LLM_MODEL` env var (used by SDK's `LLM.load_from_env()`)
+    - Try `haiku` for faster/cheaper analysis, `opus` for higher quality
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input

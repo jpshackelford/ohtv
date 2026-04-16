@@ -3345,11 +3345,27 @@ def summary(
                 # Can't find dir = will fail anyway, count as uncached
                 uncached_count += 1
     
+    # Get model name for display (short form if available)
+    def _get_model_display_name() -> str:
+        """Get a display-friendly model name."""
+        import os
+        os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
+        from openhands.sdk import LLM
+        llm = LLM.load_from_env()
+        if model:
+            # User specified a model, use that
+            return model.split("/")[-1] if "/" in model else model
+        # Try to get clean name from model_info, fall back to model string
+        if llm.model_info and llm.model_info.get("key"):
+            return llm.model_info["key"]
+        return llm.model.split("/")[-1] if "/" in llm.model else llm.model
+    
     # Only prompt if we actually need to run LLM on many conversations
     if uncached_count > SUMMARY_CONFIRM_THRESHOLD and not yes:
         from rich.prompt import Confirm
         cached_count = len(conversations) - uncached_count
-        console.print(f"[yellow]Warning:[/yellow] About to analyze {uncached_count} conversations with LLM.")
+        model_name = _get_model_display_name()
+        console.print(f"[yellow]Warning:[/yellow] About to analyze {uncached_count} conversations with [cyan]{model_name}[/cyan].")
         if cached_count > 0:
             console.print(f"[dim]({cached_count} already cached and will be skipped)[/dim]")
         console.print("[dim]This may take a while and use significant LLM tokens.[/dim]")
@@ -3361,16 +3377,84 @@ def summary(
     results: list[dict] = []
     errors: list[tuple[str, str]] = []
     total_cost = 0.0
+    import time
+    import signal
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    start_time = time.perf_counter()
+    processed_count = 0
+    
+    # Use parallel processing for multiple uncached conversations
+    # 20 workers to maximize throughput (LLM API rate limits are the real bottleneck)
+    max_workers = 20 if uncached_count > 1 else 1
+    
+    # Thread-safe counters and shutdown flag for parallel mode
+    _lock = threading.Lock()
+    _shutdown_requested = False
+    
+    def _handle_shutdown(signum, frame):
+        """Handle SIGINT/SIGTERM - request graceful shutdown."""
+        nonlocal _shutdown_requested
+        _shutdown_requested = True
+        console.print("\n[yellow]Shutdown requested - finishing current work...[/yellow]")
+    
+    # Install signal handlers for graceful shutdown
+    old_sigint = signal.signal(signal.SIGINT, _handle_shutdown)
+    old_sigterm = signal.signal(signal.SIGTERM, _handle_shutdown)
+
+    def _format_rate(count: int, elapsed: float) -> str:
+        """Format processing rate as conv/min."""
+        if elapsed < 0.1 or count == 0:
+            return "-- conv/min"
+        rate = count / (elapsed / 60.0)
+        return f"{rate:.1f} conv/min"
+
+    def _analyze_one(conv) -> tuple[dict | None, tuple[str, str] | None, float, bool]:
+        """Analyze a single conversation. Returns (result_dict, error_tuple, cost, from_cache)."""
+        result = _find_conversation_dir(config, conv.lookup_id)
+        if not result:
+            return None, (conv.short_id, "Not found"), 0.0, False
+        
+        conv_dir, _ = result
+        
+        try:
+            analysis_result = analyze_objectives(
+                conv_dir,
+                model=model,
+                context=context,
+                detail=detail,
+                assess=assess,
+                force_refresh=refresh,
+            )
+            analysis = analysis_result.analysis
+            return {
+                "id": conv.id,
+                "short_id": conv.short_id,
+                "source": conv.source,
+                "created_at": conv.created_at,
+                "goal": analysis.goal or "(no goal identified)",
+                "cached": analysis_result.from_cache,
+                "conv_dir": conv_dir,
+            }, None, analysis_result.cost, analysis_result.from_cache
+        except (ValueError, RuntimeError) as e:
+            return None, (conv.short_id, str(e)[:50]), 0.0, False
+        except Exception as e:
+            if "api_key" in str(e).lower() or "LLM_" in str(e):
+                raise  # Re-raise auth errors to handle at top level
+            return None, (conv.short_id, str(e)[:50]), 0.0, False
 
     # Show progress for LLM analysis (skip if all cached)
     # Note: --quiet only suppresses final output, not progress bar or confirmation
     show_progress = uncached_count > 0
+    from rich.progress import TimeRemainingColumn
     progress_ctx = Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
         TextColumn("[green]$[/green]{task.fields[cost]:.4f}"),
+        TextColumn("[dim]{task.fields[rate]}[/dim]"),
+        TimeRemainingColumn(),
         console=console,
         transient=True,
     ) if show_progress else nullcontext()
@@ -3382,64 +3466,97 @@ def summary(
                 f"Analyzing {uncached_count} conversations...",
                 total=uncached_count,
                 cost=0.0,
+                rate="-- conv/min",
             )
 
-        for conv in conversations:
-            # Find conversation directory (use lookup_id which is the directory name)
-            result = _find_conversation_dir(config, conv.lookup_id)
-            if not result:
-                errors.append((conv.short_id, "Not found"))
-                if task is not None:
-                    progress.advance(task)
-                continue
-
-            conv_dir, _ = result
-
-            # Run analysis (handles caching internally)
-            try:
-                analysis_result = analyze_objectives(
-                    conv_dir,
-                    model=model,
-                    context=context,
-                    detail=detail,
-                    assess=assess,
-                    force_refresh=refresh,
-                )
-                analysis = analysis_result.analysis
-                from_cache = analysis_result.from_cache
+        if max_workers == 1:
+            # Sequential processing (original behavior)
+            for conv in conversations:
+                if _shutdown_requested:
+                    break
+                result_dict, error_tuple, cost, from_cache = _analyze_one(conv)
                 
-                # Track cost and update progress
-                if not from_cache:
-                    total_cost += analysis_result.cost
+                if error_tuple:
+                    errors.append(error_tuple)
                     if task is not None:
-                        progress.update(task, advance=1, cost=total_cost)
-            except (ValueError, RuntimeError) as e:
-                errors.append((conv.short_id, str(e)[:50]))
-                if task is not None:
-                    progress.advance(task)
-                continue
-            except Exception as e:
-                if "api_key" in str(e).lower() or "LLM_" in str(e):
-                    console.print(
-                        "\n[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
-                    )
-                    console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
-                    raise SystemExit(1)
-                errors.append((conv.short_id, str(e)[:50]))
-                if task is not None:
-                    progress.advance(task)
-                continue
-
-            # Store result (include conv_dir for outputs extraction)
-            results.append({
-                "id": conv.id,
-                "short_id": conv.short_id,
-                "source": conv.source,
-                "created_at": conv.created_at,
-                "goal": analysis.goal or "(no goal identified)",
-                "cached": from_cache,
-                "conv_dir": conv_dir,
-            })
+                        progress.advance(task)
+                elif result_dict:
+                    results.append(result_dict)
+                    if not from_cache:
+                        total_cost += cost
+                        processed_count += 1
+                        elapsed = time.perf_counter() - start_time
+                        if task is not None:
+                            progress.update(
+                                task,
+                                advance=1,
+                                cost=total_cost,
+                                rate=_format_rate(processed_count, elapsed),
+                            )
+        else:
+            # Parallel processing with ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks
+                future_to_conv = {executor.submit(_analyze_one, conv): conv for conv in conversations}
+                
+                # Process results as they complete
+                for future in as_completed(future_to_conv):
+                    # Check for shutdown - cancel pending futures and exit
+                    if _shutdown_requested:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
+                    
+                    try:
+                        result_dict, error_tuple, cost, from_cache = future.result()
+                    except Exception as e:
+                        if "api_key" in str(e).lower() or "LLM_" in str(e):
+                            # Cancel remaining futures and raise
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            console.print(
+                                "\n[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
+                            )
+                            console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
+                            raise SystemExit(1)
+                        conv = future_to_conv[future]
+                        errors.append((conv.short_id, str(e)[:50]))
+                        if task is not None:
+                            progress.advance(task)
+                        continue
+                    
+                    if error_tuple:
+                        errors.append(error_tuple)
+                        if task is not None:
+                            progress.advance(task)
+                    elif result_dict:
+                        results.append(result_dict)
+                        if not from_cache:
+                            with _lock:
+                                total_cost += cost
+                                processed_count += 1
+                                elapsed = time.perf_counter() - start_time
+                            if task is not None:
+                                progress.update(
+                                    task,
+                                    advance=1,
+                                    cost=total_cost,
+                                    rate=_format_rate(processed_count, elapsed),
+                                )
+    
+    # Restore original signal handlers
+    signal.signal(signal.SIGINT, old_sigint)
+    signal.signal(signal.SIGTERM, old_sigterm)
+    
+    # Calculate final rate for summary
+    total_elapsed = time.perf_counter() - start_time
+    final_rate = _format_rate(processed_count, total_elapsed) if processed_count > 0 else None
+    
+    # If shutdown was requested, show what we completed and exit
+    if _shutdown_requested:
+        if results:
+            console.print(f"[yellow]Interrupted - showing {len(results)} completed results[/yellow]")
+        else:
+            console.print("[yellow]Interrupted - no results to show[/yellow]")
+            return
 
     # Skip all output if --quiet is enabled
     if quiet:
@@ -3489,9 +3606,10 @@ def summary(
     else:
         _print_summary_table(results, total_count, len(errors), include_outputs=not no_outputs)
 
-    # Show cost summary if any LLM calls were made
+    # Show cost and rate summary if any LLM calls were made
     if total_cost > 0 and fmt == "table":
-        console.print(f"[dim]LLM cost: [green]${total_cost:.4f}[/green][/dim]")
+        rate_str = f" ({final_rate})" if final_rate else ""
+        console.print(f"[dim]LLM cost: [green]${total_cost:.4f}[/green]{rate_str}[/dim]")
 
     # Show errors if any
     if errors and fmt == "table":

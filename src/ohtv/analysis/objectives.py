@@ -12,6 +12,8 @@ conversations. See experiments/objective_extraction_comparison.py for details.
 
 import json
 import logging
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -28,6 +30,15 @@ from ohtv.analysis.cache import (
 )
 
 log = logging.getLogger("ohtv")
+
+
+@contextmanager
+def _timer(label: str):
+    """Context manager for timing code blocks and logging duration."""
+    start = time.perf_counter()
+    yield
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    log.debug("TIMING %s: %.1fms", label, elapsed_ms)
 
 # Context level type
 ContextLevel = Literal["minimal", "default", "full"]
@@ -380,6 +391,25 @@ def format_transcript(items: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
+@dataclass
+class _PreparedData:
+    """Intermediate data prepared for analysis (avoids double-loading)."""
+    events: list[dict]
+    items: list[dict]
+    content_hash: str
+
+
+def _prepare_data(conv_dir: Path, context: ContextLevel) -> _PreparedData:
+    """Load events and build transcript (reusable across cache check and analysis)."""
+    with _timer("load_events"):
+        events = load_events(conv_dir)
+    with _timer("build_transcript"):
+        items = build_transcript(events, context)
+    with _timer("compute_hash"):
+        content_hash = compute_content_hash(items)
+    return _PreparedData(events=events, items=items, content_hash=content_hash)
+
+
 def get_cached_analysis(
     conv_dir: Path,
     context: ContextLevel = "default",
@@ -395,18 +425,40 @@ def get_cached_analysis(
     - Detail level has changed
     - Assess flag has changed
     """
-    events = load_events(conv_dir)
-    items = build_transcript(events, context)
-    content_hash = compute_content_hash(items)
+    data = _prepare_data(conv_dir, context)
 
     return _cache_manager.load_cached(
         conv_dir,
-        events,
-        content_hash,
+        data.events,
+        data.content_hash,
         context_level=context,
         detail_level=detail,
         assess=assess,
     )
+
+
+def _check_cache_with_data(
+    conv_dir: Path,
+    context: ContextLevel,
+    detail: DetailLevel,
+    assess: bool,
+) -> tuple[ObjectiveAnalysis | None, _PreparedData]:
+    """Check cache and return both result and prepared data.
+    
+    This avoids double-loading events: the prepared data can be reused
+    for analysis if cache misses.
+    """
+    data = _prepare_data(conv_dir, context)
+
+    cached = _cache_manager.load_cached(
+        conv_dir,
+        data.events,
+        data.content_hash,
+        context_level=context,
+        detail_level=detail,
+        assess=assess,
+    )
+    return cached, data
 
 
 def _parse_llm_response(response_text: str) -> dict:
@@ -458,6 +510,8 @@ def analyze_objectives(
         ValueError: If no messages found in conversation
         RuntimeError: If LLM call fails
     """
+    total_start = time.perf_counter()
+    
     # For assessment, we need at least the finish action
     # Upgrade context if needed
     effective_context = context
@@ -465,37 +519,40 @@ def analyze_objectives(
         effective_context = "default"
         log.debug("Upgrading context to 'default' for assessment (need finish action)")
 
-    # Check cache first
-    if not force_refresh:
-        cached = get_cached_analysis(conv_dir, effective_context, detail, assess)
+    # Check cache and get prepared data (avoids double-loading on cache miss)
+    if force_refresh:
+        # Still need to load data even when forcing refresh
+        data = _prepare_data(conv_dir, effective_context)
+        cached = None
+    else:
+        cached, data = _check_cache_with_data(conv_dir, effective_context, detail, assess)
         if cached:
             log.debug("Using cached analysis from %s", cached.analyzed_at)
             return AnalysisResult(analysis=cached, cost=0.0, from_cache=True)
 
-    # Load events and build transcript
-    events = load_events(conv_dir)
-    if not events:
+    # Validate we have content
+    if not data.events:
         raise ValueError(f"No events found in conversation: {conv_dir}")
-
-    items = build_transcript(events, effective_context)
-    if not items:
+    if not data.items:
         raise ValueError(f"No content found in conversation: {conv_dir}")
 
-    event_count = len(events)
-    content_hash = compute_content_hash(items)
-    transcript = format_transcript(items)
+    event_count = len(data.events)
+    with _timer("format_transcript"):
+        transcript = format_transcript(data.items)
 
     # Suppress SDK banner before import
     import os
     os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
 
     # Import here to avoid loading SDK unless needed
-    from openhands.sdk import LLM, Message, TextContent
+    with _timer("import_sdk"):
+        from openhands.sdk import LLM, Message, TextContent
 
     # Load LLM from environment
-    llm = LLM.load_from_env()
-    if model:
-        llm = LLM(model=model, api_key=llm.api_key, base_url=llm.base_url)
+    with _timer("init_llm"):
+        llm = LLM.load_from_env()
+        if model:
+            llm = LLM(model=model, api_key=llm.api_key, base_url=llm.base_url)
 
     model_used = llm.model
 
@@ -538,15 +595,16 @@ def analyze_objectives(
     from openhands.sdk.llm.exceptions import LLMTimeoutError
 
     # Call LLM with timeout awareness
-    try:
-        response = llm.completion(llm_messages)
-    except LLMTimeoutError as e:
-        timeout_val = llm.timeout or 300
-        raise RuntimeError(
-            f"LLM request timed out after {timeout_val}s. "
-            f"For long conversations, try setting LLM_TIMEOUT to a higher value "
-            f"(e.g., export LLM_TIMEOUT=600 for 10 minutes)."
-        ) from e
+    with _timer("llm_completion"):
+        try:
+            response = llm.completion(llm_messages)
+        except LLMTimeoutError as e:
+            timeout_val = llm.timeout or 300
+            raise RuntimeError(
+                f"LLM request timed out after {timeout_val}s. "
+                f"For long conversations, try setting LLM_TIMEOUT to a higher value "
+                f"(e.g., export LLM_TIMEOUT=600 for 10 minutes)."
+            ) from e
 
     # Extract cost from response metrics
     cost = response.metrics.accumulated_cost
@@ -595,7 +653,7 @@ def analyze_objectives(
             analyzed_at=datetime.now(timezone.utc),
             model_used=model_used,
             event_count=event_count,
-            content_hash=content_hash,
+            content_hash=data.content_hash,
             context_level=effective_context,
             detail_level=detail,
             assess=assess,
@@ -609,7 +667,7 @@ def analyze_objectives(
             analyzed_at=datetime.now(timezone.utc),
             model_used=model_used,
             event_count=event_count,
-            content_hash=content_hash,
+            content_hash=data.content_hash,
             context_level=effective_context,
             detail_level=detail,
             assess=assess,
@@ -620,7 +678,10 @@ def analyze_objectives(
         )
 
     # Cache the result
-    _cache_manager.save(conv_dir, analysis)
-    log.debug("Analysis complete and cached (cost: $%.4f)", cost)
+    with _timer("save_cache"):
+        _cache_manager.save(conv_dir, analysis)
+    
+    total_elapsed = (time.perf_counter() - total_start) * 1000
+    log.debug("Analysis complete and cached (cost: $%.4f, total: %.1fms)", cost, total_elapsed)
 
     return AnalysisResult(analysis=analysis, cost=cost, from_cache=False)
