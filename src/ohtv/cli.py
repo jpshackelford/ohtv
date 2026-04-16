@@ -1367,7 +1367,7 @@ def _print_list_table(
         if show_errors:
             if conv.error_count and conv.error_count > 0:
                 type_counts = format_error_type_counts(conv.error_types or {})
-                severity_tag = "[red]TERM[/red]" if conv.has_terminal_error else "[yellow]RCVD[/yellow]"
+                severity_tag = "[red]TERM[/red]" if conv.has_terminal_error else "[yellow]RCVR[/yellow]"
                 if type_counts:
                     error_text = f"{conv.error_count} {severity_tag}: [dim]{type_counts}[/dim]"
                 else:
@@ -1404,9 +1404,11 @@ def _print_list_table(
         summary += f" ({', '.join(parts)})"
     console.print(f"[dim]{summary}[/dim]")
     
-    # Legend for possible matches
+    # Legends
     if possible_match_ids:
         console.print(f"[dim][yellow]*[/yellow] = possible match (action target not available)[/dim]")
+    if show_errors:
+        console.print(f"[dim][red]TERM[/red] = terminal error, [yellow]RCVR[/yellow] = recovered[/dim]")
 
     # Hint for default limit
     if show_hint:
@@ -3360,8 +3362,9 @@ def summary(
     errors: list[tuple[str, str]] = []
     total_cost = 0.0
 
-    # Show progress for LLM analysis (skip if all cached or in quiet mode)
-    show_progress = uncached_count > 0 and not quiet
+    # Show progress for LLM analysis (skip if all cached)
+    # Note: --quiet only suppresses final output, not progress bar or confirmation
+    show_progress = uncached_count > 0
     progress_ctx = Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
