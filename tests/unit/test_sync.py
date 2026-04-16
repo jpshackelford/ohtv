@@ -1,0 +1,361 @@
+"""Unit tests for the sync module."""
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from ohtv.sync import SyncManager, SyncManifest, SyncResult
+
+
+class TestSyncResult:
+    """Tests for SyncResult dataclass."""
+
+    def test_has_skipped_new_true_when_skipped(self):
+        result = SyncResult(skipped_new=5)
+        assert result.has_skipped_new is True
+
+    def test_has_skipped_new_false_when_zero(self):
+        result = SyncResult(skipped_new=0)
+        assert result.has_skipped_new is False
+
+    def test_total_synced_includes_new_and_updated(self):
+        result = SyncResult(new=3, updated=2)
+        assert result.total_synced == 5
+
+    def test_has_failures_true_when_failed(self):
+        result = SyncResult(failed=1)
+        assert result.has_failures is True
+
+    def test_has_failures_false_when_zero(self):
+        result = SyncResult(failed=0)
+        assert result.has_failures is False
+
+
+class TestSyncManifest:
+    """Tests for SyncManifest dataclass."""
+
+    def test_load_creates_empty_when_file_missing(self, tmp_path):
+        path = tmp_path / "missing.json"
+        manifest = SyncManifest.load(path)
+        assert manifest.last_sync_at is None
+        assert manifest.sync_count == 0
+        assert manifest.conversations == {}
+        assert manifest.failed_ids == []
+
+    def test_load_parses_existing_file(self, tmp_path):
+        path = tmp_path / "manifest.json"
+        path.write_text(json.dumps({
+            "last_sync_at": "2024-01-01T12:00:00Z",
+            "sync_count": 5,
+            "conversations": {"abc123": {"title": "Test"}},
+            "failed_ids": ["def456"],
+        }))
+        manifest = SyncManifest.load(path)
+        assert manifest.last_sync_at == datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        assert manifest.sync_count == 5
+        assert manifest.conversations == {"abc123": {"title": "Test"}}
+        assert manifest.failed_ids == ["def456"]
+
+    def test_save_creates_file(self, tmp_path):
+        path = tmp_path / "manifest.json"
+        manifest = SyncManifest(
+            last_sync_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            sync_count=3,
+            conversations={"abc": {"title": "Hello"}},
+            failed_ids=["xyz"],
+        )
+        manifest.save(path)
+        
+        data = json.loads(path.read_text())
+        assert data["last_sync_at"] == "2024-01-01T12:00:00Z"
+        assert data["sync_count"] == 3
+        assert data["conversations"] == {"abc": {"title": "Hello"}}
+        assert data["failed_ids"] == ["xyz"]
+
+
+class TestSyncManagerUpdateResult:
+    """Tests for SyncManager._update_result method."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a SyncManager with mocked config."""
+        config = MagicMock()
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.api_key = "test-key"
+        
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_updates_new_count(self, manager):
+        result = SyncResult()
+        manager._update_result(result, "new")
+        assert result.new == 1
+
+    def test_updates_updated_count(self, manager):
+        result = SyncResult()
+        manager._update_result(result, "updated")
+        assert result.updated == 1
+
+    def test_updates_unchanged_count(self, manager):
+        result = SyncResult()
+        manager._update_result(result, "unchanged")
+        assert result.unchanged == 1
+
+    def test_updates_failed_count(self, manager):
+        result = SyncResult()
+        manager._update_result(result, "failed")
+        assert result.failed == 1
+
+    def test_updates_skipped_count(self, manager):
+        result = SyncResult()
+        manager._update_result(result, "skipped")
+        assert result.skipped_new == 1
+
+
+class TestSyncManagerDetermineAction:
+    """Tests for SyncManager._determine_action method."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a SyncManager with mocked config."""
+        config = MagicMock()
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.api_key = "test-key"
+        
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            mgr = SyncManager(config)
+            # Pre-populate manifest with a known conversation
+            mgr.manifest.conversations = {
+                "existing123": {
+                    "title": "Existing",
+                    "updated_at": "2024-01-01T12:00:00Z",
+                }
+            }
+            return mgr
+
+    def test_returns_new_for_unknown_conversation(self, manager):
+        action = manager._determine_action("newconv456", "2024-01-02T12:00:00Z", force=False)
+        assert action == "new"
+
+    def test_returns_unchanged_for_existing_not_updated(self, manager):
+        action = manager._determine_action("existing123", "2024-01-01T12:00:00Z", force=False)
+        assert action == "unchanged"
+
+    def test_returns_updated_when_cloud_is_newer(self, manager):
+        action = manager._determine_action("existing123", "2024-01-02T12:00:00Z", force=False)
+        assert action == "updated"
+
+    def test_returns_updated_when_force_true(self, manager):
+        action = manager._determine_action("existing123", "2024-01-01T12:00:00Z", force=True)
+        assert action == "updated"
+
+
+class TestSyncManagerMaxNew:
+    """Tests for max_new limiting behavior."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a SyncManager with mocked config."""
+        config = MagicMock()
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.api_key = "test-key"
+        config.cloud_api_url = "https://example.com"
+        
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            mgr = SyncManager(config)
+            # Pre-populate manifest with one existing conversation
+            mgr.manifest.conversations = {
+                "existing001": {
+                    "title": "Existing",
+                    "updated_at": "2024-01-01T12:00:00Z",
+                }
+            }
+            return mgr
+
+    def test_sync_one_skips_new_when_limit_reached(self, manager):
+        """Test that new conversations are skipped when max_new limit is reached."""
+        result = SyncResult(new=5)  # Already at limit
+        
+        conv = {"id": "newconv123", "updated_at": "2024-01-02T12:00:00Z", "title": "New Conv"}
+        
+        action = manager._sync_one(
+            client=MagicMock(),
+            conv=conv,
+            force=False,
+            dry_run=False,
+            max_new=5,  # Limit already reached
+            on_progress=None,
+            result=result,
+        )
+        
+        assert action == "skipped"
+
+    def test_sync_one_allows_new_when_under_limit(self, manager):
+        """Test that new conversations are allowed when under max_new limit."""
+        result = SyncResult(new=2)  # Under limit
+        
+        conv = {"id": "newconv123", "updated_at": "2024-01-02T12:00:00Z", "title": "New Conv"}
+        
+        # Mock the download to succeed
+        mock_client = MagicMock()
+        mock_client.download_trajectory.return_value = _create_minimal_zip()
+        
+        action = manager._sync_one(
+            client=mock_client,
+            conv=conv,
+            force=False,
+            dry_run=False,
+            max_new=5,  # Still under limit
+            on_progress=None,
+            result=result,
+        )
+        
+        assert action == "new"
+
+    def test_sync_one_allows_updates_regardless_of_limit(self, manager):
+        """Test that updates are always allowed, even when max_new limit is reached."""
+        result = SyncResult(new=5)  # At new limit
+        
+        conv = {"id": "existing001", "updated_at": "2024-01-02T12:00:00Z", "title": "Updated"}
+        
+        # Mock the download to succeed
+        mock_client = MagicMock()
+        mock_client.download_trajectory.return_value = _create_minimal_zip()
+        
+        action = manager._sync_one(
+            client=mock_client,
+            conv=conv,
+            force=False,
+            dry_run=False,
+            max_new=5,  # Limit reached, but this is an update
+            on_progress=None,
+            result=result,
+        )
+        
+        assert action == "updated"
+
+
+class TestSyncManagerFinalizeSync:
+    """Tests for SyncManager._finalize_sync method."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a SyncManager with mocked config."""
+        config = MagicMock()
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.api_key = "test-key"
+        
+        manifest_path = tmp_path / "manifest.json"
+        with patch("ohtv.sync.get_manifest_path", return_value=manifest_path):
+            return SyncManager(config)
+
+    def test_advances_cutoff_when_no_skipped(self, manager):
+        """Test that last_sync_at is updated when no conversations were skipped."""
+        result = SyncResult(new=3, updated=2, skipped_new=0, failed=0)
+        
+        manager._finalize_sync(result)
+        
+        assert manager.manifest.last_sync_at is not None
+
+    def test_does_not_advance_cutoff_when_skipped(self, manager):
+        """Test that last_sync_at is NOT updated when conversations were skipped."""
+        result = SyncResult(new=3, skipped_new=5, failed=0)
+        
+        manager._finalize_sync(result)
+        
+        assert manager.manifest.last_sync_at is None
+
+    def test_does_not_advance_cutoff_when_failed(self, manager):
+        """Test that last_sync_at is NOT updated when there were failures."""
+        result = SyncResult(new=3, failed=1)
+        
+        manager._finalize_sync(result)
+        
+        assert manager.manifest.last_sync_at is None
+
+    def test_increments_sync_count(self, manager):
+        """Test that sync_count is always incremented."""
+        assert manager.manifest.sync_count == 0
+        
+        result = SyncResult(new=1)
+        manager._finalize_sync(result)
+        
+        assert manager.manifest.sync_count == 1
+
+
+class TestSyncManagerCleanup:
+    """Tests for SyncManager._cleanup_conversation_dir method."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a SyncManager with mocked config."""
+        config = MagicMock()
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.api_key = "test-key"
+        
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_removes_existing_directory(self, manager):
+        """Test that existing conversation directory is removed."""
+        conv_dir = manager.config.synced_conversations_dir / "conv123"
+        conv_dir.mkdir(parents=True)
+        (conv_dir / "events").mkdir()
+        (conv_dir / "events" / "event-00001-abc.json").write_text("{}")
+        
+        manager._cleanup_conversation_dir("conv123")
+        
+        assert not conv_dir.exists()
+
+    def test_handles_nonexistent_directory(self, manager):
+        """Test that cleanup doesn't fail for nonexistent directory."""
+        # Should not raise
+        manager._cleanup_conversation_dir("nonexistent123")
+
+
+class TestSyncManagerGetLocalConversationCount:
+    """Tests for SyncManager.get_local_conversation_count method."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a SyncManager with mocked config."""
+        config = MagicMock()
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.api_key = "test-key"
+        
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_returns_zero_for_empty_manifest(self, manager):
+        assert manager.get_local_conversation_count() == 0
+
+    def test_returns_count_from_manifest(self, manager):
+        manager.manifest.conversations = {
+            "conv1": {},
+            "conv2": {},
+            "conv3": {},
+        }
+        assert manager.get_local_conversation_count() == 3
+
+
+def _create_minimal_zip() -> bytes:
+    """Create a minimal valid trajectory zip file."""
+    import io
+    import zipfile
+    
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        zf.writestr("meta.json", json.dumps({
+            "id": "test123",
+            "title": "Test",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z",
+        }))
+        zf.writestr("event_000001_abc.json", json.dumps({
+            "id": "abc",
+            "kind": "MessageEvent",
+        }))
+    return buffer.getvalue()
