@@ -92,6 +92,27 @@ def _make_cache_key(**kwargs: Any) -> str:
     return ",".join(parts) if parts else "default"
 
 
+def make_cache_key(context: str, detail: str, assess: bool) -> str:
+    """Create a cache key for analysis parameters.
+    
+    This is the public API for creating cache keys that match
+    those used internally by AnalysisCacheManager.
+    
+    Args:
+        context: Context level (minimal, default, full)
+        detail: Detail level (brief, standard, detailed)
+        assess: Whether assessment is enabled
+    
+    Returns:
+        A cache key string
+    """
+    return _make_cache_key(
+        assess=assess,
+        context_level=context,
+        detail_level=detail,
+    )
+
+
 class AnalysisCacheManager:
     """Manages caching for a specific analysis type.
 
@@ -259,6 +280,37 @@ class AnalysisCacheManager:
 
         self._save_cache_data(cache_file, cache_data)
         log.debug("Analysis cached to %s (key: %s)", cache_file, cache_key)
+        
+        # Sync to database if available
+        self._sync_cache_to_db(conv_dir.name, cache_key, analysis)
+
+    def _sync_cache_to_db(self, conversation_id: str, cache_key: str, analysis: T) -> None:
+        """Sync cache entry to database for fast lookup.
+        
+        This is optional - if database is not available, we just skip.
+        The file-based cache is the source of truth.
+        """
+        try:
+            from ohtv.db import get_connection, migrate
+            from ohtv.db.stores import AnalysisCacheStore
+            from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
+            
+            with get_connection() as conn:
+                migrate(conn)
+                store = AnalysisCacheStore(conn)
+                entry = AnalysisCacheEntry(
+                    conversation_id=conversation_id,
+                    cache_key=cache_key,
+                    event_count=analysis.event_count,
+                    content_hash=analysis.content_hash,
+                    analyzed_at=analysis.analyzed_at,
+                )
+                store.upsert_cache(entry)
+                conn.commit()
+                log.debug("Synced cache to DB: %s (key: %s)", conversation_id, cache_key)
+        except Exception as e:
+            # DB sync is optional, don't fail if it doesn't work
+            log.debug("Failed to sync cache to DB (non-fatal): %s", e)
 
     def is_skipped(self, conv_dir: Path, event_count: int) -> str | None:
         """Check if conversation is marked as skipped.
@@ -311,3 +363,33 @@ class AnalysisCacheManager:
 
         self._save_cache_data(cache_file, cache_data)
         log.debug("Conversation marked as skipped: %s (reason: %s)", conv_dir.name, reason)
+        
+        # Sync to database if available
+        self._sync_skip_to_db(conv_dir.name, event_count, reason)
+
+    def _sync_skip_to_db(self, conversation_id: str, event_count: int, reason: str) -> None:
+        """Sync skip entry to database for fast lookup.
+        
+        This is optional - if database is not available, we just skip.
+        The file-based cache is the source of truth.
+        """
+        try:
+            from ohtv.db import get_connection, migrate
+            from ohtv.db.stores import AnalysisCacheStore
+            from ohtv.db.stores.analysis_cache_store import AnalysisSkipEntry
+            
+            with get_connection() as conn:
+                migrate(conn)
+                store = AnalysisCacheStore(conn)
+                entry = AnalysisSkipEntry(
+                    conversation_id=conversation_id,
+                    event_count=event_count,
+                    reason=reason,
+                    skipped_at=datetime.now(timezone.utc),
+                )
+                store.upsert_skip(entry)
+                conn.commit()
+                log.debug("Synced skip to DB: %s (reason: %s)", conversation_id, reason)
+        except Exception as e:
+            # DB sync is optional, don't fail if it doesn't work
+            log.debug("Failed to sync skip to DB (non-fatal): %s", e)

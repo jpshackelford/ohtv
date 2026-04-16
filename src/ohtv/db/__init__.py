@@ -14,6 +14,7 @@ filesystem. The DB only tracks:
 """
 
 from ohtv.db.connection import get_connection, get_db_path
+from ohtv.db.maintenance import ensure_db_ready, run_maintenance
 from ohtv.db.migrations import migrate
 from ohtv.db.models import (
     Conversation,
@@ -37,6 +38,8 @@ __all__ = [
     "get_connection",
     "get_db_path",
     "migrate",
+    "ensure_db_ready",
+    "run_maintenance",
     # Scanner
     "scan_conversations",
     "ScanResult",

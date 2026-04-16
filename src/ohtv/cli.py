@@ -233,7 +233,6 @@ def main() -> None:
 @click.option("--dry-run", is_flag=True, help="Show what would sync without downloading")
 @click.option("--max-new", "-n", type=int, help="Maximum number of NEW conversations to sync")
 @click.option("--status", "-s", is_flag=True, help="Show sync status")
-@click.option("--process", "-p", is_flag=True, help="Run all processing stages after sync")
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output for cron jobs")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def sync(
@@ -242,7 +241,6 @@ def sync(
     dry_run: bool,
     max_new: int | None,
     status: bool,
-    process: bool,
     quiet: bool,
     verbose: bool,
 ) -> None:
@@ -251,8 +249,8 @@ def sync(
     Use -n/--max-new to limit the number of NEW conversations synced.
     Updates to existing conversations are always synced (no limit).
     
-    Use --process to automatically run database indexing after sync,
-    equivalent to running 'ohtv db process all'.
+    After syncing, automatically indexes conversations and runs all
+    processing stages (refs, actions, branch_context, push_pr_links).
     
     Combining --force with -n resets local storage to only the N most
     recent conversations (destructive operation, requires confirmation).
@@ -280,8 +278,8 @@ def sync(
         if not quiet:
             _show_result(result, dry_run)
         
-        # Run processing stages if requested (and not dry-run)
-        if process and not dry_run:
+        # Always run processing stages after sync (unless dry-run)
+        if not dry_run:
             _run_post_sync_processing(quiet, verbose)
             
     except SyncAuthError as e:
@@ -445,6 +443,8 @@ def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
         
         # Scan to register any new conversations
         scan_result = scan_conversations(conn)
+        conn.commit()
+        
         if not quiet and scan_result.new_registered > 0:
             console.print(f"[dim]Registered {scan_result.new_registered} new conversation(s)[/dim]")
         
@@ -474,6 +474,9 @@ def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
                 except Exception as e:
                     if verbose:
                         console.print(f"    [red]Error processing {conv.id}:[/red] {e}")
+            
+            # Commit after each stage to save progress
+            conn.commit()
     
     if not quiet:
         console.print("[green]✓[/green] Processing complete")
@@ -751,15 +754,12 @@ def _apply_conversation_filters(
     if any([since, until, pr_filter, repo_filter, action_filter, errors_only]):
         show_all = True
     
-    # Load conversations from both sources
-    conversations = _load_all_conversations(config)
+    # Load conversations from both sources, with date filtering pushed to DB
+    conversations = _load_all_conversations(config, since=since, until=until)
     
     # Filter out empty conversations unless requested
     if not include_empty:
         conversations = [c for c in conversations if c.event_count > 0]
-    
-    # Apply date filtering
-    conversations = _filter_by_date_range(conversations, since, until)
     
     # Apply PR filtering (requires database)
     if pr_filter is not None:
@@ -897,6 +897,99 @@ def _filter_by_action(
         
         console.print(f"[dim]Filtering by action '{action_type}': {len(conversation_ids)} matches[/dim]")
         return filter_conversations_by_ids(conversations, conversation_ids), set()
+
+
+def _count_uncached_conversations_fast(
+    conversations: list[ConversationInfo],
+    config: Config,
+    context: str,
+    detail: str,
+    assess: bool,
+) -> int:
+    """Count conversations needing analysis using fast DB lookup.
+    
+    Uses the database to check cache status in O(1) instead of
+    loading event files for each conversation. Falls back to
+    slow file-based checking if DB is not available.
+    
+    Returns:
+        Number of conversations that need LLM analysis
+    """
+    try:
+        from ohtv.db import get_connection, get_db_path, migrate
+        from ohtv.db.stores import AnalysisCacheStore
+        from ohtv.analysis.cache import make_cache_key
+        
+        db_path = get_db_path()
+        if not db_path.exists():
+            log.debug("DB not found, falling back to slow cache check")
+            return _count_uncached_conversations_slow(conversations, config, context, detail, assess)
+        
+        # Build cache key for these parameters
+        cache_key = make_cache_key(context, detail, assess)
+        
+        # Normalize conversation IDs (remove dashes)
+        conv_ids = [c.lookup_id.replace("-", "") for c in conversations]
+        
+        with get_connection() as conn:
+            migrate(conn)
+            store = AnalysisCacheStore(conn)
+            
+            # Get cache status for all conversations in one query
+            status_map = store.get_cache_status_batch(conv_ids, cache_key)
+            
+            # Count those needing analysis
+            uncached_count = 0
+            for conv_id in conv_ids:
+                status = status_map.get(conv_id)
+                if status is None or status.needs_analysis:
+                    uncached_count += 1
+            
+            log.debug(
+                "Fast cache check: %d of %d need analysis (key=%s)",
+                uncached_count, len(conversations), cache_key
+            )
+            return uncached_count
+            
+    except Exception as e:
+        log.debug("Fast cache check failed, falling back to slow: %s", e)
+        return _count_uncached_conversations_slow(conversations, config, context, detail, assess)
+
+
+def _count_uncached_conversations_slow(
+    conversations: list[ConversationInfo],
+    config: Config,
+    context: str,
+    detail: str,
+    assess: bool,
+) -> int:
+    """Count uncached conversations using file-based checking (slow).
+    
+    This is the fallback when the database is not available.
+    """
+    from ohtv.analysis import get_cached_analysis
+    from ohtv.analysis.objectives import _cache_manager
+    from ohtv.analysis.cache import load_events
+    
+    uncached_count = 0
+    for conv in conversations:
+        result = _find_conversation_dir(config, conv.lookup_id)
+        if result:
+            conv_dir, _ = result
+            cached = get_cached_analysis(
+                conv_dir, context=context, detail=detail, assess=assess
+            )
+            if cached is None:
+                # Also check for skip marker (counts as "cached" since we won't call LLM)
+                events = load_events(conv_dir)
+                skip_reason = _cache_manager.is_skipped(conv_dir, len(events))
+                if skip_reason is None:
+                    uncached_count += 1
+        else:
+            # Can't find dir = will fail anyway, count as uncached
+            uncached_count += 1
+    
+    return uncached_count
 
 
 def _filter_by_errors(
@@ -1138,8 +1231,35 @@ def _generate_unique_source_names(paths: list[Path]) -> list[str]:
     return unique_names
 
 
-def _load_all_conversations(config: Config) -> list[ConversationInfo]:
-    """Load conversations from local, cloud, and extra directories."""
+def _load_all_conversations(
+    config: Config,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> list[ConversationInfo]:
+    """Load conversations from local, cloud, and extra directories.
+    
+    Uses database when available for fast metadata access, with date filtering
+    pushed down to the database query. Falls back to filesystem scanning when
+    database is unavailable.
+    
+    Args:
+        config: Application configuration
+        since: Optional filter for conversations created on or after this time
+        until: Optional filter for conversations created before this time
+    """
+    # Try database-first approach
+    try:
+        from ohtv.conversations import get_conversations, is_db_available_with_metadata
+        
+        if is_db_available_with_metadata():
+            # Use fast database path with date filtering pushed down
+            conversations = get_conversations(config, since=since, until=until, use_db=True)
+            log.debug("Loaded %d conversations from database (fast path)", len(conversations))
+            return conversations
+    except Exception as e:
+        log.debug("Database loading failed, using filesystem: %s", e)
+    
+    # Fallback to filesystem (slow path)
     conversations: list[ConversationInfo] = []
 
     # Load local conversations
@@ -1164,6 +1284,11 @@ def _load_all_conversations(config: Config) -> list[ConversationInfo]:
         extra_source = LocalSource(path, source_name=source_name)
         conversations.extend(extra_source.list_conversations())
 
+    # Apply date filtering for filesystem path (DB path has it already)
+    if since or until:
+        conversations = _filter_by_date_range(conversations, since, until)
+    
+    log.debug("Loaded %d conversations from filesystem (slow path)", len(conversations))
     return conversations
 
 
@@ -3330,26 +3455,10 @@ def summary(
         # --refresh forces all to be recomputed
         uncached_count = len(conversations)
     else:
-        # Check cache status for each conversation (including skip markers)
-        from ohtv.analysis.objectives import _cache_manager
-        from ohtv.analysis.cache import load_events
-        uncached_count = 0
-        for conv in conversations:
-            result = _find_conversation_dir(config, conv.lookup_id)
-            if result:
-                conv_dir, _ = result
-                cached = get_cached_analysis(
-                    conv_dir, context=context, detail=detail, assess=assess
-                )
-                if cached is None:
-                    # Also check for skip marker (counts as "cached" since we won't call LLM)
-                    events = load_events(conv_dir)
-                    skip_reason = _cache_manager.is_skipped(conv_dir, len(events))
-                    if skip_reason is None:
-                        uncached_count += 1
-            else:
-                # Can't find dir = will fail anyway, count as uncached
-                uncached_count += 1
+        # Use fast DB-based cache check
+        uncached_count = _count_uncached_conversations_fast(
+            conversations, config, context, detail, assess
+        )
     
     # Get model name for display (short form if available)
     def _get_model_display_name() -> str:
@@ -3433,12 +3542,20 @@ def summary(
                 force_refresh=refresh,
             )
             analysis = analysis_result.analysis
+            # Extract display goal: use goal field, or summary for detailed mode,
+            # or first primary objective's description as fallback
+            display_goal = analysis.goal
+            if not display_goal and analysis.detail_level == "detailed":
+                if analysis.summary:
+                    display_goal = analysis.summary
+                elif analysis.primary_objectives:
+                    display_goal = analysis.primary_objectives[0].description
             return {
                 "id": conv.id,
                 "short_id": conv.short_id,
                 "source": conv.source,
                 "created_at": conv.created_at,
-                "goal": analysis.goal or "(no goal identified)",
+                "goal": display_goal or "(no goal identified)",
                 "cached": analysis_result.from_cache,
                 "conv_dir": conv_dir,
             }, None, analysis_result.cost, analysis_result.from_cache
@@ -5145,6 +5262,116 @@ def db_status() -> None:
             console.print("\n[bold]Actions by type:[/bold]")
             for action_type, count in action_counts.items():
                 console.print(f"  {action_type}: {count}")
+
+
+@db.command("index-cache")
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+def db_index_cache(verbose: bool) -> None:
+    """Index existing analysis cache files into the database.
+    
+    Scans all conversation directories for objective_analysis.json files
+    and imports their metadata into the database for fast cache lookup.
+    
+    This enables the summary command to quickly determine which conversations
+    need analysis without reading event files.
+    """
+    from datetime import datetime
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from ohtv.db import get_connection, migrate
+    from ohtv.db.stores import AnalysisCacheStore, ConversationStore
+    from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry, AnalysisSkipEntry
+    import json
+    
+    config = Config.from_env()
+    
+    with get_connection() as conn:
+        migrate(conn)
+        
+        conv_store = ConversationStore(conn)
+        cache_store = AnalysisCacheStore(conn)
+        
+        # Get all registered conversations
+        conversations = conv_store.list_all()
+        if not conversations:
+            console.print("[yellow]No conversations registered. Run 'ohtv db scan' first.[/yellow]")
+            return
+        
+        indexed = 0
+        skipped = 0
+        errors = 0
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Indexing cache files"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("[dim]{task.fields[current]}[/dim]"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task(
+                "Indexing",
+                total=len(conversations),
+                current="",
+            )
+            
+            for conv in conversations:
+                progress.update(task, current=conv.id[:12] + "...")
+                
+                # Find cache file
+                conv_dir = Path(conv.location)
+                cache_file = conv_dir / "objective_analysis.json"
+                
+                if not cache_file.exists():
+                    progress.advance(task)
+                    continue
+                
+                try:
+                    cache_data = json.loads(cache_file.read_text())
+                    
+                    # Check for skip marker
+                    if "skipped" in cache_data:
+                        skip_info = cache_data["skipped"]
+                        entry = AnalysisSkipEntry(
+                            conversation_id=conv.id,
+                            event_count=cache_data.get("event_count", 0),
+                            reason=skip_info.get("reason", "unknown"),
+                            skipped_at=datetime.fromisoformat(skip_info.get("at", datetime.now().isoformat())),
+                        )
+                        cache_store.upsert_skip(entry)
+                        skipped += 1
+                    
+                    # Index each analysis
+                    analyses = cache_data.get("analyses", {})
+                    for cache_key, analysis_data in analyses.items():
+                        entry = AnalysisCacheEntry(
+                            conversation_id=conv.id,
+                            cache_key=cache_key,
+                            event_count=analysis_data.get("event_count", 0),
+                            content_hash=analysis_data.get("content_hash", ""),
+                            analyzed_at=datetime.fromisoformat(analysis_data.get("analyzed_at", datetime.now().isoformat())),
+                        )
+                        cache_store.upsert_cache(entry)
+                        indexed += 1
+                        
+                except (json.JSONDecodeError, KeyError) as e:
+                    errors += 1
+                    if verbose:
+                        console.print(f"[red]Error reading {cache_file}:[/red] {e}")
+                
+                progress.advance(task)
+        
+        conn.commit()
+    
+    # Display results
+    if indexed > 0:
+        console.print(f"[green]✓[/green] Indexed {indexed} cached analysis entries")
+    if skipped > 0:
+        console.print(f"[dim]{skipped} skip markers indexed[/dim]")
+    if errors > 0:
+        console.print(f"[yellow]![/yellow] {errors} error(s) reading cache files")
+    if indexed == 0 and skipped == 0 and errors == 0:
+        console.print("[dim]No cache files found to index.[/dim]")
 
 
 @db.command("reset")

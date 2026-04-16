@@ -1,12 +1,14 @@
 """Conversation scanner for discovering and registering conversations.
 
 Scans the filesystem for conversations and updates the database with
-current state (location, mtime, event count). Uses mtime as a fast
-filter to skip unchanged conversations.
+current state (location, mtime, event count, and metadata). Uses mtime
+as a fast filter to skip unchanged conversations.
 """
 
+import json
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -39,10 +41,10 @@ def get_events_mtime(events_dir: Path) -> float | None:
     return events_dir.stat().st_mtime
 
 
-def discover_conversations(base_dir: Path) -> list[tuple[str, Path]]:
+def discover_conversations(base_dir: Path, source: str) -> list[tuple[str, Path, str]]:
     """Discover conversation directories under a base path.
     
-    Returns list of (conversation_id, conversation_path) tuples.
+    Returns list of (conversation_id, conversation_path, source) tuples.
     Looks for directories containing an 'events' subdirectory.
     """
     conversations = []
@@ -53,9 +55,149 @@ def discover_conversations(base_dir: Path) -> list[tuple[str, Path]]:
         if entry.is_dir():
             events_dir = entry / "events"
             if events_dir.exists() and events_dir.is_dir():
-                conversations.append((entry.name, entry))
+                conversations.append((entry.name, entry, source))
     
     return conversations
+
+
+def extract_metadata(conv_path: Path, source: str) -> dict:
+    """Extract metadata from a conversation directory.
+    
+    Args:
+        conv_path: Path to conversation directory
+        source: Source identifier ('local' or 'cloud')
+    
+    Returns:
+        Dict with title, created_at, updated_at, selected_repository
+    """
+    timestamps_are_utc = source != "local"
+    
+    title = None
+    selected_repository = None
+    created_at = None
+    updated_at = None
+    
+    # Try to read from base_state.json
+    base_state = conv_path / "base_state.json"
+    if base_state.exists():
+        try:
+            data = json.loads(base_state.read_text())
+            title = data.get("title")
+            selected_repository = data.get("selected_repository")
+            created_at = _parse_datetime(data.get("created_at"), timestamps_are_utc)
+            updated_at = _parse_datetime(data.get("updated_at"), timestamps_are_utc)
+        except (json.JSONDecodeError, OSError):
+            pass
+    
+    # Prefer timestamps from events for accuracy
+    event_timestamps = _get_event_timestamps(conv_path, timestamps_are_utc)
+    if event_timestamps:
+        created_at = event_timestamps[0]
+        updated_at = event_timestamps[1]
+    
+    # Last resort: file mtime
+    if created_at is None and base_state.exists():
+        try:
+            file_mtime = datetime.fromtimestamp(base_state.stat().st_mtime, tz=timezone.utc)
+            created_at = file_mtime
+            updated_at = file_mtime
+        except OSError:
+            pass
+    
+    # Get title from first user message if not present
+    if not title:
+        title = _get_title_from_first_user_message(conv_path)
+    
+    return {
+        "title": title,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "selected_repository": selected_repository,
+    }
+
+
+def _parse_datetime(value: str | None, assume_utc: bool = True) -> datetime | None:
+    """Parse ISO 8601 datetime string."""
+    if not value:
+        return None
+    value = value.rstrip("Z")
+    if "+" in value:
+        value = value.split("+")[0]
+    try:
+        naive_dt = datetime.fromisoformat(value)
+        if assume_utc:
+            return naive_dt.replace(tzinfo=timezone.utc)
+        # Treat as local time, then convert to UTC
+        local_dt = naive_dt.astimezone()
+        return local_dt.astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _get_event_timestamps(conv_path: Path, timestamps_are_utc: bool) -> tuple[datetime, datetime] | None:
+    """Get first and last event timestamps."""
+    events_dir = conv_path / "events"
+    if not events_dir.exists():
+        return None
+    
+    event_files = sorted(events_dir.glob("event-*.json"))
+    if not event_files:
+        return None
+    
+    first_ts = _get_event_timestamp(event_files[0], timestamps_are_utc)
+    last_ts = _get_event_timestamp(event_files[-1], timestamps_are_utc)
+    
+    if first_ts and last_ts:
+        return (first_ts, last_ts)
+    return None
+
+
+def _get_event_timestamp(event_file: Path, timestamps_are_utc: bool) -> datetime | None:
+    """Extract timestamp from an event file."""
+    try:
+        data = json.loads(event_file.read_text())
+        return _parse_datetime(data.get("timestamp"), timestamps_are_utc)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _get_title_from_first_user_message(conv_path: Path, max_length: int = 60) -> str | None:
+    """Extract title from the first user message."""
+    events_dir = conv_path / "events"
+    if not events_dir.exists():
+        return None
+    
+    for event_file in sorted(events_dir.glob("event-*.json")):
+        try:
+            data = json.loads(event_file.read_text())
+            if data.get("source") != "user":
+                continue
+            
+            # Try llm_message.content[].text format (cloud)
+            llm_msg = data.get("llm_message", {})
+            content = llm_msg.get("content", [])
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text = item.get("text", "")
+                        return _truncate_title(text, max_length)
+            
+            # Try direct content field (local CLI format)
+            if data.get("content"):
+                return _truncate_title(data["content"], max_length)
+        except (json.JSONDecodeError, OSError):
+            continue
+    
+    return None
+
+
+def _truncate_title(text: str, max_length: int) -> str:
+    """Truncate text to max_length, breaking at word boundary."""
+    first_line = text.split("\n")[0].strip()
+    if len(first_line) <= max_length:
+        return first_line
+    truncated = first_line[:max_length].rsplit(" ", 1)[0]
+    return truncated + "..."
 
 
 def scan_conversations(
@@ -83,8 +225,8 @@ def scan_conversations(
     cloud_dir = openhands_dir / "cloud" / "conversations"
     
     all_discovered = []
-    all_discovered.extend(discover_conversations(local_dir))
-    all_discovered.extend(discover_conversations(cloud_dir))
+    all_discovered.extend(discover_conversations(local_dir, "local"))
+    all_discovered.extend(discover_conversations(cloud_dir, "cloud"))
     
     total = len(all_discovered)
     
@@ -95,7 +237,7 @@ def scan_conversations(
     updated_count = 0
     unchanged_count = 0
     
-    for i, (conv_id, conv_path) in enumerate(all_discovered):
+    for i, (conv_id, conv_path, source) in enumerate(all_discovered):
         if on_progress:
             on_progress(i, total, conv_id)
         
@@ -108,22 +250,34 @@ def scan_conversations(
         existing = store.get(conv_id)
         
         if existing is None:
-            # New conversation
+            # New conversation - extract metadata
+            metadata = extract_metadata(conv_path, source)
             store.upsert(Conversation(
                 id=conv_id,
                 location=str(conv_path),
                 events_mtime=current_mtime,
                 event_count=current_count,
+                title=metadata["title"],
+                created_at=metadata["created_at"],
+                updated_at=metadata["updated_at"],
+                selected_repository=metadata["selected_repository"],
+                source=source,
             ))
             new_count += 1
         elif force or _has_changed(existing, current_mtime, current_count):
-            # Changed or forced update
+            # Changed or forced update - re-extract metadata
+            metadata = extract_metadata(conv_path, source)
             store.upsert(Conversation(
                 id=conv_id,
                 location=str(conv_path),
                 registered_at=existing.registered_at,  # Preserve original
                 events_mtime=current_mtime,
                 event_count=current_count,
+                title=metadata["title"],
+                created_at=metadata["created_at"],
+                updated_at=metadata["updated_at"],
+                selected_repository=metadata["selected_repository"],
+                source=source,
             ))
             updated_count += 1
         else:
@@ -182,7 +336,12 @@ def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
     
     changed = []
     
-    for conv_id, conv_path in discover_conversations(local_dir) + discover_conversations(cloud_dir):
+    all_discovered = (
+        discover_conversations(local_dir, "local") +
+        discover_conversations(cloud_dir, "cloud")
+    )
+    
+    for conv_id, conv_path, source in all_discovered:
         events_dir = conv_path / "events"
         current_mtime = get_events_mtime(events_dir)
         current_count = count_events(events_dir)
@@ -190,11 +349,17 @@ def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
         existing = store.get(conv_id)
         
         if existing is None or _has_changed(existing, current_mtime, current_count):
+            metadata = extract_metadata(conv_path, source)
             changed.append(Conversation(
                 id=conv_id,
                 location=str(conv_path),
                 events_mtime=current_mtime,
                 event_count=current_count,
+                title=metadata["title"],
+                created_at=metadata["created_at"],
+                updated_at=metadata["updated_at"],
+                selected_repository=metadata["selected_repository"],
+                source=source,
             ))
     
     return changed
