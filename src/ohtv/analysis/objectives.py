@@ -531,10 +531,11 @@ def analyze_objectives(
             return AnalysisResult(analysis=cached, cost=0.0, from_cache=True)
 
     # Validate we have content
+    conv_id = conv_dir.name
     if not data.events:
-        raise ValueError(f"No events found in conversation: {conv_dir}")
+        raise ValueError(f"No events found in conversation: {conv_id}")
     if not data.items:
-        raise ValueError(f"No content found in conversation: {conv_dir}")
+        raise ValueError(f"No content found in conversation: {conv_id}")
 
     event_count = len(data.events)
     with _timer("format_transcript"):
@@ -601,7 +602,7 @@ def analyze_objectives(
         except LLMTimeoutError as e:
             timeout_val = llm.timeout or 300
             raise RuntimeError(
-                f"LLM request timed out after {timeout_val}s. "
+                f"LLM request timed out for {conv_id} after {timeout_val}s. "
                 f"For long conversations, try setting LLM_TIMEOUT to a higher value "
                 f"(e.g., export LLM_TIMEOUT=600 for 10 minutes)."
             ) from e
@@ -619,8 +620,8 @@ def analyze_objectives(
     try:
         result = _parse_llm_response(response_text)
     except json.JSONDecodeError as e:
-        log.error("Failed to parse LLM response: %s", response_text[:500])
-        raise RuntimeError(f"Failed to parse LLM response as JSON: {e}") from e
+        log.error("Failed to parse LLM response for %s: %s", conv_id, response_text[:500])
+        raise RuntimeError(f"Failed to parse LLM response as JSON for {conv_id}: {e}") from e
 
     # Build analysis object based on detail level
     if detail == "detailed":
