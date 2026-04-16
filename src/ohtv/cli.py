@@ -1459,6 +1459,10 @@ def show(
     events = _load_events(conv_dir)
     event_counts = _count_events_by_type(events)
     first_ts, last_ts = _get_event_time_range(events, is_cloud=is_cloud)
+    
+    # Analyze for errors
+    from ohtv.errors import analyze_conversation
+    error_summary = analyze_conversation(conv_dir, conv_id)
 
     # If no content flags specified (and not stats-only), show summary only
     show_content = (
@@ -1469,7 +1473,7 @@ def show(
     # Stats-only mode: show statistics and exit
     if stats or not show_content:
         output_text = _format_show_stats(
-            conv_id, title, first_ts, last_ts, event_counts, fmt
+            conv_id, title, first_ts, last_ts, event_counts, fmt, error_summary
         )
         _write_or_print_output(output_text, file, fmt)
         # Show refs after stats if requested
@@ -1519,6 +1523,7 @@ def show(
         thinking=thinking,
         full_output=full_output,
         debug_tool_call=debug_tool_call,
+        error_summary=error_summary,
     )
 
     _write_or_print_output(output_text, file, fmt)
@@ -1758,13 +1763,16 @@ def _format_show_stats(
     last_ts: datetime | None,
     event_counts: dict[str, int],
     fmt: str,
+    error_summary: "ErrorSummary | None" = None,
 ) -> str:
     """Format statistics-only output."""
+    from ohtv.errors import ErrorSummary
+    
     duration = (last_ts - first_ts) if (first_ts and last_ts) else None
     total = sum(event_counts.values())
 
     if fmt == "json":
-        return json.dumps({
+        result = {
             "id": conv_id,
             "title": title,
             "started": first_ts.isoformat() if first_ts else None,
@@ -1772,7 +1780,16 @@ def _format_show_stats(
             "duration_seconds": duration.total_seconds() if duration else None,
             "counts": event_counts,
             "total_events": total,
-        }, indent=2)
+        }
+        if error_summary:
+            result["errors"] = {
+                "total": error_summary.total_errors,
+                "terminal": error_summary.terminal_count,
+                "recovered": error_summary.recovered_count,
+                "has_terminal_error": error_summary.has_terminal_error,
+                "error_counts": error_summary.error_counts,
+            }
+        return json.dumps(result, indent=2)
 
     # Convert to local time for display
     started_str = first_ts.astimezone().strftime('%Y-%m-%d %H:%M:%S') if first_ts else 'N/A'
@@ -1797,6 +1814,15 @@ def _format_show_stats(
             "  ─────────────────────",
             f"  Total:            {total}",
         ]
+        # Add error info if present
+        if error_summary and error_summary.has_errors:
+            lines.append("")
+            lines.append("Errors:")
+            lines.append(f"  Terminal:         {error_summary.terminal_count}")
+            lines.append(f"  Recovered:        {error_summary.recovered_count}")
+            if error_summary.error_counts:
+                types_str = ", ".join(f"{k}: {v}" for k, v in error_summary.error_counts.items())
+                lines.append(f"  Types:            {types_str}")
         return "\n".join(lines)
 
     # Markdown format
@@ -1821,6 +1847,17 @@ def _format_show_stats(
         f"| Finish | {event_counts['finish']} |",
         f"| **Total** | **{total}** |",
     ])
+    # Add error info if present
+    if error_summary and error_summary.has_errors:
+        lines.extend([
+            "",
+            "**Errors:**",
+            f"- Terminal: {error_summary.terminal_count}",
+            f"- Recovered: {error_summary.recovered_count}",
+        ])
+        if error_summary.error_counts:
+            types_str = ", ".join(f"{k}: {v}" for k, v in error_summary.error_counts.items())
+            lines.append(f"- Types: {types_str}")
     return "\n".join(lines)
 
 
@@ -1837,13 +1874,14 @@ def _format_show_output(
     thinking: bool,
     full_output: bool = False,
     debug_tool_call: bool = False,
+    error_summary: "ErrorSummary | None" = None,
 ) -> str:
     """Format full output with events."""
     if fmt == "json":
-        return _format_show_json(conv_id, title, first_ts, last_ts, event_counts, events)
+        return _format_show_json(conv_id, title, first_ts, last_ts, event_counts, events, error_summary)
 
     # For markdown and text formats
-    header = _format_show_stats(conv_id, title, first_ts, last_ts, event_counts, fmt)
+    header = _format_show_stats(conv_id, title, first_ts, last_ts, event_counts, fmt, error_summary)
     separator = "\n---\n\n" if fmt == "markdown" else "\n" + "=" * 60 + "\n\n"
 
     event_lines = []
@@ -1866,6 +1904,7 @@ def _format_show_json(
     last_ts: datetime | None,
     event_counts: dict[str, int],
     events: list[dict],
+    error_summary: "ErrorSummary | None" = None,
 ) -> str:
     """Format output as JSON."""
     duration = (last_ts - first_ts) if (first_ts and last_ts) else None
@@ -1875,7 +1914,7 @@ def _format_show_json(
     for event in events:
         formatted_events.append(_extract_event_data(event))
 
-    return json.dumps({
+    result = {
         "id": conv_id,
         "title": title,
         "started": first_ts.isoformat() if first_ts else None,
@@ -1884,7 +1923,16 @@ def _format_show_json(
         "counts": event_counts,
         "total_events": total,
         "events": formatted_events,
-    }, indent=2)
+    }
+    if error_summary:
+        result["errors"] = {
+            "total": error_summary.total_errors,
+            "terminal": error_summary.terminal_count,
+            "recovered": error_summary.recovered_count,
+            "has_terminal_error": error_summary.has_terminal_error,
+            "error_counts": error_summary.error_counts,
+        }
+    return json.dumps(result, indent=2)
 
 
 def _extract_event_data(event: dict) -> dict:
