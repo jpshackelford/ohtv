@@ -212,3 +212,149 @@ class TestPromptHashCacheInvalidation:
         loaded = manager.load_cached(conv_dir, events, content_hash)
         assert loaded is not None
         assert loaded.prompt_hash == stored_hash
+
+
+class TestPromptHashBackfillMaintenance:
+    """Tests for the prompt hash backfill maintenance task."""
+
+    def test_backfill_adds_prompt_hash_to_cache_files(self, tmp_path, monkeypatch):
+        """Maintenance task should add prompt_hash to existing cache files."""
+        import ohtv.db.maintenance as maintenance_module
+        from ohtv.db.maintenance import _execute_prompt_hash_backfill
+        from ohtv.prompts import get_prompt_hash
+        
+        # Create a fake conversation directory with a cache file
+        conv_dir = tmp_path / "conversations" / "test_conv"
+        conv_dir.mkdir(parents=True)
+        
+        # Create cache file WITHOUT prompt_hash
+        cache_data = {
+            "event_count": 10,
+            "analyses": {
+                "assess=False,context_level=minimal,detail_level=brief": {
+                    "conversation_id": "test_conv",
+                    "analyzed_at": "2024-01-01T00:00:00",
+                    "model_used": "test-model",
+                    "event_count": 10,
+                    "content_hash": "abc123",
+                    "context_level": "minimal",
+                    "detail_level": "brief",
+                    "assess": False,
+                    "goal": "Test goal",
+                }
+            }
+        }
+        cache_file = conv_dir / "objective_analysis.json"
+        cache_file.write_text(json.dumps(cache_data))
+        
+        # Mock the helper function to use our temp directory
+        monkeypatch.setattr(
+            maintenance_module, "_get_conversation_base_dirs",
+            lambda: [tmp_path / "conversations"]
+        )
+        
+        # Run the backfill (conn is not used for this task)
+        result = _execute_prompt_hash_backfill(None)
+        
+        # Verify result
+        assert result["files_scanned"] == 1
+        assert result["files_updated"] == 1
+        assert result["entries_updated"] == 1
+        
+        # Verify cache file was updated
+        updated_data = json.loads(cache_file.read_text())
+        analysis = updated_data["analyses"]["assess=False,context_level=minimal,detail_level=brief"]
+        assert "prompt_hash" in analysis
+        assert analysis["prompt_hash"] == get_prompt_hash("brief")
+
+    def test_backfill_skips_files_with_existing_hash(self, tmp_path, monkeypatch):
+        """Maintenance task should skip entries that already have prompt_hash."""
+        import ohtv.db.maintenance as maintenance_module
+        from ohtv.db.maintenance import _execute_prompt_hash_backfill
+        
+        # Create a fake conversation directory with a cache file that HAS prompt_hash
+        conv_dir = tmp_path / "conversations" / "test_conv"
+        conv_dir.mkdir(parents=True)
+        
+        existing_hash = "existinghash1234"
+        cache_data = {
+            "event_count": 10,
+            "analyses": {
+                "assess=False,context_level=minimal,detail_level=brief": {
+                    "conversation_id": "test_conv",
+                    "analyzed_at": "2024-01-01T00:00:00",
+                    "model_used": "test-model",
+                    "event_count": 10,
+                    "content_hash": "abc123",
+                    "prompt_hash": existing_hash,  # Already has hash
+                    "context_level": "minimal",
+                    "detail_level": "brief",
+                    "assess": False,
+                    "goal": "Test goal",
+                }
+            }
+        }
+        cache_file = conv_dir / "objective_analysis.json"
+        cache_file.write_text(json.dumps(cache_data))
+        
+        monkeypatch.setattr(
+            maintenance_module, "_get_conversation_base_dirs",
+            lambda: [tmp_path / "conversations"]
+        )
+        
+        # Run the backfill
+        result = _execute_prompt_hash_backfill(None)
+        
+        # Should scan but not update
+        assert result["files_scanned"] == 1
+        assert result["files_updated"] == 0
+        assert result["entries_updated"] == 0
+        
+        # Verify hash was NOT changed
+        updated_data = json.loads(cache_file.read_text())
+        analysis = updated_data["analyses"]["assess=False,context_level=minimal,detail_level=brief"]
+        assert analysis["prompt_hash"] == existing_hash
+
+    def test_backfill_handles_assess_prompts(self, tmp_path, monkeypatch):
+        """Maintenance task should correctly identify assess prompts."""
+        import ohtv.db.maintenance as maintenance_module
+        from ohtv.db.maintenance import _execute_prompt_hash_backfill
+        from ohtv.prompts import get_prompt_hash
+        
+        conv_dir = tmp_path / "conversations" / "test_conv"
+        conv_dir.mkdir(parents=True)
+        
+        # Create cache file with assess=True
+        cache_data = {
+            "event_count": 10,
+            "analyses": {
+                "assess=True,context_level=default,detail_level=standard": {
+                    "conversation_id": "test_conv",
+                    "analyzed_at": "2024-01-01T00:00:00",
+                    "model_used": "test-model",
+                    "event_count": 10,
+                    "content_hash": "abc123",
+                    "context_level": "default",
+                    "detail_level": "standard",
+                    "assess": True,
+                    "goal": "Test goal",
+                    "status": "achieved",
+                }
+            }
+        }
+        cache_file = conv_dir / "objective_analysis.json"
+        cache_file.write_text(json.dumps(cache_data))
+        
+        monkeypatch.setattr(
+            maintenance_module, "_get_conversation_base_dirs",
+            lambda: [tmp_path / "conversations"]
+        )
+        
+        result = _execute_prompt_hash_backfill(None)
+        
+        assert result["entries_updated"] == 1
+        
+        # Verify the assess prompt hash was used
+        updated_data = json.loads(cache_file.read_text())
+        analysis = updated_data["analyses"]["assess=True,context_level=default,detail_level=standard"]
+        assert analysis["prompt_hash"] == get_prompt_hash("standard_assess")

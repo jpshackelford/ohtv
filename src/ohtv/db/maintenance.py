@@ -250,6 +250,127 @@ def _execute_cache_index_backfill(
 
 
 # =============================================================================
+# Task: Prompt Hash Backfill (for cache invalidation feature)
+# =============================================================================
+
+def _get_conversation_base_dirs() -> list[Path]:
+    """Get all base directories that contain conversations."""
+    from ohtv.config import Config
+    config = Config.from_env()
+    return [config.local_conversations_dir, config.synced_conversations_dir]
+
+
+def _check_prompt_hash_backfill_needed(conn: sqlite3.Connection) -> bool:
+    """Check if prompt hash backfill is needed.
+    
+    Returns True if:
+    - Task hasn't been completed AND
+    - There are cache files that might need prompt hashes
+    """
+    if is_task_completed(conn, "prompt_hash_backfill"):
+        return False
+    
+    # Check if there are any conversation directories with cache files
+    for base_dir in _get_conversation_base_dirs():
+        if not base_dir.exists():
+            continue
+        for conv_dir in base_dir.iterdir():
+            if conv_dir.is_dir():
+                cache_file = conv_dir / "objective_analysis.json"
+                if cache_file.exists():
+                    return True
+    
+    return False
+
+
+def _execute_prompt_hash_backfill(
+    conn: sqlite3.Connection,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> dict:
+    """Backfill prompt hashes for existing cached analyses.
+    
+    Since prompt customization hasn't been released yet, all existing
+    cached analyses used the default prompts. We can safely compute
+    the hash from the current default prompts.
+    """
+    import json as json_module
+    from ohtv.prompts import get_prompt_hash
+    
+    # Collect all cache files
+    cache_files = []
+    for base_dir in _get_conversation_base_dirs():
+        if not base_dir.exists():
+            continue
+        for conv_dir in base_dir.iterdir():
+            if conv_dir.is_dir():
+                cache_file = conv_dir / "objective_analysis.json"
+                if cache_file.exists():
+                    cache_files.append(cache_file)
+    
+    total = len(cache_files)
+    updated_files = 0
+    updated_entries = 0
+    
+    for i, cache_file in enumerate(cache_files):
+        if on_progress:
+            on_progress(i, total)
+        
+        try:
+            data = json_module.loads(cache_file.read_text())
+            
+            # Skip if not valid format
+            if "analyses" not in data:
+                continue
+            
+            modified = False
+            analyses = data["analyses"]
+            
+            for cache_key, analysis in analyses.items():
+                # Skip if already has prompt_hash
+                if analysis.get("prompt_hash"):
+                    continue
+                
+                # Extract detail_level and assess from the analysis
+                detail_level = analysis.get("detail_level", "brief")
+                assess = analysis.get("assess", False)
+                
+                # Determine prompt name
+                if assess:
+                    prompt_name = f"{detail_level}_assess"
+                else:
+                    prompt_name = detail_level
+                
+                # Get hash for this prompt
+                try:
+                    prompt_hash = get_prompt_hash(prompt_name)
+                    analysis["prompt_hash"] = prompt_hash
+                    modified = True
+                    updated_entries += 1
+                except (ValueError, FileNotFoundError):
+                    # Unknown prompt, skip
+                    log.debug("Unknown prompt %s in cache %s", prompt_name, cache_file)
+                    continue
+            
+            # Save if modified
+            if modified:
+                cache_file.write_text(json_module.dumps(data, indent=2, default=str))
+                updated_files += 1
+                
+        except (json_module.JSONDecodeError, OSError) as e:
+            log.debug("Failed to process cache file %s: %s", cache_file, e)
+            continue
+    
+    if on_progress:
+        on_progress(total, total)
+    
+    return {
+        "files_scanned": total,
+        "files_updated": updated_files,
+        "entries_updated": updated_entries,
+    }
+
+
+# =============================================================================
 # Task Registry
 # =============================================================================
 
@@ -267,6 +388,13 @@ MAINTENANCE_TASKS: list[MaintenanceTask] = [
         triggered_by="migration_005",
         check_needed=_check_cache_index_needed,
         execute=_execute_cache_index_backfill,
+    ),
+    MaintenanceTask(
+        name="prompt_hash_backfill",
+        description="Backfilling prompt hashes for cache invalidation",
+        triggered_by="feature_prompt_customization",
+        check_needed=_check_prompt_hash_backfill_needed,
+        execute=_execute_prompt_hash_backfill,
     ),
 ]
 
