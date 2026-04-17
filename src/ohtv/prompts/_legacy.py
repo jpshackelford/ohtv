@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 
 from ohtv.config import get_ohtv_dir
+from ohtv.prompts.discovery import clear_prompt_cache
 
 log = logging.getLogger("ohtv")
 
@@ -134,6 +135,10 @@ def init_user_prompts(force: bool = False) -> list[str]:
         user_path.write_text(default_path.read_text())
         copied.append(name)
         log.debug("Copied prompt: %s", filename)
+
+    # Clear discovery cache so new user prompts are found
+    from ohtv.prompts.discovery import clear_prompt_cache
+    clear_prompt_cache()
     
     return copied
 
