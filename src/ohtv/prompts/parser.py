@@ -91,16 +91,33 @@ def parse_prompt_file(path: Path) -> PromptMetadata:
     variant = frontmatter.get("variant", stem)
     prompt_id = frontmatter.get("id", f"{family}.{variant}")
     
-    # Parse context levels
+    # Parse context levels - handle both formats
     context_levels = {}
+    default_context = 1
+    
     if "context_levels" in frontmatter:
+        # Old format: context_levels as list
         for level_data in frontmatter["context_levels"]:
             number = level_data.get("number")
             if number is not None:
                 context_levels[number] = parse_context_level(level_data)
+    elif "context" in frontmatter:
+        # New format: nested context with default and levels
+        context_data = frontmatter["context"]
+        default_context = context_data.get("default", 1)
+        
+        if "levels" in context_data:
+            for number, level_data in context_data["levels"].items():
+                level_data_with_number = {**level_data, "number": int(number)}
+                context_levels[int(number)] = parse_context_level(level_data_with_number)
     
     # Compute content hash
     content_hash = hashlib.sha256(prompt_content.encode()).hexdigest()[:16]
+    
+    # Handle output schema (may be nested under "output")
+    output_schema = frontmatter.get("output_schema")
+    if output_schema is None and "output" in frontmatter:
+        output_schema = frontmatter["output"].get("schema")
     
     return PromptMetadata(
         id=prompt_id,
@@ -109,8 +126,8 @@ def parse_prompt_file(path: Path) -> PromptMetadata:
         description=frontmatter.get("description", ""),
         default=frontmatter.get("default", False),
         context_levels=context_levels,
-        default_context=frontmatter.get("default_context", 1),
-        output_schema=frontmatter.get("output_schema"),
+        default_context=frontmatter.get("default_context", default_context),
+        output_schema=output_schema,
         handler=frontmatter.get("handler"),
         tags=frontmatter.get("tags", []),
         path=path,
