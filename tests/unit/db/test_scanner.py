@@ -3,6 +3,7 @@
 import json
 import time
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -28,6 +29,14 @@ def conversations_dir(tmp_path):
     cloud_dir.mkdir(parents=True)
     
     return tmp_path
+
+
+@pytest.fixture
+def mock_config():
+    """Create a mock config with empty extra_conversation_paths."""
+    config = MagicMock()
+    config.extra_conversation_paths = []
+    return config
 
 
 def create_conversation(base_dir: Path, conv_id: str, num_events: int = 3) -> Path:
@@ -139,7 +148,7 @@ class TestDiscoverConversations:
 class TestScanConversations:
     """Tests for scan_conversations function."""
     
-    def test_registers_new_conversations(self, db_conn, conversations_dir, monkeypatch):
+    def test_registers_new_conversations(self, db_conn, conversations_dir, monkeypatch, mock_config):
         """Should register new conversations found on disk."""
         # Set up conversations
         local_dir = conversations_dir / ".openhands" / "conversations"
@@ -149,7 +158,7 @@ class TestScanConversations:
         # Monkeypatch get_openhands_dir to use our temp dir
         monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
-        result = scan_conversations(db_conn)
+        result = scan_conversations(db_conn, config=mock_config)
         
         assert result.new_registered == 2
         assert result.total_on_disk == 2
@@ -164,7 +173,7 @@ class TestScanConversations:
         assert conv2 is not None
         assert conv2.event_count == 3
     
-    def test_detects_unchanged_conversations(self, db_conn, conversations_dir, monkeypatch):
+    def test_detects_unchanged_conversations(self, db_conn, conversations_dir, monkeypatch, mock_config):
         """Should skip unchanged conversations on subsequent scans."""
         local_dir = conversations_dir / ".openhands" / "conversations"
         create_conversation(local_dir, "conv-1", num_events=3)
@@ -172,15 +181,15 @@ class TestScanConversations:
         monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         # First scan
-        result1 = scan_conversations(db_conn)
+        result1 = scan_conversations(db_conn, config=mock_config)
         assert result1.new_registered == 1
         
         # Second scan without changes
-        result2 = scan_conversations(db_conn)
+        result2 = scan_conversations(db_conn, config=mock_config)
         assert result2.new_registered == 0
         assert result2.unchanged == 1
     
-    def test_detects_updated_conversations(self, db_conn, conversations_dir, monkeypatch):
+    def test_detects_updated_conversations(self, db_conn, conversations_dir, monkeypatch, mock_config):
         """Should detect conversations with new events."""
         local_dir = conversations_dir / ".openhands" / "conversations"
         conv_dir = create_conversation(local_dir, "conv-1", num_events=3)
@@ -188,7 +197,7 @@ class TestScanConversations:
         monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         # First scan
-        result1 = scan_conversations(db_conn)
+        result1 = scan_conversations(db_conn, config=mock_config)
         assert result1.new_registered == 1
         
         # Add more events and touch the directory
@@ -197,7 +206,7 @@ class TestScanConversations:
         (events_dir / "event-00003-new.json").write_text("{}")
         
         # Second scan
-        result2 = scan_conversations(db_conn)
+        result2 = scan_conversations(db_conn, config=mock_config)
         assert result2.updated == 1
         
         # Verify event count updated
@@ -205,7 +214,7 @@ class TestScanConversations:
         conv = store.get("conv-1")
         assert conv.event_count == 4
     
-    def test_force_updates_all(self, db_conn, conversations_dir, monkeypatch):
+    def test_force_updates_all(self, db_conn, conversations_dir, monkeypatch, mock_config):
         """Should update all conversations when force=True."""
         local_dir = conversations_dir / ".openhands" / "conversations"
         create_conversation(local_dir, "conv-1", num_events=3)
@@ -213,14 +222,14 @@ class TestScanConversations:
         monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         # First scan
-        scan_conversations(db_conn)
+        scan_conversations(db_conn, config=mock_config)
         
         # Force scan (no changes but should still update)
-        result = scan_conversations(db_conn, force=True)
+        result = scan_conversations(db_conn, force=True, config=mock_config)
         assert result.updated == 1
         assert result.unchanged == 0
     
-    def test_removes_missing_when_requested(self, db_conn, conversations_dir, monkeypatch):
+    def test_removes_missing_when_requested(self, db_conn, conversations_dir, monkeypatch, mock_config):
         """Should remove DB entries for missing conversations when remove_missing=True."""
         local_dir = conversations_dir / ".openhands" / "conversations"
         conv_dir = create_conversation(local_dir, "conv-1", num_events=3)
@@ -228,21 +237,21 @@ class TestScanConversations:
         monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         # First scan
-        scan_conversations(db_conn)
+        scan_conversations(db_conn, config=mock_config)
         
         # Delete the conversation from disk
         import shutil
         shutil.rmtree(conv_dir)
         
         # Scan with remove_missing
-        result = scan_conversations(db_conn, remove_missing=True)
+        result = scan_conversations(db_conn, remove_missing=True, config=mock_config)
         assert result.removed == 1
         
         # Verify it's gone from DB
         store = ConversationStore(db_conn)
         assert store.get("conv-1") is None
     
-    def test_scans_both_local_and_cloud(self, db_conn, conversations_dir, monkeypatch):
+    def test_scans_both_local_and_cloud(self, db_conn, conversations_dir, monkeypatch, mock_config):
         """Should discover conversations from both local and cloud directories."""
         local_dir = conversations_dir / ".openhands" / "conversations"
         cloud_dir = conversations_dir / ".openhands" / "cloud" / "conversations"
@@ -252,7 +261,7 @@ class TestScanConversations:
         
         monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
-        result = scan_conversations(db_conn)
+        result = scan_conversations(db_conn, config=mock_config)
         
         assert result.new_registered == 2
         assert result.total_on_disk == 2
@@ -261,7 +270,7 @@ class TestScanConversations:
         assert store.get("local-conv") is not None
         assert store.get("cloud-conv") is not None
     
-    def test_calls_progress_callback(self, db_conn, conversations_dir, monkeypatch):
+    def test_calls_progress_callback(self, db_conn, conversations_dir, monkeypatch, mock_config):
         """Should call progress callback for each conversation."""
         local_dir = conversations_dir / ".openhands" / "conversations"
         create_conversation(local_dir, "conv-1", num_events=2)
@@ -275,7 +284,7 @@ class TestScanConversations:
         def on_progress(current, total, conv_id):
             progress_calls.append((current, total, conv_id))
         
-        scan_conversations(db_conn, on_progress=on_progress)
+        scan_conversations(db_conn, on_progress=on_progress, config=mock_config)
         
         # Should have calls for each conversation plus final completion
         assert len(progress_calls) == 4  # 3 conversations + 1 completion
@@ -288,3 +297,32 @@ class TestScanConversations:
         assert progress_calls[-1][0] == 3  # current == total
         assert progress_calls[-1][1] == 3
         assert progress_calls[-1][2] == ""  # empty conv_id on completion
+
+    def test_scans_extra_conversation_paths(self, db_conn, conversations_dir, monkeypatch):
+        """Should discover conversations from extra_conversation_paths in config."""
+        local_dir = conversations_dir / ".openhands" / "conversations"
+        extra_dir = conversations_dir / "extra_convos"
+        extra_dir.mkdir(parents=True)
+        
+        create_conversation(local_dir, "local-conv", num_events=2)
+        create_conversation(extra_dir, "extra-conv", num_events=4)
+        
+        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
+        
+        # Create config with extra path
+        config = MagicMock()
+        config.extra_conversation_paths = [extra_dir]
+        
+        result = scan_conversations(db_conn, config=config)
+        
+        assert result.new_registered == 2
+        assert result.total_on_disk == 2
+        
+        store = ConversationStore(db_conn)
+        local_conv = store.get("local-conv")
+        assert local_conv is not None
+        assert local_conv.source == "local"
+        
+        extra_conv = store.get("extra-conv")
+        assert extra_conv is not None
+        assert extra_conv.source == "extra_convos"  # Source derived from directory name

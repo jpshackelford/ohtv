@@ -5007,8 +5007,9 @@ def _run_process_stage(stage: str, force: bool, conversation: str | None, verbos
 def db_scan(force: bool, remove_missing: bool, verbose: bool) -> None:
     """Scan filesystem and register conversations in the database.
     
-    Discovers conversations from both local CLI (~/.openhands/conversations/)
-    and synced cloud (~/.openhands/cloud/conversations/) directories.
+    Discovers conversations from local CLI (~/.openhands/conversations/),
+    synced cloud (~/.openhands/cloud/conversations/), and any extra paths
+    configured via extra_conversation_paths setting.
     
     Uses mtime for fast change detection - only updates conversations whose
     events directory has been modified since last scan.

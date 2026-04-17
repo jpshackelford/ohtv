@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from ohtv.config import get_openhands_dir
+from ohtv.config import Config, get_openhands_dir
 from ohtv.db.models import Conversation
 from ohtv.db.stores import ConversationStore
 
@@ -200,11 +200,33 @@ def _truncate_title(text: str, max_length: int) -> str:
     return truncated + "..."
 
 
+def _generate_unique_source_names(paths: list[Path]) -> list[str]:
+    """Generate unique source names from directory basenames with collision handling."""
+    if not paths:
+        return []
+    
+    basenames = [path.name for path in paths]
+    name_counts: dict[str, int] = {}
+    unique_names: list[str] = []
+    
+    for basename in basenames:
+        name = basename.lower().replace(" ", "_").replace("-", "_")
+        if name in name_counts:
+            name_counts[name] += 1
+            name = f"{name}_{name_counts[name]}"
+        else:
+            name_counts[name] = 0
+        unique_names.append(name)
+    
+    return unique_names
+
+
 def scan_conversations(
     conn: sqlite3.Connection,
     force: bool = False,
     remove_missing: bool = False,
     on_progress: Callable[[int, int, str], None] | None = None,
+    config: Config | None = None,
 ) -> ScanResult:
     """Scan filesystem for conversations and update database.
     
@@ -213,10 +235,14 @@ def scan_conversations(
         force: If True, update all conversations regardless of mtime
         remove_missing: If True, remove DB entries for conversations no longer on disk
         on_progress: Optional callback(current, total, conv_id) for progress updates
+        config: Optional config for extra conversation paths (defaults to Config.from_env())
         
     Returns:
         ScanResult with counts of what changed
     """
+    if config is None:
+        config = Config.from_env()
+    
     store = ConversationStore(conn)
     openhands_dir = get_openhands_dir()
     
@@ -227,6 +253,12 @@ def scan_conversations(
     all_discovered = []
     all_discovered.extend(discover_conversations(local_dir, "local"))
     all_discovered.extend(discover_conversations(cloud_dir, "cloud"))
+    
+    # Discover from extra conversation paths
+    extra_source_names = _generate_unique_source_names(config.extra_conversation_paths)
+    for path, source_name in zip(config.extra_conversation_paths, extra_source_names):
+        if path.exists() and path.is_dir():
+            all_discovered.extend(discover_conversations(path, source_name))
     
     total = len(all_discovered)
     
