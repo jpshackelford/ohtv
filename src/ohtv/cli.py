@@ -5561,6 +5561,7 @@ def _show_prompts_family_structure() -> None:
                 
                 console.print(f"    {variant:<20} {default_marker:<18} {description}")
             except Exception as e:
+                log.exception("Failed to resolve prompt %s/%s", family, variant)
                 console.print(f"    {variant:<20} [red]error: {e}[/red]")
         
         console.print()
