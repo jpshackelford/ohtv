@@ -23,7 +23,7 @@ log = logging.getLogger("ohtv")
 
 
 # Commands that use LLM and consume tokens
-LLM_COMMANDS = {"objectives", "summary"}
+LLM_COMMANDS = {"objectives", "summary", "analyze"}
 
 
 class SectionedGroup(click.Group):
@@ -3082,82 +3082,22 @@ def objectives(
     Note: --assess requires at least 'default' context to see the outcome.
 
     Requires LLM_API_KEY environment variable to be set.
+    
+    NOTE: This is the legacy command. Use 'ohtv analyze objectives' for the
+    new unified interface with variant-based prompts.
     """
-    _init_logging(verbose=verbose)
-    config = Config.from_env()
-
-    # Find conversation
-    result = _find_conversation_dir(config, conversation_id)
-    if not result:
-        console.print(f"[red]Error:[/red] Conversation '{conversation_id}' not found")
-        raise SystemExit(1)
-
-    conv_dir, _ = result
-
-    # Get conversation metadata for display
-    conv_id, title = _get_conversation_info(conv_dir)
-
-    # Import analysis module (lazy to avoid loading SDK unless needed)
-    try:
-        from ohtv.analysis import ObjectiveAnalysis, analyze_objectives, get_cached_analysis, load_events
-    except ImportError as e:
-        console.print(f"[red]Error:[/red] Analysis module not available: {e}")
-        raise SystemExit(1)
-
-    # Check for cached analysis first if not refreshing
-    analysis = None
-    analysis_cost = 0.0
-    if not refresh:
-        analysis = get_cached_analysis(conv_dir, context=context, detail=detail, assess=assess)  # type: ignore[arg-type]
-
-    # Run analysis if not cached
-    if analysis is None:
-        # Load events to show progress info
-        events = load_events(conv_dir)
-        event_count = len(events) if events else 0
-
-        # Show status spinner for potentially long-running analysis
-        status_msg = f"Analyzing {event_count} events"
-        if event_count > 100:
-            status_msg += " (this may take a minute)"
-
-        try:
-            with console.status(f"[bold blue]{status_msg}...[/bold blue]"):
-                result = analyze_objectives(
-                    conv_dir, model=model, context=context, detail=detail, assess=assess, force_refresh=refresh  # type: ignore[arg-type]
-                )
-                analysis = result.analysis
-                analysis_cost = result.cost
-        except ValueError as e:
-            console.print(f"[red]Error:[/red] {e}")
-            raise SystemExit(1)
-        except RuntimeError as e:
-            console.print(f"[red]Analysis failed:[/red] {e}")
-            raise SystemExit(1)
-        except Exception as e:
-            # Catch LLM configuration errors
-            if "api_key" in str(e).lower() or "LLM_" in str(e):
-                console.print(
-                    "[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
-                )
-                console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
-            else:
-                console.print(f"[red]Error:[/red] {e}")
-            raise SystemExit(1)
-
-    # Display results
-    if json_output:
-        console.print(analysis.model_dump_json(indent=2))
-    else:
-        _display_objectives(conv_id, title, analysis)
-
-        # Show outputs (repos, PRs, issues) unless suppressed
-        if not no_outputs:
-            _display_outputs(conv_dir)
-        
-        # Show cost if LLM was called
-        if analysis_cost > 0:
-            console.print(f"\n[dim]LLM cost: [green]${analysis_cost:.4f}[/green][/dim]")
+    # Call shared implementation with legacy parameters
+    _run_objectives_analysis(
+        conversation_id=conversation_id,
+        model=model,
+        refresh=refresh,
+        no_outputs=no_outputs,
+        json_output=json_output,
+        verbose=verbose,
+        detail=detail,
+        assess=assess,
+        context=context,
+    )
 
 
 def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis") -> None:
@@ -5601,6 +5541,241 @@ def _show_prompts_status(prompts_list: list[dict], user_dir) -> None:
     console.print()
     console.print(f"[dim]User prompts directory: {user_dir}[/dim]")
     console.print("[dim]Run 'ohtv prompts init' to copy prompts for customization.[/dim]")
+
+
+# =============================================================================
+# Analyze Commands (new unified interface)
+# =============================================================================
+
+
+@main.group()
+def analyze() -> None:
+    """Analyze conversations using LLM prompts (requires LLM_API_KEY)."""
+
+
+@analyze.command("objectives")
+@click.argument("conversation_id")
+@click.option("--variant", "-v", help="Prompt variant (brief, standard, detailed, brief_assess, etc.)")
+@click.option("--context", "-c", help="Context level (by name or number: 1=minimal, 2=standard, 3=full)")
+@click.option("--model", "-m", help="LLM model to use for analysis")
+@click.option("--no-cache", is_flag=True, help="Force re-analysis (ignore cache)")
+@click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+@click.option("--verbose", is_flag=True, help="Show debug output")
+def analyze_objectives_cmd(
+    conversation_id: str,
+    variant: str | None,
+    context: str | None,
+    model: str | None,
+    no_cache: bool,
+    no_outputs: bool,
+    json_output: bool,
+    verbose: bool,
+) -> None:
+    """Identify what the user hopes to achieve in a conversation.
+    
+    Uses the extensible prompt system with family/variant organization.
+    
+    \b
+    Variants (objectives family):
+      brief           - Just the goal (1-2 sentences)
+      brief_assess    - Goal + status assessment
+      standard        - Goal + primary/secondary outcomes
+      standard_assess - Standard + status assessment  
+      detailed        - Full hierarchical objectives
+      detailed_assess - Detailed + status assessment
+    
+    \b
+    Context levels (how much conversation to analyze):
+      1 / minimal   - User messages only (lowest tokens)
+      2 / standard  - User messages + finish action (recommended)
+      3 / full      - All messages + action summaries (highest tokens)
+    
+    \b
+    Examples:
+      ohtv analyze objectives abc123              # Use default variant
+      ohtv analyze objectives abc123 -v brief     # Brief variant
+      ohtv analyze objectives abc123 -c 1         # Context level 1 (minimal)
+      ohtv analyze objectives abc123 -v standard_assess -c full
+    
+    Requires LLM_API_KEY environment variable to be set.
+    """
+    _run_objectives_analysis(
+        conversation_id=conversation_id,
+        variant=variant,
+        context=context,
+        model=model,
+        refresh=no_cache,
+        no_outputs=no_outputs,
+        json_output=json_output,
+        verbose=verbose,
+    )
+
+
+def _run_objectives_analysis(
+    conversation_id: str,
+    variant: str | None = None,
+    context: str | None = None,
+    model: str | None = None,
+    refresh: bool = False,
+    no_outputs: bool = False,
+    json_output: bool = False,
+    verbose: bool = False,
+    detail: str | None = None,
+    assess: bool | None = None,
+) -> None:
+    """Shared implementation for objectives analysis.
+    
+    This function supports both the new variant-based interface and the legacy
+    detail+assess interface for backward compatibility.
+    
+    Args:
+        conversation_id: Conversation ID to analyze
+        variant: Prompt variant (new interface)
+        context: Context level name or number (new interface)
+        model: LLM model to use
+        refresh: Force re-analysis
+        no_outputs: Don't show outputs
+        json_output: Output as JSON
+        verbose: Show debug output
+        detail: Detail level (legacy interface: brief, standard, detailed)
+        assess: Add assessment (legacy interface)
+    """
+    _init_logging(verbose=verbose)
+    config = Config.from_env()
+    
+    # Import prompts discovery functions
+    from ohtv.prompts import resolve_prompt, resolve_context, list_variants
+    
+    # Resolve variant from legacy parameters if needed
+    if variant is None and detail is not None:
+        # Legacy interface: map detail+assess to variant
+        variant = detail
+        if assess:
+            variant = f"{detail}_assess"
+    
+    # Map legacy context names to new context names
+    # Legacy: minimal, default, full
+    # New:    minimal, standard, full
+    if context == "default":
+        context = "standard"
+    
+    # Find conversation
+    result = _find_conversation_dir(config, conversation_id)
+    if not result:
+        console.print(f"[red]Error:[/red] Conversation '{conversation_id}' not found")
+        raise SystemExit(1)
+    
+    conv_dir, _ = result
+    conv_id, title = _get_conversation_info(conv_dir)
+    
+    # Resolve prompt metadata
+    try:
+        prompt_meta = resolve_prompt("objectives", variant)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        available = list_variants("objectives")
+        console.print(f"[dim]Available variants: {', '.join(available)}[/dim]")
+        raise SystemExit(1)
+    
+    # Resolve context level
+    try:
+        if context is not None:
+            # Try as int first
+            try:
+                context_num = int(context)
+                context_level = resolve_context(prompt_meta, context_num)
+            except ValueError:
+                # Try as name
+                context_level = resolve_context(prompt_meta, context)
+        else:
+            # Use default context from prompt
+            context_level = resolve_context(prompt_meta, None)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[dim]Available context levels:[/dim]")
+        for level_num, level in sorted(prompt_meta.context_levels.items()):
+            console.print(f"  {level_num} ({level.name})")
+        raise SystemExit(1)
+    
+    # Import analysis module
+    try:
+        from ohtv.analysis import analyze_objectives, get_cached_analysis, load_events
+    except ImportError as e:
+        console.print(f"[red]Error:[/red] Analysis module not available: {e}")
+        raise SystemExit(1)
+    
+    # Extract detail level and assess flag from variant for cache compatibility
+    variant_name = prompt_meta.variant
+    has_assess = variant_name.endswith("_assess")
+    detail_level = variant_name.replace("_assess", "")
+    
+    # Map context level name back to legacy for analyze_objectives compatibility
+    # New:    minimal, standard, full
+    # Legacy: minimal, default, full
+    legacy_context = context_level.name
+    if legacy_context == "standard":
+        legacy_context = "default"
+    
+    # Check cache if not refreshing
+    analysis = None
+    analysis_cost = 0.0
+    if not refresh:
+        analysis = get_cached_analysis(
+            conv_dir, 
+            context=legacy_context,  # type: ignore[arg-type]
+            detail=detail_level,  # type: ignore[arg-type]
+            assess=has_assess
+        )
+    
+    # Run analysis if not cached
+    if analysis is None:
+        events = load_events(conv_dir)
+        event_count = len(events) if events else 0
+        
+        status_msg = f"Analyzing {event_count} events"
+        if event_count > 100:
+            status_msg += " (this may take a minute)"
+        
+        try:
+            with console.status(f"[bold blue]{status_msg}...[/bold blue]"):
+                result = analyze_objectives(
+                    conv_dir,
+                    model=model,
+                    context=legacy_context,  # type: ignore[arg-type]
+                    detail=detail_level,  # type: ignore[arg-type]
+                    assess=has_assess,
+                    force_refresh=refresh
+                )
+                analysis = result.analysis
+                analysis_cost = result.cost
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise SystemExit(1)
+        except RuntimeError as e:
+            console.print(f"[red]Analysis failed:[/red] {e}")
+            raise SystemExit(1)
+        except Exception as e:
+            if "api_key" in str(e).lower() or "LLM_" in str(e):
+                console.print(
+                    "[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
+                )
+                console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
+            else:
+                console.print(f"[red]Error:[/red] {e}")
+            raise SystemExit(1)
+    
+    # Display results
+    if json_output:
+        console.print(analysis.model_dump_json(indent=2))
+    else:
+        _display_objectives(conv_id, title, analysis)
+        
+        if not no_outputs:
+            _display_outputs(conv_dir)
+        
+        if analysis_cost > 0:
+            console.print(f"\n[dim]LLM cost: [green]${analysis_cost:.4f}[/green][/dim]")
 
 
 if __name__ == "__main__":
