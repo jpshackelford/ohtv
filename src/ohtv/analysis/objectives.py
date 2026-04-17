@@ -28,6 +28,11 @@ from ohtv.analysis.cache import (
     compute_content_hash,
     load_events,
 )
+from ohtv.analysis.transcript import (
+    build_transcript_from_context as _build_from_context,
+    format_transcript as _format_transcript,
+)
+from ohtv.prompts.metadata import ContextLevel as ContextLevelMetadata
 
 log = logging.getLogger("ohtv")
 
@@ -187,13 +192,45 @@ def extract_action_summary(event: dict) -> str:
 # =============================================================================
 
 
-def build_transcript(events: list[dict], context: ContextLevel = "default") -> list[dict]:
+def build_transcript(
+    events: list[dict], context: ContextLevel | ContextLevelMetadata = "default"
+) -> list[dict]:
     """Build a transcript based on the context level.
 
-    Context levels:
+    Supports both legacy string context levels and new metadata-driven ContextLevel objects.
+
+    Args:
+        events: List of conversation events
+        context: Either a string ("minimal", "default", "full") for legacy mode,
+                or a ContextLevel object for metadata-driven mode
+
+    Returns:
+        List of transcript items with role and text
+
+    Context levels (legacy string mode):
     - minimal: User messages only
     - default: User messages + finish action
     - full: User + agent messages + action summaries
+    """
+    if isinstance(context, ContextLevelMetadata):
+        # New metadata-driven mode
+        return _build_from_context(events, context)
+    else:
+        # Legacy string mode
+        return _legacy_build_transcript(events, context)
+
+
+def _legacy_build_transcript(events: list[dict], context: ContextLevel) -> list[dict]:
+    """Build transcript using legacy hardcoded context levels.
+
+    DEPRECATED: Use build_transcript() with a ContextLevel object for metadata-driven mode.
+
+    Args:
+        events: List of conversation events
+        context: String context level ("minimal", "default", "full")
+
+    Returns:
+        List of transcript items with role and text
     """
     items = []
 
