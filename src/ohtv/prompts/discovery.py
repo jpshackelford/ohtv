@@ -54,6 +54,7 @@ def discover_prompts() -> dict[str, dict[str, PromptMetadata]]:
         for prompt_file in prompts_dir.rglob("*.md"):
             # Skip files directly in prompts directory (old structure)
             if prompt_file.parent == prompts_dir:
+                log.debug("Skipping old-structure prompt: %s", prompt_file)
                 continue
             
             try:
@@ -140,8 +141,12 @@ def resolve_prompt(family: str, variant: str | None = None) -> PromptMetadata:
             raise ValueError(f"No default variant for family '{family}'. "
                            f"Available variants: {', '.join(family_prompts.keys())}")
         if len(defaults) > 1:
-            log.warning("Multiple default variants for family '%s': %s. Using first.", 
-                       family, defaults)
+            log.warning(
+                "Multiple default variants for family '%s': %s. "
+                "Using '%s' (first in discovery order). "
+                "Mark only one variant as default: true.",
+                family, defaults, defaults[0]
+            )
         variant = defaults[0]
     
     if variant not in family_prompts:
