@@ -108,9 +108,8 @@ def parse_prompt_file(path: Path) -> PromptMetadata:
         
         if "levels" in context_data:
             for number, level_data in context_data["levels"].items():
-                level_dict = dict(level_data)
-                level_dict["number"] = int(number)
-                context_levels[int(number)] = parse_context_level(level_dict)
+                level_data_with_number = {**level_data, "number": int(number)}
+                context_levels[int(number)] = parse_context_level(level_data_with_number)
     
     # Compute content hash
     content_hash = hashlib.sha256(prompt_content.encode()).hexdigest()[:16]
