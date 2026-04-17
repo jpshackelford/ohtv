@@ -11,14 +11,16 @@ context:
       include:
         - source: user
           kind: MessageEvent
+      truncate: 500
     2:
-      name: default
+      name: standard
       include:
         - source: user
           kind: MessageEvent
         - source: agent
           kind: ActionEvent
           tool: finish
+      truncate: 1000
     3:
       name: full
       include:
@@ -28,7 +30,7 @@ context:
           kind: MessageEvent
         - source: agent
           kind: ActionEvent
-      truncate: 1000
+      truncate: 2000
 
 output:
   schema:

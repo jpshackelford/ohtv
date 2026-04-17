@@ -7,13 +7,14 @@ context:
   default: 1
   levels:
     1:
-      name: edits_only
+      name: minimal
       include:
         - source: agent
           kind: ActionEvent
           tool: file_editor
+      truncate: 500
     2:
-      name: with_commands
+      name: standard
       include:
         - source: agent
           kind: ActionEvent
@@ -21,7 +22,7 @@ context:
         - source: agent
           kind: ActionEvent
           tool: terminal
-      truncate: 500
+      truncate: 1000
     3:
       name: full
       include:
@@ -29,7 +30,7 @@ context:
           kind: MessageEvent
         - source: agent
           kind: ActionEvent
-      truncate: 300
+      truncate: 2000
 
 output:
   schema:
