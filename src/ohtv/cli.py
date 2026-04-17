@@ -5446,15 +5446,19 @@ def prompts(action: str | None, name: str | None, force: bool) -> None:
     """
     from ohtv.prompts import (
         PROMPT_NAMES,
+        discover_prompts,
         get_default_prompts_dir,
         get_prompt,
         get_user_prompts_dir,
         init_user_prompts,
+        list_families,
         list_prompts,
+        list_variants,
+        resolve_prompt,
     )
     
     if action is None or action == "list":
-        _show_prompts_status(list_prompts(), get_user_prompts_dir())
+        _show_prompts_family_structure()
         return
     
     if action == "init":
@@ -5529,8 +5533,45 @@ def prompts(action: str | None, name: str | None, force: bool) -> None:
         return
 
 
+def _show_prompts_family_structure() -> None:
+    """Display prompts organized by family and variant."""
+    from ohtv.prompts import list_families, list_variants, resolve_prompt, get_user_prompts_dir
+    
+    console.print("[bold]Prompt Families:[/bold]")
+    console.print()
+    
+    families = list_families()
+    if not families:
+        console.print("[dim]No prompts found.[/dim]")
+        return
+    
+    for family in families:
+        console.print(f"  [cyan]{family}/[/cyan]")
+        
+        variants = list_variants(family)
+        for variant in variants:
+            try:
+                meta = resolve_prompt(family, variant)
+                default_marker = " [green](default)[/green]" if meta.default else ""
+                description = meta.description or ""
+                
+                # Truncate description if too long
+                if len(description) > 60:
+                    description = description[:57] + "..."
+                
+                console.print(f"    {variant:<20} {default_marker:<18} {description}")
+            except Exception as e:
+                console.print(f"    {variant:<20} [red]error: {e}[/red]")
+        
+        console.print()
+    
+    user_dir = get_user_prompts_dir()
+    console.print(f"[dim]User prompts directory: {user_dir}[/dim]")
+    console.print("[dim]Run 'ohtv prompts init' to copy prompts for customization.[/dim]")
+
+
 def _show_prompts_status(prompts_list: list[dict], user_dir) -> None:
-    """Display prompt status in a table."""
+    """Display prompt status in a table (legacy)."""
     table = Table(title="LLM Analysis Prompts")
     table.add_column("Prompt", style="cyan")
     table.add_column("Status")
