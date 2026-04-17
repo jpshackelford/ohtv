@@ -14,7 +14,7 @@ class EventFilter:
         """Check if this filter matches an event.
         
         Args:
-            event: Event dict with 'source', 'kind', and optionally 'tool' fields
+            event: Event dict with 'source', 'kind', and optionally 'tool_name' fields
             
         Returns:
             True if event matches this filter, False otherwise
@@ -28,7 +28,7 @@ class EventFilter:
         if self.tool is not None:
             if event.get("kind") != "ActionEvent":
                 return False
-            if event.get("tool") != self.tool:
+            if event.get("tool_name") != self.tool:
                 return False
         
         return True

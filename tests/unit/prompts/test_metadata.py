@@ -9,7 +9,7 @@ class TestEventFilter:
         """Test that default wildcard filter matches any event"""
         f = EventFilter()
         assert f.matches({"source": "user", "kind": "MessageEvent"})
-        assert f.matches({"source": "agent", "kind": "ActionEvent", "tool": "finish"})
+        assert f.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "finish"})
         assert f.matches({"source": "user", "kind": "ErrorEvent"})
     
     def test_source_filter(self):
@@ -22,27 +22,27 @@ class TestEventFilter:
         """Test filtering by kind"""
         f = EventFilter(kind="MessageEvent")
         assert f.matches({"source": "user", "kind": "MessageEvent"})
-        assert not f.matches({"source": "user", "kind": "ActionEvent", "tool": "terminal"})
+        assert not f.matches({"source": "user", "kind": "ActionEvent", "tool_name": "terminal"})
     
     def test_tool_filter_requires_action_event(self):
         """Test that tool filter only matches ActionEvent"""
         f = EventFilter(tool="finish")
-        assert not f.matches({"source": "agent", "kind": "MessageEvent", "tool": "finish"})
-        assert f.matches({"source": "agent", "kind": "ActionEvent", "tool": "finish"})
+        assert not f.matches({"source": "agent", "kind": "MessageEvent", "tool_name": "finish"})
+        assert f.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "finish"})
     
     def test_tool_filter_with_specific_tool(self):
         """Test that tool filter matches specific tool name"""
         f = EventFilter(tool="terminal")
-        assert f.matches({"source": "agent", "kind": "ActionEvent", "tool": "terminal"})
-        assert not f.matches({"source": "agent", "kind": "ActionEvent", "tool": "finish"})
+        assert f.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "terminal"})
+        assert not f.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "finish"})
     
     def test_combined_filters(self):
         """Test combining multiple filter criteria"""
         f = EventFilter(source="agent", kind="ActionEvent", tool="terminal")
-        assert f.matches({"source": "agent", "kind": "ActionEvent", "tool": "terminal"})
-        assert not f.matches({"source": "user", "kind": "ActionEvent", "tool": "terminal"})
-        assert not f.matches({"source": "agent", "kind": "MessageEvent", "tool": "terminal"})
-        assert not f.matches({"source": "agent", "kind": "ActionEvent", "tool": "finish"})
+        assert f.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "terminal"})
+        assert not f.matches({"source": "user", "kind": "ActionEvent", "tool_name": "terminal"})
+        assert not f.matches({"source": "agent", "kind": "MessageEvent", "tool_name": "terminal"})
+        assert not f.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "finish"})
     
     def test_wildcard_source_with_specific_kind(self):
         """Test wildcard source with specific kind"""
@@ -78,7 +78,7 @@ class TestContextLevel:
             exclude=[EventFilter(kind="ActionEvent")]
         )
         assert ctx.matches({"source": "user", "kind": "MessageEvent"})
-        assert not ctx.matches({"source": "agent", "kind": "ActionEvent", "tool": "finish"})
+        assert not ctx.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "finish"})
     
     def test_no_include_matches_means_no_match(self):
         """Test that if no include filter matches, event is excluded"""
@@ -87,7 +87,7 @@ class TestContextLevel:
             name="test",
             include=[EventFilter(kind="MessageEvent")]
         )
-        assert not ctx.matches({"source": "agent", "kind": "ActionEvent", "tool": "finish"})
+        assert not ctx.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "finish"})
     
     def test_specific_tool_inclusion(self):
         """Test including only specific tool actions"""
@@ -96,8 +96,8 @@ class TestContextLevel:
             name="test",
             include=[EventFilter(kind="ActionEvent", tool="finish")]
         )
-        assert ctx.matches({"source": "agent", "kind": "ActionEvent", "tool": "finish"})
-        assert not ctx.matches({"source": "agent", "kind": "ActionEvent", "tool": "terminal"})
+        assert ctx.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "finish"})
+        assert not ctx.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "terminal"})
     
     def test_complex_include_exclude(self):
         """Test complex include/exclude combination"""
@@ -113,8 +113,8 @@ class TestContextLevel:
             ]
         )
         assert ctx.matches({"source": "user", "kind": "MessageEvent"})
-        assert ctx.matches({"source": "agent", "kind": "ActionEvent", "tool": "finish"})
-        assert not ctx.matches({"source": "agent", "kind": "ActionEvent", "tool": "terminal"})
+        assert ctx.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "finish"})
+        assert not ctx.matches({"source": "agent", "kind": "ActionEvent", "tool_name": "terminal"})
 
 
 class TestPromptMetadata:

@@ -14,6 +14,7 @@ import json
 import logging
 import time
 from contextlib import contextmanager
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -28,6 +29,11 @@ from ohtv.analysis.cache import (
     compute_content_hash,
     load_events,
 )
+from ohtv.analysis.transcript import (
+    build_transcript_from_context as _build_from_context,
+    format_transcript as _format_transcript,
+)
+from ohtv.prompts.metadata import ContextLevel as ContextLevelMetadata
 
 log = logging.getLogger("ohtv")
 
@@ -41,7 +47,7 @@ def _timer(label: str):
     log.debug("TIMING %s: %.1fms", label, elapsed_ms)
 
 # Context level type
-ContextLevel = Literal["minimal", "default", "full"]
+LegacyContextLevel = Literal["minimal", "default", "full"]
 
 
 class ObjectiveStatus(str, Enum):
@@ -187,14 +193,52 @@ def extract_action_summary(event: dict) -> str:
 # =============================================================================
 
 
-def build_transcript(events: list[dict], context: ContextLevel = "default") -> list[dict]:
+def build_transcript(
+    events: list[dict], context: LegacyContextLevel | ContextLevelMetadata = "default"
+) -> list[dict]:
     """Build a transcript based on the context level.
 
-    Context levels:
+    Supports both legacy string context levels and new metadata-driven ContextLevel objects.
+
+    Args:
+        events: List of conversation events
+        context: Either a string ("minimal", "default", "full") for legacy mode,
+                or a ContextLevel object for metadata-driven mode
+
+    Returns:
+        List of transcript items with role and text
+
+    Context levels (legacy string mode):
     - minimal: User messages only
     - default: User messages + finish action
     - full: User + agent messages + action summaries
     """
+    if isinstance(context, ContextLevelMetadata):
+        # New metadata-driven mode
+        return _build_from_context(events, context)
+    else:
+        # Legacy string mode
+        return _legacy_build_transcript(events, context)
+
+
+def _legacy_build_transcript(events: list[dict], context: LegacyContextLevel) -> list[dict]:
+    """Build transcript using legacy hardcoded context levels.
+
+    DEPRECATED: Use build_transcript() with a ContextLevel object for metadata-driven mode.
+
+    Args:
+        events: List of conversation events
+        context: String context level ("minimal", "default", "full")
+
+    Returns:
+        List of transcript items with role and text
+    """
+    warnings.warn(
+        "String-based context levels are deprecated. "
+        "Use ContextLevel objects from ohtv.prompts.metadata instead.",
+        DeprecationWarning,
+        stacklevel=3
+    )
     items = []
 
     for event in events:
@@ -254,7 +298,7 @@ class _PreparedData:
     content_hash: str
 
 
-def _prepare_data(conv_dir: Path, context: ContextLevel) -> _PreparedData:
+def _prepare_data(conv_dir: Path, context: LegacyContextLevel) -> _PreparedData:
     """Load events and build transcript (reusable across cache check and analysis)."""
     with _timer("load_events"):
         events = load_events(conv_dir)
@@ -267,7 +311,7 @@ def _prepare_data(conv_dir: Path, context: ContextLevel) -> _PreparedData:
 
 def get_cached_analysis(
     conv_dir: Path,
-    context: ContextLevel = "default",
+    context: LegacyContextLevel = "default",
     detail: DetailLevel = "brief",
     assess: bool = False,
 ) -> ObjectiveAnalysis | None:
@@ -300,7 +344,7 @@ def get_cached_analysis(
 
 def _check_cache_with_data(
     conv_dir: Path,
-    context: ContextLevel,
+    context: LegacyContextLevel,
     detail: DetailLevel,
     assess: bool,
     prompt_hash: str,
@@ -344,7 +388,7 @@ def _parse_llm_response(response_text: str) -> dict:
 def analyze_objectives(
     conv_dir: Path,
     model: str | None = None,
-    context: ContextLevel = "default",
+    context: LegacyContextLevel = "default",
     detail: DetailLevel = "brief",
     assess: bool = False,
     force_refresh: bool = False,
@@ -575,3 +619,7 @@ def analyze_objectives(
     log.debug("Analysis complete and cached (cost: $%.4f, total: %.1fms)", cost, total_elapsed)
 
     return AnalysisResult(analysis=analysis, cost=cost, from_cache=False)
+
+# Backward compatibility: export LegacyContextLevel as ContextLevel
+ContextLevel = LegacyContextLevel
+
