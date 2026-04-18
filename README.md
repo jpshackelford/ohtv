@@ -24,7 +24,7 @@ ohtv gen objs <conversation_id>
 ohtv gen objs <conversation_id> -v detailed_assess  # with completion status
 
 # Summarize today's conversations (requires LLM_API_KEY)
-ohtv summary --day
+ohtv gen objs --day
 
 # See what GitHub repos/PRs/issues were referenced
 ohtv refs <conversation_id>
@@ -362,10 +362,12 @@ The `gen` command provides LLM-powered analysis of conversations using customiza
 
 #### `ohtv gen objs` - Extract User Objectives
 
-Analyzes a conversation to extract user objectives. Supports multiple output variants and context levels for balancing detail vs. token cost.
+Analyzes conversations to extract user objectives. Supports single-conversation and multi-conversation (batch) modes, with multiple output variants and context levels for balancing detail vs. token cost.
 
 ```bash
-# Basic analysis (uses default: brief variant, minimal context)
+# SINGLE-CONVERSATION MODE (with conversation_id)
+
+# Basic analysis (uses default: brief variant, standard context)
 ohtv gen objs abc123
 
 # Choose output detail level with variants
@@ -396,6 +398,40 @@ ohtv gen objs abc123 -m gpt-4o
 
 # Output as JSON
 ohtv gen objs abc123 --json
+
+# MULTI-CONVERSATION MODE (without conversation_id)
+
+# Analyze 10 most recent conversations (default)
+ohtv gen objs
+
+# Analyze today's conversations
+ohtv gen objs --day
+
+# Analyze this week's conversations
+ohtv gen objs --week
+
+# Analyze with date range
+ohtv gen objs --since 2024-01-01 --until 2024-01-31
+
+# Analyze all conversations (no limit)
+ohtv gen objs --all
+
+# Force re-analysis (ignore cache)
+ohtv gen objs --no-cache
+
+# Output as markdown (for notes/docs)
+ohtv gen objs -F markdown
+
+# Output as JSON
+ohtv gen objs -F json
+
+# Filter by PR, repo, or action (same as list command)
+ohtv gen objs --pr OpenPaw#17
+ohtv gen objs --repo OpenPaw
+ohtv gen objs --action pushed --repo OpenPaw
+
+# Skip confirmation for large result sets
+ohtv gen objs --action pushed --yes
 ```
 
 **Variants:**
@@ -450,7 +486,22 @@ Outputs:
 LLM cost: $0.0089
 ```
 
-**Options:**
+**Multi-Conversation Example Output (table):**
+```
+┏━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID      ┃ Date       ┃ Summary                                             ┃
+┡━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ abc1234 │ 2024-03-15 │ Refactor authentication module to use OAuth2 with   │
+│         │            │ refresh token support for improved security.        │
+│         │            │ → created user/repo/pull/42, pushed user/repo       │
+├─────────┼────────────┼─────────────────────────────────────────────────────┤
+│ def5678 │ 2024-03-14 │ Fix pagination bug in search results component that │
+│         │            │ caused duplicate entries on page boundaries.        │
+└─────────┴────────────┴─────────────────────────────────────────────────────┘
+Showing 2 of 150 (2/2 cached)
+```
+
+**Options (Single-Conversation Mode):**
 | Flag | Description |
 |------|-------------|
 | `-v, --variant` | Output variant (default: `brief`) |
@@ -459,7 +510,31 @@ LLM cost: $0.0089
 | `-m, --model` | LLM model to use |
 | `--json` | Output as JSON |
 | `--no-outputs` | Don't show outputs (repos, PRs, issues) |
-| `-V, --verbose` | Show debug output |
+| `--verbose` | Show debug output |
+
+**Options (Multi-Conversation Mode):**
+| Flag | Description |
+|------|-------------|
+| `-v, --variant` | Output variant (default: `brief`) |
+| `-c, --context` | Context level (default: `minimal` for token efficiency) |
+| `-n, --max N` | Maximum conversations to analyze (default: 10) |
+| `-A, --all` | Analyze all conversations (no limit) |
+| `-k, --offset N` | Skip first N conversations |
+| `-S, --since DATE` | Analyze conversations from DATE onwards |
+| `-U, --until DATE` | Analyze conversations up to DATE |
+| `-D, --day [DATE]` | Analyze conversations from a single day (default: today) |
+| `-W, --week [DATE]` | Analyze conversations from the week containing DATE |
+| `--pr PATTERN` | Filter by PR reference (URL, `owner/repo#N`, or `repo#N`) |
+| `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
+| `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`) |
+| `--reverse` | Show oldest first |
+| `--no-cache` | Force re-analysis (ignore cache) |
+| `-m, --model` | LLM model to use |
+| `-F, --format` | Output format: `table`, `json`, `markdown` |
+| `--no-outputs` | Don't show outputs (repos, PRs, issues modified) |
+| `-y, --yes` | Skip confirmation for large result sets (>20 conversations) |
+| `-q, --quiet` | Generate/cache summaries without displaying output |
+| `--verbose` | Show debug output |
 
 ---
 
@@ -561,97 +636,6 @@ Respond with JSON:
 | Flag | Description |
 |------|-------------|
 | `--all` | Reset all prompts (with `reset` action) |
-
----
-
-### `ohtv summary` - Summarize Multiple Conversations
-
-Analyzes multiple conversations and displays a summary table of their goals. Uses the most token-efficient LLM settings (minimal context, brief output) and caches results. Shares cache with `gen objs` command.
-
-```bash
-# Summarize 10 most recent conversations (default)
-ohtv summary
-
-# Summarize today's conversations
-ohtv summary --day
-
-# Summarize this week's conversations
-ohtv summary --week
-
-# Summarize with date range
-ohtv summary --since 2024-01-01 --until 2024-01-31
-
-# Summarize all conversations (no limit)
-ohtv summary --all
-
-# Force re-analysis (ignore cache)
-ohtv summary --refresh
-
-# Output as markdown (for notes/docs)
-ohtv summary -F markdown
-
-# Output as JSON
-ohtv summary -F json
-
-# Filter by PR, repo, or action (same as list command)
-ohtv summary --pr OpenPaw#17
-ohtv summary --repo OpenPaw
-ohtv summary --action pushed --repo OpenPaw
-
-# Skip confirmation for large result sets
-ohtv summary --action pushed --yes
-```
-
-**Example Output (table):**
-```
-┏━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ ID      ┃ Date       ┃ Summary                                             ┃
-┡━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ abc1234 │ 2024-03-15 │ Refactor authentication module to use OAuth2 with   │
-│         │            │ refresh token support for improved security.        │
-│         │            │ → created user/repo/pull/42, pushed user/repo       │
-├─────────┼────────────┼─────────────────────────────────────────────────────┤
-│ def5678 │ 2024-03-14 │ Fix pagination bug in search results component that │
-│         │            │ caused duplicate entries on page boundaries.        │
-└─────────┴────────────┴─────────────────────────────────────────────────────┘
-Showing 2 of 150 (2/2 cached)
-```
-
-**Example Output (markdown):**
-```markdown
-- **abc1234** (2024-03-15): Refactor authentication to use OAuth2 with refresh tokens
-  - created: user/repo/pull/42
-  - pushed: user/repo
-- **def5678** (2024-03-14): Fix pagination bug in search results component
-```
-
-**Options:**
-| Flag | Description |
-|------|-------------|
-| `-n, --max N` | Maximum conversations to analyze (default: 10) |
-| `-A, --all` | Analyze all conversations (no limit) |
-| `-k, --offset N` | Skip first N conversations |
-| `-S, --since DATE` | Analyze conversations from DATE onwards |
-| `-U, --until DATE` | Analyze conversations up to DATE |
-| `-D, --day [DATE]` | Analyze conversations from a single day (default: today) |
-| `-W, --week [DATE]` | Analyze conversations from the week containing DATE |
-| `--pr PATTERN` | Filter by PR reference (URL, `owner/repo#N`, or `repo#N`) |
-| `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
-| `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`) |
-| `--reverse` | Show oldest first |
-| `-r, --refresh` | Force re-analysis (ignore cache) |
-| `-m, --model` | LLM model to use for analysis |
-| `-F, --format` | Output format: `table`, `json`, `markdown` |
-| `--no-outputs` | Don't show outputs (repos, PRs, issues modified) |
-| `-y, --yes` | Skip confirmation for large result sets (>20 conversations) |
-| `-v, --verbose` | Show debug output |
-
-**Environment Variables:**
-| Variable | Description |
-|----------|-------------|
-| `LLM_API_KEY` | API key for the LLM provider |
-| `LLM_MODEL` | Default model to use (optional) |
-| `LLM_BASE_URL` | Custom LLM base URL (optional) |
 
 ---
 

@@ -13,13 +13,13 @@ uv run ohtv --help         # Run CLI
 
 ## Code Structure
 
-- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, errors, sync, objectives, summary, db, prompts)
+- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, errors, sync, gen, db, prompts)
 - `src/ohtv/config.py` - Configuration management
 - `src/ohtv/sync.py` - Cloud sync logic
 - `src/ohtv/sources/` - Data sources (local, cloud)
 - `src/ohtv/exporter.py` - Output formatting
 - `src/ohtv/errors.py` - Agent/LLM error analysis (ConversationErrorEvent, AgentErrorEvent)
-- `src/ohtv/analysis/` - LLM-based analysis features (objectives extraction, summary)
+- `src/ohtv/analysis/` - LLM-based analysis features (objectives extraction)
 - `src/ohtv/prompts/` - Customizable LLM prompt templates (markdown files)
 - `src/ohtv/db/` - SQLite-based indexing for conversation labeling
 
@@ -35,11 +35,11 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
 
 4. **Timezone handling**: Cloud timestamps are UTC; local CLI timestamps lack timezone info. The codebase normalizes to UTC for sorting, then converts to local time for display. **Limitation:** Local timestamps are interpreted using the current machine's timezone - if data moves between machines with different timezones, times may display incorrectly.
 
-5. **LLM analysis caching**: The `objectives` and `summary` commands cache results keyed by parameter combination (context level, detail level, assess flag). Cache invalidates when event count changes (conversation grew) or when the prompt file changes (detected via prompt hash). The `summary` command uses minimal context + brief detail for token efficiency.
+5. **LLM analysis caching**: The `gen objs` command caches results keyed by parameter combination (context level, detail level, assess flag). Cache invalidates when event count changes (conversation grew) or when the prompt file changes (detected via prompt hash). Multi-conversation mode (batch) uses minimal context + brief detail for token efficiency.
 
 6. **LLM timeout**: Default 300s. Override with `LLM_TIMEOUT` env var. CLI shows spinner during analysis.
 
-7. **LLM cost tracking**: `analyze_objectives()` returns an `AnalysisResult` dataclass containing `analysis` (ObjectiveAnalysis), `cost` (float, dollars), and `from_cache` (bool). The `summary` command displays running cost in the progress bar during analysis and shows total cost after completion. Cost is obtained from `response.metrics.accumulated_cost` via the OpenHands SDK LLM class.
+7. **LLM cost tracking**: `analyze_objectives()` returns an `AnalysisResult` dataclass containing `analysis` (ObjectiveAnalysis), `cost` (float, dollars), and `from_cache` (bool). The `gen objs` command (batch mode) displays running cost in the progress bar during analysis and shows total cost after completion. Cost is obtained from `response.metrics.accumulated_cost` via the OpenHands SDK LLM class.
 
 8. **Human-readable action details**: `-d` flag formats tool calls for readability (e.g., `$ git status` for terminal). Use `--debug-tool-call` for raw JSON.
 
@@ -106,10 +106,10 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - Event loading/transcript building: <100ms
     - Cache operations: <10ms
 
-20. **Parallel LLM processing**: The `summary` command automatically uses parallel processing (20 workers) when analyzing multiple conversations. This is an internal optimization - no CLI option needed. Uses `ThreadPoolExecutor` with thread-safe counters. **Graceful shutdown**: SIGINT/SIGTERM signals are caught - in-flight LLM requests complete and cache is saved before exit, preventing data corruption. **Confirmation prompt**: Shows model name when analyzing >20 conversations.
+20. **Parallel LLM processing**: The `gen objs` command (batch mode) automatically uses parallel processing (20 workers) when analyzing multiple conversations. This is an internal optimization - no CLI option needed. Uses `ThreadPoolExecutor` with thread-safe counters. **Graceful shutdown**: SIGINT/SIGTERM signals are caught - in-flight LLM requests complete and cache is saved before exit, preventing data corruption. **Confirmation prompt**: Shows model name when analyzing >20 conversations.
 
 21. **Model configuration**: LLM model can be set via:
-    - CLI: `--model/-m` option on `summary` and `objectives` commands
+    - CLI: `--model/-m` option on `gen objs` command
     - Environment: `LLM_MODEL` env var (used by SDK's `LLM.load_from_env()`)
     - Try `haiku` for faster/cheaper analysis, `opus` for higher quality
 
@@ -118,7 +118,7 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - `analysis_skips`: Tracks conversations that cannot be analyzed (no events, no content)
     - **520x speedup**: Cache status check via DB (4ms for 700+ convs) vs loading event files (2+ seconds)
     - **Backfill**: Run `ohtv db index-cache` to populate DB from existing cache files
-    - **Auto-sync**: Cache entries automatically sync to DB when `objectives` or `summary` commands save results
+    - **Auto-sync**: Cache entries automatically sync to DB when `gen objs` command saves results
     - **Cache key format**: `assess=False,context_level=minimal,detail_level=brief` (sorted alphabetically)
 
 23. **Database-first conversation listing**: The database stores full conversation metadata for fast listing:
