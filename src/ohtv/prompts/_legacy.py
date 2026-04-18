@@ -69,19 +69,33 @@ def _get_prompt_path(name: str) -> Path:
 def get_prompt(name: str) -> str:
     """Load a prompt by name, checking user directory first, then defaults.
     
+    Uses the new discovery system to properly support user customizations
+    in family directories (e.g., ~/.ohtv/prompts/objectives/brief.md).
+    Returns only the prompt content (without YAML frontmatter).
+    
     Args:
         name: Prompt name without .md extension (e.g., "brief", "standard_assess")
         
     Returns:
-        The prompt text content
+        The prompt text content (frontmatter stripped)
         
     Raises:
         ValueError: If the prompt name is unknown
         FileNotFoundError: If the prompt file cannot be found
     """
-    path = _get_prompt_path(name)
-    log.debug("Loading prompt from %s", path)
-    return path.read_text()
+    from ohtv.prompts.discovery import resolve_prompt
+    
+    # Use the new discovery system to get prompt content
+    # This properly handles user customizations in family directories
+    try:
+        meta = resolve_prompt("objectives", name)
+        log.debug("Loading prompt from %s", meta.path)
+        return meta.content  # Returns content without frontmatter
+    except ValueError:
+        # Fall back to legacy behavior for backward compatibility
+        path = _get_prompt_path(name)
+        log.debug("Loading prompt from %s (legacy)", path)
+        return path.read_text()
 
 
 def get_prompt_hash(name: str) -> str:
