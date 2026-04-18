@@ -231,28 +231,37 @@ ohtv analyze objectives $TEST_CONV_1 -v brief  # Should use cache
 ohtv prompts init
 ```
 **Expected:** 
-- Creates `~/.ohtv/prompts/` directory
+- Creates `~/.ohtv/prompts/objectives/` directory structure
 - Copies all prompts to user directory
-- Shows confirmation message
+- Shows confirmation message with full paths (e.g., `objectives/brief.md`)
 
 ### 6.2 Verify prompts were copied
 ```bash
 ls -la ~/.ohtv/prompts/
 ls -la ~/.ohtv/prompts/objectives/
 ```
-**Expected:** Shows prompt files matching package structure
+**Expected:** Shows prompt files in family directories
 
-### 6.3 Modify a user prompt
+### 6.3 Run init again (should skip existing)
 ```bash
-# Edit the brief prompt
-cat ~/.ohtv/prompts/objectives/brief.md
+ohtv prompts init
+```
+**Expected:** "All prompts already initialized. Use 'reset' to undo customizations."
 
-# Modify the content (e.g., change the instructions)
+### 6.4 Delete a prompt and run init (should restore)
+```bash
+rm ~/.ohtv/prompts/objectives/standard.md
+ohtv prompts init
+```
+**Expected:** "Copied 1 prompt(s)..." - restores the deleted prompt
+
+### 6.5 Modify a user prompt
+```bash
 # Add a unique marker to verify it's being used
-echo "TEST MARKER" >> ~/.ohtv/prompts/objectives/brief.md
+echo "IMPORTANT: Start with 'USER WANTS TO:'" >> ~/.ohtv/prompts/objectives/brief.md
 ```
 
-### 6.4 Verify modified prompt is used (cache invalidation)
+### 6.6 Verify modified prompt is used (cache invalidation)
 ```bash
 ohtv analyze objectives $TEST_CONV_1 -v brief
 ```
@@ -260,19 +269,18 @@ ohtv analyze objectives $TEST_CONV_1 -v brief
 - Should re-analyze (cache invalidated due to prompt change)
 - Output should reflect modified prompt behavior
 
-### 6.5 Reset prompts to defaults
+### 6.7 Reset one prompt to default
 ```bash
 ohtv prompts reset brief
 ohtv prompts show brief
 ```
 **Expected:** Prompt content returns to original
 
-### 6.6 Reset all prompts
+### 6.8 Reset all prompts
 ```bash
-ohtv prompts reset --force
-ls ~/.ohtv/prompts/objectives/
+ohtv prompts reset --all
 ```
-**Expected:** All prompts removed or reset
+**Expected:** "Reset 7 prompt(s) to defaults"
 
 ---
 
