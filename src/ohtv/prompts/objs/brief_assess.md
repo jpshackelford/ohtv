@@ -1,5 +1,5 @@
 ---
-id: objectives.brief_assess
+id: objs.brief_assess
 description: Extract user goal and assess completion status
 
 context:

@@ -18,7 +18,7 @@ Move existing prompts from flat structure to family-based:
 ```
 src/ohtv/prompts/
 ├── __init__.py           # Keep existing
-├── objectives/           # NEW directory
+├── objs/           # NEW directory
 │   ├── brief.md
 │   ├── brief_assess.md
 │   ├── standard.md
@@ -33,7 +33,7 @@ src/ohtv/prompts/
 
 Each prompt file should have YAML frontmatter with context level definitions.
 
-**Example: `objectives/brief.md`**
+**Example: `objs/brief.md`**
 
 ```markdown
 ---
@@ -86,7 +86,7 @@ Respond with JSON:
 {"goal": "1-2 sentence description in imperative mood"}
 ```
 
-**Example: `objectives/brief_assess.md`**
+**Example: `objs/brief_assess.md`**
 
 ```markdown
 ---
@@ -225,7 +225,7 @@ Respond with JSON:
 
 ## Acceptance Criteria
 
-1. All 6 existing prompts moved to `prompts/objectives/` directory
+1. All 6 existing prompts moved to `prompts/objs/` directory
 2. Each prompt has valid YAML frontmatter with:
    - `id` field matching `family.variant` pattern
    - `description` field
@@ -238,13 +238,13 @@ Respond with JSON:
 
 ## Files to Create/Modify
 
-- `src/ohtv/prompts/objectives/` - NEW directory
-- `src/ohtv/prompts/objectives/brief.md` - MOVED + frontmatter
-- `src/ohtv/prompts/objectives/brief_assess.md` - MOVED + frontmatter
-- `src/ohtv/prompts/objectives/standard.md` - MOVED + frontmatter
-- `src/ohtv/prompts/objectives/standard_assess.md` - MOVED + frontmatter
-- `src/ohtv/prompts/objectives/detailed.md` - MOVED + frontmatter
-- `src/ohtv/prompts/objectives/detailed_assess.md` - MOVED + frontmatter
+- `src/ohtv/prompts/objs/` - NEW directory
+- `src/ohtv/prompts/objs/brief.md` - MOVED + frontmatter
+- `src/ohtv/prompts/objs/brief_assess.md` - MOVED + frontmatter
+- `src/ohtv/prompts/objs/standard.md` - MOVED + frontmatter
+- `src/ohtv/prompts/objs/standard_assess.md` - MOVED + frontmatter
+- `src/ohtv/prompts/objs/detailed.md` - MOVED + frontmatter
+- `src/ohtv/prompts/objs/detailed_assess.md` - MOVED + frontmatter
 - (Optional) `src/ohtv/prompts/code_review/default.md` - NEW example
 
 ## Notes

@@ -51,13 +51,13 @@ class TestDiscoverPrompts:
         assert len(prompts) > 0
         
         # Check that objectives family exists
-        assert "objectives" in prompts
-        assert "brief" in prompts["objectives"]
+        assert "objs" in prompts
+        assert "brief" in prompts["objs"]
         
         # Check that metadata is correct type
-        brief = prompts["objectives"]["brief"]
+        brief = prompts["objs"]["brief"]
         assert isinstance(brief, PromptMetadata)
-        assert brief.family == "objectives"
+        assert brief.family == "objs"
         assert brief.variant == "brief"
     
     def test_organizes_by_family_and_variant(self):
@@ -173,7 +173,7 @@ class TestListFamilies:
     def test_includes_known_families(self):
         """Test that known families are included"""
         families = list_families()
-        assert "objectives" in families
+        assert "objs" in families
 
 
 class TestListVariants:
@@ -184,7 +184,7 @@ class TestListVariants:
     
     def test_returns_sorted_list(self):
         """Test that list_variants returns sorted list of variant names"""
-        variants = list_variants("objectives")
+        variants = list_variants("objs")
         
         assert isinstance(variants, list)
         assert len(variants) > 0
@@ -195,7 +195,7 @@ class TestListVariants:
     
     def test_includes_known_variants(self):
         """Test that known variants are included"""
-        variants = list_variants("objectives")
+        variants = list_variants("objs")
         assert "brief" in variants
         assert "detailed" in variants
     
@@ -213,19 +213,19 @@ class TestResolvePrompt:
     
     def test_resolve_with_explicit_variant(self):
         """Test resolving prompt with explicit variant"""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         
         assert isinstance(meta, PromptMetadata)
-        assert meta.family == "objectives"
+        assert meta.family == "objs"
         assert meta.variant == "brief"
         assert len(meta.content) > 0
     
     def test_resolve_with_default_variant(self):
         """Test resolving prompt with default variant (None)"""
-        meta = resolve_prompt("objectives")
+        meta = resolve_prompt("objs")
         
         assert isinstance(meta, PromptMetadata)
-        assert meta.family == "objectives"
+        assert meta.family == "objs"
         assert meta.default is True  # Should be the default variant
     
     def test_resolve_unknown_family_raises_error(self):
@@ -236,7 +236,7 @@ class TestResolvePrompt:
     def test_resolve_unknown_variant_raises_error(self):
         """Test that unknown variant raises ValueError"""
         with pytest.raises(ValueError, match="Unknown variant"):
-            resolve_prompt("objectives", "nonexistent_variant")
+            resolve_prompt("objs", "nonexistent_variant")
     
     def test_resolve_without_default_raises_error(self, monkeypatch):
         """Test that family without default variant raises error"""
@@ -276,7 +276,7 @@ class TestResolveContext:
     
     def test_resolve_by_number(self):
         """Test resolving context level by number"""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         ctx = resolve_context(meta, 1)
         
         assert ctx.number == 1
@@ -284,7 +284,7 @@ class TestResolveContext:
     
     def test_resolve_by_name(self):
         """Test resolving context level by name"""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         ctx = resolve_context(meta, "minimal")
         
         assert ctx.number == 1
@@ -292,7 +292,7 @@ class TestResolveContext:
     
     def test_resolve_with_none_uses_default(self):
         """Test that None uses prompt's default context"""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         ctx = resolve_context(meta, None)
         
         # Should use default_context from prompt
@@ -300,21 +300,21 @@ class TestResolveContext:
     
     def test_resolve_unknown_number_raises_error(self):
         """Test that unknown context number raises ValueError"""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         
         with pytest.raises(ValueError, match="Unknown context level"):
             resolve_context(meta, 999)
     
     def test_resolve_unknown_name_raises_error(self):
         """Test that unknown context name raises ValueError"""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         
         with pytest.raises(ValueError, match="Unknown context level"):
             resolve_context(meta, "nonexistent_level")
     
     def test_all_context_levels_accessible(self):
         """Test that all context levels can be accessed"""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         
         # Test all defined context levels
         for number in meta.context_levels.keys():
@@ -337,18 +337,18 @@ class TestIntegration:
         
         # List families
         families = list_families()
-        assert "objectives" in families
+        assert "objs" in families
         
         # List variants for a family
-        variants = list_variants("objectives")
+        variants = list_variants("objs")
         assert "brief" in variants
         
         # Resolve default prompt
-        meta = resolve_prompt("objectives")
+        meta = resolve_prompt("objs")
         assert meta.default is True
         
         # Resolve specific variant
-        brief_meta = resolve_prompt("objectives", "brief")
+        brief_meta = resolve_prompt("objs", "brief")
         assert brief_meta.variant == "brief"
         
         # Resolve context
@@ -357,11 +357,11 @@ class TestIntegration:
     
     def test_prompt_metadata_completeness(self):
         """Test that discovered prompts have complete metadata"""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         
         # Check all important fields are populated
         assert meta.id
-        assert meta.family == "objectives"
+        assert meta.family == "objs"
         assert meta.variant == "brief"
         assert meta.description
         assert meta.content

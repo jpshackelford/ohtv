@@ -30,7 +30,7 @@ def discover_prompts() -> dict[str, dict[str, PromptMetadata]]:
     
     Returns:
         Dict mapping family -> variant -> PromptMetadata
-        e.g., {"objectives": {"brief": PromptMetadata(...), "detailed": ...}}
+        e.g., {"objs": {"brief": PromptMetadata(...), "detailed": ...}}
     
     Scans both user and default directories.
     User prompts override defaults with the same family/variant.
@@ -49,7 +49,7 @@ def resolve_prompt(family: str, variant: str | None = None) -> PromptMetadata:
     """Resolve a prompt by family and optional variant.
     
     Args:
-        family: Prompt family (e.g., "objectives")
+        family: Prompt family (e.g., "objs")
         variant: Variant name (e.g., "brief"). If None, uses default variant.
         
     Returns:
@@ -117,7 +117,7 @@ Update `src/ohtv/cli.py` to show family/variant structure:
 $ ohtv prompts
 
 Prompt Families:
-  objectives/
+  objs/
     brief (default)     Extract user goal in 1-2 sentences
     brief_assess        Extract user goal and assess completion
     standard            Standard analysis with outcomes

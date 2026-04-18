@@ -7,7 +7,7 @@ This is the final phase that ties together all the infrastructure built in Phase
 
 Phases 1-4 are complete:
 - Phase 1: metadata.py, parser.py with EventFilter, ContextLevel, PromptMetadata dataclasses
-- Phase 2: Prompt files with YAML frontmatter in family directories (src/ohtv/prompts/objectives/)
+- Phase 2: Prompt files with YAML frontmatter in family directories (src/ohtv/prompts/objs/)
 - Phase 3: discovery.py with discover_prompts(), resolve_prompt(), resolve_context()
 - Phase 4: transcript.py with build_transcript_from_context(), extract_content()
 
@@ -27,7 +27,7 @@ git pull origin feature/extensible-prompts
 
 2. Create or update the unified `ohtv gen` command in `src/ohtv/cli.py`:
    - Add new `gen` command group
-   - Subcommand: `ohtv gen objectives <conversation_id>` - replaces current `objectives` command
+   - Subcommand: `ohtv gen objs <conversation_id>` - replaces current `objs` command
    - Options:
      - `--variant/-v` to select prompt variant (brief, standard, detailed, brief_assess, etc.)
      - `--context/-c` to select context level by name or number
@@ -36,7 +36,7 @@ git pull origin feature/extensible-prompts
    - Use the new discovery system to find and load prompts
    - Use metadata-driven transcript building
 
-3. Update the existing `objectives` command to call the new infrastructure:
+3. Update the existing `objs` command to call the new infrastructure:
    - Maintain backward compatibility with existing CLI options
    - Map old options to new system (e.g., `--assess` maps to `*_assess` variants)
 
@@ -86,7 +86,7 @@ transcript = build_transcript_from_context(events, context_level)
 
 ## Acceptance Criteria
 
-- `ohtv gen objectives <id>` works with new infrastructure
+- `ohtv gen objs <id>` works with new infrastructure
 - `ohtv objectives <id>` still works (backward compatibility)
 - Variant selection via `--variant` option
 - Context selection via `--context` option (by name or number)

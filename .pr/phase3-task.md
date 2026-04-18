@@ -41,7 +41,7 @@ git pull origin feature/extensible-prompts
 
 ## Key Implementation Notes
 
-- Prompts are now in family directories: `prompts/objectives/`, `prompts/code_review/`
+- Prompts are now in family directories: `prompts/objs/`, `prompts/code_review/`
 - User prompts in `~/.ohtv/prompts/` override defaults
 - Use `parse_prompt_file()` from `parser.py` to load metadata
 - Cache discovered prompts to avoid repeated filesystem scans

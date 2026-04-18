@@ -16,8 +16,8 @@ New discovery-based usage:
     prompts = discover_prompts()
     
     # Resolve a specific prompt (with optional variant)
-    meta = resolve_prompt("objectives", "brief")
-    meta = resolve_prompt("objectives")  # Uses default variant
+    meta = resolve_prompt("objs", "brief")
+    meta = resolve_prompt("objs")  # Uses default variant
     
     # Resolve a context level
     ctx = resolve_context(meta, 1)  # By number

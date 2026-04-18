@@ -20,7 +20,7 @@ git pull origin feature/extensible-prompts
 1. Read the design document at `.pr/phase2-content-restructure.md`
 2. Create a new branch: `git checkout -b feature/extensible-prompts-phase2`
 3. Implement all deliverables:
-   - Create `src/ohtv/prompts/objectives/` directory
+   - Create `src/ohtv/prompts/objs/` directory
    - Move all 6 existing prompts into that directory
    - Add YAML frontmatter to each prompt file following the spec in the design doc
    - Optionally create `src/ohtv/prompts/code_review/default.md` as an example
@@ -51,7 +51,7 @@ All objectives prompts should use these standard context levels:
 
 ## Acceptance Criteria
 
-- All 6 prompts moved to `src/ohtv/prompts/objectives/`
+- All 6 prompts moved to `src/ohtv/prompts/objs/`
 - Each prompt has valid YAML frontmatter
 - Original prompt text content preserved exactly
 - PR created and ready for review

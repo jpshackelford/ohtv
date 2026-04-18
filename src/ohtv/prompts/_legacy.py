@@ -70,7 +70,7 @@ def get_prompt(name: str) -> str:
     """Load a prompt by name, checking user directory first, then defaults.
     
     Uses the new discovery system to properly support user customizations
-    in family directories (e.g., ~/.ohtv/prompts/objectives/brief.md).
+    in family directories (e.g., ~/.ohtv/prompts/objs/brief.md).
     Returns only the prompt content (without YAML frontmatter).
     
     Args:
@@ -88,7 +88,7 @@ def get_prompt(name: str) -> str:
     # Use the new discovery system to get prompt content
     # This properly handles user customizations in family directories
     try:
-        meta = resolve_prompt("objectives", name)
+        meta = resolve_prompt("objs", name)
         log.debug("Loading prompt from %s", meta.path)
         return meta.content  # Returns content without frontmatter
     except ValueError:
@@ -105,7 +105,7 @@ def get_prompt_hash(name: str) -> str:
     modified and invalidate cached results that used the old prompt.
     
     Uses the new discovery system to properly support user customizations
-    in family directories (e.g., ~/.ohtv/prompts/objectives/brief.md).
+    in family directories (e.g., ~/.ohtv/prompts/objs/brief.md).
     
     Args:
         name: Prompt name without .md extension (e.g., "brief", "standard_assess")
@@ -122,7 +122,7 @@ def get_prompt_hash(name: str) -> str:
     # Use the new discovery system to get the hash
     # This properly handles user customizations in family directories
     try:
-        meta = resolve_prompt("objectives", name)
+        meta = resolve_prompt("objs", name)
         return meta.content_hash
     except ValueError:
         # Fall back to legacy behavior for backward compatibility
@@ -133,7 +133,7 @@ def get_prompt_hash(name: str) -> str:
 def init_user_prompts() -> list[str]:
     """Copy missing default prompts to user directory for customization.
     
-    Copies prompts from the package's family directories (e.g., objectives/)
+    Copies prompts from the package's family directories (e.g., objs/)
     to the user's prompts directory, preserving the family structure.
     Only copies prompts that don't already exist (never overwrites).
     
@@ -150,7 +150,7 @@ def init_user_prompts() -> list[str]:
         if prompt_file.parent == default_dir:
             continue
         
-        # Get relative path from default_dir (e.g., "objectives/brief.md")
+        # Get relative path from default_dir (e.g., "objs/brief.md")
         rel_path = prompt_file.relative_to(default_dir)
         user_path = user_dir / rel_path
         
@@ -163,7 +163,7 @@ def init_user_prompts() -> list[str]:
         user_path.parent.mkdir(parents=True, exist_ok=True)
         
         user_path.write_text(prompt_file.read_text())
-        copied.append(str(rel_path.with_suffix("")))  # e.g., "objectives/brief"
+        copied.append(str(rel_path.with_suffix("")))  # e.g., "objs/brief"
         log.debug("Copied prompt: %s", rel_path)
 
     # Clear discovery cache so new user prompts are found

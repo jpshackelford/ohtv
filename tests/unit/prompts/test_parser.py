@@ -254,7 +254,7 @@ Template"""
         
         # Create temp directory structure
         tmpdir = Path(tempfile.mkdtemp())
-        prompts_dir = tmpdir / "prompts" / "objectives"
+        prompts_dir = tmpdir / "prompts" / "objs"
         prompts_dir.mkdir(parents=True)
         
         prompt_file = prompts_dir / "brief.md"
@@ -262,7 +262,7 @@ Template"""
         
         try:
             meta = parse_prompt_file(prompt_file)
-            assert meta.family == "objectives"
+            assert meta.family == "objs"
             assert meta.variant == "brief"
             assert meta.id == "objectives.brief"
         finally:

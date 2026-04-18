@@ -1,6 +1,6 @@
 ---
-id: objectives.detailed
-description: Extract hierarchical objectives with subordinate goals
+id: objs.detailed_assess
+description: Extract hierarchical objectives and assess completion status
 
 context:
   default: 3
@@ -38,9 +38,14 @@ output:
         type: array
         items:
           type: object
-          required: [description, subordinates]
+          required: [description, status, evidence, subordinates]
           properties:
             description:
+              type: string
+            status:
+              type: string
+              enum: [achieved, not_achieved, in_progress]
+            evidence:
               type: string
             subordinates:
               type: array
@@ -55,17 +60,31 @@ Given a conversation between a user and an AI coding assistant, identify:
 1. PRIMARY OBJECTIVES: The main goals the user is trying to accomplish
 2. SUBORDINATE OBJECTIVES: Supporting goals that help achieve the primary ones
 
-Do not assess whether objectives were achieved. Just identify what the user wants to accomplish
-and structure them hierarchically.
+ASSESSMENT APPROACH: Be optimistic and decisive.
+- Assume SUCCESS unless there is clear evidence of failure
+- Failure signals: user frustration, requests to retry followed by giving up,
+  explicit errors that weren't resolved, negative feedback
+- Do NOT use "partially achieved" - decide achieved or not achieved
+
+For each objective, assess its status:
+- achieved: Objective was accomplished (default assumption unless failure signals present)
+- not_achieved: Clear evidence of failure (errors, user frustration, giving up)
+- in_progress: Work is ongoing with no conclusion yet
+
+Provide brief evidence from the conversation to support your assessment.
 
 Respond with a JSON object in this exact format:
 {
   "primary_objectives": [
     {
       "description": "Clear description of the objective",
+      "status": "achieved|not_achieved|in_progress",
+      "evidence": "Brief quote or reference from conversation",
       "subordinates": [
         {
           "description": "Description of subordinate objective",
+          "status": "status",
+          "evidence": "evidence",
           "subordinates": []
         }
       ]

@@ -54,7 +54,7 @@ class ContextLevel:
 class PromptMetadata:
     """Metadata parsed from prompt file frontmatter."""
     id: str                          # e.g., "objectives.brief"
-    family: str                      # e.g., "objectives"
+    family: str                      # e.g., "objs"
     variant: str                     # e.g., "brief"
     description: str = ""
     default: bool = False            # Is this the default variant for the family?
@@ -123,7 +123,7 @@ def parse_prompt_file(path: Path) -> PromptMetadata:
     frontmatter, prompt_content = parse_frontmatter(content)
     
     # Infer family/variant from path if not in frontmatter
-    # e.g., prompts/objectives/brief.md -> family="objectives", variant="brief"
+    # e.g., prompts/objs/brief.md -> family="objs", variant="brief"
     ...
     
     # Parse context levels

@@ -87,7 +87,7 @@ In 1-2 sentences, describe the user's goal...
 
 ```
 ~/.ohtv/prompts/
-├── objectives/
+├── objs/
 │   ├── brief.md           # default: true
 │   ├── standard.md
 │   ├── detailed.md
@@ -168,14 +168,14 @@ ohtv gen <family> [conversation_id] [-v VARIANT] [-c CONTEXT]
 **Examples:**
 ```bash
 # Basic usage
-ohtv gen objectives abc123                    # default variant, default context
-ohtv gen objectives -v detailed abc123        # specific variant
-ohtv gen objectives -v brief -c 2 abc123      # by context level number
-ohtv gen objectives -v brief -c full abc123   # by context level name
+ohtv gen objs abc123                    # default variant, default context
+ohtv gen objs -v detailed abc123        # specific variant
+ohtv gen objs -v brief -c 2 abc123      # by context level number
+ohtv gen objs -v brief -c full abc123   # by context level name
 
 # Multi-conversation
-ohtv gen objectives -W                        # this week's conversations
-ohtv gen objectives -v detailed --repo foo    # filter by repo
+ohtv gen objs -W                        # this week's conversations
+ohtv gen objs -v detailed --repo foo    # filter by repo
 ```
 
 **Flags:**
@@ -203,7 +203,7 @@ Each prompt defines its own context levels with:
 **Different prompts can have different context levels:**
 
 ```yaml
-# objectives/brief.md - standard context levels
+# objs/brief.md - standard context levels
 context:
   levels:
     1: { name: minimal, include: [...] }
@@ -269,7 +269,7 @@ class ContextLevel:
 @dataclass 
 class PromptMetadata:
     id: str                      # e.g., "objectives.brief"
-    family: str                  # e.g., "objectives"
+    family: str                  # e.g., "objs"
     variant: str                 # e.g., "brief"
     description: str
     context_levels: dict[int, ContextLevel]  # Keyed by level number
@@ -583,7 +583,7 @@ Analyze the errors in this conversation...
 - Create `ohtv gen <family> [conversation_id] [-v VARIANT] [-c CONTEXT]`
 - Support all existing conversation filters
 - Support multi-conversation parallel analysis
-- Remove `objectives` and `summary` commands
+- Remove `objs` and `summary` commands
 - Update `ohtv prompts list` to show families, variants, and context levels
 
 #### Phase 5: Output Validation (Optional)
@@ -612,7 +612,7 @@ Analyze the errors in this conversation...
 1. Restructure into family directories:
    ```
    prompts/
-   └── objectives/
+   └── objs/
        ├── brief.md
        ├── brief_assess.md
        ├── standard.md
@@ -622,7 +622,7 @@ Analyze the errors in this conversation...
    ```
 2. Add frontmatter with context levels to all prompts
 3. Create new `ohtv gen` command
-4. Remove `objectives` and `summary` commands
+4. Remove `objs` and `summary` commands
 5. Update cache key format to `prompt={id},context={level}`
 6. Invalidate existing analysis cache (one-time migration)
 

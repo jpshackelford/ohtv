@@ -76,18 +76,18 @@ class TestGenObjectivesCommand:
     def test_variant_selection(self, runner, mock_config, mock_conversation, mock_conv_info):
         """Test that variant selection works with --variant option."""
         # Test brief variant
-        variants = list_variants("objectives")
+        variants = list_variants("objs")
         assert "brief" in variants
         
         # Verify we can resolve it
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         assert meta.variant == "brief"
-        assert meta.family == "objectives"
+        assert meta.family == "objs"
     
     def test_context_selection_by_number(self, runner, mock_config, mock_conversation, mock_conv_info):
         """Test context selection using numeric level."""
         # Get a prompt to test context resolution
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         
         # Should have context levels 1, 2, 3
         assert 1 in meta.context_levels
@@ -106,7 +106,7 @@ class TestGenObjectivesCommand:
     
     def test_context_selection_by_name(self, runner, mock_config, mock_conversation, mock_conv_info):
         """Test context selection using name."""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         
         # Resolve by name
         ctx = resolve_context(meta, "minimal")
@@ -121,31 +121,31 @@ class TestGenObjectivesCommand:
     def test_default_variant_used_when_not_specified(self):
         """Test that default variant is used when none specified."""
         # Resolve without variant should use default
-        meta = resolve_prompt("objectives")
+        meta = resolve_prompt("objs")
         assert meta.default is True
         assert meta.variant == "brief"  # brief is marked as default
     
     def test_legacy_detail_assess_mapping(self):
         """Test that legacy detail+assess options map to correct variants."""
         # detail=brief, assess=False -> variant=brief
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         assert meta.variant == "brief"
         
         # detail=brief, assess=True -> variant=brief_assess
-        meta = resolve_prompt("objectives", "brief_assess")
+        meta = resolve_prompt("objs", "brief_assess")
         assert meta.variant == "brief_assess"
         
         # detail=standard, assess=False -> variant=standard
-        meta = resolve_prompt("objectives", "standard")
+        meta = resolve_prompt("objs", "standard")
         assert meta.variant == "standard"
         
         # detail=standard, assess=True -> variant=standard_assess
-        meta = resolve_prompt("objectives", "standard_assess")
+        meta = resolve_prompt("objs", "standard_assess")
         assert meta.variant == "standard_assess"
     
     def test_legacy_context_default_resolves(self):
         """Test that 'default' context level resolves correctly."""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         
         # Context level 2 is named "default" in the prompts
         ctx = resolve_context(meta, "default")
@@ -156,7 +156,7 @@ class TestGenObjectivesCommand:
     
     def test_all_objective_variants_exist(self):
         """Test that all expected objective variants exist."""
-        variants = list_variants("objectives")
+        variants = list_variants("objs")
         
         expected = [
             "brief",
@@ -172,36 +172,10 @@ class TestGenObjectivesCommand:
     
     def test_variant_error_shows_available_variants(self, runner, mock_config, mock_conversation, mock_conv_info):
         """Test that error message shows available variants."""
-        result = runner.invoke(main, ["gen", "objectives", "abc123", "--variant", "nonexistent"])
+        result = runner.invoke(main, ["gen", "objs", "abc123", "--variant", "nonexistent"])
         
         assert result.exit_code != 0
         assert "nonexistent" in result.output or "Unknown variant" in result.output
-
-
-class TestBackwardCompatibility:
-    """Tests for backward compatibility with old 'ohtv objectives' command."""
-    
-    @pytest.fixture
-    def runner(self):
-        """Create a Click test runner."""
-        return CliRunner()
-    
-    def test_old_command_still_exists(self, runner):
-        """Test that old 'ohtv objectives' command still exists."""
-        result = runner.invoke(main, ["objectives", "--help"])
-        assert result.exit_code == 0
-        assert "objectives" in result.output.lower()
-    
-    def test_old_options_still_work(self, runner):
-        """Test that old command options are still accepted."""
-        # Just test that the options are recognized (will fail without real data)
-        result = runner.invoke(main, ["objectives", "--help"])
-        assert result.exit_code == 0
-        
-        # Check for old options
-        assert "--detail" in result.output or "-d" in result.output
-        assert "--assess" in result.output or "-a" in result.output
-        assert "--context" in result.output or "-c" in result.output
 
 
 class TestRunObjectivesAnalysis:
@@ -214,17 +188,17 @@ class TestRunObjectivesAnalysis:
         # detail=brief, assess=True -> brief_assess
         
         # We can test this by checking variant resolution works
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         assert meta.variant == "brief"
         assert not meta.variant.endswith("_assess")
         
-        meta_assess = resolve_prompt("objectives", "brief_assess")
+        meta_assess = resolve_prompt("objs", "brief_assess")
         assert meta_assess.variant == "brief_assess"
         assert meta_assess.variant.endswith("_assess")
     
     def test_context_level_name_extraction(self):
         """Test that context level names are correctly extracted."""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         
         # All prompts should have context levels with names
         for level_num, level in meta.context_levels.items():
@@ -237,7 +211,7 @@ class TestContextLevelFilters:
     
     def test_minimal_context_includes_user_messages_only(self):
         """Test that minimal context only includes user messages."""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         ctx = resolve_context(meta, 1)  # Minimal
         
         assert ctx.name == "minimal"
@@ -251,7 +225,7 @@ class TestContextLevelFilters:
     
     def test_default_context_includes_user_and_finish(self):
         """Test that default context includes user messages and finish action."""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         ctx = resolve_context(meta, 2)  # Level 2 is "default"
         
         assert ctx.name == "default"
@@ -267,7 +241,7 @@ class TestContextLevelFilters:
     
     def test_full_context_includes_all_messages(self):
         """Test that full context includes all messages and actions."""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         ctx = resolve_context(meta, 3)  # Full
         
         assert ctx.name == "full"
@@ -287,14 +261,14 @@ class TestPromptMetadata:
     
     def test_all_variants_have_required_metadata(self):
         """Test that all variants have required metadata fields."""
-        variants = list_variants("objectives")
+        variants = list_variants("objs")
         
         for variant in variants:
-            meta = resolve_prompt("objectives", variant)
+            meta = resolve_prompt("objs", variant)
             
             # Required fields
             assert meta.id
-            assert meta.family == "objectives"
+            assert meta.family == "objs"
             assert meta.variant == variant
             assert meta.context_levels, f"{variant} should have context levels"
             assert meta.default_context > 0, f"{variant} should have default_context"
@@ -302,15 +276,15 @@ class TestPromptMetadata:
     
     def test_exactly_one_default_variant(self):
         """Test that exactly one variant is marked as default."""
-        variants = list_variants("objectives")
-        defaults = [v for v in variants if resolve_prompt("objectives", v).default]
+        variants = list_variants("objs")
+        defaults = [v for v in variants if resolve_prompt("objs", v).default]
         
         assert len(defaults) == 1, f"Should have exactly one default variant, found: {defaults}"
         assert defaults[0] == "brief", "Brief should be the default variant"
     
     def test_context_levels_are_numbered_sequentially(self):
         """Test that context levels are numbered 1, 2, 3, etc."""
-        meta = resolve_prompt("objectives", "brief")
+        meta = resolve_prompt("objs", "brief")
         
         level_numbers = sorted(meta.context_levels.keys())
         expected = list(range(1, len(level_numbers) + 1))

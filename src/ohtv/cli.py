@@ -23,7 +23,7 @@ log = logging.getLogger("ohtv")
 
 
 # Commands that use LLM and consume tokens
-LLM_COMMANDS = {"objectives", "summary", "gen"}
+LLM_COMMANDS = {"summary", "gen"}
 
 
 class SectionedGroup(click.Group):
@@ -3024,82 +3024,6 @@ def _ensure_refs_indexed(conv_id: str, conv_dir: Path, verbose: bool = False) ->
         conn.commit()
 
 
-@main.command()
-@click.argument("conversation_id")
-@click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (ignore cache)")
-@click.option("--model", "-m", help="LLM model to use for analysis")
-@click.option(
-    "--detail",
-    "-d",
-    type=click.Choice(["brief", "standard", "detailed"]),
-    default="brief",
-    help="Output detail: brief (default), standard (with outcomes), detailed (full analysis)",
-)
-@click.option("--assess", "-a", is_flag=True, help="Assess whether objectives were achieved")
-@click.option(
-    "--context",
-    "-c",
-    type=click.Choice(["minimal", "default", "full"]),
-    default="default",
-    help="Context level: minimal (user only), default (user+finish), full (all messages)",
-)
-@click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
-def objectives(
-    conversation_id: str,
-    refresh: bool,
-    model: str | None,
-    detail: str,
-    assess: bool,
-    context: str,
-    no_outputs: bool,
-    json_output: bool,
-    verbose: bool,
-) -> None:
-    """Identify what the user hopes to achieve in a conversation.
-
-    By default, outputs a brief 1-2 sentence description of the user's goal,
-    followed by any outputs (repositories pushed, PRs created/merged, issues
-    modified). Use --no-outputs to hide the outputs section.
-
-    \b
-    Detail levels:
-      brief     - Just the goal (1-2 sentences) [default]
-      standard  - Goal + primary/secondary outcomes (3-6 bullets each)
-      detailed  - Full hierarchical objectives with subordinates
-
-    \b
-    Use --assess to add status assessment (achieved/not achieved/in_progress)
-    to any detail level. Without --assess, only the objectives are shown.
-
-    \b
-    Context levels (how much conversation to analyze):
-      minimal   - User messages only (lowest tokens)
-      default   - User messages + finish action
-      full      - All messages + action summaries (highest tokens)
-
-    Note: --assess requires at least 'default' context to see the outcome.
-
-    Requires LLM_API_KEY environment variable to be set.
-    
-    NOTE: This is the legacy command. Use 'ohtv gen objectives' for the
-    new unified interface with variant-based prompts.
-    """
-    # Call shared implementation with legacy parameters
-    _run_objectives_analysis(
-        conversation_id=conversation_id,
-        model=model,
-        refresh=refresh,
-        no_outputs=no_outputs,
-        json_output=json_output,
-        verbose=verbose,
-        detail=detail,
-        assess=assess,
-        context=context,
-    )
-
-
 def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis") -> None:
     """Display objective analysis with rich formatting."""
     detail_level = getattr(analysis, "detail_level", "brief")
@@ -5438,16 +5362,15 @@ def prompts(action: str | None, name: str | None, reset_all: bool) -> None:
         
         if name:
             # Reset specific prompt - support both "variant" and "family/variant" formats
-            # For backward compat, "brief" means "objectives/brief"
             if "/" in name:
                 family, variant = name.split("/", 1)
             elif name in PROMPT_NAMES:
-                family, variant = "objectives", name
+                family, variant = "objs", name
             else:
                 # Try to find it in discovered prompts
                 try:
-                    meta = resolve_prompt("objectives", name)
-                    family, variant = "objectives", name
+                    meta = resolve_prompt("objs", name)
+                    family, variant = "objs", name
                 except ValueError:
                     console.print(f"[red]Error:[/red] Unknown prompt: {name}")
                     console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
@@ -5577,7 +5500,7 @@ def gen() -> None:
     """Generate LLM-powered analysis of conversations (requires LLM_API_KEY)."""
 
 
-@gen.command("objectives")
+@gen.command("objs")
 @click.argument("conversation_id")
 @click.option("--variant", "-v", help="Prompt variant (brief, standard, detailed, brief_assess, etc.)")
 @click.option("--context", "-c", help="Context level (by name or number: 1=minimal, 2=standard, 3=full)")
@@ -5586,7 +5509,7 @@ def gen() -> None:
 @click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--verbose", is_flag=True, help="Show debug output")
-def gen_objectives_cmd(
+def gen_objs_cmd(
     conversation_id: str,
     variant: str | None,
     context: str | None,
@@ -5601,7 +5524,7 @@ def gen_objectives_cmd(
     Uses the extensible prompt system with family/variant organization.
     
     \b
-    Variants (objectives family):
+    Variants (objs family):
       brief           - Just the goal (1-2 sentences)
       brief_assess    - Goal + status assessment
       standard        - Goal + primary/secondary outcomes
@@ -5617,10 +5540,10 @@ def gen_objectives_cmd(
     
     \b
     Examples:
-      ohtv gen objectives abc123              # Use default variant
-      ohtv gen objectives abc123 -v brief     # Brief variant
-      ohtv gen objectives abc123 -c 1         # Context level 1 (minimal)
-      ohtv gen objectives abc123 -v standard_assess -c full
+      ohtv gen objs abc123              # Use default variant
+      ohtv gen objs abc123 -v brief     # Brief variant
+      ohtv gen objs abc123 -c 1         # Context level 1 (minimal)
+      ohtv gen objs abc123 -v standard_assess -c full
     
     Requires LLM_API_KEY environment variable to be set.
     """
@@ -5689,10 +5612,10 @@ def _run_objectives_analysis(
     
     # Resolve prompt metadata
     try:
-        prompt_meta = resolve_prompt("objectives", variant)
+        prompt_meta = resolve_prompt("objs", variant)
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}")
-        available = list_variants("objectives")
+        available = list_variants("objs")
         console.print(f"[dim]Available variants: {', '.join(available)}[/dim]")
         raise SystemExit(1)
     

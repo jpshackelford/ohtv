@@ -2,7 +2,7 @@
 
 ## Overview
 
-Create the unified `ohtv gen` command that replaces the separate `objectives` and `summary` commands, using the extensible prompt system.
+Create the unified `ohtv gen` command that replaces the separate `objs` and `summary` commands, using the extensible prompt system.
 
 ## Dependencies
 
@@ -51,10 +51,10 @@ def gen(
     
     Examples:
     
-      ohtv gen objectives abc123
-      ohtv gen objectives -v detailed abc123
-      ohtv gen objectives -v brief -c 2 abc123
-      ohtv gen objectives -W
+      ohtv gen objs abc123
+      ohtv gen objs -v detailed abc123
+      ohtv gen objs -v brief -c 2 abc123
+      ohtv gen objs -W
       ohtv gen code_review --repo myrepo -D
     """
     from ohtv.prompts import resolve_prompt, resolve_context, list_families
@@ -151,20 +151,20 @@ def compute_cache_key(
 
 ### 5.4 Deprecate old commands
 
-Mark `objectives` and `summary` commands as deprecated:
+Mark `objs` and `summary` commands as deprecated:
 
 ```python
 @cli.command(deprecated=True)
 def objectives(...):
-    """DEPRECATED: Use 'ohtv gen objectives' instead."""
-    console.print("[yellow]Warning: 'ohtv objectives' is deprecated. Use 'ohtv gen objectives'.[/yellow]")
+    """DEPRECATED: Use 'ohtv gen objs' instead."""
+    console.print("[yellow]Warning: 'ohtv objectives' is deprecated. Use 'ohtv gen objs'.[/yellow]")
     # Forward to gen command
     ...
 
 @cli.command(deprecated=True)  
 def summary(...):
-    """DEPRECATED: Use 'ohtv gen objectives -v brief -q' instead."""
-    console.print("[yellow]Warning: 'ohtv summary' is deprecated. Use 'ohtv gen objectives -v brief -q'.[/yellow]")
+    """DEPRECATED: Use 'ohtv gen objs -v brief -q' instead."""
+    console.print("[yellow]Warning: 'ohtv summary' is deprecated. Use 'ohtv gen objs -v brief -q'.[/yellow]")
     # Forward to gen command
     ...
 ```
@@ -178,7 +178,7 @@ $ ohtv prompts list
 
 Prompt Families:
 
-  objectives/
+  objs/
     brief (default)     Extract user goal in 1-2 sentences
       Context levels: minimal (1), default (2), full (3)
     brief_assess        Extract user goal and assess completion
@@ -201,7 +201,7 @@ Use: ohtv gen <family> [-v variant] [-c context] <conversation_id>
 3. All existing conversation filters work (`-D`, `-W`, `--repo`, etc.)
 4. Multi-conversation analysis works with parallel processing
 5. Cache key uses new format but old cache entries still work
-6. `objectives` and `summary` commands show deprecation warning
+6. `objs` and `summary` commands show deprecation warning
 7. `ohtv prompts list` shows families, variants, and context levels
 8. All unit tests pass
 9. Existing tests still pass

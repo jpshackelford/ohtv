@@ -1,5 +1,5 @@
 ---
-id: objectives.brief
+id: objs.brief
 description: Extract user goal in 1-2 sentences
 default: true
 

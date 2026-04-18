@@ -9,7 +9,7 @@ PR #18 adds an **Extensible Prompt System** with 5 phases:
 2. **Content Restructure** - Prompts organized into family directories
 3. **Prompt Discovery & Loading** - Discovers prompts from package and `~/.ohtv/prompts/`
 4. **Transcript Building** - Metadata-driven context filtering
-5. **Unified CLI Command** - New `ohtv gen objectives` with variants and context levels
+5. **Unified CLI Command** - New `ohtv gen objs` with variants and context levels
 
 ## Pre-requisites
 
@@ -103,7 +103,7 @@ ohtv prompts list
 ```
 **Expected Output:**
 - Shows `code_review/` family with `default` variant
-- Shows `objectives/` family with 6 variants: `brief`, `brief_assess`, `standard`, `standard_assess`, `detailed`, `detailed_assess`
+- Shows `objs/` family with 6 variants: `brief`, `brief_assess`, `standard`, `standard_assess`, `detailed`, `detailed_assess`
 - Shows user prompts directory path (`~/.ohtv/prompts`)
 
 ### 2.2 Show prompt content
@@ -127,17 +127,17 @@ ohtv prompts list | grep "(default)"
 ### 3.1 Check `gen` command exists
 ```bash
 ohtv gen --help
-ohtv gen objectives --help
+ohtv gen objs --help
 ```
 **Expected:** 
-- Shows subcommands (currently `objectives`)
+- Shows subcommands (currently `objs`)
 - Shows variant options (`-v, --variant`)
 - Shows context options (`-c, --context`)
 - Shows 6 variants listed in help text
 
 ### 3.2 Run analysis with default settings
 ```bash
-ohtv gen objectives $TEST_CONV_1
+ohtv gen objs $TEST_CONV_1
 ```
 **Expected:**
 - Uses `brief` variant (default)
@@ -147,9 +147,9 @@ ohtv gen objectives $TEST_CONV_1
 
 ### 3.3 Run analysis with explicit variant
 ```bash
-ohtv gen objectives $TEST_CONV_1 -v brief
-ohtv gen objectives $TEST_CONV_1 -v standard
-ohtv gen objectives $TEST_CONV_1 -v detailed
+ohtv gen objs $TEST_CONV_1 -v brief
+ohtv gen objs $TEST_CONV_1 -v standard
+ohtv gen objs $TEST_CONV_1 -v detailed
 ```
 **Expected:** Different output formats:
 - `brief`: Simple goal statement
@@ -158,9 +158,9 @@ ohtv gen objectives $TEST_CONV_1 -v detailed
 
 ### 3.4 Run analysis with assessment variants
 ```bash
-ohtv gen objectives $TEST_CONV_1 -v brief_assess
-ohtv gen objectives $TEST_CONV_1 -v standard_assess
-ohtv gen objectives $TEST_CONV_1 -v detailed_assess
+ohtv gen objs $TEST_CONV_1 -v brief_assess
+ohtv gen objs $TEST_CONV_1 -v standard_assess
+ohtv gen objs $TEST_CONV_1 -v detailed_assess
 ```
 **Expected:** Same as above but with completion assessment (achieved/partial/not achieved)
 
@@ -170,9 +170,9 @@ ohtv gen objectives $TEST_CONV_1 -v detailed_assess
 
 ### 4.1 Test context levels by number
 ```bash
-ohtv gen objectives $TEST_CONV_1 -v brief -c 1
-ohtv gen objectives $TEST_CONV_1 -v brief -c 2
-ohtv gen objectives $TEST_CONV_1 -v brief -c 3
+ohtv gen objs $TEST_CONV_1 -v brief -c 1
+ohtv gen objs $TEST_CONV_1 -v brief -c 2
+ohtv gen objs $TEST_CONV_1 -v brief -c 3
 ```
 **Expected:**
 - `-c 1` (minimal): Uses only user messages → lowest token count
@@ -181,17 +181,17 @@ ohtv gen objectives $TEST_CONV_1 -v brief -c 3
 
 ### 4.2 Test context levels by name
 ```bash
-ohtv gen objectives $TEST_CONV_1 -c minimal
-ohtv gen objectives $TEST_CONV_1 -c standard
-ohtv gen objectives $TEST_CONV_1 -c full
+ohtv gen objs $TEST_CONV_1 -c minimal
+ohtv gen objs $TEST_CONV_1 -c standard
+ohtv gen objs $TEST_CONV_1 -c full
 ```
 **Expected:** Same behavior as numeric levels
 
 ### 4.3 Verify context affects token usage
 ```bash
 # Compare costs between context levels
-ohtv gen objectives $TEST_CONV_2 -v detailed -c 1 --no-cache
-ohtv gen objectives $TEST_CONV_2 -v detailed -c 3 --no-cache
+ohtv gen objs $TEST_CONV_2 -v detailed -c 1 --no-cache
+ohtv gen objs $TEST_CONV_2 -v detailed -c 3 --no-cache
 ```
 **Expected:** Full context (3) should use more tokens and cost more than minimal (1)
 
@@ -202,23 +202,23 @@ ohtv gen objectives $TEST_CONV_2 -v detailed -c 3 --no-cache
 ### 5.1 Verify cache is used
 ```bash
 # First run (no cache)
-ohtv gen objectives $TEST_CONV_1 -v brief
+ohtv gen objs $TEST_CONV_1 -v brief
 # Second run (should use cache)
-ohtv gen objectives $TEST_CONV_1 -v brief
+ohtv gen objs $TEST_CONV_1 -v brief
 ```
 **Expected:** Second run should be faster (no "Analyzing..." message or LLM cost)
 
 ### 5.2 Verify --no-cache forces re-analysis
 ```bash
-ohtv gen objectives $TEST_CONV_1 -v brief --no-cache
+ohtv gen objs $TEST_CONV_1 -v brief --no-cache
 ```
 **Expected:** Shows "Analyzing..." and incurs LLM cost
 
 ### 5.3 Verify different variants have separate caches
 ```bash
-ohtv gen objectives $TEST_CONV_1 -v brief
-ohtv gen objectives $TEST_CONV_1 -v detailed
-ohtv gen objectives $TEST_CONV_1 -v brief  # Should use cache
+ohtv gen objs $TEST_CONV_1 -v brief
+ohtv gen objs $TEST_CONV_1 -v detailed
+ohtv gen objs $TEST_CONV_1 -v brief  # Should use cache
 ```
 **Expected:** Each variant maintains its own cache entry
 
@@ -231,14 +231,14 @@ ohtv gen objectives $TEST_CONV_1 -v brief  # Should use cache
 ohtv prompts init
 ```
 **Expected:** 
-- Creates `~/.ohtv/prompts/objectives/` directory structure
+- Creates `~/.ohtv/prompts/objs/` directory structure
 - Copies all prompts to user directory
-- Shows confirmation message with full paths (e.g., `objectives/brief.md`)
+- Shows confirmation message with full paths (e.g., `objs/brief.md`)
 
 ### 6.2 Verify prompts were copied
 ```bash
 ls -la ~/.ohtv/prompts/
-ls -la ~/.ohtv/prompts/objectives/
+ls -la ~/.ohtv/prompts/objs/
 ```
 **Expected:** Shows prompt files in family directories
 
@@ -250,7 +250,7 @@ ohtv prompts init
 
 ### 6.4 Delete a prompt and run init (should restore)
 ```bash
-rm ~/.ohtv/prompts/objectives/standard.md
+rm ~/.ohtv/prompts/objs/standard.md
 ohtv prompts init
 ```
 **Expected:** "Copied 1 prompt(s)..." - restores the deleted prompt
@@ -258,12 +258,12 @@ ohtv prompts init
 ### 6.5 Modify a user prompt
 ```bash
 # Add a unique marker to verify it's being used
-echo "IMPORTANT: Start with 'USER WANTS TO:'" >> ~/.ohtv/prompts/objectives/brief.md
+echo "IMPORTANT: Start with 'USER WANTS TO:'" >> ~/.ohtv/prompts/objs/brief.md
 ```
 
 ### 6.6 Verify modified prompt is used (cache invalidation)
 ```bash
-ohtv gen objectives $TEST_CONV_1 -v brief
+ohtv gen objs $TEST_CONV_1 -v brief
 ```
 **Expected:** 
 - Should re-analyze (cache invalidated due to prompt change)
@@ -322,27 +322,27 @@ ohtv summary -n 3
 
 ### 8.1 Invalid variant error
 ```bash
-ohtv gen objectives $TEST_CONV_1 -v nonexistent_variant
+ohtv gen objs $TEST_CONV_1 -v nonexistent_variant
 ```
 **Expected:** Clear error message listing available variants
 
 ### 8.2 Invalid context level error
 ```bash
-ohtv gen objectives $TEST_CONV_1 -c 99
-ohtv gen objectives $TEST_CONV_1 -c invalid_name
+ohtv gen objs $TEST_CONV_1 -c 99
+ohtv gen objs $TEST_CONV_1 -c invalid_name
 ```
 **Expected:** Clear error message about valid context levels (1-3 or minimal/standard/full)
 
 ### 8.3 Missing conversation error
 ```bash
-ohtv gen objectives nonexistent_id_12345
+ohtv gen objs nonexistent_id_12345
 ```
 **Expected:** Clear "Conversation not found" error
 
 ### 8.4 Missing LLM_API_KEY error
 ```bash
 unset LLM_API_KEY
-ohtv gen objectives $TEST_CONV_1 --no-cache
+ohtv gen objs $TEST_CONV_1 --no-cache
 ```
 **Expected:** Clear error about missing LLM_API_KEY
 
@@ -352,15 +352,15 @@ ohtv gen objectives $TEST_CONV_1 --no-cache
 
 ### 9.1 JSON output for gen
 ```bash
-ohtv gen objectives $TEST_CONV_1 -v brief --json
-ohtv gen objectives $TEST_CONV_1 -v detailed --json
+ohtv gen objs $TEST_CONV_1 -v brief --json
+ohtv gen objs $TEST_CONV_1 -v detailed --json
 ```
 **Expected:** Valid JSON output matching the prompt's output schema
 
 ### 9.2 Parse JSON output
 ```bash
-ohtv gen objectives $TEST_CONV_1 -v brief --json | jq '.goal'
-ohtv gen objectives $TEST_CONV_1 -v detailed --json | jq '.primary_objectives'
+ohtv gen objs $TEST_CONV_1 -v brief --json | jq '.goal'
+ohtv gen objs $TEST_CONV_1 -v detailed --json | jq '.primary_objectives'
 ```
 **Expected:** Extracts specific fields from JSON
 
@@ -371,14 +371,14 @@ ohtv gen objectives $TEST_CONV_1 -v detailed --json | jq '.primary_objectives'
 ### 10.1 Empty/minimal conversation
 Test with a very short conversation (if available):
 ```bash
-ohtv gen objectives <short_conv_id> -v detailed
+ohtv gen objs <short_conv_id> -v detailed
 ```
 **Expected:** Handles gracefully, provides what analysis is possible
 
 ### 10.2 Very long conversation
 Test with the longest available conversation:
 ```bash
-ohtv gen objectives <long_conv_id> -v detailed -c 3
+ohtv gen objs <long_conv_id> -v detailed -c 3
 ```
 **Expected:** 
 - Handles truncation appropriately
@@ -386,8 +386,8 @@ ohtv gen objectives <long_conv_id> -v detailed -c 3
 
 ### 10.3 Repeated analysis (idempotency)
 ```bash
-ohtv gen objectives $TEST_CONV_1 -v standard --no-cache
-ohtv gen objectives $TEST_CONV_1 -v standard --no-cache
+ohtv gen objs $TEST_CONV_1 -v standard --no-cache
+ohtv gen objs $TEST_CONV_1 -v standard --no-cache
 ```
 **Expected:** Similar results each time (LLM variation is normal)
 
@@ -397,7 +397,7 @@ ohtv gen objectives $TEST_CONV_1 -v standard --no-cache
 
 ### 11.1 All options together
 ```bash
-ohtv gen objectives $TEST_CONV_1 \
+ohtv gen objs $TEST_CONV_1 \
   -v detailed_assess \
   -c full \
   --no-cache \
@@ -458,7 +458,7 @@ Legend: ✅ = Passed | ❌ = Failed | ⏳ = Not yet tested
 2. **Cache location**: Analysis cache is stored in the database at `~/.ohtv/index.db`
 
 3. **Prompt files location**:
-   - Default prompts: Package at `src/ohtv/prompts/objectives/`
+   - Default prompts: Package at `src/ohtv/prompts/objs/`
    - User prompts: `~/.ohtv/prompts/` (legacy flat files)
    - Note: `prompts init` copies legacy flat files, not the new family structure
 
