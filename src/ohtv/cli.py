@@ -5450,29 +5450,35 @@ def _run_batch_objectives_analysis(
                             console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
                             raise SystemExit(1)
                         conv = future_to_conv[future]
-                        errors.append((conv.short_id, str(e)[:50]))
+                        with _lock:
+                            errors.append((conv.short_id, str(e)[:50]))
                         if task is not None:
                             progress.advance(task)
                         continue
                     
-                    if error_tuple:
-                        errors.append(error_tuple)
-                        if task is not None:
-                            progress.advance(task)
-                    elif result_dict:
-                        results.append(result_dict)
-                        if not from_cache:
-                            with _lock:
+                    # All list modifications protected by lock for thread safety
+                    with _lock:
+                        if error_tuple:
+                            errors.append(error_tuple)
+                        elif result_dict:
+                            results.append(result_dict)
+                            if not from_cache:
                                 total_cost += cost
                                 processed_count += 1
                                 elapsed = time.perf_counter() - start_time
-                            if task is not None:
-                                progress.update(
-                                    task,
-                                    advance=1,
-                                    cost=total_cost,
-                                    rate=_format_rate(processed_count, elapsed),
-                                )
+                    
+                    # Progress updates outside lock (Rich Progress is thread-safe)
+                    if error_tuple:
+                        if task is not None:
+                            progress.advance(task)
+                    elif result_dict and not from_cache:
+                        if task is not None:
+                            progress.update(
+                                task,
+                                advance=1,
+                                cost=total_cost,
+                                rate=_format_rate(processed_count, elapsed),
+                            )
     
     # Restore original signal handlers
     signal.signal(signal.SIGINT, old_sigint)

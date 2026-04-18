@@ -816,7 +816,7 @@ Actions by type:
 | `OHTV_CONVERSATIONS_DIR` | Local CLI conversations directory | `~/.openhands/conversations` |
 | `OHTV_CLOUD_CONVERSATIONS_DIR` | Synced cloud conversations directory | `~/.openhands/cloud/conversations` |
 | `OHTV_EXTRA_CONVERSATION_PATHS` | Additional conversation directories (colon-separated paths) | None |
-| `LLM_API_KEY` | API key for LLM provider | Required for `gen`, `summary` |
+| `LLM_API_KEY` | API key for LLM provider | Required for `gen` |
 | `LLM_MODEL` | Default LLM model | Provider default |
 | `LLM_BASE_URL` | Custom LLM base URL | Provider default |
 | `LLM_TIMEOUT` | LLM request timeout in seconds | `300` |
