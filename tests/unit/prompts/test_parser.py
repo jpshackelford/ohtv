@@ -264,6 +264,6 @@ Template"""
             meta = parse_prompt_file(prompt_file)
             assert meta.family == "objs"
             assert meta.variant == "brief"
-            assert meta.id == "objectives.brief"
+            assert meta.id == "objs.brief"
         finally:
             shutil.rmtree(tmpdir)
