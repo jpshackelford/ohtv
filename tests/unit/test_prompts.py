@@ -76,12 +76,15 @@ class TestPromptDirectories:
         assert dir_path.exists()
         assert dir_path.is_dir()
 
-    def test_default_prompts_dir_has_all_prompts(self):
-        """Default prompts directory should contain all prompt files."""
+    def test_default_prompts_dir_has_objs_family(self):
+        """Default prompts directory should contain objs family with all prompts."""
         dir_path = get_default_prompts_dir()
+        objs_dir = dir_path / "objs"
+        assert objs_dir.exists(), "Missing objs family directory"
+        assert objs_dir.is_dir()
         for name in PROMPT_NAMES:
-            prompt_file = dir_path / f"{name}.md"
-            assert prompt_file.exists(), f"Missing default prompt: {name}.md"
+            prompt_file = objs_dir / f"{name}.md"
+            assert prompt_file.exists(), f"Missing default prompt: objs/{name}.md"
 
     def test_user_prompts_dir_is_in_ohtv_dir(self):
         """User prompts directory should be under ~/.ohtv/."""
