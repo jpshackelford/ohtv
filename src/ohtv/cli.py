@@ -5361,8 +5361,8 @@ def db_reset(yes: bool) -> None:
 @main.command()
 @click.argument("action", required=False, type=click.Choice(["init", "list", "show", "reset"]))
 @click.argument("name", required=False)
-@click.option("--force", "-f", is_flag=True, help="Overwrite existing user prompts")
-def prompts(action: str | None, name: str | None, force: bool) -> None:
+@click.option("--all", "-a", "reset_all", is_flag=True, help="Reset all prompts to defaults")
+def prompts(action: str | None, name: str | None, reset_all: bool) -> None:
     """View and customize LLM analysis prompts.
     
     \b
@@ -5370,19 +5370,18 @@ def prompts(action: str | None, name: str | None, force: bool) -> None:
     
     \b
     Actions:
-      init   Copy all prompts to ~/.ohtv/prompts/ for customization
+      init   Copy missing prompts to ~/.ohtv/prompts/ for customization
       list   Show all prompts with their status
       show   Display the content of a specific prompt
-      reset  Reset a specific prompt (or all) to defaults
+      reset  Reset a prompt to its default (undo customizations)
     
     \b
     Examples:
       ohtv prompts              # Show prompt status
-      ohtv prompts init         # Copy prompts for customization
-      ohtv prompts init --force # Overwrite existing customizations
+      ohtv prompts init         # Copy missing prompts for customization
       ohtv prompts show brief   # Show the brief prompt content
       ohtv prompts reset brief  # Reset brief prompt to default
-      ohtv prompts reset --force # Reset all prompts to defaults
+      ohtv prompts reset --all  # Reset all prompts to defaults
     """
     from ohtv.prompts import (
         PROMPT_NAMES,
@@ -5403,7 +5402,7 @@ def prompts(action: str | None, name: str | None, force: bool) -> None:
         return
     
     if action == "init":
-        copied = init_user_prompts(force=force)
+        copied = init_user_prompts()
         if copied:
             console.print(f"[green]✓[/green] Copied {len(copied)} prompt(s) to {get_user_prompts_dir()}/")
             for prompt_path in sorted(copied):
@@ -5412,7 +5411,7 @@ def prompts(action: str | None, name: str | None, force: bool) -> None:
             console.print()
             console.print("[dim]Edit these files to customize prompts.[/dim]")
         else:
-            console.print("[dim]All prompts already exist. Use --force to overwrite.[/dim]")
+            console.print("[dim]All prompts already initialized. Use 'reset' to undo customizations.[/dim]")
         return
     
     if action == "show":
@@ -5469,7 +5468,7 @@ def prompts(action: str | None, name: str | None, force: bool) -> None:
             
             # Clear cache so changes take effect
             clear_prompt_cache()
-        elif force:
+        elif reset_all:
             # Reset all prompts - find all user prompt files in family directories
             reset_count = 0
             for user_prompt in user_dir.rglob("*.md"):
@@ -5493,7 +5492,7 @@ def prompts(action: str | None, name: str | None, force: bool) -> None:
             else:
                 console.print("[dim]No user prompts to reset.[/dim]")
         else:
-            console.print("[yellow]Specify a prompt name or use --force to reset all.[/yellow]")
+            console.print("[yellow]Specify a prompt name or use --all to reset all.[/yellow]")
             console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
         return
 

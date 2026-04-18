@@ -130,15 +130,13 @@ def get_prompt_hash(name: str) -> str:
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
-def init_user_prompts(force: bool = False) -> list[str]:
-    """Copy default prompts to user directory for customization.
+def init_user_prompts() -> list[str]:
+    """Copy missing default prompts to user directory for customization.
     
     Copies prompts from the package's family directories (e.g., objectives/)
     to the user's prompts directory, preserving the family structure.
+    Only copies prompts that don't already exist (never overwrites).
     
-    Args:
-        force: If True, overwrite existing user prompts
-        
     Returns:
         List of prompt names that were copied (as "family/variant" paths)
     """
@@ -156,12 +154,13 @@ def init_user_prompts(force: bool = False) -> list[str]:
         rel_path = prompt_file.relative_to(default_dir)
         user_path = user_dir / rel_path
         
-        # Create family subdirectory if needed
-        user_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        if user_path.exists() and not force:
+        # Skip if already exists (never overwrite)
+        if user_path.exists():
             log.debug("Skipping existing user prompt: %s", rel_path)
             continue
+        
+        # Create family subdirectory if needed
+        user_path.parent.mkdir(parents=True, exist_ok=True)
         
         user_path.write_text(prompt_file.read_text())
         copied.append(str(rel_path.with_suffix("")))  # e.g., "objectives/brief"
