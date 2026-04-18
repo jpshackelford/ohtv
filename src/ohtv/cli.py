@@ -18,6 +18,7 @@ from rich.tree import Tree
 
 from ohtv.actions import READ_ACTIONS, WRITE_ACTIONS
 from ohtv.config import Config
+from ohtv.db.utils import generate_unique_source_names
 
 log = logging.getLogger("ohtv")
 
@@ -1203,34 +1204,6 @@ def list_conversations(
             print(output_text)
 
 
-def _generate_unique_source_names(paths: list[Path]) -> list[str]:
-    """Generate unique source names from directory basenames with collision handling.
-    
-    Args:
-        paths: List of paths to conversation directories
-        
-    Returns:
-        List of unique source names, one for each path
-    """
-    if not paths:
-        return []
-    
-    basenames = [path.name for path in paths]
-    name_counts: dict[str, int] = {}
-    unique_names: list[str] = []
-    
-    for basename in basenames:
-        name = basename.lower().replace(" ", "_").replace("-", "_")
-        if name in name_counts:
-            name_counts[name] += 1
-            name = f"{name}_{name_counts[name]}"
-        else:
-            name_counts[name] = 0
-        unique_names.append(name)
-    
-    return unique_names
-
-
 def _load_all_conversations(
     config: Config,
     since: datetime | None = None,
@@ -1273,7 +1246,7 @@ def _load_all_conversations(
     # Load extra conversation paths
     # Note: Extra paths are assumed to use UTC timestamps (like cloud conversations).
     # If you're pointing to local CLI conversations, timestamps may display incorrectly.
-    extra_source_names = _generate_unique_source_names(config.extra_conversation_paths)
+    extra_source_names = generate_unique_source_names(config.extra_conversation_paths)
     for path, source_name in zip(config.extra_conversation_paths, extra_source_names):
         if not path.exists():
             log.warning("Skipping nonexistent conversation path: %s", path)
@@ -5145,7 +5118,6 @@ def db_index_cache(verbose: bool) -> None:
     from ohtv.db import get_connection, migrate
     from ohtv.db.stores import AnalysisCacheStore, ConversationStore
     from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry, AnalysisSkipEntry
-    import json
     
     config = Config.from_env()
     

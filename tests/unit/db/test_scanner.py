@@ -326,3 +326,117 @@ class TestScanConversations:
         extra_conv = store.get("extra-conv")
         assert extra_conv is not None
         assert extra_conv.source == "extra_convos"  # Source derived from directory name
+
+    def test_extra_paths_collision_within_paths(self, db_conn, conversations_dir, monkeypatch):
+        """Should handle collisions in extra path source names."""
+        extra_dir1 = conversations_dir / "project1" / "conversations"
+        extra_dir2 = conversations_dir / "project2" / "conversations"
+        extra_dir1.mkdir(parents=True)
+        extra_dir2.mkdir(parents=True)
+        
+        create_conversation(extra_dir1, "conv-1", num_events=2)
+        create_conversation(extra_dir2, "conv-2", num_events=3)
+        
+        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", 
+                            lambda: conversations_dir / ".openhands")
+        
+        config = MagicMock()
+        config.extra_conversation_paths = [extra_dir1, extra_dir2]
+        
+        result = scan_conversations(db_conn, config=config)
+        assert result.new_registered == 2
+        
+        store = ConversationStore(db_conn)
+        conv1 = store.get("conv-1")
+        conv2 = store.get("conv-2")
+        assert conv1.source != conv2.source  # Must be unique
+        assert conv1.source in ["conversations", "conversations_1"]
+        assert conv2.source in ["conversations", "conversations_1"]
+
+    def test_extra_paths_collision_with_builtin_sources(self, db_conn, conversations_dir, monkeypatch):
+        """Should handle collisions with built-in 'local' and 'cloud' sources."""
+        # Create extra path that would collide with "local" source name
+        extra_local = conversations_dir / "local"
+        extra_cloud = conversations_dir / "cloud"
+        extra_local.mkdir(parents=True)
+        extra_cloud.mkdir(parents=True)
+        
+        create_conversation(extra_local, "conv-extra-local", num_events=2)
+        create_conversation(extra_cloud, "conv-extra-cloud", num_events=3)
+        
+        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", 
+                            lambda: conversations_dir / ".openhands")
+        
+        config = MagicMock()
+        config.extra_conversation_paths = [extra_local, extra_cloud]
+        
+        result = scan_conversations(db_conn, config=config)
+        assert result.new_registered == 2
+        
+        store = ConversationStore(db_conn)
+        conv_local = store.get("conv-extra-local")
+        conv_cloud = store.get("conv-extra-cloud")
+        
+        # Sources must not collide with built-in "local" and "cloud"
+        assert conv_local.source not in ["local", "cloud"]
+        assert conv_cloud.source not in ["local", "cloud"]
+        # Should have suffix to avoid collision
+        assert conv_local.source in ["local_1", "local_2"]
+        assert conv_cloud.source in ["cloud_1", "cloud_2"]
+
+    def test_extra_paths_nonexistent_paths_are_skipped(self, db_conn, conversations_dir, monkeypatch, caplog):
+        """Should skip non-existent paths without errors and log warnings."""
+        import logging
+        
+        extra_dir = conversations_dir / "existing"
+        nonexistent_dir = conversations_dir / "nonexistent"
+        extra_dir.mkdir(parents=True)
+        
+        create_conversation(extra_dir, "conv-1", num_events=2)
+        
+        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", 
+                            lambda: conversations_dir / ".openhands")
+        
+        config = MagicMock()
+        config.extra_conversation_paths = [extra_dir, nonexistent_dir]
+        
+        with caplog.at_level(logging.WARNING):
+            result = scan_conversations(db_conn, config=config)
+        
+        # Should only register from existing path
+        assert result.new_registered == 1
+        
+        # Should log warning for nonexistent path
+        assert any("does not exist" in record.message for record in caplog.records)
+        
+        store = ConversationStore(db_conn)
+        assert store.get("conv-1") is not None
+
+    def test_extra_paths_non_directory_paths_are_skipped(self, db_conn, conversations_dir, monkeypatch, caplog):
+        """Should skip paths that are files instead of directories and log warnings."""
+        import logging
+        
+        extra_dir = conversations_dir / "existing"
+        file_path = conversations_dir / "not_a_directory.txt"
+        extra_dir.mkdir(parents=True)
+        file_path.write_text("I am a file, not a directory")
+        
+        create_conversation(extra_dir, "conv-1", num_events=2)
+        
+        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", 
+                            lambda: conversations_dir / ".openhands")
+        
+        config = MagicMock()
+        config.extra_conversation_paths = [extra_dir, file_path]
+        
+        with caplog.at_level(logging.WARNING):
+            result = scan_conversations(db_conn, config=config)
+        
+        # Should only register from existing directory
+        assert result.new_registered == 1
+        
+        # Should log warning for file path
+        assert any("is not a directory" in record.message for record in caplog.records)
+        
+        store = ConversationStore(db_conn)
+        assert store.get("conv-1") is not None

@@ -11,10 +11,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+import logging
 
 from ohtv.config import Config, get_openhands_dir
 from ohtv.db.models import Conversation
 from ohtv.db.stores import ConversationStore
+from ohtv.db.utils import generate_unique_source_names
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -200,27 +204,6 @@ def _truncate_title(text: str, max_length: int) -> str:
     return truncated + "..."
 
 
-def _generate_unique_source_names(paths: list[Path]) -> list[str]:
-    """Generate unique source names from directory basenames with collision handling."""
-    if not paths:
-        return []
-    
-    basenames = [path.name for path in paths]
-    name_counts: dict[str, int] = {}
-    unique_names: list[str] = []
-    
-    for basename in basenames:
-        name = basename.lower().replace(" ", "_").replace("-", "_")
-        if name in name_counts:
-            name_counts[name] += 1
-            name = f"{name}_{name_counts[name]}"
-        else:
-            name_counts[name] = 0
-        unique_names.append(name)
-    
-    return unique_names
-
-
 def scan_conversations(
     conn: sqlite3.Connection,
     force: bool = False,
@@ -255,9 +238,13 @@ def scan_conversations(
     all_discovered.extend(discover_conversations(cloud_dir, "cloud"))
     
     # Discover from extra conversation paths
-    extra_source_names = _generate_unique_source_names(config.extra_conversation_paths)
+    extra_source_names = generate_unique_source_names(config.extra_conversation_paths)
     for path, source_name in zip(config.extra_conversation_paths, extra_source_names):
-        if path.exists() and path.is_dir():
+        if not path.exists():
+            logger.warning(f"Configured path does not exist: {path}")
+        elif not path.is_dir():
+            logger.warning(f"Configured path is not a directory: {path}")
+        else:
             all_discovered.extend(discover_conversations(path, source_name))
     
     total = len(all_discovered)
