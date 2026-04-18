@@ -5386,6 +5386,7 @@ def prompts(action: str | None, name: str | None, force: bool) -> None:
     """
     from ohtv.prompts import (
         PROMPT_NAMES,
+        clear_prompt_cache,
         discover_prompts,
         get_default_prompts_dir,
         get_prompt,
@@ -5405,8 +5406,9 @@ def prompts(action: str | None, name: str | None, force: bool) -> None:
         copied = init_user_prompts(force=force)
         if copied:
             console.print(f"[green]✓[/green] Copied {len(copied)} prompt(s) to {get_user_prompts_dir()}/")
-            for prompt_name in copied:
-                console.print(f"  • {prompt_name}.md")
+            for prompt_path in sorted(copied):
+                # Display as "family/variant.md" (e.g., "objectives/brief.md")
+                console.print(f"  • {prompt_path}.md")
             console.print()
             console.print("[dim]Edit these files to customize prompts.[/dim]")
         else:
@@ -5436,35 +5438,58 @@ def prompts(action: str | None, name: str | None, force: bool) -> None:
         default_dir = get_default_prompts_dir()
         
         if name:
-            # Reset specific prompt
-            if name not in PROMPT_NAMES:
-                console.print(f"[red]Error:[/red] Unknown prompt: {name}")
-                console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
-                return
+            # Reset specific prompt - support both "variant" and "family/variant" formats
+            # For backward compat, "brief" means "objectives/brief"
+            if "/" in name:
+                family, variant = name.split("/", 1)
+            elif name in PROMPT_NAMES:
+                family, variant = "objectives", name
+            else:
+                # Try to find it in discovered prompts
+                try:
+                    meta = resolve_prompt("objectives", name)
+                    family, variant = "objectives", name
+                except ValueError:
+                    console.print(f"[red]Error:[/red] Unknown prompt: {name}")
+                    console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+                    return
             
-            user_path = user_dir / f"{name}.md"
+            user_path = user_dir / family / f"{variant}.md"
             if not user_path.exists():
                 console.print(f"[dim]No user prompt to reset: {name}[/dim]")
                 return
             
-            default_path = default_dir / f"{name}.md"
+            default_path = default_dir / family / f"{variant}.md"
             if default_path.exists():
                 user_path.write_text(default_path.read_text())
-                console.print(f"[green]✓[/green] Reset {name} to default")
+                console.print(f"[green]✓[/green] Reset {family}/{variant} to default")
             else:
                 user_path.unlink()
-                console.print(f"[green]✓[/green] Removed {name} (will use built-in default)")
+                console.print(f"[green]✓[/green] Removed {family}/{variant} (will use built-in default)")
+            
+            # Clear cache so changes take effect
+            clear_prompt_cache()
         elif force:
-            # Reset all prompts
+            # Reset all prompts - find all user prompt files in family directories
             reset_count = 0
-            for prompt_name in PROMPT_NAMES:
-                user_path = user_dir / f"{prompt_name}.md"
-                default_path = default_dir / f"{prompt_name}.md"
-                if user_path.exists() and default_path.exists():
-                    user_path.write_text(default_path.read_text())
+            for user_prompt in user_dir.rglob("*.md"):
+                # Skip flat files
+                if user_prompt.parent == user_dir:
+                    continue
+                
+                rel_path = user_prompt.relative_to(user_dir)
+                default_path = default_dir / rel_path
+                
+                if default_path.exists():
+                    user_prompt.write_text(default_path.read_text())
                     reset_count += 1
+                else:
+                    user_prompt.unlink()
+                    reset_count += 1
+            
             if reset_count:
                 console.print(f"[green]✓[/green] Reset {reset_count} prompt(s) to defaults")
+                clear_prompt_cache()
             else:
                 console.print("[dim]No user prompts to reset.[/dim]")
         else:

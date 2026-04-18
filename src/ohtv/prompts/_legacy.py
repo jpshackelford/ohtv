@@ -90,6 +90,9 @@ def get_prompt_hash(name: str) -> str:
     This allows the analysis cache to detect when a prompt has been
     modified and invalidate cached results that used the old prompt.
     
+    Uses the new discovery system to properly support user customizations
+    in family directories (e.g., ~/.ohtv/prompts/objectives/brief.md).
+    
     Args:
         name: Prompt name without .md extension (e.g., "brief", "standard_assess")
         
@@ -100,44 +103,57 @@ def get_prompt_hash(name: str) -> str:
         ValueError: If the prompt name is unknown
         FileNotFoundError: If the prompt file cannot be found
     """
-    content = get_prompt(name)
-    return hashlib.sha256(content.encode()).hexdigest()[:16]
+    from ohtv.prompts.discovery import resolve_prompt
+    
+    # Use the new discovery system to get the hash
+    # This properly handles user customizations in family directories
+    try:
+        meta = resolve_prompt("objectives", name)
+        return meta.content_hash
+    except ValueError:
+        # Fall back to legacy behavior for backward compatibility
+        content = get_prompt(name)
+        return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
 def init_user_prompts(force: bool = False) -> list[str]:
     """Copy default prompts to user directory for customization.
     
+    Copies prompts from the package's family directories (e.g., objectives/)
+    to the user's prompts directory, preserving the family structure.
+    
     Args:
         force: If True, overwrite existing user prompts
         
     Returns:
-        List of prompt names that were copied
+        List of prompt names that were copied (as "family/variant" paths)
     """
     user_dir = get_user_prompts_dir()
-    user_dir.mkdir(parents=True, exist_ok=True)
-    
     default_dir = get_default_prompts_dir()
     copied = []
     
-    for name in PROMPT_NAMES:
-        filename = f"{name}.md"
-        user_path = user_dir / filename
-        default_path = default_dir / filename
-        
-        if not default_path.exists():
-            log.warning("Default prompt missing: %s", filename)
+    # Find all prompt files in family subdirectories (not flat files)
+    for prompt_file in default_dir.rglob("*.md"):
+        # Skip flat files directly in prompts dir (legacy structure)
+        if prompt_file.parent == default_dir:
             continue
-            
+        
+        # Get relative path from default_dir (e.g., "objectives/brief.md")
+        rel_path = prompt_file.relative_to(default_dir)
+        user_path = user_dir / rel_path
+        
+        # Create family subdirectory if needed
+        user_path.parent.mkdir(parents=True, exist_ok=True)
+        
         if user_path.exists() and not force:
-            log.debug("Skipping existing user prompt: %s", filename)
+            log.debug("Skipping existing user prompt: %s", rel_path)
             continue
         
-        user_path.write_text(default_path.read_text())
-        copied.append(name)
-        log.debug("Copied prompt: %s", filename)
+        user_path.write_text(prompt_file.read_text())
+        copied.append(str(rel_path.with_suffix("")))  # e.g., "objectives/brief"
+        log.debug("Copied prompt: %s", rel_path)
 
     # Clear discovery cache so new user prompts are found
-    from ohtv.prompts.discovery import clear_prompt_cache
     clear_prompt_cache()
     
     return copied
