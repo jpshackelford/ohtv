@@ -17,7 +17,7 @@ Cache invalidation strategy:
 import hashlib
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -43,6 +43,7 @@ class CachedAnalysis(BaseModel):
     # Cache validation fields
     event_count: int
     content_hash: str
+    prompt_hash: str | None = None  # Hash of prompt used (for cache invalidation)
 
 
 def load_events(conv_dir: Path) -> list[dict]:
@@ -90,6 +91,27 @@ def _make_cache_key(**kwargs: Any) -> str:
     # Sort keys for consistent ordering
     parts = [f"{k}={v}" for k, v in sorted(kwargs.items())]
     return ",".join(parts) if parts else "default"
+
+
+def make_cache_key(context: str, detail: str, assess: bool) -> str:
+    """Create a cache key for analysis parameters.
+    
+    This is the public API for creating cache keys that match
+    those used internally by AnalysisCacheManager.
+    
+    Args:
+        context: Context level (minimal, default, full)
+        detail: Detail level (brief, standard, detailed)
+        assess: Whether assessment is enabled
+    
+    Returns:
+        A cache key string
+    """
+    return _make_cache_key(
+        assess=assess,
+        context_level=context,
+        detail_level=detail,
+    )
 
 
 class AnalysisCacheManager:
@@ -153,6 +175,7 @@ class AnalysisCacheManager:
         conv_dir: Path,
         events: list[dict],
         content_hash: str,
+        prompt_hash: str | None = None,
         **validation_kwargs,
     ) -> T | None:
         """Load cached analysis if valid.
@@ -161,6 +184,7 @@ class AnalysisCacheManager:
             conv_dir: Conversation directory
             events: Current events list
             content_hash: Current content hash
+            prompt_hash: Current prompt hash (if provided, must match cached value)
             **validation_kwargs: Parameters that identify the analysis type
                 (e.g., context_level, detail_level, assess). Used both as
                 cache key and for validation.
@@ -204,6 +228,17 @@ class AnalysisCacheManager:
         if analysis.content_hash != content_hash:
             log.debug("Cache invalidated for key '%s': content hash mismatch", cache_key)
             return None
+
+        # Validate prompt hash (if provided and cached analysis has one)
+        if prompt_hash is not None and analysis.prompt_hash is not None:
+            if analysis.prompt_hash != prompt_hash:
+                log.debug(
+                    "Cache invalidated for key '%s': prompt hash mismatch (%s -> %s)",
+                    cache_key,
+                    analysis.prompt_hash,
+                    prompt_hash,
+                )
+                return None
 
         # Validate that stored parameters match requested parameters
         for key, expected_value in validation_kwargs.items():
@@ -254,5 +289,121 @@ class AnalysisCacheManager:
 
         cache_data["analyses"][cache_key] = analysis.model_dump(mode="json")
 
+        # Clear any skip marker since we successfully analyzed
+        cache_data.pop("skipped", None)
+
         self._save_cache_data(cache_file, cache_data)
         log.debug("Analysis cached to %s (key: %s)", cache_file, cache_key)
+        
+        # Sync to database if available
+        self._sync_cache_to_db(conv_dir.name, cache_key, analysis)
+
+    def _sync_cache_to_db(self, conversation_id: str, cache_key: str, analysis: T) -> None:
+        """Sync cache entry to database for fast lookup.
+        
+        This is optional - if database is not available, we just skip.
+        The file-based cache is the source of truth.
+        """
+        try:
+            from ohtv.db import get_connection, migrate
+            from ohtv.db.stores import AnalysisCacheStore
+            from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
+            
+            with get_connection() as conn:
+                migrate(conn)
+                store = AnalysisCacheStore(conn)
+                entry = AnalysisCacheEntry(
+                    conversation_id=conversation_id,
+                    cache_key=cache_key,
+                    event_count=analysis.event_count,
+                    content_hash=analysis.content_hash,
+                    analyzed_at=analysis.analyzed_at,
+                )
+                store.upsert_cache(entry)
+                conn.commit()
+                log.debug("Synced cache to DB: %s (key: %s)", conversation_id, cache_key)
+        except Exception as e:
+            # DB sync is optional, don't fail if it doesn't work
+            log.debug("Failed to sync cache to DB (non-fatal): %s", e)
+
+    def is_skipped(self, conv_dir: Path, event_count: int) -> str | None:
+        """Check if conversation is marked as skipped.
+
+        Args:
+            conv_dir: Conversation directory
+            event_count: Current event count (for invalidation check)
+
+        Returns:
+            Skip reason if skipped and still valid, None otherwise.
+        """
+        cache_file = self.get_cache_file(conv_dir)
+        cache_data = self._load_cache_data(cache_file)
+
+        if cache_data is None:
+            return None
+
+        skipped = cache_data.get("skipped")
+        if not skipped:
+            return None
+
+        # Check if event count changed (conversation grew, should retry)
+        cached_event_count = cache_data.get("event_count")
+        if cached_event_count != event_count:
+            log.debug(
+                "Skip marker invalidated: event count changed (%s -> %d)",
+                cached_event_count,
+                event_count,
+            )
+            return None
+
+        return skipped.get("reason")
+
+    def mark_skipped(self, conv_dir: Path, event_count: int, reason: str) -> None:
+        """Mark a conversation as skipped (cannot be analyzed).
+
+        Args:
+            conv_dir: Conversation directory
+            event_count: Current event count
+            reason: Why the conversation was skipped
+        """
+        cache_file = self.get_cache_file(conv_dir)
+        cache_data = self._load_cache_data(cache_file) or {"analyses": {}}
+
+        cache_data["event_count"] = event_count
+        cache_data["skipped"] = {
+            "reason": reason,
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        self._save_cache_data(cache_file, cache_data)
+        log.debug("Conversation marked as skipped: %s (reason: %s)", conv_dir.name, reason)
+        
+        # Sync to database if available
+        self._sync_skip_to_db(conv_dir.name, event_count, reason)
+
+    def _sync_skip_to_db(self, conversation_id: str, event_count: int, reason: str) -> None:
+        """Sync skip entry to database for fast lookup.
+        
+        This is optional - if database is not available, we just skip.
+        The file-based cache is the source of truth.
+        """
+        try:
+            from ohtv.db import get_connection, migrate
+            from ohtv.db.stores import AnalysisCacheStore
+            from ohtv.db.stores.analysis_cache_store import AnalysisSkipEntry
+            
+            with get_connection() as conn:
+                migrate(conn)
+                store = AnalysisCacheStore(conn)
+                entry = AnalysisSkipEntry(
+                    conversation_id=conversation_id,
+                    event_count=event_count,
+                    reason=reason,
+                    skipped_at=datetime.now(timezone.utc),
+                )
+                store.upsert_skip(entry)
+                conn.commit()
+                log.debug("Synced skip to DB: %s (reason: %s)", conversation_id, reason)
+        except Exception as e:
+            # DB sync is optional, don't fail if it doesn't work
+            log.debug("Failed to sync skip to DB (non-fatal): %s", e)

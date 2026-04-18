@@ -23,7 +23,7 @@ log = logging.getLogger("ohtv")
 
 
 # Commands that use LLM and consume tokens
-LLM_COMMANDS = {"objectives", "summary"}
+LLM_COMMANDS = {"summary", "gen"}
 
 
 class SectionedGroup(click.Group):
@@ -233,7 +233,6 @@ def main() -> None:
 @click.option("--dry-run", is_flag=True, help="Show what would sync without downloading")
 @click.option("--max-new", "-n", type=int, help="Maximum number of NEW conversations to sync")
 @click.option("--status", "-s", is_flag=True, help="Show sync status")
-@click.option("--process", "-p", is_flag=True, help="Run all processing stages after sync")
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output for cron jobs")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def sync(
@@ -242,7 +241,6 @@ def sync(
     dry_run: bool,
     max_new: int | None,
     status: bool,
-    process: bool,
     quiet: bool,
     verbose: bool,
 ) -> None:
@@ -251,8 +249,8 @@ def sync(
     Use -n/--max-new to limit the number of NEW conversations synced.
     Updates to existing conversations are always synced (no limit).
     
-    Use --process to automatically run database indexing after sync,
-    equivalent to running 'ohtv db process all'.
+    After syncing, automatically indexes conversations and runs all
+    processing stages (refs, actions, branch_context, push_pr_links).
     
     Combining --force with -n resets local storage to only the N most
     recent conversations (destructive operation, requires confirmation).
@@ -280,8 +278,8 @@ def sync(
         if not quiet:
             _show_result(result, dry_run)
         
-        # Run processing stages if requested (and not dry-run)
-        if process and not dry_run:
+        # Always run processing stages after sync (unless dry-run)
+        if not dry_run:
             _run_post_sync_processing(quiet, verbose)
             
     except SyncAuthError as e:
@@ -445,6 +443,8 @@ def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
         
         # Scan to register any new conversations
         scan_result = scan_conversations(conn)
+        conn.commit()
+        
         if not quiet and scan_result.new_registered > 0:
             console.print(f"[dim]Registered {scan_result.new_registered} new conversation(s)[/dim]")
         
@@ -474,6 +474,9 @@ def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
                 except Exception as e:
                     if verbose:
                         console.print(f"    [red]Error processing {conv.id}:[/red] {e}")
+            
+            # Commit after each stage to save progress
+            conn.commit()
     
     if not quiet:
         console.print("[green]✓[/green] Processing complete")
@@ -751,15 +754,12 @@ def _apply_conversation_filters(
     if any([since, until, pr_filter, repo_filter, action_filter, errors_only]):
         show_all = True
     
-    # Load conversations from both sources
-    conversations = _load_all_conversations(config)
+    # Load conversations from both sources, with date filtering pushed to DB
+    conversations = _load_all_conversations(config, since=since, until=until)
     
     # Filter out empty conversations unless requested
     if not include_empty:
         conversations = [c for c in conversations if c.event_count > 0]
-    
-    # Apply date filtering
-    conversations = _filter_by_date_range(conversations, since, until)
     
     # Apply PR filtering (requires database)
     if pr_filter is not None:
@@ -897,6 +897,99 @@ def _filter_by_action(
         
         console.print(f"[dim]Filtering by action '{action_type}': {len(conversation_ids)} matches[/dim]")
         return filter_conversations_by_ids(conversations, conversation_ids), set()
+
+
+def _count_uncached_conversations_fast(
+    conversations: list[ConversationInfo],
+    config: Config,
+    context: str,
+    detail: str,
+    assess: bool,
+) -> int:
+    """Count conversations needing analysis using fast DB lookup.
+    
+    Uses the database to check cache status in O(1) instead of
+    loading event files for each conversation. Falls back to
+    slow file-based checking if DB is not available.
+    
+    Returns:
+        Number of conversations that need LLM analysis
+    """
+    try:
+        from ohtv.db import get_connection, get_db_path, migrate
+        from ohtv.db.stores import AnalysisCacheStore
+        from ohtv.analysis.cache import make_cache_key
+        
+        db_path = get_db_path()
+        if not db_path.exists():
+            log.debug("DB not found, falling back to slow cache check")
+            return _count_uncached_conversations_slow(conversations, config, context, detail, assess)
+        
+        # Build cache key for these parameters
+        cache_key = make_cache_key(context, detail, assess)
+        
+        # Normalize conversation IDs (remove dashes)
+        conv_ids = [c.lookup_id.replace("-", "") for c in conversations]
+        
+        with get_connection() as conn:
+            migrate(conn)
+            store = AnalysisCacheStore(conn)
+            
+            # Get cache status for all conversations in one query
+            status_map = store.get_cache_status_batch(conv_ids, cache_key)
+            
+            # Count those needing analysis
+            uncached_count = 0
+            for conv_id in conv_ids:
+                status = status_map.get(conv_id)
+                if status is None or status.needs_analysis:
+                    uncached_count += 1
+            
+            log.debug(
+                "Fast cache check: %d of %d need analysis (key=%s)",
+                uncached_count, len(conversations), cache_key
+            )
+            return uncached_count
+            
+    except Exception as e:
+        log.debug("Fast cache check failed, falling back to slow: %s", e)
+        return _count_uncached_conversations_slow(conversations, config, context, detail, assess)
+
+
+def _count_uncached_conversations_slow(
+    conversations: list[ConversationInfo],
+    config: Config,
+    context: str,
+    detail: str,
+    assess: bool,
+) -> int:
+    """Count uncached conversations using file-based checking (slow).
+    
+    This is the fallback when the database is not available.
+    """
+    from ohtv.analysis import get_cached_analysis
+    from ohtv.analysis.objectives import _cache_manager
+    from ohtv.analysis.cache import load_events
+    
+    uncached_count = 0
+    for conv in conversations:
+        result = _find_conversation_dir(config, conv.lookup_id)
+        if result:
+            conv_dir, _ = result
+            cached = get_cached_analysis(
+                conv_dir, context=context, detail=detail, assess=assess
+            )
+            if cached is None:
+                # Also check for skip marker (counts as "cached" since we won't call LLM)
+                events = load_events(conv_dir)
+                skip_reason = _cache_manager.is_skipped(conv_dir, len(events))
+                if skip_reason is None:
+                    uncached_count += 1
+        else:
+            # Can't find dir = will fail anyway, count as uncached
+            uncached_count += 1
+    
+    return uncached_count
 
 
 def _filter_by_errors(
@@ -1103,6 +1196,7 @@ def list_conversations(
                 possible_match_ids=possible_match_ids,
                 refs_map=refs_map,
                 show_errors=show_errors,
+                hide_title=errors_only,
             )
         else:
             # For JSON and CSV, use plain print to avoid rich styling
@@ -1137,8 +1231,35 @@ def _generate_unique_source_names(paths: list[Path]) -> list[str]:
     return unique_names
 
 
-def _load_all_conversations(config: Config) -> list[ConversationInfo]:
-    """Load conversations from local, cloud, and extra directories."""
+def _load_all_conversations(
+    config: Config,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> list[ConversationInfo]:
+    """Load conversations from local, cloud, and extra directories.
+    
+    Uses database when available for fast metadata access, with date filtering
+    pushed down to the database query. Falls back to filesystem scanning when
+    database is unavailable.
+    
+    Args:
+        config: Application configuration
+        since: Optional filter for conversations created on or after this time
+        until: Optional filter for conversations created before this time
+    """
+    # Try database-first approach
+    try:
+        from ohtv.conversations import get_conversations, is_db_available_with_metadata
+        
+        if is_db_available_with_metadata():
+            # Use fast database path with date filtering pushed down
+            conversations = get_conversations(config, since=since, until=until, use_db=True)
+            log.debug("Loaded %d conversations from database (fast path)", len(conversations))
+            return conversations
+    except Exception as e:
+        log.debug("Database loading failed, using filesystem: %s", e)
+    
+    # Fallback to filesystem (slow path)
     conversations: list[ConversationInfo] = []
 
     # Load local conversations
@@ -1163,6 +1284,11 @@ def _load_all_conversations(config: Config) -> list[ConversationInfo]:
         extra_source = LocalSource(path, source_name=source_name)
         conversations.extend(extra_source.list_conversations())
 
+    # Apply date filtering for filesystem path (DB path has it already)
+    if since or until:
+        conversations = _filter_by_date_range(conversations, since, until)
+    
+    log.debug("Loaded %d conversations from filesystem (slow path)", len(conversations))
     return conversations
 
 
@@ -1317,6 +1443,7 @@ def _print_list_table(
     possible_match_ids: set[str] | None = None,
     refs_map: dict[str, list[str]] | None = None,
     show_errors: bool = False,
+    hide_title: bool = False,
 ) -> None:
     """Print conversations as a rich table."""
     from ohtv.errors import format_error_type_counts
@@ -1326,14 +1453,15 @@ def _print_list_table(
         possible_match_ids = set()
     
     table = Table(show_header=True, header_style="bold")
-    table.add_column("ID", style="cyan", width=7)
-    table.add_column("Source", width=6)
-    table.add_column("Started", width=16)
-    table.add_column("Duration", width=10, justify="right")
-    table.add_column("Events", width=6, justify="right")
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("Source", no_wrap=True)
+    table.add_column("Started", no_wrap=True)
+    table.add_column("Duration", justify="right", no_wrap=True)
+    table.add_column("Events", justify="right", no_wrap=True)
     if show_errors:
-        table.add_column("Errors", width=20, no_wrap=False)
-    table.add_column("Title", no_wrap=False)
+        table.add_column("Errors", no_wrap=True)
+    if not hide_title:
+        table.add_column("Title", no_wrap=False, max_width=40)
 
     # Normalize possible_match_ids for comparison (they may not have dashes)
     normalized_possible = {normalize_conversation_id(pid) for pid in possible_match_ids}
@@ -1364,8 +1492,11 @@ def _print_list_table(
         if show_errors:
             if conv.error_count and conv.error_count > 0:
                 type_counts = format_error_type_counts(conv.error_types or {})
-                severity_tag = "[red]TERMINAL[/red]" if conv.has_terminal_error else "[yellow]RECOVERED[/yellow]"
-                error_text = f"{conv.error_count} {severity_tag}\n[dim]{type_counts}[/dim]"
+                severity_tag = "[red]TERM[/red]" if conv.has_terminal_error else "[yellow]RCVR[/yellow]"
+                if type_counts:
+                    error_text = f"{conv.error_count} {severity_tag}: [dim]{type_counts}[/dim]"
+                else:
+                    error_text = f"{conv.error_count} {severity_tag}"
             else:
                 error_text = "[dim]-[/dim]"
         
@@ -1378,7 +1509,8 @@ def _print_list_table(
         ]
         if show_errors:
             row.append(error_text)
-        row.append(title_text)
+        if not hide_title:
+            row.append(title_text)
         
         table.add_row(*row)
 
@@ -1397,9 +1529,11 @@ def _print_list_table(
         summary += f" ({', '.join(parts)})"
     console.print(f"[dim]{summary}[/dim]")
     
-    # Legend for possible matches
+    # Legends
     if possible_match_ids:
         console.print(f"[dim][yellow]*[/yellow] = possible match (action target not available)[/dim]")
+    if show_errors:
+        console.print(f"[dim][red]TERM[/red] = terminal error, [yellow]RCVR[/yellow] = recovered[/dim]")
 
     # Hint for default limit
     if show_hint:
@@ -2890,142 +3024,6 @@ def _ensure_refs_indexed(conv_id: str, conv_dir: Path, verbose: bool = False) ->
         conn.commit()
 
 
-@main.command()
-@click.argument("conversation_id")
-@click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (ignore cache)")
-@click.option("--model", "-m", help="LLM model to use for analysis")
-@click.option(
-    "--detail",
-    "-d",
-    type=click.Choice(["brief", "standard", "detailed"]),
-    default="brief",
-    help="Output detail: brief (default), standard (with outcomes), detailed (full analysis)",
-)
-@click.option("--assess", "-a", is_flag=True, help="Assess whether objectives were achieved")
-@click.option(
-    "--context",
-    "-c",
-    type=click.Choice(["minimal", "default", "full"]),
-    default="default",
-    help="Context level: minimal (user only), default (user+finish), full (all messages)",
-)
-@click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
-def objectives(
-    conversation_id: str,
-    refresh: bool,
-    model: str | None,
-    detail: str,
-    assess: bool,
-    context: str,
-    no_outputs: bool,
-    json_output: bool,
-    verbose: bool,
-) -> None:
-    """Identify what the user hopes to achieve in a conversation.
-
-    By default, outputs a brief 1-2 sentence description of the user's goal,
-    followed by any outputs (repositories pushed, PRs created/merged, issues
-    modified). Use --no-outputs to hide the outputs section.
-
-    \b
-    Detail levels:
-      brief     - Just the goal (1-2 sentences) [default]
-      standard  - Goal + primary/secondary outcomes (3-6 bullets each)
-      detailed  - Full hierarchical objectives with subordinates
-
-    \b
-    Use --assess to add status assessment (achieved/not achieved/in_progress)
-    to any detail level. Without --assess, only the objectives are shown.
-
-    \b
-    Context levels (how much conversation to analyze):
-      minimal   - User messages only (lowest tokens)
-      default   - User messages + finish action
-      full      - All messages + action summaries (highest tokens)
-
-    Note: --assess requires at least 'default' context to see the outcome.
-
-    Requires LLM_API_KEY environment variable to be set.
-    """
-    _init_logging(verbose=verbose)
-    config = Config.from_env()
-
-    # Find conversation
-    result = _find_conversation_dir(config, conversation_id)
-    if not result:
-        console.print(f"[red]Error:[/red] Conversation '{conversation_id}' not found")
-        raise SystemExit(1)
-
-    conv_dir, _ = result
-
-    # Get conversation metadata for display
-    conv_id, title = _get_conversation_info(conv_dir)
-
-    # Import analysis module (lazy to avoid loading SDK unless needed)
-    try:
-        from ohtv.analysis import ObjectiveAnalysis, analyze_objectives, get_cached_analysis, load_events
-    except ImportError as e:
-        console.print(f"[red]Error:[/red] Analysis module not available: {e}")
-        raise SystemExit(1)
-
-    # Check for cached analysis first if not refreshing
-    analysis = None
-    analysis_cost = 0.0
-    if not refresh:
-        analysis = get_cached_analysis(conv_dir, context=context, detail=detail, assess=assess)  # type: ignore[arg-type]
-
-    # Run analysis if not cached
-    if analysis is None:
-        # Load events to show progress info
-        events = load_events(conv_dir)
-        event_count = len(events) if events else 0
-
-        # Show status spinner for potentially long-running analysis
-        status_msg = f"Analyzing {event_count} events"
-        if event_count > 100:
-            status_msg += " (this may take a minute)"
-
-        try:
-            with console.status(f"[bold blue]{status_msg}...[/bold blue]"):
-                result = analyze_objectives(
-                    conv_dir, model=model, context=context, detail=detail, assess=assess, force_refresh=refresh  # type: ignore[arg-type]
-                )
-                analysis = result.analysis
-                analysis_cost = result.cost
-        except ValueError as e:
-            console.print(f"[red]Error:[/red] {e}")
-            raise SystemExit(1)
-        except RuntimeError as e:
-            console.print(f"[red]Analysis failed:[/red] {e}")
-            raise SystemExit(1)
-        except Exception as e:
-            # Catch LLM configuration errors
-            if "api_key" in str(e).lower() or "LLM_" in str(e):
-                console.print(
-                    "[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
-                )
-                console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
-            else:
-                console.print(f"[red]Error:[/red] {e}")
-            raise SystemExit(1)
-
-    # Display results
-    if json_output:
-        console.print(analysis.model_dump_json(indent=2))
-    else:
-        _display_objectives(conv_id, title, analysis)
-
-        # Show outputs (repos, PRs, issues) unless suppressed
-        if not no_outputs:
-            _display_outputs(conv_dir)
-        
-        # Show cost if LLM was called
-        if analysis_cost > 0:
-            console.print(f"\n[dim]LLM cost: [green]${analysis_cost:.4f}[/green][/dim]")
-
-
 def _display_objectives(conv_id: str, title: str, analysis: "ObjectiveAnalysis") -> None:
     """Display objective analysis with rich formatting."""
     detail_level = getattr(analysis, "detail_level", "brief")
@@ -3321,26 +3319,32 @@ def summary(
         # --refresh forces all to be recomputed
         uncached_count = len(conversations)
     else:
-        # Check cache status for each conversation
-        uncached_count = 0
-        for conv in conversations:
-            result = _find_conversation_dir(config, conv.lookup_id)
-            if result:
-                conv_dir, _ = result
-                cached = get_cached_analysis(
-                    conv_dir, context=context, detail=detail, assess=assess
-                )
-                if cached is None:
-                    uncached_count += 1
-            else:
-                # Can't find dir = will fail anyway, count as uncached
-                uncached_count += 1
+        # Use fast DB-based cache check
+        uncached_count = _count_uncached_conversations_fast(
+            conversations, config, context, detail, assess
+        )
+    
+    # Get model name for display (short form if available)
+    def _get_model_display_name() -> str:
+        """Get a display-friendly model name."""
+        import os
+        os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
+        from openhands.sdk import LLM
+        llm = LLM.load_from_env()
+        if model:
+            # User specified a model, use that
+            return model.split("/")[-1] if "/" in model else model
+        # Try to get clean name from model_info, fall back to model string
+        if llm.model_info and llm.model_info.get("key"):
+            return llm.model_info["key"]
+        return llm.model.split("/")[-1] if "/" in llm.model else llm.model
     
     # Only prompt if we actually need to run LLM on many conversations
     if uncached_count > SUMMARY_CONFIRM_THRESHOLD and not yes:
         from rich.prompt import Confirm
         cached_count = len(conversations) - uncached_count
-        console.print(f"[yellow]Warning:[/yellow] About to analyze {uncached_count} conversations with LLM.")
+        model_name = _get_model_display_name()
+        console.print(f"[yellow]Warning:[/yellow] About to analyze {uncached_count} conversations with [cyan]{model_name}[/cyan].")
         if cached_count > 0:
             console.print(f"[dim]({cached_count} already cached and will be skipped)[/dim]")
         console.print("[dim]This may take a while and use significant LLM tokens.[/dim]")
@@ -3352,15 +3356,92 @@ def summary(
     results: list[dict] = []
     errors: list[tuple[str, str]] = []
     total_cost = 0.0
+    import time
+    import signal
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    start_time = time.perf_counter()
+    processed_count = 0
+    
+    # Use parallel processing for multiple uncached conversations
+    # 20 workers to maximize throughput (LLM API rate limits are the real bottleneck)
+    max_workers = 20 if uncached_count > 1 else 1
+    
+    # Thread-safe counters and shutdown flag for parallel mode
+    _lock = threading.Lock()
+    _shutdown_requested = False
+    
+    def _handle_shutdown(signum, frame):
+        """Handle SIGINT/SIGTERM - request graceful shutdown."""
+        nonlocal _shutdown_requested
+        _shutdown_requested = True
+        console.print("\n[yellow]Shutdown requested - finishing current work...[/yellow]")
+    
+    # Install signal handlers for graceful shutdown
+    old_sigint = signal.signal(signal.SIGINT, _handle_shutdown)
+    old_sigterm = signal.signal(signal.SIGTERM, _handle_shutdown)
 
-    # Show progress for LLM analysis (skip if all cached or in quiet mode)
-    show_progress = uncached_count > 0 and not quiet
+    def _format_rate(count: int, elapsed: float) -> str:
+        """Format processing rate as conv/min."""
+        if elapsed < 0.1 or count == 0:
+            return "-- conv/min"
+        rate = count / (elapsed / 60.0)
+        return f"{rate:.1f} conv/min"
+
+    def _analyze_one(conv) -> tuple[dict | None, tuple[str, str] | None, float, bool]:
+        """Analyze a single conversation. Returns (result_dict, error_tuple, cost, from_cache)."""
+        result = _find_conversation_dir(config, conv.lookup_id)
+        if not result:
+            return None, (conv.short_id, "Not found"), 0.0, False
+        
+        conv_dir, _ = result
+        
+        try:
+            analysis_result = analyze_objectives(
+                conv_dir,
+                model=model,
+                context=context,
+                detail=detail,
+                assess=assess,
+                force_refresh=refresh,
+            )
+            analysis = analysis_result.analysis
+            # Extract display goal: use goal field, or summary for detailed mode,
+            # or first primary objective's description as fallback
+            display_goal = analysis.goal
+            if not display_goal and analysis.detail_level == "detailed":
+                if analysis.summary:
+                    display_goal = analysis.summary
+                elif analysis.primary_objectives:
+                    display_goal = analysis.primary_objectives[0].description
+            return {
+                "id": conv.id,
+                "short_id": conv.short_id,
+                "source": conv.source,
+                "created_at": conv.created_at,
+                "goal": display_goal or "(no goal identified)",
+                "cached": analysis_result.from_cache,
+                "conv_dir": conv_dir,
+            }, None, analysis_result.cost, analysis_result.from_cache
+        except (ValueError, RuntimeError) as e:
+            return None, (conv.short_id, str(e)[:50]), 0.0, False
+        except Exception as e:
+            if "api_key" in str(e).lower() or "LLM_" in str(e):
+                raise  # Re-raise auth errors to handle at top level
+            return None, (conv.short_id, str(e)[:50]), 0.0, False
+
+    # Show progress for LLM analysis (skip if all cached)
+    # Note: --quiet only suppresses final output, not progress bar or confirmation
+    show_progress = uncached_count > 0
+    from rich.progress import TimeRemainingColumn
     progress_ctx = Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
         TextColumn("[green]$[/green]{task.fields[cost]:.4f}"),
+        TextColumn("[dim]{task.fields[rate]}[/dim]"),
+        TimeRemainingColumn(),
         console=console,
         transient=True,
     ) if show_progress else nullcontext()
@@ -3372,64 +3453,97 @@ def summary(
                 f"Analyzing {uncached_count} conversations...",
                 total=uncached_count,
                 cost=0.0,
+                rate="-- conv/min",
             )
 
-        for conv in conversations:
-            # Find conversation directory (use lookup_id which is the directory name)
-            result = _find_conversation_dir(config, conv.lookup_id)
-            if not result:
-                errors.append((conv.short_id, "Not found"))
-                if task is not None:
-                    progress.advance(task)
-                continue
-
-            conv_dir, _ = result
-
-            # Run analysis (handles caching internally)
-            try:
-                analysis_result = analyze_objectives(
-                    conv_dir,
-                    model=model,
-                    context=context,
-                    detail=detail,
-                    assess=assess,
-                    force_refresh=refresh,
-                )
-                analysis = analysis_result.analysis
-                from_cache = analysis_result.from_cache
+        if max_workers == 1:
+            # Sequential processing (original behavior)
+            for conv in conversations:
+                if _shutdown_requested:
+                    break
+                result_dict, error_tuple, cost, from_cache = _analyze_one(conv)
                 
-                # Track cost and update progress
-                if not from_cache:
-                    total_cost += analysis_result.cost
+                if error_tuple:
+                    errors.append(error_tuple)
                     if task is not None:
-                        progress.update(task, advance=1, cost=total_cost)
-            except (ValueError, RuntimeError) as e:
-                errors.append((conv.short_id, str(e)[:50]))
-                if task is not None:
-                    progress.advance(task)
-                continue
-            except Exception as e:
-                if "api_key" in str(e).lower() or "LLM_" in str(e):
-                    console.print(
-                        "\n[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
-                    )
-                    console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
-                    raise SystemExit(1)
-                errors.append((conv.short_id, str(e)[:50]))
-                if task is not None:
-                    progress.advance(task)
-                continue
-
-            # Store result (include conv_dir for outputs extraction)
-            results.append({
-                "id": conv.id,
-                "short_id": conv.short_id,
-                "source": conv.source,
-                "created_at": conv.created_at,
-                "goal": analysis.goal or "(no goal identified)",
-                "cached": from_cache,
-                "conv_dir": conv_dir,
-            })
+                        progress.advance(task)
+                elif result_dict:
+                    results.append(result_dict)
+                    if not from_cache:
+                        total_cost += cost
+                        processed_count += 1
+                        elapsed = time.perf_counter() - start_time
+                        if task is not None:
+                            progress.update(
+                                task,
+                                advance=1,
+                                cost=total_cost,
+                                rate=_format_rate(processed_count, elapsed),
+                            )
+        else:
+            # Parallel processing with ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks
+                future_to_conv = {executor.submit(_analyze_one, conv): conv for conv in conversations}
+                
+                # Process results as they complete
+                for future in as_completed(future_to_conv):
+                    # Check for shutdown - cancel pending futures and exit
+                    if _shutdown_requested:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
+                    
+                    try:
+                        result_dict, error_tuple, cost, from_cache = future.result()
+                    except Exception as e:
+                        if "api_key" in str(e).lower() or "LLM_" in str(e):
+                            # Cancel remaining futures and raise
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            console.print(
+                                "\n[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
+                            )
+                            console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
+                            raise SystemExit(1)
+                        conv = future_to_conv[future]
+                        errors.append((conv.short_id, str(e)[:50]))
+                        if task is not None:
+                            progress.advance(task)
+                        continue
+                    
+                    if error_tuple:
+                        errors.append(error_tuple)
+                        if task is not None:
+                            progress.advance(task)
+                    elif result_dict:
+                        results.append(result_dict)
+                        if not from_cache:
+                            with _lock:
+                                total_cost += cost
+                                processed_count += 1
+                                elapsed = time.perf_counter() - start_time
+                            if task is not None:
+                                progress.update(
+                                    task,
+                                    advance=1,
+                                    cost=total_cost,
+                                    rate=_format_rate(processed_count, elapsed),
+                                )
+    
+    # Restore original signal handlers
+    signal.signal(signal.SIGINT, old_sigint)
+    signal.signal(signal.SIGTERM, old_sigterm)
+    
+    # Calculate final rate for summary
+    total_elapsed = time.perf_counter() - start_time
+    final_rate = _format_rate(processed_count, total_elapsed) if processed_count > 0 else None
+    
+    # If shutdown was requested, show what we completed and exit
+    if _shutdown_requested:
+        if results:
+            console.print(f"[yellow]Interrupted - showing {len(results)} completed results[/yellow]")
+        else:
+            console.print("[yellow]Interrupted - no results to show[/yellow]")
+            return
 
     # Skip all output if --quiet is enabled
     if quiet:
@@ -3479,9 +3593,10 @@ def summary(
     else:
         _print_summary_table(results, total_count, len(errors), include_outputs=not no_outputs)
 
-    # Show cost summary if any LLM calls were made
+    # Show cost and rate summary if any LLM calls were made
     if total_cost > 0 and fmt == "table":
-        console.print(f"[dim]LLM cost: [green]${total_cost:.4f}[/green][/dim]")
+        rate_str = f" ({final_rate})" if final_rate else ""
+        console.print(f"[dim]LLM cost: [green]${total_cost:.4f}[/green]{rate_str}[/dim]")
 
     # Show errors if any
     if errors and fmt == "table":
@@ -5013,6 +5128,116 @@ def db_status() -> None:
                 console.print(f"  {action_type}: {count}")
 
 
+@db.command("index-cache")
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+def db_index_cache(verbose: bool) -> None:
+    """Index existing analysis cache files into the database.
+    
+    Scans all conversation directories for objective_analysis.json files
+    and imports their metadata into the database for fast cache lookup.
+    
+    This enables the summary command to quickly determine which conversations
+    need analysis without reading event files.
+    """
+    from datetime import datetime
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from ohtv.db import get_connection, migrate
+    from ohtv.db.stores import AnalysisCacheStore, ConversationStore
+    from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry, AnalysisSkipEntry
+    import json
+    
+    config = Config.from_env()
+    
+    with get_connection() as conn:
+        migrate(conn)
+        
+        conv_store = ConversationStore(conn)
+        cache_store = AnalysisCacheStore(conn)
+        
+        # Get all registered conversations
+        conversations = conv_store.list_all()
+        if not conversations:
+            console.print("[yellow]No conversations registered. Run 'ohtv db scan' first.[/yellow]")
+            return
+        
+        indexed = 0
+        skipped = 0
+        errors = 0
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Indexing cache files"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("[dim]{task.fields[current]}[/dim]"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task(
+                "Indexing",
+                total=len(conversations),
+                current="",
+            )
+            
+            for conv in conversations:
+                progress.update(task, current=conv.id[:12] + "...")
+                
+                # Find cache file
+                conv_dir = Path(conv.location)
+                cache_file = conv_dir / "objective_analysis.json"
+                
+                if not cache_file.exists():
+                    progress.advance(task)
+                    continue
+                
+                try:
+                    cache_data = json.loads(cache_file.read_text())
+                    
+                    # Check for skip marker
+                    if "skipped" in cache_data:
+                        skip_info = cache_data["skipped"]
+                        entry = AnalysisSkipEntry(
+                            conversation_id=conv.id,
+                            event_count=cache_data.get("event_count", 0),
+                            reason=skip_info.get("reason", "unknown"),
+                            skipped_at=datetime.fromisoformat(skip_info.get("at", datetime.now().isoformat())),
+                        )
+                        cache_store.upsert_skip(entry)
+                        skipped += 1
+                    
+                    # Index each analysis
+                    analyses = cache_data.get("analyses", {})
+                    for cache_key, analysis_data in analyses.items():
+                        entry = AnalysisCacheEntry(
+                            conversation_id=conv.id,
+                            cache_key=cache_key,
+                            event_count=analysis_data.get("event_count", 0),
+                            content_hash=analysis_data.get("content_hash", ""),
+                            analyzed_at=datetime.fromisoformat(analysis_data.get("analyzed_at", datetime.now().isoformat())),
+                        )
+                        cache_store.upsert_cache(entry)
+                        indexed += 1
+                        
+                except (json.JSONDecodeError, KeyError) as e:
+                    errors += 1
+                    if verbose:
+                        console.print(f"[red]Error reading {cache_file}:[/red] {e}")
+                
+                progress.advance(task)
+        
+        conn.commit()
+    
+    # Display results
+    if indexed > 0:
+        console.print(f"[green]✓[/green] Indexed {indexed} cached analysis entries")
+    if skipped > 0:
+        console.print(f"[dim]{skipped} skip markers indexed[/dim]")
+    if errors > 0:
+        console.print(f"[yellow]![/yellow] {errors} error(s) reading cache files")
+    if indexed == 0 and skipped == 0 and errors == 0:
+        console.print("[dim]No cache files found to index.[/dim]")
+
+
 @db.command("reset")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 def db_reset(yes: bool) -> None:
@@ -5050,6 +5275,444 @@ def db_reset(yes: bool) -> None:
     db_path.unlink()
     console.print(f"[green]✓[/green] Deleted database ({size_str})")
     console.print("[dim]Run 'ohtv db init' or 'ohtv db process all' to recreate.[/dim]")
+
+
+# =============================================================================
+# Prompts Commands
+# =============================================================================
+
+
+@main.command()
+@click.argument("action", required=False, type=click.Choice(["init", "list", "show", "reset"]))
+@click.argument("name", required=False)
+@click.option("--all", "-a", "reset_all", is_flag=True, help="Reset all prompts to defaults")
+def prompts(action: str | None, name: str | None, reset_all: bool) -> None:
+    """View and customize LLM analysis prompts.
+    
+    \b
+    Without arguments, shows prompt status (default vs customized).
+    
+    \b
+    Actions:
+      init   Copy missing prompts to ~/.ohtv/prompts/ for customization
+      list   Show all prompts with their status
+      show   Display the content of a specific prompt
+      reset  Reset a prompt to its default (undo customizations)
+    
+    \b
+    Examples:
+      ohtv prompts              # Show prompt status
+      ohtv prompts init         # Copy missing prompts for customization
+      ohtv prompts show brief   # Show the brief prompt content
+      ohtv prompts reset brief  # Reset brief prompt to default
+      ohtv prompts reset --all  # Reset all prompts to defaults
+    """
+    from ohtv.prompts import (
+        PROMPT_NAMES,
+        clear_prompt_cache,
+        discover_prompts,
+        get_default_prompts_dir,
+        get_prompt,
+        get_user_prompts_dir,
+        init_user_prompts,
+        list_families,
+        list_prompts,
+        list_variants,
+        resolve_prompt,
+    )
+    
+    if action is None or action == "list":
+        _show_prompts_family_structure()
+        return
+    
+    if action == "init":
+        copied = init_user_prompts()
+        if copied:
+            console.print(f"[green]✓[/green] Copied {len(copied)} prompt(s) to {get_user_prompts_dir()}/")
+            for prompt_path in sorted(copied):
+                # Display as "family/variant.md" (e.g., "objectives/brief.md")
+                console.print(f"  • {prompt_path}.md")
+            console.print()
+            console.print("[dim]Edit these files to customize prompts.[/dim]")
+        else:
+            console.print("[dim]All prompts already initialized. Use 'reset' to undo customizations.[/dim]")
+        return
+    
+    if action == "show":
+        if not name:
+            console.print("[red]Error:[/red] Please specify a prompt name.")
+            console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+            return
+        if name not in PROMPT_NAMES:
+            console.print(f"[red]Error:[/red] Unknown prompt: {name}")
+            console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+            return
+        try:
+            content = get_prompt(name)
+            console.print(f"[bold]Prompt: {name}[/bold]")
+            console.print()
+            console.print(content)
+        except FileNotFoundError as e:
+            console.print(f"[red]Error:[/red] {e}")
+        return
+    
+    if action == "reset":
+        user_dir = get_user_prompts_dir()
+        default_dir = get_default_prompts_dir()
+        
+        if name:
+            # Reset specific prompt - support both "variant" and "family/variant" formats
+            if "/" in name:
+                family, variant = name.split("/", 1)
+            elif name in PROMPT_NAMES:
+                family, variant = "objs", name
+            else:
+                # Try to find it in discovered prompts
+                try:
+                    meta = resolve_prompt("objs", name)
+                    family, variant = "objs", name
+                except ValueError:
+                    console.print(f"[red]Error:[/red] Unknown prompt: {name}")
+                    console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+                    return
+            
+            user_path = user_dir / family / f"{variant}.md"
+            if not user_path.exists():
+                console.print(f"[dim]No user prompt to reset: {name}[/dim]")
+                return
+            
+            default_path = default_dir / family / f"{variant}.md"
+            if default_path.exists():
+                user_path.write_text(default_path.read_text())
+                console.print(f"[green]✓[/green] Reset {family}/{variant} to default")
+            else:
+                user_path.unlink()
+                console.print(f"[green]✓[/green] Removed {family}/{variant} (will use built-in default)")
+            
+            # Clear cache so changes take effect
+            clear_prompt_cache()
+        elif reset_all:
+            # Reset all prompts - find all user prompt files in family directories
+            reset_count = 0
+            for user_prompt in user_dir.rglob("*.md"):
+                # Skip flat files
+                if user_prompt.parent == user_dir:
+                    continue
+                
+                rel_path = user_prompt.relative_to(user_dir)
+                default_path = default_dir / rel_path
+                
+                if default_path.exists():
+                    user_prompt.write_text(default_path.read_text())
+                    reset_count += 1
+                else:
+                    user_prompt.unlink()
+                    reset_count += 1
+            
+            if reset_count:
+                console.print(f"[green]✓[/green] Reset {reset_count} prompt(s) to defaults")
+                clear_prompt_cache()
+            else:
+                console.print("[dim]No user prompts to reset.[/dim]")
+        else:
+            console.print("[yellow]Specify a prompt name or use --all to reset all.[/yellow]")
+            console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+        return
+
+
+def _show_prompts_family_structure() -> None:
+    """Display prompts organized by family and variant."""
+    from ohtv.prompts import list_families, list_variants, resolve_prompt, get_user_prompts_dir
+    
+    console.print("[bold]Prompt Families:[/bold]")
+    console.print()
+    
+    families = list_families()
+    if not families:
+        console.print("[dim]No prompts found.[/dim]")
+        return
+    
+    for family in families:
+        console.print(f"  [cyan]{family}/[/cyan]")
+        
+        variants = list_variants(family)
+        for variant in variants:
+            try:
+                meta = resolve_prompt(family, variant)
+                default_marker = " [green](default)[/green]" if meta.default else ""
+                description = meta.description or ""
+                
+                # Truncate description if too long
+                if len(description) > 60:
+                    description = description[:57] + "..."
+                
+                console.print(f"    {variant:<20} {default_marker:<18} {description}")
+            except Exception as e:
+                log.exception("Failed to resolve prompt %s/%s", family, variant)
+                console.print(f"    {variant:<20} [red]error: {e}[/red]")
+        
+        console.print()
+    
+    user_dir = get_user_prompts_dir()
+    console.print(f"[dim]User prompts directory: {user_dir}[/dim]")
+    console.print("[dim]Run 'ohtv prompts init' to copy prompts for customization.[/dim]")
+
+
+def _show_prompts_status(prompts_list: list[dict], user_dir) -> None:
+    """Display prompt status in a table (legacy)."""
+    table = Table(title="LLM Analysis Prompts")
+    table.add_column("Prompt", style="cyan")
+    table.add_column("Status")
+    table.add_column("Location", style="dim")
+    
+    for prompt_info in prompts_list:
+        name = prompt_info["name"]
+        status = prompt_info["status"]
+        
+        if status == "customized":
+            status_display = "[green]customized[/green]"
+            location = str(prompt_info["user_path"])
+        elif status == "copied":
+            status_display = "[dim]copied (unchanged)[/dim]"
+            location = str(prompt_info["user_path"])
+        elif status == "default":
+            status_display = "[dim]default[/dim]"
+            location = "(built-in)"
+        else:
+            status_display = "[red]missing[/red]"
+            location = ""
+        
+        table.add_row(name, status_display, location)
+    
+    console.print(table)
+    console.print()
+    console.print(f"[dim]User prompts directory: {user_dir}[/dim]")
+    console.print("[dim]Run 'ohtv prompts init' to copy prompts for customization.[/dim]")
+
+
+# =============================================================================
+# Gen Commands (new unified interface)
+# =============================================================================
+
+
+@main.group()
+def gen() -> None:
+    """Generate LLM-powered analysis of conversations (requires LLM_API_KEY)."""
+
+
+@gen.command("objs")
+@click.argument("conversation_id")
+@click.option("--variant", "-v", help="Prompt variant (brief, standard, detailed, brief_assess, etc.)")
+@click.option("--context", "-c", help="Context level (by name or number: 1=minimal, 2=standard, 3=full)")
+@click.option("--model", "-m", help="LLM model to use for analysis")
+@click.option("--no-cache", is_flag=True, help="Force re-analysis (ignore cache)")
+@click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+@click.option("--verbose", is_flag=True, help="Show debug output")
+def gen_objs_cmd(
+    conversation_id: str,
+    variant: str | None,
+    context: str | None,
+    model: str | None,
+    no_cache: bool,
+    no_outputs: bool,
+    json_output: bool,
+    verbose: bool,
+) -> None:
+    """Identify what the user hopes to achieve in a conversation.
+    
+    Uses the extensible prompt system with family/variant organization.
+    
+    \b
+    Variants (objs family):
+      brief           - Just the goal (1-2 sentences)
+      brief_assess    - Goal + status assessment
+      standard        - Goal + primary/secondary outcomes
+      standard_assess - Standard + status assessment  
+      detailed        - Full hierarchical objectives
+      detailed_assess - Detailed + status assessment
+    
+    \b
+    Context levels (how much conversation to generate from):
+      1 / minimal   - User messages only (lowest tokens)
+      2 / standard  - User messages + finish action (recommended)
+      3 / full      - All messages + action summaries (highest tokens)
+    
+    \b
+    Examples:
+      ohtv gen objs abc123              # Use default variant
+      ohtv gen objs abc123 -v brief     # Brief variant
+      ohtv gen objs abc123 -c 1         # Context level 1 (minimal)
+      ohtv gen objs abc123 -v standard_assess -c full
+    
+    Requires LLM_API_KEY environment variable to be set.
+    """
+    _run_objectives_analysis(
+        conversation_id=conversation_id,
+        variant=variant,
+        context=context,
+        model=model,
+        refresh=no_cache,
+        no_outputs=no_outputs,
+        json_output=json_output,
+        verbose=verbose,
+    )
+
+
+def _run_objectives_analysis(
+    conversation_id: str,
+    variant: str | None = None,
+    context: str | None = None,
+    model: str | None = None,
+    refresh: bool = False,
+    no_outputs: bool = False,
+    json_output: bool = False,
+    verbose: bool = False,
+    detail: str | None = None,
+    assess: bool | None = None,
+) -> None:
+    """Shared implementation for objectives analysis.
+    
+    This function supports both the new variant-based interface and the legacy
+    detail+assess interface for backward compatibility.
+    
+    Args:
+        conversation_id: Conversation ID to analyze
+        variant: Prompt variant (new interface)
+        context: Context level name or number (new interface)
+        model: LLM model to use
+        refresh: Force re-analysis
+        no_outputs: Don't show outputs
+        json_output: Output as JSON
+        verbose: Show debug output
+        detail: Detail level (legacy interface: brief, standard, detailed)
+        assess: Add assessment (legacy interface)
+    """
+    _init_logging(verbose=verbose)
+    config = Config.from_env()
+    
+    # Import prompts discovery functions
+    from ohtv.prompts import resolve_prompt, resolve_context, list_variants
+    
+    # Resolve variant from legacy parameters if needed
+    if variant is None and detail is not None:
+        # Legacy interface: map detail+assess to variant
+        variant = detail
+        if assess:
+            variant = f"{detail}_assess"
+    
+    # Find conversation
+    result = _find_conversation_dir(config, conversation_id)
+    if not result:
+        console.print(f"[red]Error:[/red] Conversation '{conversation_id}' not found")
+        raise SystemExit(1)
+    
+    conv_dir, _ = result
+    conv_id, title = _get_conversation_info(conv_dir)
+    
+    # Resolve prompt metadata
+    try:
+        prompt_meta = resolve_prompt("objs", variant)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        available = list_variants("objs")
+        console.print(f"[dim]Available variants: {', '.join(available)}[/dim]")
+        raise SystemExit(1)
+    
+    # Resolve context level
+    try:
+        if context is not None:
+            # Try as int first
+            try:
+                context_num = int(context)
+                context_level = resolve_context(prompt_meta, context_num)
+            except ValueError:
+                # Try as name
+                context_level = resolve_context(prompt_meta, context)
+        else:
+            # Use default context from prompt
+            context_level = resolve_context(prompt_meta, None)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[dim]Available context levels:[/dim]")
+        for level_num, level in sorted(prompt_meta.context_levels.items()):
+            console.print(f"  {level_num} ({level.name})")
+        raise SystemExit(1)
+    
+    # Import analysis module
+    try:
+        from ohtv.analysis import analyze_objectives, get_cached_analysis, load_events
+    except ImportError as e:
+        console.print(f"[red]Error:[/red] Analysis module not available: {e}")
+        raise SystemExit(1)
+    
+    # Extract detail level and assess flag from variant for cache compatibility
+    variant_name = prompt_meta.variant
+    has_assess = variant_name.endswith("_assess")
+    detail_level = variant_name.replace("_assess", "")
+    
+    # Use context level name for cache (minimal, default, full)
+    legacy_context = context_level.name
+    
+    # Check cache if not refreshing
+    analysis = None
+    analysis_cost = 0.0
+    if not refresh:
+        analysis = get_cached_analysis(
+            conv_dir, 
+            context=legacy_context,  # type: ignore[arg-type]
+            detail=detail_level,  # type: ignore[arg-type]
+            assess=has_assess
+        )
+    
+    # Run analysis if not cached
+    if analysis is None:
+        events = load_events(conv_dir)
+        event_count = len(events) if events else 0
+        
+        status_msg = f"Analyzing {event_count} events"
+        if event_count > 100:
+            status_msg += " (this may take a minute)"
+        
+        try:
+            with console.status(f"[bold blue]{status_msg}...[/bold blue]"):
+                result = analyze_objectives(
+                    conv_dir,
+                    model=model,
+                    context=legacy_context,  # type: ignore[arg-type]
+                    detail=detail_level,  # type: ignore[arg-type]
+                    assess=has_assess,
+                    force_refresh=refresh
+                )
+                analysis = result.analysis
+                analysis_cost = result.cost
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            raise SystemExit(1)
+        except RuntimeError as e:
+            console.print(f"[red]Analysis failed:[/red] {e}")
+            raise SystemExit(1)
+        except Exception as e:
+            if "api_key" in str(e).lower() or "LLM_" in str(e):
+                console.print(
+                    "[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
+                )
+                console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
+            else:
+                console.print(f"[red]Error:[/red] {e}")
+            raise SystemExit(1)
+    
+    # Display results
+    if json_output:
+        console.print(analysis.model_dump_json(indent=2))
+    else:
+        _display_objectives(conv_id, title, analysis)
+        
+        if not no_outputs:
+            _display_outputs(conv_dir)
+        
+        if analysis_cost > 0:
+            console.print(f"\n[dim]LLM cost: [green]${analysis_cost:.4f}[/green][/dim]")
 
 
 if __name__ == "__main__":

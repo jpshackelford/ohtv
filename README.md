@@ -20,7 +20,8 @@ ohtv list
 ohtv show <conversation_id> --messages
 
 # Analyze user objectives (requires LLM_API_KEY)
-ohtv objectives <conversation_id>
+ohtv gen objs <conversation_id>
+ohtv gen objs <conversation_id> -v detailed_assess  # with completion status
 
 # Summarize today's conversations (requires LLM_API_KEY)
 ohtv summary --day
@@ -30,6 +31,10 @@ ohtv refs <conversation_id>
 
 # Sync cloud conversations (requires OH_API_KEY)
 ohtv sync
+
+# Customize prompts
+ohtv prompts init              # Copy prompts to ~/.ohtv/prompts/
+ohtv prompts show brief        # View a prompt
 ```
 
 ## Commands
@@ -351,55 +356,217 @@ ohtv list --errors-only --week
 
 ---
 
-### `ohtv objectives` - Analyze User Objectives
+### `ohtv gen` - LLM Generation Commands
 
-Uses an LLM to extract and categorize user objectives from a conversation into a hierarchy of primary and subordinate goals. Results are cached for quick subsequent lookups.
+The `gen` command provides LLM-powered analysis of conversations using customizable prompts. Currently supports `objs` analysis with multiple variants and context levels.
+
+#### `ohtv gen objs` - Extract User Objectives
+
+Analyzes a conversation to extract user objectives. Supports multiple output variants and context levels for balancing detail vs. token cost.
 
 ```bash
-# Analyze objectives (uses cache if available)
-ohtv objectives abc123
+# Basic analysis (uses default: brief variant, minimal context)
+ohtv gen objs abc123
+
+# Choose output detail level with variants
+ohtv gen objs abc123 -v brief          # 1-2 sentence goal
+ohtv gen objs abc123 -v standard       # Goal + primary/secondary outcomes
+ohtv gen objs abc123 -v detailed       # Full hierarchical objectives
+
+# Add completion assessment to any variant
+ohtv gen objs abc123 -v brief_assess   # Goal + achieved/in_progress/not_achieved
+ohtv gen objs abc123 -v standard_assess
+ohtv gen objs abc123 -v detailed_assess
+
+# Control how much conversation context is analyzed
+ohtv gen objs abc123 -c 1              # Minimal: user messages only (fastest)
+ohtv gen objs abc123 -c 2              # Default: user messages + finish action
+ohtv gen objs abc123 -c 3              # Full: all messages + action summaries
+
+# Context levels also accept names
+ohtv gen objs abc123 -c minimal
+ohtv gen objs abc123 -c default
+ohtv gen objs abc123 -c full
 
 # Force re-analysis (ignore cache)
-ohtv objectives abc123 --refresh
+ohtv gen objs abc123 --no-cache
 
 # Use a specific model
-ohtv objectives abc123 --model gpt-4o
+ohtv gen objs abc123 -m gpt-4o
 
 # Output as JSON
-ohtv objectives abc123 --json
+ohtv gen objs abc123 --json
 ```
 
-**Example Output:**
+**Variants:**
+
+| Variant | Description |
+|---------|-------------|
+| `brief` | 1-2 sentence goal description (default) |
+| `brief_assess` | Goal + completion status |
+| `standard` | Goal + primary/secondary outcomes |
+| `standard_assess` | Standard + completion assessment |
+| `detailed` | Full hierarchical objectives with subordinate goals |
+| `detailed_assess` | Detailed + completion assessment for each objective |
+
+**Context Levels:**
+
+| Level | Name | Includes | Use When |
+|-------|------|----------|----------|
+| 1 | `minimal` | User messages only | Quick summaries, low token cost |
+| 2 | `default` | User messages + finish action | Balanced (default) |
+| 3 | `full` | All messages + action summaries | Need to assess what was actually done |
+
+**Example Output (brief):**
 ```
-Summary: User wanted to refactor the authentication module...
+Goal: Refactor the authentication module to use OAuth2 with refresh token support.
+
+Outputs:
+  pushed user/repo
+  created user/repo/pull/42
+```
+
+**Example Output (detailed_assess):**
+```
+👷 Refactor Authentication Module
+abc123def456
+
+Summary: User wanted to modernize the authentication system...
 
 Objectives:
 Primary Objectives
 └── ✓ Refactor authentication to use OAuth2 [Achieved]
+       Evidence: Implemented OAuth2 client in auth.py...
     ├── ✓ Add OAuth2 client configuration [Achieved]
-    ├── ◐ Update user session handling [Partially Achieved]
+    ├── → Update user session handling [In Progress]
     └── ✗ Add refresh token support [Not Achieved]
+
+Analyzed: 2024-03-15 14:30 UTC • Model: claude-sonnet-4 • Context: full
+
+Outputs:
+  pushed user/repo
+  created user/repo/pull/42
+
+LLM cost: $0.0089
 ```
 
 **Options:**
 | Flag | Description |
 |------|-------------|
-| `-r, --refresh` | Force re-analysis (ignore cache) |
-| `-m, --model` | LLM model to use for analysis |
+| `-v, --variant` | Output variant (default: `brief`) |
+| `-c, --context` | Context level: 1-3 or name (default: from prompt) |
+| `--no-cache` | Force re-analysis (ignore cache) |
+| `-m, --model` | LLM model to use |
 | `--json` | Output as JSON |
+| `--no-outputs` | Don't show outputs (repos, PRs, issues) |
+| `-V, --verbose` | Show debug output |
 
-**Environment Variables:**
-| Variable | Description |
-|----------|-------------|
-| `LLM_API_KEY` | API key for the LLM provider |
-| `LLM_MODEL` | Default model to use (optional) |
-| `LLM_BASE_URL` | Custom LLM base URL (optional) |
+---
+
+### `ohtv prompts` - Manage Analysis Prompts
+
+View and customize the LLM prompts used for analysis. Prompts are organized into families (e.g., `objs`) with variants (e.g., `brief`, `detailed_assess`).
+
+```bash
+# List all prompts and their status
+ohtv prompts
+ohtv prompts list
+
+# Show a specific prompt's content
+ohtv prompts show brief
+ohtv prompts show objs/detailed_assess
+
+# Copy prompts to ~/.ohtv/prompts/ for customization
+ohtv prompts init
+
+# Reset a customized prompt to default
+ohtv prompts reset brief
+ohtv prompts reset objs/brief
+
+# Reset all prompts to defaults
+ohtv prompts reset --all
+```
+
+**Example Output (list):**
+```
+Prompt Families:
+
+  code_review/
+    default               (default) Analyze code changes made during the conversation
+
+  objs/
+    brief                 (default) Extract user goal in 1-2 sentences
+    brief_assess                    Extract user goal and assess completion status
+    detailed                        Extract hierarchical objectives with subordinate goals
+    detailed_assess                 Extract hierarchical objectives and assess completion status
+    standard                        Extract primary and secondary outcomes
+    standard_assess                 Extract primary and secondary outcomes and assess completion
+
+User prompts directory: ~/.ohtv/prompts
+Run 'ohtv prompts init' to copy prompts for customization.
+```
+
+**Customizing Prompts:**
+
+1. Run `ohtv prompts init` to copy default prompts to `~/.ohtv/prompts/`
+2. Edit the prompt files (they use YAML frontmatter + Markdown body)
+3. Your changes take effect immediately (cache is invalidated automatically)
+4. Use `ohtv prompts reset <name>` to restore a prompt to default
+
+**Prompt File Structure:**
+```yaml
+---
+id: objs.brief
+description: Extract user goal in 1-2 sentences
+default: true
+
+context:
+  default: 1
+  levels:
+    1:
+      name: minimal
+      include:
+        - source: user
+          kind: MessageEvent
+      truncate: 500
+    2:
+      name: default
+      include:
+        - source: user
+          kind: MessageEvent
+        - source: agent
+          kind: ActionEvent
+          tool: finish
+    3:
+      name: full
+      include:
+        - source: user
+          kind: MessageEvent
+        - source: agent
+          kind: MessageEvent
+        - source: agent
+          kind: ActionEvent
+
+output:
+  schema:
+    goal: string
+---
+Your prompt instructions here...
+
+Respond with JSON:
+{"goal": "1-2 sentence description"}
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--all` | Reset all prompts (with `reset` action) |
 
 ---
 
 ### `ohtv summary` - Summarize Multiple Conversations
 
-Analyzes multiple conversations and displays a summary table of their goals. Uses the most token-efficient LLM settings (minimal context, brief output) and caches results. Shares cache with `objectives` command.
+Analyzes multiple conversations and displays a summary table of their goals. Uses the most token-efficient LLM settings (minimal context, brief output) and caches results. Shares cache with `gen objs` command.
 
 ```bash
 # Summarize 10 most recent conversations (default)
@@ -665,7 +832,7 @@ Actions by type:
 | `OHTV_CONVERSATIONS_DIR` | Local CLI conversations directory | `~/.openhands/conversations` |
 | `OHTV_CLOUD_CONVERSATIONS_DIR` | Synced cloud conversations directory | `~/.openhands/cloud/conversations` |
 | `OHTV_EXTRA_CONVERSATION_PATHS` | Additional conversation directories (colon-separated paths) | None |
-| `LLM_API_KEY` | API key for LLM provider | Required for `objectives`, `summary` |
+| `LLM_API_KEY` | API key for LLM provider | Required for `gen`, `summary` |
 | `LLM_MODEL` | Default LLM model | Provider default |
 | `LLM_BASE_URL` | Custom LLM base URL | Provider default |
 | `LLM_TIMEOUT` | LLM request timeout in seconds | `300` |
@@ -682,6 +849,7 @@ ohtv uses two directory trees:
   - `index.db` - SQLite database
   - `logs/ohtv.log` - Application logs
   - `sync_manifest.json` - Cloud sync state
+  - `prompts/` - User-customized prompts (created by `ohtv prompts init`)
 
 ## Logging
 

@@ -13,13 +13,14 @@ uv run ohtv --help         # Run CLI
 
 ## Code Structure
 
-- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, errors, sync, objectives, summary, db)
+- `src/ohtv/cli.py` - Main CLI commands (list, show, refs, errors, sync, objectives, summary, db, prompts)
 - `src/ohtv/config.py` - Configuration management
 - `src/ohtv/sync.py` - Cloud sync logic
 - `src/ohtv/sources/` - Data sources (local, cloud)
 - `src/ohtv/exporter.py` - Output formatting
 - `src/ohtv/errors.py` - Agent/LLM error analysis (ConversationErrorEvent, AgentErrorEvent)
 - `src/ohtv/analysis/` - LLM-based analysis features (objectives extraction, summary)
+- `src/ohtv/prompts/` - Customizable LLM prompt templates (markdown files)
 - `src/ohtv/db/` - SQLite-based indexing for conversation labeling
 
 ## Architecture & Design Decisions
@@ -34,7 +35,7 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
 
 4. **Timezone handling**: Cloud timestamps are UTC; local CLI timestamps lack timezone info. The codebase normalizes to UTC for sorting, then converts to local time for display. **Limitation:** Local timestamps are interpreted using the current machine's timezone - if data moves between machines with different timezones, times may display incorrectly.
 
-5. **LLM analysis caching**: The `objectives` and `summary` commands cache results keyed by parameter combination (context level, detail level, assess flag). Cache invalidates when event count changes (conversation grew). The `summary` command uses minimal context + brief detail for token efficiency.
+5. **LLM analysis caching**: The `objectives` and `summary` commands cache results keyed by parameter combination (context level, detail level, assess flag). Cache invalidates when event count changes (conversation grew) or when the prompt file changes (detected via prompt hash). The `summary` command uses minimal context + brief detail for token efficiency.
 
 6. **LLM timeout**: Default 300s. Override with `LLM_TIMEOUT` env var. CLI shows spinner during analysis.
 
@@ -49,9 +50,9 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - Two-phase: `db scan` (fast registration) + `db process <stage>` (incremental)
     - Change detection: mtime as fast filter, event_count as checkpoint
     - Auto-indexing: `refs <id>` indexes automatically
-    - **Sync with processing**: Use `ohtv sync --process` to sync and run all stages
+    - **Automatic processing**: `ohtv sync` always runs all processing stages after syncing
     - **Stage order**: refs → actions → branch_context → push_pr_links (defined in `stages/__init__.py`)
-    - **Dependency caveat**: Stages don't validate dependencies - running a stage before its dependencies completes successfully but does nothing useful (marks itself complete with empty results). Always use `db process all` or `sync --process` to ensure correct ordering.
+    - **Dependency caveat**: Stages don't validate dependencies - running a stage before its dependencies completes successfully but does nothing useful (marks itself complete with empty results). Always use `db process all` to ensure correct ordering.
 
 11. **Data directory separation**:
     - `~/.openhands/`: Read-only source data (only `sync` writes here)
@@ -92,6 +93,56 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - Errors are classified as TERMINAL (conversation stopped) or RECOVERED (agent continued)
     - Used by `ohtv errors <id>` command and `ohtv list --errors-only` filter
 
+19. **LLM analysis performance timing**: The `analysis/objectives.py` module has timing instrumentation. Check `~/.ohtv/logs/ohtv.log` for entries like:
+    ```
+    TIMING load_events: 11.3ms
+    TIMING import_sdk: 1962.5ms
+    TIMING llm_completion: 9152.9ms
+    Analysis complete and cached (cost: $0.0074, total: 11223.0ms)
+    ```
+    **Performance breakdown** (typical):
+    - `llm_completion`: ~90% of time (8-15 seconds per request)
+    - `import_sdk`: ~2 seconds on cold start (first request only)
+    - Event loading/transcript building: <100ms
+    - Cache operations: <10ms
+
+20. **Parallel LLM processing**: The `summary` command automatically uses parallel processing (20 workers) when analyzing multiple conversations. This is an internal optimization - no CLI option needed. Uses `ThreadPoolExecutor` with thread-safe counters. **Graceful shutdown**: SIGINT/SIGTERM signals are caught - in-flight LLM requests complete and cache is saved before exit, preventing data corruption. **Confirmation prompt**: Shows model name when analyzing >20 conversations.
+
+21. **Model configuration**: LLM model can be set via:
+    - CLI: `--model/-m` option on `summary` and `objectives` commands
+    - Environment: `LLM_MODEL` env var (used by SDK's `LLM.load_from_env()`)
+    - Try `haiku` for faster/cheaper analysis, `opus` for higher quality
+
+22. **Analysis cache indexing**: The database tracks LLM analysis cache state for fast lookup. Key tables:
+    - `analysis_cache`: Tracks which conversations have cached analysis (by cache_key, event_count, content_hash)
+    - `analysis_skips`: Tracks conversations that cannot be analyzed (no events, no content)
+    - **520x speedup**: Cache status check via DB (4ms for 700+ convs) vs loading event files (2+ seconds)
+    - **Backfill**: Run `ohtv db index-cache` to populate DB from existing cache files
+    - **Auto-sync**: Cache entries automatically sync to DB when `objectives` or `summary` commands save results
+    - **Cache key format**: `assess=False,context_level=minimal,detail_level=brief` (sorted alphabetically)
+
+23. **Database-first conversation listing**: The database stores full conversation metadata for fast listing:
+    - Columns: `title`, `created_at`, `updated_at`, `selected_repository`, `source`
+    - **45x speedup**: List with date filter via DB (15ms) vs filesystem scanning (3.8s for 1000+ convs)
+    - **Auto-populated**: `db scan` extracts metadata from event files
+    - **Graceful fallback**: Uses filesystem if DB unavailable or metadata not populated
+    - Date filtering is pushed down to DB query when available
+
+24. **Automatic database maintenance**: The system automatically runs migrations and maintenance tasks:
+    - **No manual intervention**: Users never need to run `db scan --force` or know about migrations
+    - **Maintenance tracking**: `maintenance_tasks` table tracks what's been done
+    - **One-time tasks**: Metadata backfill and cache indexing run automatically after their migrations
+    - **Progress display**: Long-running tasks show progress bars
+    - **Implementation**: `ensure_db_ready()` in `db/maintenance.py` handles all maintenance
+
+25. **Customizable prompts**: LLM analysis prompts are stored as markdown files for user customization:
+    - **Default prompts**: `src/ohtv/prompts/*.md` - 6 prompt variants (brief, standard, detailed × assess/no-assess)
+    - **User prompts**: `~/.ohtv/prompts/*.md` - Override defaults by copying and editing
+    - **Load order**: User prompts checked first, then package defaults
+    - **Management**: `ohtv prompts` command for init/list/show/reset operations
+    - **Implementation**: `get_prompt(name)` and `get_prompt_hash(name)` in `ohtv/prompts/__init__.py`
+    - **Cache invalidation**: Prompt hash (SHA256, first 16 chars) is stored with cached analysis; cache invalidates when prompt content changes
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input
@@ -118,6 +169,9 @@ uv run ohtv refs -W --format json      # This week's refs as JSON
 uv run ohtv errors <id>                # Agent/LLM error summary
 uv run ohtv list --errors-only         # List conversations with errors
 uv run ohtv db status                  # Database statistics
+uv run ohtv prompts                    # List prompt status
+uv run ohtv prompts init               # Copy prompts for customization
+uv run ohtv prompts show brief         # Show specific prompt content
 ```
 
 ## Reference Documentation

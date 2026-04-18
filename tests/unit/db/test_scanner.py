@@ -110,26 +110,29 @@ class TestDiscoverConversations:
         conv2 = tmp_path / "conv-2"
         (conv2 / "events").mkdir(parents=True)
         
-        discovered = discover_conversations(tmp_path)
+        discovered = discover_conversations(tmp_path, "local")
         
         assert len(discovered) == 2
         ids = [d[0] for d in discovered]
         assert "conv-1" in ids
         assert "conv-2" in ids
+        # Check source is included
+        assert all(d[2] == "local" for d in discovered)
     
     def test_ignores_directories_without_events(self, tmp_path):
         """Should ignore directories without events subdirectory."""
         (tmp_path / "conv-1" / "events").mkdir(parents=True)
         (tmp_path / "not-a-conv").mkdir()  # No events dir
         
-        discovered = discover_conversations(tmp_path)
+        discovered = discover_conversations(tmp_path, "cloud")
         
         assert len(discovered) == 1
         assert discovered[0][0] == "conv-1"
+        assert discovered[0][2] == "cloud"
     
     def test_returns_empty_for_nonexistent_dir(self, tmp_path):
         """Should return empty list for nonexistent directory."""
-        discovered = discover_conversations(tmp_path / "nonexistent")
+        discovered = discover_conversations(tmp_path / "nonexistent", "local")
         assert discovered == []
 
 

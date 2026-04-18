@@ -139,7 +139,7 @@ Each stage is independent and tracked separately:
 | `refs` | Extract repos, issues, PRs | `ohtv db process refs` |
 | `actions` | Recognize actions (edits, git, PRs, etc.) | `ohtv db process actions` |
 | `push_pr_links` | Correlate git pushes with PRs via branch | `ohtv db process push_pr_links` |
-| *(future)* `objectives` | LLM-based goal extraction | `ohtv db process objectives` |
+| *(future)* `objs` | LLM-based goal extraction | `ohtv db process objectives` |
 
 Stages can be:
 - Run in any order (though `push_pr_links` requires `actions` to have run first)
@@ -312,6 +312,6 @@ Current: event_count=55 on disk
 ## Future Enhancements
 
 - **Query commands**: `ohtv db query --repo X` to find conversations
-- **More stages**: `objectives`, `summary` for LLM-based analysis
+- **More stages**: `objs`, `summary` for LLM-based analysis
 - **Bulk export**: Export relationships to CSV/JSON
 - **Statistics**: Activity by repo, time-based analysis
