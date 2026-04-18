@@ -5678,12 +5678,6 @@ def _run_objectives_analysis(
         if assess:
             variant = f"{detail}_assess"
     
-    # Map legacy context names to new context names
-    # Legacy: minimal, default, full
-    # New:    minimal, standard, full
-    if context == "default":
-        context = "standard"
-    
     # Find conversation
     result = _find_conversation_dir(config, conversation_id)
     if not result:
@@ -5734,12 +5728,8 @@ def _run_objectives_analysis(
     has_assess = variant_name.endswith("_assess")
     detail_level = variant_name.replace("_assess", "")
     
-    # Map context level name back to legacy for analyze_objectives compatibility
-    # New:    minimal, standard, full
-    # Legacy: minimal, default, full
+    # Use context level name for cache (minimal, default, full)
     legacy_context = context_level.name
-    if legacy_context == "standard":
-        legacy_context = "default"
     
     # Check cache if not refreshing
     analysis = None

@@ -13,7 +13,7 @@ context:
           kind: MessageEvent
       truncate: 500
     2:
-      name: standard
+      name: default
       include:
         - source: user
           kind: MessageEvent

@@ -99,7 +99,7 @@ class TestAnalyzeObjectivesCommand:
         assert ctx.name == "minimal"
         
         ctx = resolve_context(meta, 2)
-        assert ctx.name == "standard"
+        assert ctx.name == "default"  # Level 2 is named "default" in prompts
         
         ctx = resolve_context(meta, 3)
         assert ctx.name == "full"
@@ -112,7 +112,7 @@ class TestAnalyzeObjectivesCommand:
         ctx = resolve_context(meta, "minimal")
         assert ctx.number == 1
         
-        ctx = resolve_context(meta, "standard")
+        ctx = resolve_context(meta, "default")  # Level 2 is named "default" in prompts
         assert ctx.number == 2
         
         ctx = resolve_context(meta, "full")
@@ -143,20 +143,16 @@ class TestAnalyzeObjectivesCommand:
         meta = resolve_prompt("objectives", "standard_assess")
         assert meta.variant == "standard_assess"
     
-    def test_legacy_context_default_maps_to_standard(self):
-        """Test that legacy 'default' context maps to 'standard' in new system."""
+    def test_legacy_context_default_resolves(self):
+        """Test that 'default' context level resolves correctly."""
         meta = resolve_prompt("objectives", "brief")
         
-        # Old system: minimal, default, full
-        # New system: minimal, standard, full
-        
-        # The mapping should happen in _run_objectives_analysis
-        # "default" -> "standard"
-        ctx = resolve_context(meta, "standard")
-        assert ctx.name == "standard"
+        # Context level 2 is named "default" in the prompts
+        ctx = resolve_context(meta, "default")
+        assert ctx.name == "default"
         
         # Verify the context exists
-        assert any(level.name == "standard" for level in meta.context_levels.values())
+        assert any(level.name == "default" for level in meta.context_levels.values())
     
     def test_all_objective_variants_exist(self):
         """Test that all expected objective variants exist."""
@@ -233,7 +229,7 @@ class TestRunObjectivesAnalysis:
         # All prompts should have context levels with names
         for level_num, level in meta.context_levels.items():
             assert level.name, f"Level {level_num} should have a name"
-            assert level.name in ["minimal", "standard", "full"]
+            assert level.name in ["minimal", "default", "full"]
 
 
 class TestContextLevelFilters:
@@ -253,12 +249,12 @@ class TestContextLevelFilters:
         assert ctx.matches(user_msg)
         assert not ctx.matches(agent_msg)
     
-    def test_standard_context_includes_user_and_finish(self):
-        """Test that standard context includes user messages and finish action."""
+    def test_default_context_includes_user_and_finish(self):
+        """Test that default context includes user messages and finish action."""
         meta = resolve_prompt("objectives", "brief")
-        ctx = resolve_context(meta, 2)  # Standard
+        ctx = resolve_context(meta, 2)  # Level 2 is "default"
         
-        assert ctx.name == "standard"
+        assert ctx.name == "default"
         
         # Should match user messages and finish action
         user_msg = {"source": "user", "kind": "MessageEvent"}
