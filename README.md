@@ -390,8 +390,8 @@ ohtv gen objs abc123 -c minimal
 ohtv gen objs abc123 -c default
 ohtv gen objs abc123 -c full
 
-# Force re-analysis (ignore cache)
-ohtv gen objs abc123 --no-cache
+# Force re-analysis (refresh cache)
+ohtv gen objs abc123 -r
 
 # Use a specific model
 ohtv gen objs abc123 -m gpt-4o
@@ -416,8 +416,8 @@ ohtv gen objs --since 2024-01-01 --until 2024-01-31
 # Analyze all conversations (no limit)
 ohtv gen objs --all
 
-# Force re-analysis (ignore cache)
-ohtv gen objs --no-cache
+# Force re-analysis (refresh cache)
+ohtv gen objs -r
 
 # Output as markdown (for notes/docs)
 ohtv gen objs -F markdown
@@ -506,7 +506,7 @@ Showing 2 of 150 (2/2 cached)
 |------|-------------|
 | `-v, --variant` | Output variant (default: `brief`) |
 | `-c, --context` | Context level: 1-3 or name (default: from prompt) |
-| `--no-cache` | Force re-analysis (ignore cache) |
+| `-r, --refresh` | Force re-analysis (refresh cache) |
 | `-m, --model` | LLM model to use |
 | `--json` | Output as JSON |
 | `--no-outputs` | Don't show outputs (repos, PRs, issues) |
@@ -528,7 +528,7 @@ Showing 2 of 150 (2/2 cached)
 | `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
 | `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`) |
 | `--reverse` | Show oldest first |
-| `--no-cache` | Force re-analysis (ignore cache) |
+| `-r, --refresh` | Force re-analysis (refresh cache) |
 | `-m, --model` | LLM model to use |
 | `-F, --format` | Output format: `table`, `json`, `markdown` |
 | `--no-outputs` | Don't show outputs (repos, PRs, issues modified) |

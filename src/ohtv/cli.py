@@ -5035,7 +5035,7 @@ def gen() -> None:
 @click.option("--variant", "-v", help="Prompt variant (brief, standard, detailed, brief_assess, etc.)")
 @click.option("--context", "-c", help="Context level (by name or number: 1=minimal, 2=standard, 3=full)")
 @click.option("--model", "-m", help="LLM model to use for analysis")
-@click.option("--no-cache", is_flag=True, help="Force re-analysis (ignore cache)")
+@click.option("--refresh", "-r", "refresh", is_flag=True, help="Force re-analysis (refresh cache)")
 @click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--verbose", is_flag=True, help="Show debug output")
@@ -5066,7 +5066,7 @@ def gen_objs_cmd(
     variant: str | None,
     context: str | None,
     model: str | None,
-    no_cache: bool,
+    refresh: bool,
     no_outputs: bool,
     json_output: bool,
     verbose: bool,
@@ -5142,7 +5142,7 @@ def gen_objs_cmd(
             variant=variant,
             context=context,
             model=model,
-            refresh=no_cache,
+            refresh=refresh,
             no_outputs=no_outputs,
             verbose=verbose,
             limit=limit,
@@ -5167,7 +5167,7 @@ def gen_objs_cmd(
             variant=variant,
             context=context,
             model=model,
-            refresh=no_cache,
+            refresh=refresh,
             no_outputs=no_outputs,
             json_output=json_output,
             verbose=verbose,
