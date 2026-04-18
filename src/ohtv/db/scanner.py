@@ -11,10 +11,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+import logging
 
-from ohtv.config import get_openhands_dir
+from ohtv.config import Config, get_openhands_dir
 from ohtv.db.models import Conversation
 from ohtv.db.stores import ConversationStore
+from ohtv.db.utils import generate_unique_source_names
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -205,6 +209,7 @@ def scan_conversations(
     force: bool = False,
     remove_missing: bool = False,
     on_progress: Callable[[int, int, str], None] | None = None,
+    config: Config | None = None,
 ) -> ScanResult:
     """Scan filesystem for conversations and update database.
     
@@ -213,10 +218,14 @@ def scan_conversations(
         force: If True, update all conversations regardless of mtime
         remove_missing: If True, remove DB entries for conversations no longer on disk
         on_progress: Optional callback(current, total, conv_id) for progress updates
+        config: Optional config for extra conversation paths (defaults to Config.from_env())
         
     Returns:
         ScanResult with counts of what changed
     """
+    if config is None:
+        config = Config.from_env()
+    
     store = ConversationStore(conn)
     openhands_dir = get_openhands_dir()
     
@@ -227,6 +236,16 @@ def scan_conversations(
     all_discovered = []
     all_discovered.extend(discover_conversations(local_dir, "local"))
     all_discovered.extend(discover_conversations(cloud_dir, "cloud"))
+    
+    # Discover from extra conversation paths
+    extra_source_names = generate_unique_source_names(config.extra_conversation_paths)
+    for path, source_name in zip(config.extra_conversation_paths, extra_source_names):
+        if not path.exists():
+            logger.warning(f"Configured path does not exist: {path}")
+        elif not path.is_dir():
+            logger.warning(f"Configured path is not a directory: {path}")
+        else:
+            all_discovered.extend(discover_conversations(path, source_name))
     
     total = len(all_discovered)
     
