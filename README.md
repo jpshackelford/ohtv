@@ -20,8 +20,8 @@ ohtv list
 ohtv show <conversation_id> --messages
 
 # Analyze user objectives (requires LLM_API_KEY)
-ohtv analyze objectives <conversation_id>
-ohtv analyze objectives <conversation_id> -v detailed_assess  # with completion status
+ohtv gen objectives <conversation_id>
+ohtv gen objectives <conversation_id> -v detailed_assess  # with completion status
 
 # Summarize today's conversations (requires LLM_API_KEY)
 ohtv summary --day
@@ -356,46 +356,46 @@ ohtv list --errors-only --week
 
 ---
 
-### `ohtv analyze` - LLM Analysis Commands
+### `ohtv gen` - LLM Generation Commands
 
-The `analyze` command provides LLM-powered analysis of conversations using customizable prompts. Currently supports `objectives` analysis with multiple variants and context levels.
+The `gen` command provides LLM-powered analysis of conversations using customizable prompts. Currently supports `objectives` analysis with multiple variants and context levels.
 
-#### `ohtv analyze objectives` - Extract User Objectives
+#### `ohtv gen objectives` - Extract User Objectives
 
 Analyzes a conversation to extract user objectives. Supports multiple output variants and context levels for balancing detail vs. token cost.
 
 ```bash
 # Basic analysis (uses default: brief variant, minimal context)
-ohtv analyze objectives abc123
+ohtv gen objectives abc123
 
 # Choose output detail level with variants
-ohtv analyze objectives abc123 -v brief          # 1-2 sentence goal
-ohtv analyze objectives abc123 -v standard       # Goal + primary/secondary outcomes
-ohtv analyze objectives abc123 -v detailed       # Full hierarchical objectives
+ohtv gen objectives abc123 -v brief          # 1-2 sentence goal
+ohtv gen objectives abc123 -v standard       # Goal + primary/secondary outcomes
+ohtv gen objectives abc123 -v detailed       # Full hierarchical objectives
 
 # Add completion assessment to any variant
-ohtv analyze objectives abc123 -v brief_assess   # Goal + achieved/in_progress/not_achieved
-ohtv analyze objectives abc123 -v standard_assess
-ohtv analyze objectives abc123 -v detailed_assess
+ohtv gen objectives abc123 -v brief_assess   # Goal + achieved/in_progress/not_achieved
+ohtv gen objectives abc123 -v standard_assess
+ohtv gen objectives abc123 -v detailed_assess
 
 # Control how much conversation context is analyzed
-ohtv analyze objectives abc123 -c 1              # Minimal: user messages only (fastest)
-ohtv analyze objectives abc123 -c 2              # Default: user messages + finish action
-ohtv analyze objectives abc123 -c 3              # Full: all messages + action summaries
+ohtv gen objectives abc123 -c 1              # Minimal: user messages only (fastest)
+ohtv gen objectives abc123 -c 2              # Default: user messages + finish action
+ohtv gen objectives abc123 -c 3              # Full: all messages + action summaries
 
 # Context levels also accept names
-ohtv analyze objectives abc123 -c minimal
-ohtv analyze objectives abc123 -c default
-ohtv analyze objectives abc123 -c full
+ohtv gen objectives abc123 -c minimal
+ohtv gen objectives abc123 -c default
+ohtv gen objectives abc123 -c full
 
 # Force re-analysis (ignore cache)
-ohtv analyze objectives abc123 --no-cache
+ohtv gen objectives abc123 --no-cache
 
 # Use a specific model
-ohtv analyze objectives abc123 -m gpt-4o
+ohtv gen objectives abc123 -m gpt-4o
 
 # Output as JSON
-ohtv analyze objectives abc123 --json
+ohtv gen objectives abc123 --json
 ```
 
 **Variants:**
@@ -465,10 +465,10 @@ LLM cost: $0.0089
 
 ### `ohtv objectives` - Legacy Objectives Command
 
-The original objectives command. Still works but `ohtv analyze objectives` is preferred.
+The original objectives command. Still works but `ohtv gen objectives` is preferred.
 
 ```bash
-# Same as: ohtv analyze objectives abc123 -v brief
+# Same as: ohtv gen objectives abc123 -v brief
 ohtv objectives abc123
 
 # Detail levels map to variants
@@ -856,7 +856,7 @@ Actions by type:
 | `OHTV_CONVERSATIONS_DIR` | Local CLI conversations directory | `~/.openhands/conversations` |
 | `OHTV_CLOUD_CONVERSATIONS_DIR` | Synced cloud conversations directory | `~/.openhands/cloud/conversations` |
 | `OHTV_EXTRA_CONVERSATION_PATHS` | Additional conversation directories (colon-separated paths) | None |
-| `LLM_API_KEY` | API key for LLM provider | Required for `analyze`, `objectives`, `summary` |
+| `LLM_API_KEY` | API key for LLM provider | Required for `gen`, `objectives`, `summary` |
 | `LLM_MODEL` | Default LLM model | Provider default |
 | `LLM_BASE_URL` | Custom LLM base URL | Provider default |
 | `LLM_TIMEOUT` | LLM request timeout in seconds | `300` |

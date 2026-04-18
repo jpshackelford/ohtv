@@ -9,7 +9,7 @@ PR #18 adds an **Extensible Prompt System** with 5 phases:
 2. **Content Restructure** - Prompts organized into family directories
 3. **Prompt Discovery & Loading** - Discovers prompts from package and `~/.ohtv/prompts/`
 4. **Transcript Building** - Metadata-driven context filtering
-5. **Unified CLI Command** - New `ohtv analyze objectives` with variants and context levels
+5. **Unified CLI Command** - New `ohtv gen objectives` with variants and context levels
 
 ## Pre-requisites
 
@@ -76,7 +76,7 @@ ohtv list -n 5 -F json | jq -r '.[].id' | head -5
 ohtv --version
 ohtv --help
 ```
-**Expected:** Version 0.1.0, help shows all commands including `analyze`
+**Expected:** Version 0.1.0, help shows all commands including `gen`
 
 ### 1.2 Verify `ohtv list` works
 ```bash
@@ -124,10 +124,10 @@ ohtv prompts list | grep "(default)"
 
 ## Phase 3: New Unified Analyze Command
 
-### 3.1 Check `analyze` command exists
+### 3.1 Check `gen` command exists
 ```bash
-ohtv analyze --help
-ohtv analyze objectives --help
+ohtv gen --help
+ohtv gen objectives --help
 ```
 **Expected:** 
 - Shows subcommands (currently `objectives`)
@@ -137,7 +137,7 @@ ohtv analyze objectives --help
 
 ### 3.2 Run analysis with default settings
 ```bash
-ohtv analyze objectives $TEST_CONV_1
+ohtv gen objectives $TEST_CONV_1
 ```
 **Expected:**
 - Uses `brief` variant (default)
@@ -147,9 +147,9 @@ ohtv analyze objectives $TEST_CONV_1
 
 ### 3.3 Run analysis with explicit variant
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -v brief
-ohtv analyze objectives $TEST_CONV_1 -v standard
-ohtv analyze objectives $TEST_CONV_1 -v detailed
+ohtv gen objectives $TEST_CONV_1 -v brief
+ohtv gen objectives $TEST_CONV_1 -v standard
+ohtv gen objectives $TEST_CONV_1 -v detailed
 ```
 **Expected:** Different output formats:
 - `brief`: Simple goal statement
@@ -158,9 +158,9 @@ ohtv analyze objectives $TEST_CONV_1 -v detailed
 
 ### 3.4 Run analysis with assessment variants
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -v brief_assess
-ohtv analyze objectives $TEST_CONV_1 -v standard_assess
-ohtv analyze objectives $TEST_CONV_1 -v detailed_assess
+ohtv gen objectives $TEST_CONV_1 -v brief_assess
+ohtv gen objectives $TEST_CONV_1 -v standard_assess
+ohtv gen objectives $TEST_CONV_1 -v detailed_assess
 ```
 **Expected:** Same as above but with completion assessment (achieved/partial/not achieved)
 
@@ -170,9 +170,9 @@ ohtv analyze objectives $TEST_CONV_1 -v detailed_assess
 
 ### 4.1 Test context levels by number
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -v brief -c 1
-ohtv analyze objectives $TEST_CONV_1 -v brief -c 2
-ohtv analyze objectives $TEST_CONV_1 -v brief -c 3
+ohtv gen objectives $TEST_CONV_1 -v brief -c 1
+ohtv gen objectives $TEST_CONV_1 -v brief -c 2
+ohtv gen objectives $TEST_CONV_1 -v brief -c 3
 ```
 **Expected:**
 - `-c 1` (minimal): Uses only user messages → lowest token count
@@ -181,17 +181,17 @@ ohtv analyze objectives $TEST_CONV_1 -v brief -c 3
 
 ### 4.2 Test context levels by name
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -c minimal
-ohtv analyze objectives $TEST_CONV_1 -c standard
-ohtv analyze objectives $TEST_CONV_1 -c full
+ohtv gen objectives $TEST_CONV_1 -c minimal
+ohtv gen objectives $TEST_CONV_1 -c standard
+ohtv gen objectives $TEST_CONV_1 -c full
 ```
 **Expected:** Same behavior as numeric levels
 
 ### 4.3 Verify context affects token usage
 ```bash
 # Compare costs between context levels
-ohtv analyze objectives $TEST_CONV_2 -v detailed -c 1 --no-cache
-ohtv analyze objectives $TEST_CONV_2 -v detailed -c 3 --no-cache
+ohtv gen objectives $TEST_CONV_2 -v detailed -c 1 --no-cache
+ohtv gen objectives $TEST_CONV_2 -v detailed -c 3 --no-cache
 ```
 **Expected:** Full context (3) should use more tokens and cost more than minimal (1)
 
@@ -202,23 +202,23 @@ ohtv analyze objectives $TEST_CONV_2 -v detailed -c 3 --no-cache
 ### 5.1 Verify cache is used
 ```bash
 # First run (no cache)
-ohtv analyze objectives $TEST_CONV_1 -v brief
+ohtv gen objectives $TEST_CONV_1 -v brief
 # Second run (should use cache)
-ohtv analyze objectives $TEST_CONV_1 -v brief
+ohtv gen objectives $TEST_CONV_1 -v brief
 ```
 **Expected:** Second run should be faster (no "Analyzing..." message or LLM cost)
 
 ### 5.2 Verify --no-cache forces re-analysis
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -v brief --no-cache
+ohtv gen objectives $TEST_CONV_1 -v brief --no-cache
 ```
 **Expected:** Shows "Analyzing..." and incurs LLM cost
 
 ### 5.3 Verify different variants have separate caches
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -v brief
-ohtv analyze objectives $TEST_CONV_1 -v detailed
-ohtv analyze objectives $TEST_CONV_1 -v brief  # Should use cache
+ohtv gen objectives $TEST_CONV_1 -v brief
+ohtv gen objectives $TEST_CONV_1 -v detailed
+ohtv gen objectives $TEST_CONV_1 -v brief  # Should use cache
 ```
 **Expected:** Each variant maintains its own cache entry
 
@@ -263,7 +263,7 @@ echo "IMPORTANT: Start with 'USER WANTS TO:'" >> ~/.ohtv/prompts/objectives/brie
 
 ### 6.6 Verify modified prompt is used (cache invalidation)
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -v brief
+ohtv gen objectives $TEST_CONV_1 -v brief
 ```
 **Expected:** 
 - Should re-analyze (cache invalidated due to prompt change)
@@ -322,27 +322,27 @@ ohtv summary -n 3
 
 ### 8.1 Invalid variant error
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -v nonexistent_variant
+ohtv gen objectives $TEST_CONV_1 -v nonexistent_variant
 ```
 **Expected:** Clear error message listing available variants
 
 ### 8.2 Invalid context level error
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -c 99
-ohtv analyze objectives $TEST_CONV_1 -c invalid_name
+ohtv gen objectives $TEST_CONV_1 -c 99
+ohtv gen objectives $TEST_CONV_1 -c invalid_name
 ```
 **Expected:** Clear error message about valid context levels (1-3 or minimal/standard/full)
 
 ### 8.3 Missing conversation error
 ```bash
-ohtv analyze objectives nonexistent_id_12345
+ohtv gen objectives nonexistent_id_12345
 ```
 **Expected:** Clear "Conversation not found" error
 
 ### 8.4 Missing LLM_API_KEY error
 ```bash
 unset LLM_API_KEY
-ohtv analyze objectives $TEST_CONV_1 --no-cache
+ohtv gen objectives $TEST_CONV_1 --no-cache
 ```
 **Expected:** Clear error about missing LLM_API_KEY
 
@@ -350,17 +350,17 @@ ohtv analyze objectives $TEST_CONV_1 --no-cache
 
 ## Phase 9: JSON Output
 
-### 9.1 JSON output for analyze
+### 9.1 JSON output for gen
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -v brief --json
-ohtv analyze objectives $TEST_CONV_1 -v detailed --json
+ohtv gen objectives $TEST_CONV_1 -v brief --json
+ohtv gen objectives $TEST_CONV_1 -v detailed --json
 ```
 **Expected:** Valid JSON output matching the prompt's output schema
 
 ### 9.2 Parse JSON output
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -v brief --json | jq '.goal'
-ohtv analyze objectives $TEST_CONV_1 -v detailed --json | jq '.primary_objectives'
+ohtv gen objectives $TEST_CONV_1 -v brief --json | jq '.goal'
+ohtv gen objectives $TEST_CONV_1 -v detailed --json | jq '.primary_objectives'
 ```
 **Expected:** Extracts specific fields from JSON
 
@@ -371,14 +371,14 @@ ohtv analyze objectives $TEST_CONV_1 -v detailed --json | jq '.primary_objective
 ### 10.1 Empty/minimal conversation
 Test with a very short conversation (if available):
 ```bash
-ohtv analyze objectives <short_conv_id> -v detailed
+ohtv gen objectives <short_conv_id> -v detailed
 ```
 **Expected:** Handles gracefully, provides what analysis is possible
 
 ### 10.2 Very long conversation
 Test with the longest available conversation:
 ```bash
-ohtv analyze objectives <long_conv_id> -v detailed -c 3
+ohtv gen objectives <long_conv_id> -v detailed -c 3
 ```
 **Expected:** 
 - Handles truncation appropriately
@@ -386,8 +386,8 @@ ohtv analyze objectives <long_conv_id> -v detailed -c 3
 
 ### 10.3 Repeated analysis (idempotency)
 ```bash
-ohtv analyze objectives $TEST_CONV_1 -v standard --no-cache
-ohtv analyze objectives $TEST_CONV_1 -v standard --no-cache
+ohtv gen objectives $TEST_CONV_1 -v standard --no-cache
+ohtv gen objectives $TEST_CONV_1 -v standard --no-cache
 ```
 **Expected:** Similar results each time (LLM variation is normal)
 
@@ -397,7 +397,7 @@ ohtv analyze objectives $TEST_CONV_1 -v standard --no-cache
 
 ### 11.1 All options together
 ```bash
-ohtv analyze objectives $TEST_CONV_1 \
+ohtv gen objectives $TEST_CONV_1 \
   -v detailed_assess \
   -c full \
   --no-cache \

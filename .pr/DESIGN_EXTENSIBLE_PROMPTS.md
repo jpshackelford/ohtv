@@ -162,20 +162,20 @@ tags: [analysis, objective]  # For discovery/filtering
 ### CLI Interface
 
 ```bash
-ohtv analyze <family> [conversation_id] [-v VARIANT] [-c CONTEXT]
+ohtv gen <family> [conversation_id] [-v VARIANT] [-c CONTEXT]
 ```
 
 **Examples:**
 ```bash
 # Basic usage
-ohtv analyze objectives abc123                    # default variant, default context
-ohtv analyze objectives -v detailed abc123        # specific variant
-ohtv analyze objectives -v brief -c 2 abc123      # by context level number
-ohtv analyze objectives -v brief -c full abc123   # by context level name
+ohtv gen objectives abc123                    # default variant, default context
+ohtv gen objectives -v detailed abc123        # specific variant
+ohtv gen objectives -v brief -c 2 abc123      # by context level number
+ohtv gen objectives -v brief -c full abc123   # by context level name
 
 # Multi-conversation
-ohtv analyze objectives -W                        # this week's conversations
-ohtv analyze objectives -v detailed --repo foo    # filter by repo
+ohtv gen objectives -W                        # this week's conversations
+ohtv gen objectives -v detailed --repo foo    # filter by repo
 ```
 
 **Flags:**
@@ -516,9 +516,9 @@ Respond with JSON:
 **3. Use it:**
 
 ```bash
-ohtv analyze code_review abc123              # edits_only context (default)
-ohtv analyze code_review -c 2 abc123         # with_commands context
-ohtv analyze code_review -c full abc123      # full context by name
+ohtv gen code_review abc123              # edits_only context (default)
+ohtv gen code_review -c 2 abc123         # with_commands context
+ohtv gen code_review -c full abc123      # full context by name
 ```
 
 ### Example: Error Pattern Analysis
@@ -580,7 +580,7 @@ Analyze the errors in this conversation...
 - Test with various context level configurations
 
 #### Phase 4: New CLI
-- Create `ohtv analyze <family> [conversation_id] [-v VARIANT] [-c CONTEXT]`
+- Create `ohtv gen <family> [conversation_id] [-v VARIANT] [-c CONTEXT]`
 - Support all existing conversation filters
 - Support multi-conversation parallel analysis
 - Remove `objectives` and `summary` commands
@@ -621,7 +621,7 @@ Analyze the errors in this conversation...
        └── detailed_assess.md
    ```
 2. Add frontmatter with context levels to all prompts
-3. Create new `ohtv analyze` command
+3. Create new `ohtv gen` command
 4. Remove `objectives` and `summary` commands
 5. Update cache key format to `prompt={id},context={level}`
 6. Invalidate existing analysis cache (one-time migration)
@@ -633,4 +633,4 @@ Analyze the errors in this conversation...
 3. **Self-documenting**: Frontmatter describes what each prompt does and its context options
 4. **Flexibility**: Same prompt can run with different context levels
 5. **Discoverability**: `prompts list` shows all families, variants, and context levels
-6. **Consistency**: Single `analyze` command for all analysis types
+6. **Consistency**: Single `gen` command for all analysis types

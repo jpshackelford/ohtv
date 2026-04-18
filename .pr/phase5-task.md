@@ -25,9 +25,9 @@ git pull origin feature/extensible-prompts
 
 1. Create a new branch: `git checkout -b feature/extensible-prompts-phase5`
 
-2. Create or update the unified `ohtv analyze` command in `src/ohtv/cli.py`:
-   - Add new `analyze` command group
-   - Subcommand: `ohtv analyze objectives <conversation_id>` - replaces current `objectives` command
+2. Create or update the unified `ohtv gen` command in `src/ohtv/cli.py`:
+   - Add new `gen` command group
+   - Subcommand: `ohtv gen objectives <conversation_id>` - replaces current `objectives` command
    - Options:
      - `--variant/-v` to select prompt variant (brief, standard, detailed, brief_assess, etc.)
      - `--context/-c` to select context level by name or number
@@ -40,14 +40,14 @@ git pull origin feature/extensible-prompts
    - Maintain backward compatibility with existing CLI options
    - Map old options to new system (e.g., `--assess` maps to `*_assess` variants)
 
-4. Create comprehensive tests in `tests/unit/test_cli_analyze.py`
+4. Create comprehensive tests in `tests/unit/test_cli_gen.py`
 
 5. Run all tests: `uv run python -m pytest tests/unit/ -v`
 
 6. Commit and push: 
    ```bash
    git add -A
-   git commit -m "Phase 5: Add unified analyze CLI command"
+   git commit -m "Phase 5: Add unified gen CLI command"
    git push -u origin feature/extensible-prompts-phase5
    ```
 
@@ -86,7 +86,7 @@ transcript = build_transcript_from_context(events, context_level)
 
 ## Acceptance Criteria
 
-- `ohtv analyze objectives <id>` works with new infrastructure
+- `ohtv gen objectives <id>` works with new infrastructure
 - `ohtv objectives <id>` still works (backward compatibility)
 - Variant selection via `--variant` option
 - Context selection via `--context` option (by name or number)

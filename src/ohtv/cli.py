@@ -23,7 +23,7 @@ log = logging.getLogger("ohtv")
 
 
 # Commands that use LLM and consume tokens
-LLM_COMMANDS = {"objectives", "summary", "analyze"}
+LLM_COMMANDS = {"objectives", "summary", "gen"}
 
 
 class SectionedGroup(click.Group):
@@ -3083,7 +3083,7 @@ def objectives(
 
     Requires LLM_API_KEY environment variable to be set.
     
-    NOTE: This is the legacy command. Use 'ohtv analyze objectives' for the
+    NOTE: This is the legacy command. Use 'ohtv gen objectives' for the
     new unified interface with variant-based prompts.
     """
     # Call shared implementation with legacy parameters
@@ -5568,16 +5568,16 @@ def _show_prompts_status(prompts_list: list[dict], user_dir) -> None:
 
 
 # =============================================================================
-# Analyze Commands (new unified interface)
+# Gen Commands (new unified interface)
 # =============================================================================
 
 
 @main.group()
-def analyze() -> None:
-    """Analyze conversations using LLM prompts (requires LLM_API_KEY)."""
+def gen() -> None:
+    """Generate LLM-powered analysis of conversations (requires LLM_API_KEY)."""
 
 
-@analyze.command("objectives")
+@gen.command("objectives")
 @click.argument("conversation_id")
 @click.option("--variant", "-v", help="Prompt variant (brief, standard, detailed, brief_assess, etc.)")
 @click.option("--context", "-c", help="Context level (by name or number: 1=minimal, 2=standard, 3=full)")
@@ -5586,7 +5586,7 @@ def analyze() -> None:
 @click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--verbose", is_flag=True, help="Show debug output")
-def analyze_objectives_cmd(
+def gen_objectives_cmd(
     conversation_id: str,
     variant: str | None,
     context: str | None,
@@ -5610,17 +5610,17 @@ def analyze_objectives_cmd(
       detailed_assess - Detailed + status assessment
     
     \b
-    Context levels (how much conversation to analyze):
+    Context levels (how much conversation to generate from):
       1 / minimal   - User messages only (lowest tokens)
       2 / standard  - User messages + finish action (recommended)
       3 / full      - All messages + action summaries (highest tokens)
     
     \b
     Examples:
-      ohtv analyze objectives abc123              # Use default variant
-      ohtv analyze objectives abc123 -v brief     # Brief variant
-      ohtv analyze objectives abc123 -c 1         # Context level 1 (minimal)
-      ohtv analyze objectives abc123 -v standard_assess -c full
+      ohtv gen objectives abc123              # Use default variant
+      ohtv gen objectives abc123 -v brief     # Brief variant
+      ohtv gen objectives abc123 -c 1         # Context level 1 (minimal)
+      ohtv gen objectives abc123 -v standard_assess -c full
     
     Requires LLM_API_KEY environment variable to be set.
     """

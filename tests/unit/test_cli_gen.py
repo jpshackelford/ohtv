@@ -1,4 +1,4 @@
-"""Unit tests for the unified analyze CLI command."""
+"""Unit tests for the unified gen CLI command."""
 
 import pytest
 from unittest.mock import patch, MagicMock
@@ -9,8 +9,8 @@ from ohtv.cli import main, _run_objectives_analysis
 from ohtv.prompts import resolve_prompt, resolve_context, list_variants
 
 
-class TestAnalyzeObjectivesCommand:
-    """Tests for the new 'ohtv analyze objectives' command."""
+class TestGenObjectivesCommand:
+    """Tests for the new 'ohtv gen objectives' command."""
     
     @pytest.fixture
     def runner(self):
@@ -172,7 +172,7 @@ class TestAnalyzeObjectivesCommand:
     
     def test_variant_error_shows_available_variants(self, runner, mock_config, mock_conversation, mock_conv_info):
         """Test that error message shows available variants."""
-        result = runner.invoke(main, ["analyze", "objectives", "abc123", "--variant", "nonexistent"])
+        result = runner.invoke(main, ["gen", "objectives", "abc123", "--variant", "nonexistent"])
         
         assert result.exit_code != 0
         assert "nonexistent" in result.output or "Unknown variant" in result.output

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Create the unified `ohtv analyze` command that replaces the separate `objectives` and `summary` commands, using the extensible prompt system.
+Create the unified `ohtv gen` command that replaces the separate `objectives` and `summary` commands, using the extensible prompt system.
 
 ## Dependencies
 
@@ -11,7 +11,7 @@ Create the unified `ohtv analyze` command that replaces the separate `objectives
 
 ## Deliverables
 
-### 5.1 Create `ohtv analyze` command
+### 5.1 Create `ohtv gen` command
 
 Add to `src/ohtv/cli.py`:
 
@@ -32,7 +32,7 @@ Add to `src/ohtv/cli.py`:
 # Output options
 @click.option("-q", "--quiet", is_flag=True, help="Minimal output")
 @click.option("--json", "output_json", is_flag=True, help="JSON output")
-def analyze(
+def gen(
     family: str,
     conversation_id: str | None,
     variant: str | None,
@@ -51,11 +51,11 @@ def analyze(
     
     Examples:
     
-      ohtv analyze objectives abc123
-      ohtv analyze objectives -v detailed abc123
-      ohtv analyze objectives -v brief -c 2 abc123
-      ohtv analyze objectives -W
-      ohtv analyze code_review --repo myrepo -D
+      ohtv gen objectives abc123
+      ohtv gen objectives -v detailed abc123
+      ohtv gen objectives -v brief -c 2 abc123
+      ohtv gen objectives -W
+      ohtv gen code_review --repo myrepo -D
     """
     from ohtv.prompts import resolve_prompt, resolve_context, list_families
     
@@ -156,16 +156,16 @@ Mark `objectives` and `summary` commands as deprecated:
 ```python
 @cli.command(deprecated=True)
 def objectives(...):
-    """DEPRECATED: Use 'ohtv analyze objectives' instead."""
-    console.print("[yellow]Warning: 'ohtv objectives' is deprecated. Use 'ohtv analyze objectives'.[/yellow]")
-    # Forward to analyze command
+    """DEPRECATED: Use 'ohtv gen objectives' instead."""
+    console.print("[yellow]Warning: 'ohtv objectives' is deprecated. Use 'ohtv gen objectives'.[/yellow]")
+    # Forward to gen command
     ...
 
 @cli.command(deprecated=True)  
 def summary(...):
-    """DEPRECATED: Use 'ohtv analyze objectives -v brief -q' instead."""
-    console.print("[yellow]Warning: 'ohtv summary' is deprecated. Use 'ohtv analyze objectives -v brief -q'.[/yellow]")
-    # Forward to analyze command
+    """DEPRECATED: Use 'ohtv gen objectives -v brief -q' instead."""
+    console.print("[yellow]Warning: 'ohtv summary' is deprecated. Use 'ohtv gen objectives -v brief -q'.[/yellow]")
+    # Forward to gen command
     ...
 ```
 
@@ -191,12 +191,12 @@ Prompt Families:
     default             Analyze code changes
       Context levels: edits_only (1), with_commands (2), full (3)
 
-Use: ohtv analyze <family> [-v variant] [-c context] <conversation_id>
+Use: ohtv gen <family> [-v variant] [-c context] <conversation_id>
 ```
 
 ## Acceptance Criteria
 
-1. `ohtv analyze <family> [id]` works for all prompt families
+1. `ohtv gen <family> [id]` works for all prompt families
 2. `-v` selects variant, `-c` selects context level
 3. All existing conversation filters work (`-D`, `-W`, `--repo`, etc.)
 4. Multi-conversation analysis works with parallel processing
@@ -208,10 +208,10 @@ Use: ohtv analyze <family> [-v variant] [-c context] <conversation_id>
 
 ## Files to Create/Modify
 
-- `src/ohtv/cli.py` - MODIFY: Add `analyze` command, deprecate old commands
+- `src/ohtv/cli.py` - MODIFY: Add `gen` command, deprecate old commands
 - `src/ohtv/analysis/__init__.py` - MODIFY: Add generic analysis function
 - `src/ohtv/analysis/cache.py` - MODIFY: New cache key format
-- `tests/unit/cli/test_analyze.py` - NEW
+- `tests/unit/cli/test_cli_gen.py` - NEW
 
 ## Notes
 
