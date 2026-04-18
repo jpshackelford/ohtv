@@ -5121,13 +5121,22 @@ def gen_objs_cmd(
     
     Requires LLM_API_KEY environment variable to be set.
     """
-    # Check if we're in multi-conversation mode (no conversation_id)
+    # Check if filters are being used (multi-conversation options)
     has_filters = any([
         limit is not None, show_all, offset > 0, since_date, until_date,
         day_date, week_date, pr_filter, repo_filter, action_filter, reverse
     ])
     
-    if conversation_id is None or has_filters and conversation_id is None:
+    # Error if both conversation_id and filters are provided
+    if conversation_id is not None and has_filters:
+        raise click.UsageError(
+            "Cannot use filters (--day, --week, --since, --until, --pr, --repo, "
+            "--action, -n, --all, --offset, --reverse) with a specific conversation_id.\n"
+            "Either analyze a single conversation: ohtv gen objs <conversation_id>\n"
+            "Or analyze multiple conversations: ohtv gen objs --day"
+        )
+    
+    if conversation_id is None:
         # Multi-conversation mode
         _run_batch_objectives_analysis(
             variant=variant,

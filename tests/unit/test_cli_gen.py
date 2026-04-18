@@ -701,6 +701,21 @@ class TestBatchModeErrorHandling:
         assert result.exit_code != 0
         assert "invalid" in result.output.lower() or "choice" in result.output.lower()
 
+    def test_filters_with_conversation_id_rejected(self, runner):
+        """Using filters with a specific conversation_id should error."""
+        result = runner.invoke(main, ["gen", "objs", "abc123", "--day"])
+        
+        assert result.exit_code != 0
+        assert "Cannot use filters" in result.output
+
+    def test_filters_with_conversation_id_shows_guidance(self, runner):
+        """Error message should guide user to correct usage."""
+        result = runner.invoke(main, ["gen", "objs", "abc123", "--week"])
+        
+        assert result.exit_code != 0
+        assert "ohtv gen objs <conversation_id>" in result.output or "single conversation" in result.output.lower()
+        assert "ohtv gen objs --day" in result.output or "multiple conversations" in result.output.lower()
+
 
 class TestBatchModeHelpText:
     """Tests for help text accuracy."""
