@@ -39,6 +39,19 @@ output:
     properties:
       goal:
         type: string
+
+display:
+  table:
+    columns:
+      - name: ID
+        field: short_id
+        width: 7
+      - name: Date
+        field: created_at
+        format: date
+        width: 10
+      - name: Summary
+        field: goal
 ---
 Analyze this conversation between a user and an AI coding assistant.
 

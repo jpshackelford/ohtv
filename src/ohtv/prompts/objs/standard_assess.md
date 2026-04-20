@@ -47,6 +47,31 @@ output:
         type: array
         items:
           type: string
+
+display:
+  table:
+    columns:
+      - name: ID
+        field: short_id
+        width: 7
+      - name: Date
+        field: created_at
+        format: date
+        width: 10
+      - name: Status
+        field: status
+        format: status_badge
+        width: 6
+      - name: Summary
+        fields:
+          - goal
+          - field: primary_outcomes
+            format: bullet_list
+            prefix: "Primary:"
+          - field: secondary_outcomes
+            format: bullet_list
+            prefix: "Secondary:"
+        combine: newline
 ---
 Analyze this conversation between a user and an AI coding assistant.
 

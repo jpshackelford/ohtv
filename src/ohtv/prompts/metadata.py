@@ -1,6 +1,55 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 from typing import Literal
+
+
+@dataclass
+class FieldRef:
+    """Reference to a field in the analysis output, with optional formatting."""
+    field_name: str
+    format: str | None = None
+    prefix: str | None = None
+
+
+@dataclass
+class ColumnDef:
+    """Column definition for table display."""
+    name: str
+    field: str | None = None
+    fields: list[FieldRef | str] = dataclass_field(default_factory=list)
+    format: str | None = None
+    width: int | None = None
+    combine: Literal["newline", "space", "comma"] = "newline"
+    show_when: str | None = None
+
+    def get_field_refs(self) -> list[FieldRef]:
+        """Get all field references as FieldRef objects.
+        
+        If `field` is set (single field), returns a single-item list.
+        If `fields` is set, returns the list with strings converted to FieldRef.
+        """
+        if self.field:
+            return [FieldRef(field_name=self.field, format=self.format)]
+        result = []
+        for f in self.fields:
+            if isinstance(f, str):
+                result.append(FieldRef(field_name=f))
+            else:
+                result.append(f)
+        return result
+
+
+@dataclass
+class DisplaySchema:
+    """Schema for displaying analysis results in table format."""
+    columns: list[ColumnDef] = dataclass_field(default_factory=list)
+
+    def get_column(self, name: str) -> ColumnDef | None:
+        """Get column definition by name."""
+        for col in self.columns:
+            if col.name == name:
+                return col
+        return None
 
 
 @dataclass
@@ -40,7 +89,7 @@ class ContextLevel:
     number: int
     name: str
     include: list[EventFilter]
-    exclude: list[EventFilter] = field(default_factory=list)
+    exclude: list[EventFilter] = dataclass_field(default_factory=list)
     truncate: int = 0
 
     def matches(self, event: dict) -> bool:
@@ -71,14 +120,15 @@ class PromptMetadata:
     variant: str
     description: str = ""
     default: bool = False
-    context_levels: dict[int, ContextLevel] = field(default_factory=dict)
+    context_levels: dict[int, ContextLevel] = dataclass_field(default_factory=dict)
     default_context: int = 1
     output_schema: dict | None = None
     handler: str | None = None
-    tags: list[str] = field(default_factory=list)
+    tags: list[str] = dataclass_field(default_factory=list)
     path: Path | None = None
     content: str = ""
     content_hash: str = ""
+    display: DisplaySchema | None = None
 
     def get_context_level(self, level: int | str) -> ContextLevel:
         """Get context level by number or name.
