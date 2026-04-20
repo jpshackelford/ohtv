@@ -24,7 +24,7 @@ log = logging.getLogger("ohtv")
 
 
 # Commands that use LLM and consume tokens
-LLM_COMMANDS = {"summary", "gen"}
+LLM_COMMANDS = {"gen"}
 
 
 class SectionedGroup(click.Group):
@@ -3137,449 +3137,6 @@ def _display_outputs(conv_dir: Path) -> None:
     _display_actions_only(interactions)
 
 
-@main.command()
-@click.option("--max", "-n", "limit", type=int, help="Maximum conversations to analyze (default: 10)")
-@click.option("--all", "-A", "show_all", is_flag=True, help="Analyze all conversations (no limit)")
-@click.option("--offset", "-k", type=int, default=0, help="Skip first N conversations")
-@click.option("--since", "-S", "since_date", help="Analyze conversations from DATE onwards")
-@click.option("--until", "-U", "until_date", help="Analyze conversations up to DATE")
-@click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
-              help="Analyze conversations from a single day (default: today)")
-@click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
-              help="Analyze conversations from the week containing DATE (default: today)")
-@click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
-@click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
-@click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
-@click.option("--reverse", is_flag=True, help="Show oldest first (default: newest first)")
-@click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (ignore cache)")
-@click.option("--model", "-m", help="LLM model to use for analysis")
-@click.option(
-    "--format", "-F", "fmt",
-    type=click.Choice(["table", "json", "markdown"]),
-    default="table",
-    help="Output format (default: table)",
-)
-@click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation for large result sets")
-@click.option("--quiet", "-q", is_flag=True, help="Generate/cache summaries without displaying output")
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
-@click.option(
-    "--detail",
-    "-d",
-    type=click.Choice(["brief", "standard", "detailed"]),
-    default="brief",
-    help="Output detail: brief (default), standard (with outcomes), detailed (full analysis)",
-)
-@click.option(
-    "--context",
-    "-c",
-    type=click.Choice(["minimal", "default", "full"]),
-    default="minimal",
-    help="Context level: minimal (user only), default (user+finish), full (all messages)",
-)
-@click.option("--assess", "-a", is_flag=True, help="Assess whether objectives were achieved")
-def summary(
-    limit: int | None,
-    show_all: bool,
-    offset: int,
-    since_date: str | None,
-    until_date: str | None,
-    day_date: str | None,
-    week_date: str | None,
-    pr_filter: str | None,
-    repo_filter: str | None,
-    action_filter: str | None,
-    reverse: bool,
-    refresh: bool,
-    model: str | None,
-    fmt: str,
-    no_outputs: bool,
-    yes: bool,
-    quiet: bool,
-    verbose: bool,
-    detail: str,
-    context: str,
-    assess: bool,
-) -> None:
-    """Summarize goals for multiple conversations.
-
-    Analyzes selected conversations and displays a table of their goals.
-    By default, uses the most token-efficient settings (minimal context, brief output)
-    and caches results to avoid repeated LLM calls.
-
-    \b
-    Date filtering examples:
-      -D           Today's conversations
-      -W           This week's conversations
-      -S 2024-01-01  Conversations since Jan 1, 2024
-      -U 2024-06-30  Conversations until June 30, 2024
-
-    \b
-    Detail levels:
-      brief     - Just the goal (1-2 sentences) [default]
-      standard  - Goal + primary/secondary outcomes (3-6 bullets each)
-      detailed  - Full hierarchical objectives with subordinates
-
-    \b
-    Context levels (how much conversation to analyze):
-      minimal   - User messages only (lowest tokens) [default]
-      default   - User messages + finish action
-      full      - All messages (highest accuracy, most tokens)
-
-    Use --assess to add status assessment (achieved/not achieved/in_progress).
-    Note: Non-default settings will use more tokens when analyzing large result sets.
-
-    Requires LLM_API_KEY environment variable to be set.
-    """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
-
-    _init_logging(verbose=verbose)
-    config = Config.from_env()
-
-    # Parse date filters and apply shortcuts
-    since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
-
-    # Apply all conversation filters (reuses same logic as list command)
-    filter_result = _apply_conversation_filters(
-        config,
-        since=since,
-        until=until,
-        pr_filter=pr_filter,
-        repo_filter=repo_filter,
-        action_filter=action_filter,
-        include_empty=False,  # Summary always excludes empty
-        initial_show_all=show_all,
-    )
-    
-    conversations = filter_result.conversations
-    show_all = filter_result.show_all
-    total_count = len(conversations)
-
-    # Sort by created_at (newest first by default)
-    conversations = sorted(
-        conversations,
-        key=lambda c: _normalize_datetime_for_sort(c.created_at),
-        reverse=not reverse,
-    )
-
-    # Apply offset and limit
-    # Explicit -n takes precedence over show_all implied by filters
-    if offset:
-        conversations = conversations[offset:]
-    if limit is not None:
-        # Explicit limit always applies
-        conversations = conversations[:limit]
-    elif not show_all:
-        # Default limit when no filters and no explicit -n
-        conversations = conversations[:10]
-
-    if not conversations:
-        console.print("[dim]No conversations found matching the criteria.[/dim]")
-        return
-
-    # Import analysis module
-    try:
-        from ohtv.analysis import analyze_objectives, get_cached_analysis
-    except ImportError as e:
-        console.print(f"[red]Error:[/red] Analysis module not available: {e}")
-        raise SystemExit(1)
-
-    # Safety threshold for LLM analysis - require confirmation for large batches
-    SUMMARY_CONFIRM_THRESHOLD = 20
-    
-    # Count how many actually need LLM computation (for progress bar and confirmation)
-    if refresh:
-        # --refresh forces all to be recomputed
-        uncached_count = len(conversations)
-    else:
-        # Use fast DB-based cache check
-        uncached_count = _count_uncached_conversations_fast(
-            conversations, config, context, detail, assess
-        )
-    
-    # Get model name for display (short form if available)
-    def _get_model_display_name() -> str:
-        """Get a display-friendly model name."""
-        import os
-        os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
-        from openhands.sdk import LLM
-        llm = LLM.load_from_env()
-        if model:
-            # User specified a model, use that
-            return model.split("/")[-1] if "/" in model else model
-        # Try to get clean name from model_info, fall back to model string
-        if llm.model_info and llm.model_info.get("key"):
-            return llm.model_info["key"]
-        return llm.model.split("/")[-1] if "/" in llm.model else llm.model
-    
-    # Only prompt if we actually need to run LLM on many conversations
-    if uncached_count > SUMMARY_CONFIRM_THRESHOLD and not yes:
-        from rich.prompt import Confirm
-        cached_count = len(conversations) - uncached_count
-        model_name = _get_model_display_name()
-        console.print(f"[yellow]Warning:[/yellow] About to analyze {uncached_count} conversations with [cyan]{model_name}[/cyan].")
-        if cached_count > 0:
-            console.print(f"[dim]({cached_count} already cached and will be skipped)[/dim]")
-        console.print("[dim]This may take a while and use significant LLM tokens.[/dim]")
-        if not Confirm.ask("Do you want to continue?", console=console, default=False):
-            console.print("[dim]Aborted. Use --yes to skip this confirmation.[/dim]")
-            return
-
-    # Analyze each conversation with progress indicator
-    results: list[dict] = []
-    errors: list[tuple[str, str]] = []
-    total_cost = 0.0
-    import time
-    import signal
-    import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    start_time = time.perf_counter()
-    processed_count = 0
-    
-    # Use parallel processing for multiple uncached conversations
-    # 20 workers to maximize throughput (LLM API rate limits are the real bottleneck)
-    max_workers = 20 if uncached_count > 1 else 1
-    
-    # Thread-safe counters and shutdown flag for parallel mode
-    _lock = threading.Lock()
-    _shutdown_requested = False
-    
-    def _handle_shutdown(signum, frame):
-        """Handle SIGINT/SIGTERM - request graceful shutdown."""
-        nonlocal _shutdown_requested
-        _shutdown_requested = True
-        console.print("\n[yellow]Shutdown requested - finishing current work...[/yellow]")
-    
-    # Install signal handlers for graceful shutdown
-    old_sigint = signal.signal(signal.SIGINT, _handle_shutdown)
-    old_sigterm = signal.signal(signal.SIGTERM, _handle_shutdown)
-
-    def _format_rate(count: int, elapsed: float) -> str:
-        """Format processing rate as conv/min."""
-        if elapsed < 0.1 or count == 0:
-            return "-- conv/min"
-        rate = count / (elapsed / 60.0)
-        return f"{rate:.1f} conv/min"
-
-    def _analyze_one(conv) -> tuple[dict | None, tuple[str, str] | None, float, bool]:
-        """Analyze a single conversation. Returns (result_dict, error_tuple, cost, from_cache)."""
-        result = _find_conversation_dir(config, conv.lookup_id)
-        if not result:
-            return None, (conv.short_id, "Not found"), 0.0, False
-        
-        conv_dir, _ = result
-        
-        try:
-            analysis_result = analyze_objectives(
-                conv_dir,
-                model=model,
-                context=context,
-                detail=detail,
-                assess=assess,
-                force_refresh=refresh,
-            )
-            analysis = analysis_result.analysis
-            # Extract display goal: use goal field, or summary for detailed mode,
-            # or first primary objective's description as fallback
-            display_goal = analysis.goal
-            if not display_goal and analysis.detail_level == "detailed":
-                if analysis.summary:
-                    display_goal = analysis.summary
-                elif analysis.primary_objectives:
-                    display_goal = analysis.primary_objectives[0].description
-            return {
-                "id": conv.id,
-                "short_id": conv.short_id,
-                "source": conv.source,
-                "created_at": conv.created_at,
-                "goal": display_goal or "(no goal identified)",
-                "cached": analysis_result.from_cache,
-                "conv_dir": conv_dir,
-            }, None, analysis_result.cost, analysis_result.from_cache
-        except (ValueError, RuntimeError) as e:
-            return None, (conv.short_id, str(e)[:50]), 0.0, False
-        except Exception as e:
-            if "api_key" in str(e).lower() or "LLM_" in str(e):
-                raise  # Re-raise auth errors to handle at top level
-            return None, (conv.short_id, str(e)[:50]), 0.0, False
-
-    # Show progress for LLM analysis (skip if all cached)
-    # Note: --quiet only suppresses final output, not progress bar or confirmation
-    show_progress = uncached_count > 0
-    from rich.progress import TimeRemainingColumn
-    progress_ctx = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TextColumn("[green]$[/green]{task.fields[cost]:.4f}"),
-        TextColumn("[dim]{task.fields[rate]}[/dim]"),
-        TimeRemainingColumn(),
-        console=console,
-        transient=True,
-    ) if show_progress else nullcontext()
-
-    with progress_ctx as progress:
-        task = None
-        if show_progress:
-            task = progress.add_task(
-                f"Analyzing {uncached_count} conversations...",
-                total=uncached_count,
-                cost=0.0,
-                rate="-- conv/min",
-            )
-
-        if max_workers == 1:
-            # Sequential processing (original behavior)
-            for conv in conversations:
-                if _shutdown_requested:
-                    break
-                result_dict, error_tuple, cost, from_cache = _analyze_one(conv)
-                
-                if error_tuple:
-                    errors.append(error_tuple)
-                    if task is not None:
-                        progress.advance(task)
-                elif result_dict:
-                    results.append(result_dict)
-                    if not from_cache:
-                        total_cost += cost
-                        processed_count += 1
-                        elapsed = time.perf_counter() - start_time
-                        if task is not None:
-                            progress.update(
-                                task,
-                                advance=1,
-                                cost=total_cost,
-                                rate=_format_rate(processed_count, elapsed),
-                            )
-        else:
-            # Parallel processing with ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all tasks
-                future_to_conv = {executor.submit(_analyze_one, conv): conv for conv in conversations}
-                
-                # Process results as they complete
-                for future in as_completed(future_to_conv):
-                    # Check for shutdown - cancel pending futures and exit
-                    if _shutdown_requested:
-                        executor.shutdown(wait=False, cancel_futures=True)
-                        break
-                    
-                    try:
-                        result_dict, error_tuple, cost, from_cache = future.result()
-                    except Exception as e:
-                        if "api_key" in str(e).lower() or "LLM_" in str(e):
-                            # Cancel remaining futures and raise
-                            executor.shutdown(wait=False, cancel_futures=True)
-                            console.print(
-                                "\n[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
-                            )
-                            console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
-                            raise SystemExit(1)
-                        conv = future_to_conv[future]
-                        errors.append((conv.short_id, str(e)[:50]))
-                        if task is not None:
-                            progress.advance(task)
-                        continue
-                    
-                    if error_tuple:
-                        errors.append(error_tuple)
-                        if task is not None:
-                            progress.advance(task)
-                    elif result_dict:
-                        results.append(result_dict)
-                        if not from_cache:
-                            with _lock:
-                                total_cost += cost
-                                processed_count += 1
-                                elapsed = time.perf_counter() - start_time
-                            if task is not None:
-                                progress.update(
-                                    task,
-                                    advance=1,
-                                    cost=total_cost,
-                                    rate=_format_rate(processed_count, elapsed),
-                                )
-    
-    # Restore original signal handlers
-    signal.signal(signal.SIGINT, old_sigint)
-    signal.signal(signal.SIGTERM, old_sigterm)
-    
-    # Calculate final rate for summary
-    total_elapsed = time.perf_counter() - start_time
-    final_rate = _format_rate(processed_count, total_elapsed) if processed_count > 0 else None
-    
-    # If shutdown was requested, show what we completed and exit
-    if _shutdown_requested:
-        if results:
-            console.print(f"[yellow]Interrupted - showing {len(results)} completed results[/yellow]")
-        else:
-            console.print("[yellow]Interrupted - no results to show[/yellow]")
-            return
-
-    # Skip all output if --quiet is enabled
-    if quiet:
-        return
-
-    # Extract outputs for each conversation if needed
-    if not no_outputs:
-        for r in results:
-            r["outputs"] = _get_conversation_outputs(r["conv_dir"])
-
-    # Output results
-    if fmt == "json":
-        json_results = []
-        for r in results:
-            item = {
-                "id": r["id"],
-                "source": r["source"],
-                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-                "goal": r["goal"],
-            }
-            if not no_outputs and r.get("outputs"):
-                outputs = r["outputs"]
-                refs = outputs.get("refs", {})
-                interactions = outputs.get("interactions")
-                unpushed = outputs.get("unpushed_commits", set())
-
-                item["refs"] = {
-                    "repos": [
-                        {"url": url, "actions": sorted(interactions.repos.get(url, [])) if interactions else []}
-                        for url in sorted(refs.get("repos", set()))
-                    ],
-                    "prs": [
-                        {"url": url, "actions": sorted(interactions.prs.get(url, [])) if interactions else []}
-                        for url in sorted(refs.get("prs", set()))
-                    ],
-                    "issues": [
-                        {"url": url, "actions": sorted(interactions.issues.get(url, [])) if interactions else []}
-                        for url in sorted(refs.get("issues", set()))
-                    ],
-                }
-                if unpushed:
-                    item["unpushed_commits"] = sorted(unpushed)
-            json_results.append(item)
-        print(json.dumps(json_results, indent=2))
-    elif fmt == "markdown":
-        print(_format_summary_markdown(results, include_outputs=not no_outputs))
-    else:
-        _print_summary_table(results, total_count, len(errors), include_outputs=not no_outputs)
-
-    # Show cost and rate summary if any LLM calls were made
-    if total_cost > 0 and fmt == "table":
-        rate_str = f" ({final_rate})" if final_rate else ""
-        console.print(f"[dim]LLM cost: [green]${total_cost:.4f}[/green]{rate_str}[/dim]")
-
-    # Show errors if any
-    if errors and fmt == "table":
-        console.print(f"\n[yellow]Failed to analyze {len(errors)} conversation(s):[/yellow]")
-        for short_id, error in errors[:5]:  # Show first 5 errors
-            console.print(f"  [dim]{short_id}:[/dim] {error}")
-        if len(errors) > 5:
-            console.print(f"  [dim]... and {len(errors) - 5} more[/dim]")
-
-
 def _get_conversation_outputs(conv_dir: Path) -> dict:
     """Extract outputs (repos, PRs, issues with interactions) from a conversation.
 
@@ -5474,31 +5031,82 @@ def gen() -> None:
 
 
 @gen.command("objs")
-@click.argument("conversation_id")
+@click.argument("conversation_id", required=False)
 @click.option("--variant", "-v", help="Prompt variant (brief, standard, detailed, brief_assess, etc.)")
 @click.option("--context", "-c", help="Context level (by name or number: 1=minimal, 2=standard, 3=full)")
 @click.option("--model", "-m", help="LLM model to use for analysis")
-@click.option("--no-cache", is_flag=True, help="Force re-analysis (ignore cache)")
+@click.option("--refresh", "-r", "refresh", is_flag=True, help="Force re-analysis (refresh cache)")
 @click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.option("--verbose", is_flag=True, help="Show debug output")
+# Multi-conversation options (when conversation_id is not provided)
+@click.option("--max", "-n", "limit", type=int, help="Maximum conversations to analyze (default: 10)")
+@click.option("--all", "-A", "show_all", is_flag=True, help="Analyze all conversations (no limit)")
+@click.option("--offset", "-k", type=int, default=0, help="Skip first N conversations")
+@click.option("--since", "-S", "since_date", help="Analyze conversations from DATE onwards")
+@click.option("--until", "-U", "until_date", help="Analyze conversations up to DATE")
+@click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
+              help="Analyze conversations from a single day (default: today)")
+@click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
+              help="Analyze conversations from the week containing DATE (default: today)")
+@click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
+@click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
+@click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
+@click.option("--reverse", is_flag=True, help="Show oldest first (default: newest first)")
+@click.option(
+    "--format", "-F", "fmt",
+    type=click.Choice(["table", "json", "markdown"]),
+    default="table",
+    help="Output format for multi-conversation mode (default: table)",
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation for large result sets")
+@click.option("--quiet", "-q", is_flag=True, help="Generate/cache summaries without displaying output")
 def gen_objs_cmd(
-    conversation_id: str,
+    conversation_id: str | None,
     variant: str | None,
     context: str | None,
     model: str | None,
-    no_cache: bool,
+    refresh: bool,
     no_outputs: bool,
     json_output: bool,
     verbose: bool,
+    # Multi-conversation options
+    limit: int | None,
+    show_all: bool,
+    offset: int,
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
+    pr_filter: str | None,
+    repo_filter: str | None,
+    action_filter: str | None,
+    reverse: bool,
+    fmt: str,
+    yes: bool,
+    quiet: bool,
 ) -> None:
     """Identify what the user hopes to achieve in a conversation.
     
     Uses the extensible prompt system with family/variant organization.
     
     \b
+    SINGLE-CONVERSATION MODE (with conversation_id):
+      ohtv gen objs abc123              # Use default variant
+      ohtv gen objs abc123 -v brief     # Brief variant
+      ohtv gen objs abc123 -c 1         # Context level 1 (minimal)
+    
+    \b
+    MULTI-CONVERSATION MODE (without conversation_id):
+      ohtv gen objs                     # Analyze last 10 conversations
+      ohtv gen objs --day               # Today's conversations
+      ohtv gen objs --week              # This week's conversations
+      ohtv gen objs --pr repo#42        # Conversations for a PR
+      ohtv gen objs --all               # All conversations (no limit)
+    
+    \b
     Variants (objs family):
-      brief           - Just the goal (1-2 sentences)
+      brief           - Just the goal (1-2 sentences) [default for multi]
       brief_assess    - Goal + status assessment
       standard        - Goal + primary/secondary outcomes
       standard_assess - Standard + status assessment  
@@ -5507,29 +5115,456 @@ def gen_objs_cmd(
     
     \b
     Context levels (how much conversation to generate from):
-      1 / minimal   - User messages only (lowest tokens)
+      1 / minimal   - User messages only (lowest tokens) [default for multi]
       2 / standard  - User messages + finish action (recommended)
       3 / full      - All messages + action summaries (highest tokens)
     
-    \b
-    Examples:
-      ohtv gen objs abc123              # Use default variant
-      ohtv gen objs abc123 -v brief     # Brief variant
-      ohtv gen objs abc123 -c 1         # Context level 1 (minimal)
-      ohtv gen objs abc123 -v standard_assess -c full
-    
     Requires LLM_API_KEY environment variable to be set.
     """
-    _run_objectives_analysis(
-        conversation_id=conversation_id,
-        variant=variant,
-        context=context,
-        model=model,
-        refresh=no_cache,
-        no_outputs=no_outputs,
-        json_output=json_output,
-        verbose=verbose,
+    # Check if filters are being used (multi-conversation options)
+    has_filters = any([
+        limit is not None, show_all, offset > 0, since_date, until_date,
+        day_date, week_date, pr_filter, repo_filter, action_filter, reverse
+    ])
+    
+    # Error if both conversation_id and filters are provided
+    if conversation_id is not None and has_filters:
+        raise click.UsageError(
+            "Cannot use filters (--day, --week, --since, --until, --pr, --repo, "
+            "--action, -n, --all, --offset, --reverse) with a specific conversation_id.\n"
+            "Either analyze a single conversation: ohtv gen objs <conversation_id>\n"
+            "Or analyze multiple conversations: ohtv gen objs --day"
+        )
+    
+    if conversation_id is None:
+        # Multi-conversation mode
+        _run_batch_objectives_analysis(
+            variant=variant,
+            context=context,
+            model=model,
+            refresh=refresh,
+            no_outputs=no_outputs,
+            verbose=verbose,
+            limit=limit,
+            show_all=show_all,
+            offset=offset,
+            since_date=since_date,
+            until_date=until_date,
+            day_date=day_date,
+            week_date=week_date,
+            pr_filter=pr_filter,
+            repo_filter=repo_filter,
+            action_filter=action_filter,
+            reverse=reverse,
+            fmt=fmt,
+            yes=yes,
+            quiet=quiet,
+        )
+    else:
+        # Single-conversation mode - use --json for JSON output
+        _run_objectives_analysis(
+            conversation_id=conversation_id,
+            variant=variant,
+            context=context,
+            model=model,
+            refresh=refresh,
+            no_outputs=no_outputs,
+            json_output=json_output,
+            verbose=verbose,
+        )
+
+
+def _run_batch_objectives_analysis(
+    *,
+    variant: str | None = None,
+    context: str | None = None,
+    model: str | None = None,
+    refresh: bool = False,
+    no_outputs: bool = False,
+    verbose: bool = False,
+    limit: int | None = None,
+    show_all: bool = False,
+    offset: int = 0,
+    since_date: str | None = None,
+    until_date: str | None = None,
+    day_date: str | None = None,
+    week_date: str | None = None,
+    pr_filter: str | None = None,
+    repo_filter: str | None = None,
+    action_filter: str | None = None,
+    reverse: bool = False,
+    fmt: str = "table",
+    yes: bool = False,
+    quiet: bool = False,
+) -> None:
+    """Run objectives analysis on multiple conversations.
+    
+    This is the batch/summary mode, ported from the legacy `summary` command.
+    Uses minimal context + brief detail by default for token efficiency.
+    """
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+
+    _init_logging(verbose=verbose)
+    config = Config.from_env()
+
+    # Parse date filters and apply shortcuts
+    since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
+
+    # Apply all conversation filters (reuses same logic as list command)
+    filter_result = _apply_conversation_filters(
+        config,
+        since=since,
+        until=until,
+        pr_filter=pr_filter,
+        repo_filter=repo_filter,
+        action_filter=action_filter,
+        include_empty=False,  # Summary always excludes empty
+        initial_show_all=show_all,
     )
+    
+    conversations = filter_result.conversations
+    show_all = filter_result.show_all
+    total_count = len(conversations)
+
+    # Sort by created_at (newest first by default)
+    conversations = sorted(
+        conversations,
+        key=lambda c: _normalize_datetime_for_sort(c.created_at),
+        reverse=not reverse,
+    )
+
+    # Apply offset and limit
+    # Explicit -n takes precedence over show_all implied by filters
+    if offset:
+        conversations = conversations[offset:]
+    if limit is not None:
+        # Explicit limit always applies
+        conversations = conversations[:limit]
+    elif not show_all:
+        # Default limit when no filters and no explicit -n
+        conversations = conversations[:10]
+
+    if not conversations:
+        console.print("[dim]No conversations found matching the criteria.[/dim]")
+        return
+
+    # Import analysis module
+    try:
+        from ohtv.analysis import analyze_objectives, get_cached_analysis
+    except ImportError as e:
+        console.print(f"[red]Error:[/red] Analysis module not available: {e}")
+        raise SystemExit(1)
+
+    # Map variant to detail+assess for cache compatibility
+    # Default to brief for multi-conversation mode (token efficient)
+    detail = "brief"
+    assess = False
+    if variant:
+        assess = variant.endswith("_assess")
+        detail = variant.replace("_assess", "")
+    
+    # Default to minimal context for multi-conversation mode (token efficient)
+    context_value = context if context else "minimal"
+
+    # Safety threshold for LLM analysis - require confirmation for large batches
+    SUMMARY_CONFIRM_THRESHOLD = 20
+    
+    # Count how many actually need LLM computation (for progress bar and confirmation)
+    if refresh:
+        # --refresh forces all to be recomputed
+        uncached_count = len(conversations)
+    else:
+        # Use fast DB-based cache check
+        uncached_count = _count_uncached_conversations_fast(
+            conversations, config, context_value, detail, assess
+        )
+    
+    # Get model name for display (short form if available)
+    def _get_model_display_name() -> str:
+        """Get a display-friendly model name."""
+        import os
+        os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
+        from openhands.sdk import LLM
+        llm = LLM.load_from_env()
+        if model:
+            # User specified a model, use that
+            return model.split("/")[-1] if "/" in model else model
+        # Try to get clean name from model_info, fall back to model string
+        if llm.model_info and llm.model_info.get("key"):
+            return llm.model_info["key"]
+        return llm.model.split("/")[-1] if "/" in llm.model else llm.model
+    
+    # Only prompt if we actually need to run LLM on many conversations
+    if uncached_count > SUMMARY_CONFIRM_THRESHOLD and not yes:
+        from rich.prompt import Confirm
+        cached_count = len(conversations) - uncached_count
+        model_name = _get_model_display_name()
+        console.print(f"[yellow]Warning:[/yellow] About to analyze {uncached_count} conversations with [cyan]{model_name}[/cyan].")
+        if cached_count > 0:
+            console.print(f"[dim]({cached_count} already cached and will be skipped)[/dim]")
+        console.print("[dim]This may take a while and use significant LLM tokens.[/dim]")
+        if not Confirm.ask("Do you want to continue?", console=console, default=False):
+            console.print("[dim]Aborted. Use --yes to skip this confirmation.[/dim]")
+            return
+
+    # Analyze each conversation with progress indicator
+    results: list[dict] = []
+    errors: list[tuple[str, str]] = []
+    total_cost = 0.0
+    import time
+    import signal
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    start_time = time.perf_counter()
+    processed_count = 0
+    
+    # Use parallel processing for multiple uncached conversations
+    # 20 workers to maximize throughput (LLM API rate limits are the real bottleneck)
+    max_workers = 20 if uncached_count > 1 else 1
+    
+    # Thread-safe counters and shutdown flag for parallel mode
+    _lock = threading.Lock()
+    _shutdown_requested = False
+    
+    def _handle_shutdown(signum, frame):
+        """Handle SIGINT/SIGTERM - request graceful shutdown."""
+        nonlocal _shutdown_requested
+        _shutdown_requested = True
+        console.print("\n[yellow]Shutdown requested - finishing current work...[/yellow]")
+    
+    # Install signal handlers for graceful shutdown
+    old_sigint = signal.signal(signal.SIGINT, _handle_shutdown)
+    old_sigterm = signal.signal(signal.SIGTERM, _handle_shutdown)
+
+    def _format_rate(count: int, elapsed: float) -> str:
+        """Format processing rate as conv/min."""
+        if elapsed < 0.1 or count == 0:
+            return "-- conv/min"
+        rate = count / (elapsed / 60.0)
+        return f"{rate:.1f} conv/min"
+
+    def _analyze_one(conv) -> tuple[dict | None, tuple[str, str] | None, float, bool]:
+        """Analyze a single conversation. Returns (result_dict, error_tuple, cost, from_cache)."""
+        result = _find_conversation_dir(config, conv.lookup_id)
+        if not result:
+            return None, (conv.short_id, "Not found"), 0.0, False
+        
+        conv_dir, _ = result
+        
+        try:
+            analysis_result = analyze_objectives(
+                conv_dir,
+                model=model,
+                context=context_value,
+                detail=detail,
+                assess=assess,
+                force_refresh=refresh,
+            )
+            analysis = analysis_result.analysis
+            # Extract display goal: use goal field, or summary for detailed mode,
+            # or first primary objective's description as fallback
+            display_goal = analysis.goal
+            if not display_goal and analysis.detail_level == "detailed":
+                if analysis.summary:
+                    display_goal = analysis.summary
+                elif analysis.primary_objectives:
+                    display_goal = analysis.primary_objectives[0].description
+            return {
+                "id": conv.id,
+                "short_id": conv.short_id,
+                "source": conv.source,
+                "created_at": conv.created_at,
+                "goal": display_goal or "(no goal identified)",
+                "cached": analysis_result.from_cache,
+                "conv_dir": conv_dir,
+            }, None, analysis_result.cost, analysis_result.from_cache
+        except (ValueError, RuntimeError) as e:
+            return None, (conv.short_id, str(e)[:50]), 0.0, False
+        except Exception as e:
+            if "api_key" in str(e).lower() or "LLM_" in str(e):
+                raise  # Re-raise auth errors to handle at top level
+            return None, (conv.short_id, str(e)[:50]), 0.0, False
+
+    # Show progress for LLM analysis (skip if all cached)
+    # Note: --quiet only suppresses final output, not progress bar or confirmation
+    show_progress = uncached_count > 0
+    progress_ctx = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TextColumn("[green]$[/green]{task.fields[cost]:.4f}"),
+        TextColumn("[dim]{task.fields[rate]}[/dim]"),
+        TimeRemainingColumn(),
+        console=console,
+        transient=True,
+    ) if show_progress else nullcontext()
+
+    with progress_ctx as progress:
+        task = None
+        if show_progress:
+            task = progress.add_task(
+                f"Analyzing {uncached_count} conversations...",
+                total=uncached_count,
+                cost=0.0,
+                rate="-- conv/min",
+            )
+
+        if max_workers == 1:
+            # Sequential processing (original behavior)
+            for conv in conversations:
+                if _shutdown_requested:
+                    break
+                result_dict, error_tuple, cost, from_cache = _analyze_one(conv)
+                
+                if error_tuple:
+                    errors.append(error_tuple)
+                    if task is not None:
+                        progress.advance(task)
+                elif result_dict:
+                    results.append(result_dict)
+                    if not from_cache:
+                        total_cost += cost
+                        processed_count += 1
+                        elapsed = time.perf_counter() - start_time
+                        if task is not None:
+                            progress.update(
+                                task,
+                                advance=1,
+                                cost=total_cost,
+                                rate=_format_rate(processed_count, elapsed),
+                            )
+        else:
+            # Parallel processing with ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks
+                future_to_conv = {executor.submit(_analyze_one, conv): conv for conv in conversations}
+                
+                # Process results as they complete
+                for future in as_completed(future_to_conv):
+                    # Check for shutdown - cancel pending futures and exit
+                    if _shutdown_requested:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
+                    
+                    try:
+                        result_dict, error_tuple, cost, from_cache = future.result()
+                    except Exception as e:
+                        if "api_key" in str(e).lower() or "LLM_" in str(e):
+                            # Cancel remaining futures and raise
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            console.print(
+                                "\n[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
+                            )
+                            console.print("[dim]Hint: export LLM_API_KEY=your-api-key[/dim]")
+                            raise SystemExit(1)
+                        conv = future_to_conv[future]
+                        with _lock:
+                            errors.append((conv.short_id, str(e)[:50]))
+                        if task is not None:
+                            progress.advance(task)
+                        continue
+                    
+                    # All list modifications protected by lock for thread safety
+                    with _lock:
+                        if error_tuple:
+                            errors.append(error_tuple)
+                        elif result_dict:
+                            results.append(result_dict)
+                            if not from_cache:
+                                total_cost += cost
+                                processed_count += 1
+                                elapsed = time.perf_counter() - start_time
+                    
+                    # Progress updates outside lock (Rich Progress is thread-safe)
+                    if error_tuple:
+                        if task is not None:
+                            progress.advance(task)
+                    elif result_dict and not from_cache:
+                        if task is not None:
+                            progress.update(
+                                task,
+                                advance=1,
+                                cost=total_cost,
+                                rate=_format_rate(processed_count, elapsed),
+                            )
+    
+    # Restore original signal handlers
+    signal.signal(signal.SIGINT, old_sigint)
+    signal.signal(signal.SIGTERM, old_sigterm)
+    
+    # Calculate final rate for summary
+    total_elapsed = time.perf_counter() - start_time
+    final_rate = _format_rate(processed_count, total_elapsed) if processed_count > 0 else None
+    
+    # If shutdown was requested, show what we completed and exit
+    if _shutdown_requested:
+        if results:
+            console.print(f"[yellow]Interrupted - showing {len(results)} completed results[/yellow]")
+        else:
+            console.print("[yellow]Interrupted - no results to show[/yellow]")
+            return
+
+    # Skip all output if --quiet is enabled
+    if quiet:
+        return
+
+    # Extract outputs for each conversation if needed
+    if not no_outputs:
+        for r in results:
+            r["outputs"] = _get_conversation_outputs(r["conv_dir"])
+
+    # Output results
+    if fmt == "json":
+        json_results = []
+        for r in results:
+            item = {
+                "id": r["id"],
+                "source": r["source"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "goal": r["goal"],
+            }
+            if not no_outputs and r.get("outputs"):
+                outputs = r["outputs"]
+                refs = outputs.get("refs", {})
+                interactions = outputs.get("interactions")
+                unpushed = outputs.get("unpushed_commits", set())
+
+                item["refs"] = {
+                    "repos": [
+                        {"url": url, "actions": sorted(interactions.repos.get(url, [])) if interactions else []}
+                        for url in sorted(refs.get("repos", set()))
+                    ],
+                    "prs": [
+                        {"url": url, "actions": sorted(interactions.prs.get(url, [])) if interactions else []}
+                        for url in sorted(refs.get("prs", set()))
+                    ],
+                    "issues": [
+                        {"url": url, "actions": sorted(interactions.issues.get(url, [])) if interactions else []}
+                        for url in sorted(refs.get("issues", set()))
+                    ],
+                }
+                if unpushed:
+                    item["unpushed_commits"] = sorted(unpushed)
+            json_results.append(item)
+        print(json.dumps(json_results, indent=2))
+    elif fmt == "markdown":
+        print(_format_summary_markdown(results, include_outputs=not no_outputs))
+    else:
+        _print_summary_table(results, total_count, len(errors), include_outputs=not no_outputs)
+
+    # Show cost and rate summary if any LLM calls were made
+    if total_cost > 0 and fmt == "table":
+        rate_str = f" ({final_rate})" if final_rate else ""
+        console.print(f"[dim]LLM cost: [green]${total_cost:.4f}[/green]{rate_str}[/dim]")
+
+    # Show errors if any
+    if errors and fmt == "table":
+        console.print(f"\n[yellow]Failed to analyze {len(errors)} conversation(s):[/yellow]")
+        for short_id, error in errors[:5]:  # Show first 5 errors
+            console.print(f"  [dim]{short_id}:[/dim] {error}")
+        if len(errors) > 5:
+            console.print(f"  [dim]... and {len(errors) - 5} more[/dim]")
 
 
 def _run_objectives_analysis(
