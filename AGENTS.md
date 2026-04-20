@@ -169,6 +169,10 @@ uv run ohtv refs -W --format json      # This week's refs as JSON
 uv run ohtv errors <id>                # Agent/LLM error summary
 uv run ohtv list --errors-only         # List conversations with errors
 uv run ohtv db status                  # Database statistics
+uv run ohtv db embed                   # Build embeddings for semantic search
+uv run ohtv db embed --estimate        # Show cost estimate for embedding
+uv run ohtv search "fix auth bugs"     # Semantic search across conversations
+uv run ohtv search "error 404" --exact # Keyword search (FTS5)
 uv run ohtv prompts                    # List prompt status
 uv run ohtv prompts init               # Copy prompts for customization
 uv run ohtv prompts show brief         # Show specific prompt content
@@ -231,3 +235,38 @@ uv run ohtv prompts show brief         # Show specific prompt content
 - Supports both `git checkout` and `git switch` variants
 - Prefers push output over checkout inference when available
 - Marks inferred branches with `branch_inferred: true` in metadata
+
+## Completed: Semantic Search with Embeddings
+
+**PR**: #24 (implements issue #1)
+
+**Features**:
+1. ✅ Embedding generation using LiteLLM (same LLM_API_KEY/LLM_BASE_URL as gen command)
+2. ✅ Vector storage in SQLite BLOBs with numpy-based cosine similarity search
+3. ✅ FTS5 keyword search fallback with `--exact` flag
+4. ✅ Cost estimation before embedding (shows token count and estimated cost)
+5. ✅ 19 tests for embedding store and search functionality
+
+**CLI Commands**:
+```bash
+ohtv db embed                    # Build embeddings for all conversations
+ohtv db embed --estimate         # Show cost estimate only
+ohtv db embed --force            # Rebuild all embeddings
+ohtv search "fix auth bugs"      # Semantic search
+ohtv search "error 404" --exact  # Keyword search
+ohtv search "docker" -n 20       # Limit results
+ohtv search "api" --since 7d     # Filter by date
+```
+
+**Environment Variables**:
+- `EMBEDDING_MODEL` - Model to use (default: `openai/text-embedding-3-small`)
+- `LLM_API_KEY` - Same key used for `gen objs`
+- `LLM_BASE_URL` - Same base URL used for `gen objs`
+
+**Implementation Details**:
+- `src/ohtv/db/migrations/008_embeddings.py` - Schema for embeddings and FTS5 tables
+- `src/ohtv/db/stores/embedding_store.py` - Data access for vectors and FTS
+- `src/ohtv/analysis/embeddings.py` - LiteLLM embedding generation
+- Uses "lean transcript" for embedding: user messages + finish blocks + thinking blocks
+- Vectors stored as BLOB with struct-packed float32 arrays
+- Search uses numpy for efficient matrix multiplication (cosine similarity)
