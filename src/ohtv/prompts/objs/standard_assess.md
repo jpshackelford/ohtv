@@ -71,6 +71,7 @@ display:
           - field: secondary_outcomes
             format: bullet_list
             prefix: "Secondary:"
+          - refs_display
         combine: newline
 ---
 Analyze this conversation between a user and an AI coding assistant.
