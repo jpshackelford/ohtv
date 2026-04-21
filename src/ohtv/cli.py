@@ -5210,20 +5210,39 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         total_embeddings = 0
         valid_convs = []
         
-        console.print(f"[dim]Estimating token count for {len(to_embed)} conversations...[/dim]")
-        
-        for conv in to_embed:
-            conv_dir = Path(conv.location)
-            if not conv_dir.exists():
-                continue
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Estimating"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("[dim]{task.fields[current]}[/dim]"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task(
+                "Estimating",
+                total=len(to_embed),
+                current="calculating tokens..."
+            )
             
-            tokens, num_embeddings = estimate_conversation_tokens(conv_dir)
-            if tokens == 0:
-                continue
-            
-            total_tokens += tokens
-            total_embeddings += num_embeddings
-            valid_convs.append((conv, conv_dir, tokens, num_embeddings))
+            for conv in to_embed:
+                short_id = conv.id[:12]
+                progress.update(task, current=short_id)
+                
+                conv_dir = Path(conv.location)
+                if not conv_dir.exists():
+                    progress.advance(task)
+                    continue
+                
+                tokens, num_embeddings = estimate_conversation_tokens(conv_dir)
+                if tokens == 0:
+                    progress.advance(task)
+                    continue
+                
+                total_tokens += tokens
+                total_embeddings += num_embeddings
+                valid_convs.append((conv, conv_dir, tokens, num_embeddings))
+                progress.advance(task)
         
         if not valid_convs:
             console.print("[dim]No conversations with content to embed.[/dim]")
