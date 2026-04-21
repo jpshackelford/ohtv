@@ -5187,13 +5187,13 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             return
         
         # Determine which need embedding
-        # Note: embeddings table stores IDs without dashes (from directory names)
-        # but conversations may have dashes in their IDs, so normalize for comparison
+        # Note: conversation IDs may or may not have dashes depending on source.
+        # Normalize both sides for comparison.
         from ohtv.filters import normalize_conversation_id
         if force:
             to_embed = all_convs
         else:
-            existing = set(embed_store.list_conversation_ids())
+            existing = set(normalize_conversation_id(cid) for cid in embed_store.list_conversation_ids())
             to_embed = [c for c in all_convs if normalize_conversation_id(c.id) not in existing]
         
         if not to_embed:

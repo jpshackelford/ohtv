@@ -108,23 +108,6 @@ def embed_conversation_full(
             refs = []
 
     texts = build_conversation_texts(events, analysis, refs)
-    
-    # Early exit if no embeddable content
-    if not texts.analysis_text and not texts.summary_text and not texts.content_chunks:
-        log.debug("No embeddable content for %s", conv_id[:12])
-        return stats
-    
-    # Debug: log what content exists and if embeddings exist
-    log.debug(
-        "Content for %s: analysis=%s, summary=%s, chunks=%d; has_existing: analysis=%s, summary=%s, content=%s",
-        conv_id[:12],
-        bool(texts.analysis_text),
-        bool(texts.summary_text),
-        len(texts.content_chunks) if texts.content_chunks else 0,
-        store.has_embedding(conv_id, "analysis"),
-        store.has_embedding(conv_id, "summary"),
-        store.has_embedding(conv_id, "content"),
-    )
 
     if model is None:
         model = get_embedding_model()
