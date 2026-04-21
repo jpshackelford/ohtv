@@ -5315,9 +5315,9 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             max_retries = 5
             retry_delay = 0.5  # seconds
             
-            for attempt in range(max_retries):
-                # Each thread gets its own connection (SQLite connections aren't thread-safe)
-                with get_connection() as thread_conn:
+            # Each thread gets its own connection (SQLite connections aren't thread-safe)
+            with get_connection() as thread_conn:
+                for attempt in range(max_retries):
                     try:
                         stats = embed_conversation_full(
                             conv_dir,
