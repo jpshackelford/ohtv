@@ -51,9 +51,12 @@ class TestEmbeddingStore:
         model = "openai/text-embedding-3-small"
         
         _create_conversation(conversation_store, conv_id)
-        embedding_store.upsert(conv_id, sample_embedding_small, model, token_count=100)
+        embedding_store.upsert(
+            conv_id, sample_embedding_small, model, 
+            embed_type="summary", token_count=100
+        )
         
-        result = embedding_store.get(conv_id)
+        result = embedding_store.get(conv_id, embed_type="summary")
         assert result is not None
         
         embedding, record = result
@@ -78,13 +81,19 @@ class TestEmbeddingStore:
         _create_conversation(conversation_store, conv_id)
         
         # Insert first embedding
-        embedding_store.upsert(conv_id, sample_embedding_small, "model-v1", 100)
+        embedding_store.upsert(
+            conv_id, sample_embedding_small, "model-v1", 
+            embed_type="summary", token_count=100
+        )
         
         # Update with new embedding
         new_embedding = [0.9, 0.8, 0.7, 0.6, 0.5]
-        embedding_store.upsert(conv_id, new_embedding, "model-v2", 200)
+        embedding_store.upsert(
+            conv_id, new_embedding, "model-v2", 
+            embed_type="summary", token_count=200
+        )
         
-        result = embedding_store.get(conv_id)
+        result = embedding_store.get(conv_id, embed_type="summary")
         assert result is not None
         
         embedding, record = result
@@ -96,29 +105,38 @@ class TestEmbeddingStore:
         """Test deleting an embedding."""
         conv_id = "test-conv-123"
         _create_conversation(conversation_store, conv_id)
-        embedding_store.upsert(conv_id, sample_embedding_small, "model", 100)
+        embedding_store.upsert(
+            conv_id, sample_embedding_small, "model", 
+            embed_type="summary", token_count=100
+        )
         
         assert embedding_store.get(conv_id) is not None
         
         deleted = embedding_store.delete(conv_id)
-        assert deleted is True
+        assert deleted == 1  # Returns count of deleted rows
         assert embedding_store.get(conv_id) is None
     
     def test_delete_nonexistent(self, embedding_store):
-        """Test deleting a non-existent embedding returns False."""
+        """Test deleting a non-existent embedding returns 0."""
         deleted = embedding_store.delete("nonexistent-conv")
-        assert deleted is False
+        assert deleted == 0
     
     def test_count(self, embedding_store, conversation_store, sample_embedding_small):
         """Test counting embeddings."""
         assert embedding_store.count() == 0
         
         _create_conversation(conversation_store, "conv-1")
-        embedding_store.upsert("conv-1", sample_embedding_small, "model", 100)
+        embedding_store.upsert(
+            "conv-1", sample_embedding_small, "model", 
+            embed_type="summary", token_count=100
+        )
         assert embedding_store.count() == 1
         
         _create_conversation(conversation_store, "conv-2")
-        embedding_store.upsert("conv-2", sample_embedding_small, "model", 100)
+        embedding_store.upsert(
+            "conv-2", sample_embedding_small, "model", 
+            embed_type="summary", token_count=100
+        )
         assert embedding_store.count() == 2
         
         embedding_store.delete("conv-1")
@@ -129,9 +147,18 @@ class TestEmbeddingStore:
         for i in range(1, 4):
             _create_conversation(conversation_store, f"conv-{i}")
         
-        embedding_store.upsert("conv-1", sample_embedding_small, "model-a", 100)
-        embedding_store.upsert("conv-2", sample_embedding_small, "model-a", 100)
-        embedding_store.upsert("conv-3", sample_embedding_small, "model-b", 100)
+        embedding_store.upsert(
+            "conv-1", sample_embedding_small, "model-a", 
+            embed_type="summary", token_count=100
+        )
+        embedding_store.upsert(
+            "conv-2", sample_embedding_small, "model-a", 
+            embed_type="summary", token_count=100
+        )
+        embedding_store.upsert(
+            "conv-3", sample_embedding_small, "model-b", 
+            embed_type="summary", token_count=100
+        )
         
         counts = embedding_store.count_by_model()
         assert counts == {"model-a": 2, "model-b": 1}
@@ -142,8 +169,14 @@ class TestEmbeddingStore:
         
         _create_conversation(conversation_store, "conv-1")
         _create_conversation(conversation_store, "conv-2")
-        embedding_store.upsert("conv-1", sample_embedding_small, "model", 100)
-        embedding_store.upsert("conv-2", sample_embedding_small, "model", 100)
+        embedding_store.upsert(
+            "conv-1", sample_embedding_small, "model", 
+            embed_type="summary", token_count=100
+        )
+        embedding_store.upsert(
+            "conv-2", sample_embedding_small, "model", 
+            embed_type="summary", token_count=100
+        )
         
         ids = embedding_store.list_conversation_ids()
         assert set(ids) == {"conv-1", "conv-2"}
@@ -159,9 +192,18 @@ class TestSemanticSearch:
             _create_conversation(conversation_store, f"conv-{i}")
         
         # Create some embeddings with distinct values
-        embedding_store.upsert("conv-1", [1.0, 0.0, 0.0], "model", 100)
-        embedding_store.upsert("conv-2", [0.0, 1.0, 0.0], "model", 100)
-        embedding_store.upsert("conv-3", [0.9, 0.1, 0.0], "model", 100)  # Similar to conv-1
+        embedding_store.upsert(
+            "conv-1", [1.0, 0.0, 0.0], "model", 
+            embed_type="summary", token_count=100
+        )
+        embedding_store.upsert(
+            "conv-2", [0.0, 1.0, 0.0], "model", 
+            embed_type="summary", token_count=100
+        )
+        embedding_store.upsert(
+            "conv-3", [0.9, 0.1, 0.0], "model",  # Similar to conv-1
+            embed_type="summary", token_count=100
+        )
         
         # Search with a query similar to conv-1
         query = [0.95, 0.05, 0.0]
@@ -177,7 +219,10 @@ class TestSemanticSearch:
         """Test search respects limit."""
         for i in range(10):
             _create_conversation(conversation_store, f"conv-{i}")
-            embedding_store.upsert(f"conv-{i}", [1.0, 0.0, 0.0], "model", 100)
+            embedding_store.upsert(
+                f"conv-{i}", [1.0, 0.0, 0.0], "model", 
+                embed_type="summary", token_count=100
+            )
         
         results = embedding_store.search([1.0, 0.0, 0.0], limit=3)
         assert len(results) == 3
@@ -187,8 +232,14 @@ class TestSemanticSearch:
         _create_conversation(conversation_store, "conv-1")
         _create_conversation(conversation_store, "conv-2")
         
-        embedding_store.upsert("conv-1", [1.0, 0.0, 0.0], "model", 100)
-        embedding_store.upsert("conv-2", [0.0, 1.0, 0.0], "model", 100)  # Orthogonal = low score
+        embedding_store.upsert(
+            "conv-1", [1.0, 0.0, 0.0], "model", 
+            embed_type="summary", token_count=100
+        )
+        embedding_store.upsert(
+            "conv-2", [0.0, 1.0, 0.0], "model",  # Orthogonal = low score
+            embed_type="summary", token_count=100
+        )
         
         # With min_score=0, should get both
         results = embedding_store.search([1.0, 0.0, 0.0], min_score=0.0)
@@ -209,8 +260,14 @@ class TestSemanticSearch:
         _create_conversation(conversation_store, "conv-3d")
         _create_conversation(conversation_store, "conv-5d")
         
-        embedding_store.upsert("conv-3d", [1.0, 0.0, 0.0], "model", 100)
-        embedding_store.upsert("conv-5d", [1.0, 0.0, 0.0, 0.0, 0.0], "model", 100)
+        embedding_store.upsert(
+            "conv-3d", [1.0, 0.0, 0.0], "model", 
+            embed_type="summary", token_count=100
+        )
+        embedding_store.upsert(
+            "conv-5d", [1.0, 0.0, 0.0, 0.0, 0.0], "model", 
+            embed_type="summary", token_count=100
+        )
         
         # Query with 3 dims should only match 3d embedding
         results = embedding_store.search([1.0, 0.0, 0.0])
@@ -221,6 +278,70 @@ class TestSemanticSearch:
         results = embedding_store.search([1.0, 0.0, 0.0, 0.0, 0.0])
         assert len(results) == 1
         assert results[0].conversation_id == "conv-5d"
+    
+    def test_search_by_embed_type(self, embedding_store, conversation_store):
+        """Test filtering search by embedding type."""
+        _create_conversation(conversation_store, "conv-1")
+        
+        # Create different embedding types for the same conversation
+        embedding_store.upsert(
+            "conv-1", [1.0, 0.0, 0.0], "model",
+            embed_type="analysis", token_count=50
+        )
+        embedding_store.upsert(
+            "conv-1", [0.8, 0.2, 0.0], "model",
+            embed_type="summary", token_count=100
+        )
+        embedding_store.upsert(
+            "conv-1", [0.5, 0.5, 0.0], "model",
+            embed_type="content", chunk_index=0, token_count=200
+        )
+        
+        # Search only analysis type
+        results = embedding_store.search(
+            [1.0, 0.0, 0.0], embed_types=["analysis"]
+        )
+        assert len(results) == 1
+        assert results[0].embed_type == "analysis"
+        
+        # Search summary and content
+        results = embedding_store.search(
+            [1.0, 0.0, 0.0], embed_types=["summary", "content"]
+        )
+        assert len(results) == 2
+        assert all(r.embed_type in ("summary", "content") for r in results)
+    
+    def test_search_conversations_aggregates(self, embedding_store, conversation_store):
+        """Test search_conversations aggregates by conversation."""
+        _create_conversation(conversation_store, "conv-1")
+        _create_conversation(conversation_store, "conv-2")
+        
+        # Conv-1 has multiple embeddings
+        embedding_store.upsert(
+            "conv-1", [1.0, 0.0, 0.0], "model",
+            embed_type="analysis", token_count=50
+        )
+        embedding_store.upsert(
+            "conv-1", [0.9, 0.1, 0.0], "model",
+            embed_type="summary", token_count=100
+        )
+        
+        # Conv-2 has one embedding
+        embedding_store.upsert(
+            "conv-2", [0.5, 0.5, 0.0], "model",
+            embed_type="summary", token_count=100
+        )
+        
+        # Search conversations
+        results = embedding_store.search_conversations([1.0, 0.0, 0.0], limit=10)
+        
+        # Should get 2 conversations, not 3 embeddings
+        assert len(results) == 2
+        
+        # Conv-1 should be first (better match via analysis embedding)
+        assert results[0].conversation_id == "conv-1"
+        assert results[0].best_match_type == "analysis"
+        assert len(results[0].all_matches) == 2
 
 
 class TestFTSSearch:
