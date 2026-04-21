@@ -169,6 +169,10 @@ uv run ohtv refs -W --format json      # This week's refs as JSON
 uv run ohtv errors <id>                # Agent/LLM error summary
 uv run ohtv list --errors-only         # List conversations with errors
 uv run ohtv db status                  # Database statistics
+uv run ohtv db embed                   # Build embeddings for semantic search
+uv run ohtv db embed --estimate        # Show cost estimate for embedding
+uv run ohtv search "fix auth bugs"     # Semantic search across conversations
+uv run ohtv search "error 404" --exact # Keyword search (FTS5)
 uv run ohtv prompts                    # List prompt status
 uv run ohtv prompts init               # Copy prompts for customization
 uv run ohtv prompts show brief         # Show specific prompt content
@@ -231,3 +235,55 @@ uv run ohtv prompts show brief         # Show specific prompt content
 - Supports both `git checkout` and `git switch` variants
 - Prefers push output over checkout inference when available
 - Marks inferred branches with `branch_inferred: true` in metadata
+
+## Completed: Semantic Search with Embeddings + RAG
+
+**PR**: #25 (implements issue #1)
+
+**Features**:
+1. ✅ Multi-type embeddings: analysis, summary, content (chunked)
+2. ✅ RAG question answering via `ohtv ask`
+3. ✅ Automatic embedding updates when `gen objs` runs
+4. ✅ Refs (PRs, repos, issues) included in summary embeddings
+5. ✅ File contents included in content embeddings
+6. ✅ FTS5 keyword search fallback with `--exact` flag
+7. ✅ 21 tests for embedding store and search
+
+**CLI Commands**:
+```bash
+# Build embeddings
+ohtv db embed                    # Build embeddings for all conversations
+ohtv db embed --estimate         # Show cost estimate only
+ohtv db embed --force            # Rebuild all embeddings
+
+# Search conversations
+ohtv search "fix auth bugs"      # Semantic search
+ohtv search "error 404" --exact  # Keyword search
+ohtv search "docker" -n 20       # Limit results
+ohtv search "api" --since 7d     # Filter by date
+
+# Ask questions (RAG)
+ohtv ask "how did we fix the auth bug?"     # Question answering
+ohtv ask "summarize the API changes" -c 10  # More context chunks
+ohtv ask "what PRs were created?" --show-context  # Show retrieved chunks
+```
+
+**Embedding Types**:
+- `analysis` - Goal + outcomes from cached LLM analysis (auto-updated on `gen objs`)
+- `summary` - User messages + refs (repos/PRs/issues) + file paths + commands
+- `content` - File contents + terminal outputs (chunked if >1000 tokens)
+
+**Environment Variables**:
+- `EMBEDDING_MODEL` - Embedding model (default: `openai/text-embedding-3-small`)
+- `LLM_MODEL` - RAG answer model (default: `openai/gpt-4o-mini`)
+- `LLM_API_KEY` - Same key used for `gen objs`
+- `LLM_BASE_URL` - Same base URL used for `gen objs`
+
+**Implementation Details**:
+- `src/ohtv/db/migrations/008_embeddings.py` - Initial embeddings schema
+- `src/ohtv/db/migrations/009_embedding_types.py` - Multi-type schema
+- `src/ohtv/db/stores/embedding_store.py` - Vector/FTS storage, aggregated search
+- `src/ohtv/analysis/embeddings.py` - Text builders, chunking, embedding
+- `src/ohtv/analysis/cache.py` - Auto-updates analysis embedding on gen objs
+- Vectors stored as BLOB with struct-packed float32 arrays
+- Search aggregates best match per conversation across all embedding types

@@ -62,6 +62,31 @@ def load_events(conv_dir: Path) -> list[dict]:
     return events
 
 
+def load_analysis(conv_dir: Path) -> dict | None:
+    """Load cached analysis from a conversation directory.
+
+    Args:
+        conv_dir: Path to conversation directory
+
+    Returns:
+        Analysis dict with keys like 'goal', 'primary_outcomes', etc.
+        Returns None if no cache exists or no analysis found.
+    """
+    cache_file = conv_dir / "objective_analysis.json"
+    if not cache_file.exists():
+        return None
+
+    try:
+        data = json.loads(cache_file.read_text())
+        analyses = data.get("analyses", {})
+        if not analyses:
+            return None
+        # Return first analysis found (they all have the same goal/outcomes)
+        return next(iter(analyses.values()))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def compute_content_hash(content: str | list | dict) -> str:
     """Compute a hash of content for cache invalidation.
 
@@ -256,12 +281,21 @@ class AnalysisCacheManager:
         log.debug("Cache hit for key '%s'", cache_key)
         return analysis
 
-    def save(self, conv_dir: Path, analysis: T, **key_kwargs) -> None:
+    def save(
+        self,
+        conv_dir: Path,
+        analysis: T,
+        update_embeddings: bool = False,
+        **key_kwargs,
+    ) -> None:
         """Save analysis to cache.
 
         Args:
             conv_dir: Conversation directory
             analysis: Analysis result to cache
+            update_embeddings: Whether to update the analysis embedding in the
+                database. This triggers an API call to generate embeddings.
+                Default is False to avoid hidden side effects.
             **key_kwargs: Parameters that identify the analysis type.
                 If not provided, extracts from analysis object attributes
                 matching common parameter names.
@@ -297,6 +331,10 @@ class AnalysisCacheManager:
         
         # Sync to database if available
         self._sync_cache_to_db(conv_dir.name, cache_key, analysis)
+        
+        # Update analysis embedding only if explicitly requested
+        if update_embeddings:
+            self._update_analysis_embedding(conv_dir, analysis)
 
     def _sync_cache_to_db(self, conversation_id: str, cache_key: str, analysis: T) -> None:
         """Sync cache entry to database for fast lookup.
@@ -325,6 +363,60 @@ class AnalysisCacheManager:
         except Exception as e:
             # DB sync is optional, don't fail if it doesn't work
             log.debug("Failed to sync cache to DB (non-fatal): %s", e)
+    
+    def _update_analysis_embedding(self, conv_dir: Path, analysis: T) -> None:
+        """Update the analysis embedding after new analysis is cached.
+        
+        This ensures the embedding store stays in sync with analysis changes.
+        Only updates the 'analysis' embedding type, not summary/content.
+        """
+        try:
+            from ohtv.db import get_connection, migrate
+            from ohtv.db.stores import EmbeddingStore
+            from ohtv.analysis.embeddings import (
+                build_analysis_text, get_embedding, get_embedding_model
+            )
+            import os
+            
+            # Only attempt if LLM_API_KEY is configured
+            if not os.environ.get("LLM_API_KEY"):
+                log.debug("Skipping embedding update - LLM_API_KEY not set")
+                return
+            
+            # Build analysis text
+            analysis_dict = analysis.model_dump()
+            analysis_text = build_analysis_text(analysis_dict)
+            
+            if not analysis_text:
+                log.debug("No analysis text to embed for %s", conv_dir.name)
+                return
+            
+            # Get embedding
+            model = get_embedding_model()
+            result = get_embedding(analysis_text, model=model)
+            
+            # Save to database
+            with get_connection() as conn:
+                migrate(conn)
+                store = EmbeddingStore(conn)
+                store.upsert(
+                    conversation_id=conv_dir.name,
+                    embedding=result.embedding,
+                    model=result.model,
+                    embed_type="analysis",
+                    chunk_index=0,
+                    token_count=result.token_count,
+                    source_text=analysis_text,
+                )
+                conn.commit()
+                log.debug("Updated analysis embedding for %s", conv_dir.name)
+                
+        except (ImportError, RuntimeError, OSError) as e:
+            # Embedding update is optional, don't fail analysis
+            # - ImportError: missing dependencies
+            # - RuntimeError: API errors (e.g., LLM call failed)
+            # - OSError: I/O errors (database access issues)
+            log.debug("Failed to update analysis embedding (non-fatal): %s", e)
 
     def is_skipped(self, conv_dir: Path, event_count: int) -> str | None:
         """Check if conversation is marked as skipped.
