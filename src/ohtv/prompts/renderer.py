@@ -197,6 +197,8 @@ def get_default_display_schema() -> DisplaySchema:
     Returns:
         DisplaySchema with ID, Date, and Summary columns
     """
+    # Import here to avoid circular dependency - cli.py imports from prompts/__init__.py
+    # which re-exports this function, and metadata.py is part of the same package
     from ohtv.prompts.metadata import ColumnDef, FieldRef
     
     return DisplaySchema(columns=[

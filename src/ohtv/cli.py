@@ -9,6 +9,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from click import Context, HelpFormatter
@@ -19,6 +20,9 @@ from rich.tree import Tree
 from ohtv.actions import READ_ACTIONS, WRITE_ACTIONS
 from ohtv.config import Config
 from ohtv.db.utils import generate_unique_source_names
+
+if TYPE_CHECKING:
+    from ohtv.prompts import DisplaySchema
 
 log = logging.getLogger("ohtv")
 
@@ -5267,8 +5271,9 @@ def _run_batch_objectives_analysis(
     try:
         prompt_meta = resolve_prompt("objs", effective_variant)
         display_schema = prompt_meta.display
-    except ValueError:
-        pass  # Unknown variant - will use default display
+    except ValueError as e:
+        # Unknown variant or malformed prompt - fall back to default display
+        log.debug("Could not load display schema for variant '%s': %s", effective_variant, e)
 
     # Safety threshold for LLM analysis - require confirmation for large batches
     SUMMARY_CONFIRM_THRESHOLD = 20
