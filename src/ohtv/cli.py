@@ -5300,15 +5300,25 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         start_time = time.perf_counter()
         processed_count = 0  # all processed (for rate calculation)
         
+        _last_rate_str = [""]  # mutable container for closure
+        _last_rate_update = [0.0]  # last update time
+        
         def _format_rate(processed: int, new_embeds: int, elapsed: float) -> str:
-            """Format processing rate."""
+            """Format processing rate. Updates at most every 0.5s to avoid jitter."""
             if elapsed < 0.1 or processed == 0:
                 return ""
+            # Only recalculate every 0.5s to smooth out parallel completion jitter
+            if elapsed - _last_rate_update[0] < 0.5 and _last_rate_str[0]:
+                return _last_rate_str[0]
+            _last_rate_update[0] = elapsed
+            
             rate = processed / (elapsed / 60.0)
             if new_embeds > 0:
                 new_rate = new_embeds / (elapsed / 60.0)
-                return f"{rate:.0f}/min ({new_rate:.0f} new)"
-            return f"{rate:.0f}/min"
+                _last_rate_str[0] = f"{rate:.0f}/min ({new_rate:.0f} new)"
+            else:
+                _last_rate_str[0] = f"{rate:.0f}/min"
+            return _last_rate_str[0]
         
         def _embed_one(conv, conv_dir) -> tuple[EmbeddingStats | None, str | None]:
             """Embed a single conversation. Returns (stats, error_msg)."""
