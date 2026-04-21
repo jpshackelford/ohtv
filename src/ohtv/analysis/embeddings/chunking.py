@@ -29,7 +29,7 @@ def chunk_text(
     Returns:
         List of TextChunk objects
     """
-    if not text:
+    if not text or not text.strip():
         return []
 
     estimated_tokens = estimate_tokens(text)

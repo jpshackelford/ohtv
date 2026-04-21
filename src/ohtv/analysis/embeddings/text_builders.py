@@ -285,7 +285,7 @@ def build_conversation_texts(
     content_chunks = chunk_text(content_text)
 
     return ConversationTexts(
-        analysis_text=analysis_text,
-        summary_text=summary_text if summary_text else None,
+        analysis_text=analysis_text.strip() if analysis_text and analysis_text.strip() else None,
+        summary_text=summary_text.strip() if summary_text and summary_text.strip() else None,
         content_chunks=content_chunks,
     )
