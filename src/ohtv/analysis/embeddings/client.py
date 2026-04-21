@@ -103,7 +103,9 @@ def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
     Returns:
         EmbeddingResult with embedding vector and metadata
     """
+    import time
     import urllib.request
+    import urllib.error
     import json
     
     # Strip 'ollama/' prefix for the API call
@@ -117,36 +119,55 @@ def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
         "prompt": text,
     }).encode("utf-8")
     
-    req = urllib.request.Request(
-        f"{ollama_url}/api/embeddings",
-        data=request_data,
-        headers={"Content-Type": "application/json"},
-    )
+    # Retry logic for transient Ollama errors (500s when overloaded)
+    max_retries = 3
+    retry_delay = 1.0  # seconds
+    last_error = None
     
-    try:
-        with urllib.request.urlopen(req, timeout=60) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except urllib.error.URLError as e:
-        raise RuntimeError(
-            f"Ollama connection failed: {e}. "
-            f"Is Ollama running? Try: ollama serve"
-        ) from e
-    except Exception as e:
-        raise RuntimeError(f"Ollama embedding failed: {e}") from e
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            f"{ollama_url}/api/embeddings",
+            data=request_data,
+            headers={"Content-Type": "application/json"},
+        )
+        
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            
+            embedding = result.get("embedding", [])
+            if not embedding:
+                raise RuntimeError(f"Ollama returned empty embedding. Response: {result}")
+            
+            # Estimate token count (Ollama doesn't return this)
+            token_count = int(len(text.split()) * 1.3)
+            
+            return EmbeddingResult(
+                embedding=embedding,
+                token_count=token_count,
+                model=model,
+                dimensions=len(embedding),
+            )
+        except urllib.error.HTTPError as e:
+            last_error = e
+            # Retry on 500 errors (Ollama overloaded)
+            if e.code == 500 and attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+                continue
+            raise RuntimeError(
+                f"Ollama connection failed: {e}. "
+                f"Is Ollama running? Try: ollama serve"
+            ) from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(
+                f"Ollama connection failed: {e}. "
+                f"Is Ollama running? Try: ollama serve"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"Ollama embedding failed: {e}") from e
     
-    embedding = result.get("embedding", [])
-    if not embedding:
-        raise RuntimeError(f"Ollama returned empty embedding. Response: {result}")
-    
-    # Estimate token count (Ollama doesn't return this)
-    token_count = int(len(text.split()) * 1.3)
-    
-    return EmbeddingResult(
-        embedding=embedding,
-        token_count=token_count,
-        model=model,
-        dimensions=len(embedding),
-    )
+    # Should not reach here, but just in case
+    raise RuntimeError(f"Ollama embedding failed after {max_retries} retries: {last_error}")
 
 
 def get_embedding(text: str, model: str | None = None) -> EmbeddingResult:
