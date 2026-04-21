@@ -9,6 +9,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from click import Context, HelpFormatter
@@ -19,6 +20,9 @@ from rich.tree import Tree
 from ohtv.actions import READ_ACTIONS, WRITE_ACTIONS
 from ohtv.config import Config
 from ohtv.db.utils import generate_unique_source_names
+
+if TYPE_CHECKING:
+    from ohtv.prompts import DisplaySchema
 
 log = logging.getLogger("ohtv")
 
@@ -3237,48 +3241,42 @@ def _print_summary_table(
     error_count: int,
     *,
     include_outputs: bool = True,
+    display_schema: "DisplaySchema | None" = None,
+    variant: str | None = None,
 ) -> None:
-    """Print summary results as a table."""
-    table = Table(show_header=True, header_style="bold", show_lines=True)
-    table.add_column("ID", style="cyan", width=7, no_wrap=True)
-    table.add_column("Date", width=10, no_wrap=True)
-    table.add_column("Summary", no_wrap=False)
-
-    for r in results:
-        date_str = ""
-        if r["created_at"]:
-            local_time = r["created_at"].astimezone()
-            date_str = local_time.strftime("%Y-%m-%d")
-
-        # Build the summary cell content
-        summary_parts = [r["goal"]]
-
-        # Add refs/outputs if present
-        if include_outputs and r.get("outputs"):
-            ref_lines = _format_refs_for_summary(r["outputs"])
-            summary_parts.extend(ref_lines)
-
-        summary_cell = "\n".join(summary_parts)
-
-        table.add_row(
-            r["short_id"],
-            date_str,
-            summary_cell,
-        )
-
-    console.print(table)
-
-    # Summary line: "Showing 5 of 100 (3/5 cached)"
-    showing = len(results)
-    cached = sum(1 for r in results if r.get("cached", False))
-
-    summary_parts = [f"Showing {showing} of {total_count}"]
-    if showing > 0:
-        summary_parts.append(f"({cached}/{showing} cached)")
-    if error_count > 0:
-        summary_parts.append(f"{error_count} failed")
-
-    console.print(f"[dim]{' '.join(summary_parts)}[/dim]")
+    """Print summary results as a table.
+    
+    Args:
+        results: List of result dictionaries from analysis
+        total_count: Total number of conversations (for summary)
+        error_count: Number of errors
+        include_outputs: Whether to include refs/outputs in output
+        display_schema: Optional display schema from prompt for variant-aware rendering
+        variant: Current prompt variant name (for show_when filtering)
+    """
+    from ohtv.prompts import TableRenderer, get_default_display_schema, DisplaySchema
+    
+    # Use display schema if provided, otherwise fall back to default
+    schema = display_schema if display_schema and display_schema.columns else get_default_display_schema()
+    
+    # Add refs/outputs to results if needed (for default schema with Summary column)
+    if include_outputs:
+        for r in results:
+            if r.get("outputs"):
+                # Store formatted refs in result for display schema access
+                ref_lines = _format_refs_for_summary(r["outputs"])
+                r["refs_display"] = "\n".join(ref_lines) if ref_lines else ""
+    
+    # Use TableRenderer for schema-based rendering
+    renderer = TableRenderer(schema, console=console)
+    
+    renderer.render(
+        results,
+        variant=variant,
+        show_summary=True,
+        total_count=total_count,
+        error_count=error_count,
+    )
 
 
 def _format_refs_for_markdown(outputs: dict | None) -> list[str]:
@@ -5259,12 +5257,23 @@ def _run_batch_objectives_analysis(
     # Default to brief for multi-conversation mode (token efficient)
     detail = "brief"
     assess = False
+    effective_variant = variant if variant else "brief"
     if variant:
         assess = variant.endswith("_assess")
         detail = variant.replace("_assess", "")
     
     # Default to minimal context for multi-conversation mode (token efficient)
     context_value = context if context else "minimal"
+    
+    # Resolve prompt metadata to get display schema (if variant has one)
+    from ohtv.prompts import resolve_prompt
+    display_schema = None
+    try:
+        prompt_meta = resolve_prompt("objs", effective_variant)
+        display_schema = prompt_meta.display
+    except ValueError as e:
+        # Unknown variant or malformed prompt - fall back to default display
+        log.debug("Could not load display schema for variant '%s': %s", effective_variant, e)
 
     # Safety threshold for LLM analysis - require confirmation for large batches
     SUMMARY_CONFIRM_THRESHOLD = 20
@@ -5369,7 +5378,9 @@ def _run_batch_objectives_analysis(
                     display_goal = analysis.summary
                 elif analysis.primary_objectives:
                     display_goal = analysis.primary_objectives[0].description
-            return {
+            
+            # Build result dict with all analysis fields for display schema rendering
+            result_dict = {
                 "id": conv.id,
                 "short_id": conv.short_id,
                 "source": conv.source,
@@ -5377,7 +5388,23 @@ def _run_batch_objectives_analysis(
                 "goal": display_goal or "(no goal identified)",
                 "cached": analysis_result.from_cache,
                 "conv_dir": conv_dir,
-            }, None, analysis_result.cost, analysis_result.from_cache
+                # Include all analysis fields for variant-aware rendering
+                "status": analysis.status,
+                "primary_outcomes": analysis.primary_outcomes,
+                "secondary_outcomes": analysis.secondary_outcomes,
+                "primary_objectives": [
+                    {
+                        "description": obj.description,
+                        "status": obj.status.value if obj.status else None,
+                        "evidence": obj.evidence,
+                    }
+                    for obj in analysis.primary_objectives
+                ] if analysis.primary_objectives else [],
+                "summary": analysis.summary,
+                "detail_level": analysis.detail_level,
+                "assess": analysis.assess,
+            }
+            return result_dict, None, analysis_result.cost, analysis_result.from_cache
         except (ValueError, RuntimeError) as e:
             return None, (conv.short_id, str(e)[:50]), 0.0, False
         except Exception as e:
@@ -5551,7 +5578,12 @@ def _run_batch_objectives_analysis(
     elif fmt == "markdown":
         print(_format_summary_markdown(results, include_outputs=not no_outputs))
     else:
-        _print_summary_table(results, total_count, len(errors), include_outputs=not no_outputs)
+        _print_summary_table(
+            results, total_count, len(errors),
+            include_outputs=not no_outputs,
+            display_schema=display_schema,
+            variant=effective_variant,
+        )
 
     # Show cost and rate summary if any LLM calls were made
     if total_cost > 0 and fmt == "table":

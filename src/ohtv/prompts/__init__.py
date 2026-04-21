@@ -47,10 +47,21 @@ from ohtv.prompts.discovery import (
 )
 
 # Metadata types
-from ohtv.prompts.metadata import ContextLevel, EventFilter, PromptMetadata
+from ohtv.prompts.metadata import (
+    ContextLevel,
+    ColumnDef,
+    DisplaySchema,
+    EventFilter,
+    FieldRef,
+    PromptMetadata,
+)
 
 # Parser functions (for advanced usage)
 from ohtv.prompts.parser import parse_prompt_file
+
+# Formatters and rendering
+from ohtv.prompts.formatters import format_value, get_formatter, FORMATTERS
+from ohtv.prompts.renderer import TableRenderer, get_default_display_schema
 
 __all__ = [
     # Legacy API
@@ -70,9 +81,18 @@ __all__ = [
     "resolve_context",
     "resolve_prompt",
     # Metadata types
+    "ColumnDef",
     "ContextLevel",
+    "DisplaySchema",
     "EventFilter",
+    "FieldRef",
     "PromptMetadata",
     # Parser
     "parse_prompt_file",
+    # Formatters and rendering
+    "format_value",
+    "get_formatter",
+    "FORMATTERS",
+    "TableRenderer",
+    "get_default_display_schema",
 ]

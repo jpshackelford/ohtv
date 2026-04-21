@@ -1,7 +1,10 @@
 import hashlib
 import yaml
 from pathlib import Path
-from ohtv.prompts.metadata import EventFilter, ContextLevel, PromptMetadata
+from ohtv.prompts.metadata import (
+    EventFilter, ContextLevel, PromptMetadata,
+    DisplaySchema, ColumnDef, FieldRef
+)
 
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
@@ -66,6 +69,66 @@ def parse_context_level(data: dict) -> ContextLevel:
     )
 
 
+def parse_field_ref(data: dict | str) -> FieldRef:
+    """Parse a field reference from frontmatter data.
+    
+    Args:
+        data: Either a string (field name) or dict with 'field', optional 'format', 'prefix'
+        
+    Returns:
+        FieldRef instance
+    """
+    if isinstance(data, str):
+        return FieldRef(field_name=data)
+    return FieldRef(
+        field_name=data.get("field", ""),
+        format=data.get("format"),
+        prefix=data.get("prefix")
+    )
+
+
+def parse_column_def(data: dict) -> ColumnDef:
+    """Parse a column definition from frontmatter data.
+    
+    Args:
+        data: Dict with 'name', and either 'field' or 'fields' plus optional formatting
+        
+    Returns:
+        ColumnDef instance
+    """
+    fields = []
+    if "fields" in data:
+        fields = [parse_field_ref(f) for f in data["fields"]]
+    
+    return ColumnDef(
+        name=data.get("name", ""),
+        field=data.get("field"),
+        fields=fields,
+        format=data.get("format"),
+        width=data.get("width"),
+        combine=data.get("combine", "newline"),
+        show_when=data.get("show_when")
+    )
+
+
+def parse_display_schema(data: dict) -> DisplaySchema:
+    """Parse a display schema from frontmatter data.
+    
+    Args:
+        data: Dict with 'table' key containing column definitions
+        
+    Returns:
+        DisplaySchema instance
+    """
+    columns = []
+    if "table" in data:
+        table_data = data["table"]
+        if "columns" in table_data:
+            columns = [parse_column_def(c) for c in table_data["columns"]]
+    
+    return DisplaySchema(columns=columns)
+
+
 def parse_prompt_file(path: Path) -> PromptMetadata:
     """Parse a prompt file and extract metadata from YAML frontmatter.
     
@@ -119,6 +182,11 @@ def parse_prompt_file(path: Path) -> PromptMetadata:
     if output_schema is None and "output" in frontmatter:
         output_schema = frontmatter["output"].get("schema")
     
+    # Parse display schema if present
+    display = None
+    if "display" in frontmatter:
+        display = parse_display_schema(frontmatter["display"])
+    
     return PromptMetadata(
         id=prompt_id,
         family=family,
@@ -132,5 +200,6 @@ def parse_prompt_file(path: Path) -> PromptMetadata:
         tags=frontmatter.get("tags", []),
         path=path,
         content=prompt_content,
-        content_hash=content_hash
+        content_hash=content_hash,
+        display=display
     )

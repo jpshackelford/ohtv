@@ -560,3 +560,125 @@ class TestMigrationFromSummary:
         assert "--no-cache" in result.output
         # Old --refresh should NOT be present
         assert "--refresh" not in result.output or "-r, --refresh" not in result.output
+
+
+# =============================================================================
+# Display Schema Integration Tests
+# =============================================================================
+
+
+def create_mock_analysis_result_with_status(
+    goal: str = "Test goal",
+    status: str = "achieved",
+    primary_outcomes: list[str] | None = None,
+    secondary_outcomes: list[str] | None = None,
+    from_cache: bool = False,
+    cost: float = 0.001,
+):
+    """Create a mock AnalysisResult with status and outcomes for standard_assess."""
+    from ohtv.analysis.objectives import ObjectiveAnalysis, AnalysisResult
+    
+    analysis = ObjectiveAnalysis(
+        conversation_id="test123",
+        context_level="default",
+        detail_level="standard",
+        assess=True,
+        goal=goal,
+        status=status,
+        primary_outcomes=primary_outcomes or ["Outcome 1", "Outcome 2"],
+        secondary_outcomes=secondary_outcomes or ["Secondary 1"],
+        analyzed_at=datetime.now(timezone.utc),
+        model_used="test-model",
+        event_count=5,
+        content_hash="abc123",
+    )
+    return AnalysisResult(analysis=analysis, cost=cost, from_cache=from_cache)
+
+
+class TestDisplaySchemaIntegration:
+    """Integration tests for display schema rendering with different variants."""
+
+    def test_standard_assess_displays_status_badge(self, runner, tmp_path):
+        """Verify standard_assess variant shows Status column with emoji badge."""
+        # Create conversations in .openhands/conversations to match CLI expectations
+        convs_dir = tmp_path / ".openhands" / "conversations"
+        convs_dir.mkdir(parents=True)
+        
+        now = datetime.now(timezone.utc)
+        create_mock_conversation(
+            convs_dir, "test123abc456",
+            title="Test conversation",
+            created_at=now,
+        )
+
+        with patch.dict(os.environ, {"HOME": str(tmp_path)}), \
+             patch("ohtv.analysis.analyze_objectives") as mock_analyze, \
+             patch("ohtv.cli._count_uncached_conversations_fast") as mock_count:
+            
+            mock_analyze.return_value = create_mock_analysis_result_with_status(
+                goal="Implement user authentication",
+                status="achieved",
+                primary_outcomes=["Login endpoint created", "Session management added"],
+            )
+            mock_count.return_value = 0
+            
+            result = runner.invoke(main, ["gen", "objs", "-v", "standard_assess"])
+            
+            # Should display the achieved status badge
+            assert "✅" in result.output, f"Expected status badge in output: {result.output}"
+
+    def test_standard_assess_displays_not_achieved_badge(self, runner, tmp_path):
+        """Verify not_achieved status shows ❌ badge."""
+        convs_dir = tmp_path / ".openhands" / "conversations"
+        convs_dir.mkdir(parents=True)
+        
+        now = datetime.now(timezone.utc)
+        create_mock_conversation(
+            convs_dir, "test456def789",
+            title="Failed task",
+            created_at=now,
+        )
+
+        with patch.dict(os.environ, {"HOME": str(tmp_path)}), \
+             patch("ohtv.analysis.analyze_objectives") as mock_analyze, \
+             patch("ohtv.cli._count_uncached_conversations_fast") as mock_count:
+            
+            mock_analyze.return_value = create_mock_analysis_result_with_status(
+                goal="Deploy to production",
+                status="not_achieved",
+            )
+            mock_count.return_value = 0
+            
+            result = runner.invoke(main, ["gen", "objs", "-v", "standard_assess"])
+            
+            assert "❌" in result.output, f"Expected not_achieved badge in output: {result.output}"
+
+    def test_standard_assess_displays_outcomes(self, runner, tmp_path):
+        """Verify primary and secondary outcomes are displayed."""
+        convs_dir = tmp_path / ".openhands" / "conversations"
+        convs_dir.mkdir(parents=True)
+        
+        now = datetime.now(timezone.utc)
+        create_mock_conversation(
+            convs_dir, "test789ghi012",
+            title="Feature implementation",
+            created_at=now,
+        )
+
+        with patch.dict(os.environ, {"HOME": str(tmp_path)}), \
+             patch("ohtv.analysis.analyze_objectives") as mock_analyze, \
+             patch("ohtv.cli._count_uncached_conversations_fast") as mock_count:
+            
+            mock_analyze.return_value = create_mock_analysis_result_with_status(
+                goal="Add pagination to API",
+                status="achieved",
+                primary_outcomes=["Pagination endpoint added", "Tests written"],
+                secondary_outcomes=["Documentation updated"],
+            )
+            mock_count.return_value = 0
+            
+            result = runner.invoke(main, ["gen", "objs", "-v", "standard_assess"])
+            
+            # Check that outcomes are displayed (bullet format uses •)
+            assert "Primary:" in result.output or "Pagination" in result.output, \
+                f"Expected outcomes in output: {result.output}"
