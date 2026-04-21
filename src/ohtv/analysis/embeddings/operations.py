@@ -108,14 +108,6 @@ def embed_conversation_full(
             refs = []
 
     texts = build_conversation_texts(events, analysis, refs)
-    
-    log.debug(
-        "Texts for %s: analysis=%s, summary=%s, content_chunks=%d",
-        conv_id[:12],
-        bool(texts.analysis_text),
-        bool(texts.summary_text),
-        len(texts.content_chunks) if texts.content_chunks else 0,
-    )
 
     if model is None:
         model = get_embedding_model()

@@ -5187,11 +5187,14 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             return
         
         # Determine which need embedding
+        # Note: embeddings table stores IDs without dashes (from directory names)
+        # but conversations may have dashes in their IDs, so normalize for comparison
+        from ohtv.filters import normalize_conversation_id
         if force:
             to_embed = all_convs
         else:
             existing = set(embed_store.list_conversation_ids())
-            to_embed = [c for c in all_convs if c.id not in existing]
+            to_embed = [c for c in all_convs if normalize_conversation_id(c.id) not in existing]
         
         if not to_embed:
             count = embed_store.count_conversations()
@@ -5231,17 +5234,14 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 
                 conv_dir = Path(conv.location)
                 if not conv_dir.exists():
-                    log.debug("Skipping %s: conv_dir does not exist", short_id)
                     progress.advance(task)
                     continue
                 
                 tokens, num_embeddings = estimate_conversation_tokens(conv_dir)
                 if tokens == 0:
-                    log.debug("Skipping %s: 0 tokens estimated", short_id)
                     progress.advance(task)
                     continue
                 
-                log.debug("Including %s: %d tokens, %d embeddings", short_id, tokens, num_embeddings)
                 total_tokens += tokens
                 total_embeddings += num_embeddings
                 valid_convs.append((conv, conv_dir, tokens, num_embeddings))
