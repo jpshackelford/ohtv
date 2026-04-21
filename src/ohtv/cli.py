@@ -1241,6 +1241,7 @@ def search(
       ohtv search "docker deployment" -n 20
       ohtv search "API changes" --since 7d
       ohtv search "error 404" --exact           # Keyword search
+      ohtv ask "how did we fix the auth bug"    # For question answering
     """
     import time
     from ohtv.db import get_connection, get_db_path, migrate
@@ -1273,7 +1274,17 @@ def search(
         
         if exact:
             # FTS5 keyword search
-            results = embed_store.search_fts(query, limit=limit)
+            raw_results = embed_store.search_fts(query, limit=limit)
+            # Convert to have consistent interface
+            results = [
+                type("Result", (), {
+                    "conversation_id": r.conversation_id,
+                    "score": r.score,
+                    "rank": r.rank,
+                    "best_match_type": "keyword",
+                })()
+                for r in raw_results
+            ]
             search_type = "keyword"
         else:
             # Semantic search - embed the query
@@ -1286,7 +1297,8 @@ def search(
                 console.print("[dim]Make sure LLM_API_KEY is set.[/dim]")
                 raise SystemExit(1)
             
-            results = embed_store.search(
+            # Use aggregated search (best match per conversation)
+            results = embed_store.search_conversations(
                 query_embedding,
                 limit=limit,
                 min_score=min_score,
@@ -1411,6 +1423,186 @@ def _print_search_json(
         output["results"].append(item)
     
     print(json.dumps(output, indent=2))
+
+
+@main.command("ask")
+@click.argument("question")
+@click.option("--context", "-c", default=5, help="Number of context chunks to use (default: 5)")
+@click.option("--min-score", "-s", type=float, default=0.3, help="Minimum similarity score (0-1)")
+@click.option("--model", "-m", help="LLM model for answer generation")
+@click.option("--show-context", is_flag=True, help="Show retrieved context chunks")
+@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+def ask(
+    question: str,
+    context: int,
+    min_score: float,
+    model: str | None,
+    show_context: bool,
+    verbose: bool,
+) -> None:
+    """Ask a question about your conversations (RAG).
+    
+    Uses semantic search to find relevant context from your conversations,
+    then generates an answer using an LLM. This is like search but provides
+    a synthesized answer instead of just listing matches.
+    
+    \b
+    Before asking, build embeddings with:
+      ohtv db embed
+    
+    \b
+    Examples:
+      ohtv ask "how did we fix the authentication bug?"
+      ohtv ask "what changes were made to the API?" --context 10
+      ohtv ask "summarize the docker deployment work" --show-context
+    """
+    import time
+    from ohtv.db import get_connection, get_db_path, migrate
+    from ohtv.db.stores import ConversationStore, EmbeddingStore
+    
+    _init_logging(verbose=verbose)
+    config = Config.from_env()
+    db_path = get_db_path()
+    
+    if not db_path.exists():
+        console.print("[yellow]No database found.[/yellow]")
+        console.print("[dim]Run 'ohtv db scan' and 'ohtv db embed' first.[/dim]")
+        raise SystemExit(1)
+    
+    with get_connection() as conn:
+        migrate(conn)
+        
+        embed_store = EmbeddingStore(conn)
+        conv_store = ConversationStore(conn)
+        
+        # Check if we have embeddings
+        embed_count = embed_store.count()
+        if embed_count == 0:
+            console.print("[yellow]No embeddings found.[/yellow]")
+            console.print("[dim]Run 'ohtv db embed' to build embeddings first.[/dim]")
+            raise SystemExit(1)
+        
+        # Embed the question
+        console.print("[dim]Searching for relevant context...[/dim]")
+        start_time = time.perf_counter()
+        
+        try:
+            from ohtv.analysis.embeddings import get_embedding
+            query_result = get_embedding(question)
+            query_embedding = query_result.embedding
+        except RuntimeError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            console.print("[dim]Make sure LLM_API_KEY is set.[/dim]")
+            raise SystemExit(1)
+        
+        # Get relevant context chunks
+        context_results = embed_store.get_context_for_rag(
+            query_embedding,
+            max_chunks=context,
+            min_score=min_score,
+        )
+        
+        search_time = time.perf_counter() - start_time
+        
+        if not context_results:
+            console.print("[yellow]No relevant context found.[/yellow]")
+            console.print("[dim]Try lowering --min-score or building more embeddings.[/dim]")
+            raise SystemExit(1)
+        
+        # Build context for the LLM
+        context_parts = []
+        source_convs = set()
+        
+        for i, r in enumerate(context_results, 1):
+            conv = conv_store.get(r.conversation_id)
+            title = conv.title if conv and conv.title else f"Conversation {r.conversation_id[:8]}"
+            source_convs.add(r.conversation_id)
+            
+            context_parts.append(f"[Source {i}: {title} ({r.embed_type})]")
+            context_parts.append(r.source_text)
+            context_parts.append("")  # Empty line between sources
+        
+        context_text = "\n".join(context_parts)
+        
+        if show_context:
+            console.print(f"\n[bold]Retrieved Context ({len(context_results)} chunks):[/bold]")
+            console.print("-" * 60)
+            for r in context_results:
+                conv = conv_store.get(r.conversation_id)
+                title = conv.title if conv and conv.title else r.conversation_id[:8]
+                console.print(f"[cyan]{title}[/cyan] ({r.embed_type}, score: {r.score:.2f})")
+                # Show truncated preview
+                preview = r.source_text[:200] + "..." if len(r.source_text) > 200 else r.source_text
+                console.print(f"[dim]{preview}[/dim]")
+                console.print()
+            console.print("-" * 60)
+        
+        # Generate answer using LLM
+        console.print("[dim]Generating answer...[/dim]")
+        
+        import os
+        import litellm
+        
+        llm_model = model or os.environ.get("LLM_MODEL", "openai/gpt-4o-mini")
+        api_key = os.environ.get("LLM_API_KEY")
+        api_base = os.environ.get("LLM_BASE_URL")
+        
+        if not api_key:
+            console.print("[red]Error: LLM_API_KEY not set[/red]")
+            raise SystemExit(1)
+        
+        # Build prompt
+        system_prompt = """You are a helpful assistant that answers questions about software development conversations and coding sessions. 
+
+You have been provided with context from relevant conversation history. Use this context to answer the user's question accurately and concisely.
+
+Guidelines:
+- Base your answer on the provided context
+- If the context doesn't contain enough information, say so
+- Reference specific conversations when relevant
+- Be concise but thorough
+- Use markdown formatting for code snippets"""
+
+        user_prompt = f"""Context from conversation history:
+{context_text}
+
+Question: {question}
+
+Please provide a helpful answer based on the context above."""
+
+        try:
+            gen_start = time.perf_counter()
+            response = litellm.completion(
+                model=llm_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                api_key=api_key,
+                api_base=api_base,
+            )
+            gen_time = time.perf_counter() - gen_start
+            
+            answer = response.choices[0].message.content
+            
+        except Exception as e:
+            console.print(f"[red]Error generating answer:[/red] {e}")
+            raise SystemExit(1)
+        
+        # Display answer
+        console.print(f"\n[bold]Answer:[/bold]\n")
+        console.print(answer)
+        
+        # Show sources
+        console.print(f"\n[dim]─────────────────────────────────────────────────[/dim]")
+        console.print(f"[dim]Sources ({len(source_convs)} conversations):[/dim]")
+        for conv_id in source_convs:
+            conv = conv_store.get(conv_id)
+            title = conv.title if conv and conv.title else "(no title)"
+            short_title = title[:50] + "..." if len(title) > 50 else title
+            console.print(f"[dim]  • [{conv_id[:8]}] {short_title}[/dim]")
+        
+        console.print(f"\n[dim]Search: {search_time:.2f}s | Generation: {gen_time:.2f}s | Model: {llm_model}[/dim]")
 
 
 def _load_all_conversations(
@@ -5022,10 +5214,12 @@ def db_reset(yes: bool) -> None:
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
 def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
-    """Build embeddings for semantic search.
+    """Build embeddings for semantic search and RAG.
     
-    Generates vector embeddings for all conversations using the configured
-    embedding model. These embeddings enable semantic search via `ohtv search`.
+    Generates multiple embeddings per conversation for optimal search:
+    - analysis: Goal + outcomes from cached LLM analysis
+    - summary: User messages + refs + file paths  
+    - content: File contents + outputs (chunked if large)
     
     Uses the same LLM_API_KEY and LLM_BASE_URL as the gen command.
     
@@ -5046,7 +5240,8 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
     from ohtv.db import get_connection, get_db_path, migrate
     from ohtv.db.stores import ConversationStore, EmbeddingStore
     from ohtv.analysis.embeddings import (
-        estimate_cost, estimate_tokens, get_embedding_model, embed_conversation
+        estimate_cost, get_embedding_model, embed_conversation_full,
+        estimate_conversation_tokens, build_summary_text
     )
     from ohtv.analysis.cache import load_events
     
@@ -5078,14 +5273,20 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             to_embed = [c for c in all_convs if c.id not in existing]
         
         if not to_embed:
-            count = embed_store.count()
-            console.print(f"[dim]All {count} conversations already embedded.[/dim]")
+            count = embed_store.count_conversations()
+            total_embeddings = embed_store.count()
+            by_type = embed_store.count_by_type()
+            console.print(f"[dim]All {count} conversations already embedded ({total_embeddings} total embeddings).[/dim]")
+            if by_type:
+                type_str = ", ".join(f"{t}: {c}" for t, c in by_type.items())
+                console.print(f"[dim]  By type: {type_str}[/dim]")
             console.print("[dim]Use --force to rebuild all embeddings.[/dim]")
             return
         
         # Estimate tokens and cost
         model = get_embedding_model()
         total_tokens = 0
+        total_embeddings = 0
         valid_convs = []
         
         console.print(f"[dim]Estimating token count for {len(to_embed)} conversations...[/dim]")
@@ -5095,18 +5296,13 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             if not conv_dir.exists():
                 continue
             
-            events = load_events(conv_dir)
-            if not events:
+            tokens, num_embeddings = estimate_conversation_tokens(conv_dir)
+            if tokens == 0:
                 continue
             
-            from ohtv.analysis.embeddings import build_lean_transcript
-            transcript = build_lean_transcript(events)
-            if not transcript:
-                continue
-            
-            tokens = estimate_tokens(transcript)
             total_tokens += tokens
-            valid_convs.append((conv, conv_dir, tokens))
+            total_embeddings += num_embeddings
+            valid_convs.append((conv, conv_dir, tokens, num_embeddings))
         
         if not valid_convs:
             console.print("[dim]No conversations with content to embed.[/dim]")
@@ -5118,6 +5314,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         console.print(f"\n[bold]Embedding Summary[/bold]")
         console.print(f"  Model: {model}")
         console.print(f"  Conversations: {len(valid_convs)}")
+        console.print(f"  Embeddings to create: ~{total_embeddings}")
         console.print(f"  Estimated tokens: ~{total_tokens:,}")
         console.print(f"  Estimated cost: [green]${estimated_cost:.4f}[/green]")
         
@@ -5141,6 +5338,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         skipped = 0
         errors = 0
         actual_tokens = 0
+        actual_embeddings = 0
         
         with Progress(
             SpinnerColumn(),
@@ -5157,30 +5355,31 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 current="starting..."
             )
             
-            for conv, conv_dir, _ in valid_convs:
+            for conv, conv_dir, _, _ in valid_convs:
                 short_id = conv.id[:12]
                 progress.update(task, current=short_id)
                 
                 try:
-                    result = embed_conversation(conv_dir, model=model)
-                    if result is None:
+                    stats = embed_conversation_full(
+                        conv_dir, 
+                        conn, 
+                        model=model,
+                        skip_existing=not force,
+                    )
+                    
+                    if stats.embeddings_created == 0:
                         skipped += 1
                     else:
-                        embed_store.upsert(
-                            conv.id,
-                            result.embedding,
-                            result.model,
-                            result.token_count,
-                        )
-                        # Also update FTS for keyword search
-                        from ohtv.analysis.embeddings import build_lean_transcript
-                        events = load_events(conv_dir)
-                        transcript = build_lean_transcript(events) if events else ""
-                        if transcript:
-                            embed_store.upsert_fts(conv.id, transcript)
-                        
                         embedded += 1
-                        actual_tokens += result.token_count
+                        actual_tokens += stats.total_tokens
+                        actual_embeddings += stats.embeddings_created
+                        
+                        # Also update FTS for keyword search
+                        events = load_events(conv_dir)
+                        if events:
+                            summary = build_summary_text(events)
+                            if summary:
+                                embed_store.upsert_fts(conv.id, summary)
                         
                 except Exception as e:
                     errors += 1
@@ -5195,18 +5394,24 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         if embedded > 0:
             actual_cost = estimate_cost(actual_tokens, model)
             console.print(f"\n[green]✓[/green] Embedded {embedded} conversation(s)")
+            console.print(f"  Embeddings created: {actual_embeddings}")
             console.print(f"  Tokens: {actual_tokens:,}")
             console.print(f"  Cost: [green]${actual_cost:.4f}[/green]")
         
         if skipped > 0:
-            console.print(f"[dim]{skipped} conversation(s) skipped (no content)[/dim]")
+            console.print(f"[dim]{skipped} conversation(s) skipped (no content or already embedded)[/dim]")
         
         if errors > 0:
             console.print(f"[yellow]![/yellow] {errors} error(s)")
         
         total = embed_store.count()
-        console.print(f"\n[dim]Total embeddings: {total}[/dim]")
-        console.print("[dim]Use 'ohtv search <query>' to search semantically.[/dim]")
+        conv_count = embed_store.count_conversations()
+        by_type = embed_store.count_by_type()
+        console.print(f"\n[dim]Total: {total} embeddings for {conv_count} conversations[/dim]")
+        if by_type:
+            type_str = ", ".join(f"{t}: {c}" for t, c in by_type.items())
+            console.print(f"[dim]  By type: {type_str}[/dim]")
+        console.print("[dim]Use 'ohtv search <query>' or 'ohtv ask <question>' for search.[/dim]")
 
 
 # =============================================================================
