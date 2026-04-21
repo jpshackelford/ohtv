@@ -5260,6 +5260,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         errors = 0
         actual_tokens = 0
         actual_embeddings = 0
+        error_counts: dict[str, int] = {}  # error message -> count
         
         with Progress(
             SpinnerColumn(),
@@ -5304,12 +5305,18 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                         
                 except Exception as e:
                     errors += 1
+                    err_msg = str(e)
+                    error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
                     if verbose:
                         console.print(f"\n[red]Error embedding {short_id}:[/red] {e}")
                 
                 progress.advance(task)
             
             conn.commit()
+        
+        # Log deduplicated errors to file
+        for err_msg, count in error_counts.items():
+            log.error("Embedding error (%d occurrences): %s", count, err_msg)
         
         # Display results
         if embedded > 0:
@@ -5324,6 +5331,14 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         
         if errors > 0:
             console.print(f"[yellow]![/yellow] {errors} error(s)")
+            # Show top errors with counts
+            sorted_errors = sorted(error_counts.items(), key=lambda x: -x[1])
+            for err_msg, count in sorted_errors[:3]:  # Show top 3
+                msg = err_msg if len(err_msg) <= 80 else err_msg[:80] + "..."
+                console.print(f"[dim]  ({count}x) {msg}[/dim]")
+            if len(sorted_errors) > 3:
+                console.print(f"[dim]  ... and {len(sorted_errors) - 3} more error types[/dim]")
+            console.print(f"[dim]  See ~/.ohtv/logs/ohtv.log for details[/dim]")
         
         total = embed_store.count()
         conv_count = embed_store.count_conversations()
