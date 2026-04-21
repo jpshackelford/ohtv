@@ -112,7 +112,8 @@ def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
     ollama_model = model.split("/", 1)[1] if "/" in model else model
     ollama_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
     
-    log.debug("Getting Ollama embedding with model %s from %s", ollama_model, ollama_url)
+    text_len = len(text)
+    log.debug("Getting Ollama embedding with model %s from %s (text length: %d chars)", ollama_model, ollama_url, text_len)
     
     request_data = json.dumps({
         "model": ollama_model,
