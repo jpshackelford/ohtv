@@ -3,7 +3,7 @@ import yaml
 from pathlib import Path
 from ohtv.prompts.metadata import (
     EventFilter, ContextLevel, PromptMetadata,
-    DisplaySchema, ColumnDef, FieldRef
+    DisplaySchema, ColumnDef, FieldRef, InputConfig
 )
 
 
@@ -129,6 +129,39 @@ def parse_display_schema(data: dict) -> DisplaySchema:
     return DisplaySchema(columns=columns)
 
 
+def parse_input_config(data: dict) -> InputConfig:
+    """Parse an input configuration from frontmatter data.
+    
+    Args:
+        data: Dict with optional 'mode', 'source', 'period', and 'min_items' keys
+        
+    Returns:
+        InputConfig instance
+        
+    Raises:
+        ValueError: If aggregate mode is missing required 'source'
+    """
+    mode = data.get("mode", "single")
+    source = data.get("source")
+    period = data.get("period")
+    min_items = data.get("min_items", 1)
+    
+    # Validate aggregate mode has required source
+    if mode == "aggregate" and source is None:
+        raise ValueError("Aggregate mode requires 'source' job_id")
+    
+    # Validate period value
+    if period is not None and period not in ("week", "day", "month"):
+        raise ValueError(f"Invalid period '{period}'. Must be 'week', 'day', or 'month'")
+    
+    return InputConfig(
+        mode=mode,  # type: ignore[arg-type]
+        source=source,
+        period=period,  # type: ignore[arg-type]
+        min_items=min_items,
+    )
+
+
 def parse_prompt_file(path: Path) -> PromptMetadata:
     """Parse a prompt file and extract metadata from YAML frontmatter.
     
@@ -187,12 +220,18 @@ def parse_prompt_file(path: Path) -> PromptMetadata:
     if "display" in frontmatter:
         display = parse_display_schema(frontmatter["display"])
     
+    # Parse input config if present
+    input_config = InputConfig()  # Default: single mode
+    if "input" in frontmatter:
+        input_config = parse_input_config(frontmatter["input"])
+    
     return PromptMetadata(
         id=prompt_id,
         family=family,
         variant=variant,
         description=frontmatter.get("description", ""),
         default=frontmatter.get("default", False),
+        input_config=input_config,
         context_levels=context_levels,
         default_context=frontmatter.get("default_context", default_context),
         output_schema=output_schema,

@@ -4,6 +4,23 @@ from typing import Literal
 
 
 @dataclass
+class InputConfig:
+    """Configuration for prompt input mode.
+    
+    Supports two modes:
+    - single: One prompt runs against one conversation (default, existing behavior)
+    - aggregate: Synthesizes cached results from multiple conversations
+    
+    For aggregate mode, `source` specifies which job's cached results to use.
+    If `period` is specified, the aggregate runs once per period in the date range.
+    """
+    mode: Literal["single", "aggregate"] = "single"
+    source: str | None = None  # job_id for aggregate mode (e.g., "objs.brief")
+    period: Literal["week", "day", "month"] | None = None  # enables auto-iteration
+    min_items: int = 1  # minimum items required for aggregation
+
+
+@dataclass
 class FieldRef:
     """Reference to a field in the analysis output, with optional formatting."""
     field_name: str
@@ -120,6 +137,7 @@ class PromptMetadata:
     variant: str
     description: str = ""
     default: bool = False
+    input_config: InputConfig = dataclass_field(default_factory=InputConfig)
     context_levels: dict[int, ContextLevel] = dataclass_field(default_factory=dict)
     default_context: int = 1
     output_schema: dict | None = None
@@ -129,6 +147,16 @@ class PromptMetadata:
     content: str = ""
     content_hash: str = ""
     display: DisplaySchema | None = None
+
+    @property
+    def is_aggregate(self) -> bool:
+        """Return True if this prompt is an aggregate job."""
+        return self.input_config.mode == "aggregate"
+    
+    @property
+    def has_period(self) -> bool:
+        """Return True if this prompt defines period iteration."""
+        return self.input_config.period is not None
 
     def get_context_level(self, level: int | str) -> ContextLevel:
         """Get context level by number or name.

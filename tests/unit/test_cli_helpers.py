@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ohtv.cli import _generate_unique_source_names
+from ohtv.db.utils import generate_unique_source_names as _generate_unique_source_names
 
 
 class TestGenerateUniqueSourceNames:
@@ -65,7 +65,8 @@ class TestGenerateUniqueSourceNames:
         result = _generate_unique_source_names(paths)
         assert result == ["my_experiments", "my_experiments_1"]
 
-    def test_reserved_names_allowed(self):
+    def test_reserved_names_get_suffix(self):
+        """Reserved names ('local', 'cloud') get _1 suffix to avoid collision"""
         paths = [Path("/data/local"), Path("/data/cloud")]
         result = _generate_unique_source_names(paths)
-        assert result == ["local", "cloud"]
+        assert result == ["local_1", "cloud_1"]

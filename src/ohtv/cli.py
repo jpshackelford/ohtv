@@ -5755,5 +5755,388 @@ def _run_objectives_analysis(
             console.print(f"\n[dim]LLM cost: [green]${analysis_cost:.4f}[/green][/dim]")
 
 
+# =============================================================================
+# Aggregate Analysis Commands
+# =============================================================================
+
+
+@gen.command("run")
+@click.argument("job_id")
+@click.option("--model", "-m", help="LLM model to use for analysis")
+@click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (refresh cache)")
+@click.option("--verbose", is_flag=True, help="Show debug output")
+# Date range options
+@click.option("--since", "-S", "since_date", help="Start date (YYYY-MM-DD)")
+@click.option("--until", "-U", "until_date", help="End date (YYYY-MM-DD)")
+@click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
+              help="Single day (default: today)")
+@click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
+              help="Week containing DATE (default: this week)")
+# Period iteration options (for aggregate jobs)
+@click.option("--per", "period_override", type=click.Choice(["week", "day", "month"]),
+              help="Override/specify iteration granularity for aggregate jobs")
+@click.option("--last", "last_n", type=int,
+              help="Last N periods (requires job with period or --per)")
+# Output options
+@click.option("--out", "output_dir", type=click.Path(),
+              help="Write each period's output to separate files")
+@click.option("--format", "-F", "fmt", type=click.Choice(["table", "json", "markdown"]),
+              default="table", help="Output format (default: table)")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+def gen_run_cmd(
+    job_id: str,
+    model: str | None,
+    refresh: bool,
+    verbose: bool,
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
+    period_override: str | None,
+    last_n: int | None,
+    output_dir: str | None,
+    fmt: str,
+    yes: bool,
+) -> None:
+    """Run an analysis job by ID (supports both single and aggregate modes).
+    
+    \b
+    SINGLE-TRAJECTORY JOBS (default mode):
+      These run one analysis per conversation, like gen objs.
+    
+    \b
+    AGGREGATE JOBS (mode: aggregate in frontmatter):
+      These synthesize cached results from multiple conversations.
+      
+      If the job has 'period' defined, it iterates over periods:
+        ohtv gen run reports.weekly --since 2024-01        # Weekly reports for Q1
+        ohtv gen run reports.weekly --last 4               # Last 4 weekly reports
+      
+      Use --per to override the period granularity:
+        ohtv gen run reports.weekly --since 2024-01 --per month  # Monthly instead
+      
+      Jobs without 'period' aggregate all selected conversations into one output.
+    
+    \b
+    Examples:
+      ohtv gen run objs.brief abc123           # Run specific job on conversation
+      ohtv gen run reports.weekly --week       # Weekly report for this week
+      ohtv gen run reports.weekly --last 4     # Last 4 weekly reports
+      ohtv gen run themes.all --since 2024-01  # Aggregate all Q1 into one output
+    """
+    _init_logging(verbose=verbose)
+    config = Config.from_env()
+    
+    # Parse job_id into family.variant
+    if "." not in job_id:
+        console.print(f"[red]Error:[/red] Job ID must be family.variant (e.g., objs.brief)")
+        raise SystemExit(1)
+    
+    parts = job_id.split(".", 1)
+    family = parts[0]
+    variant = parts[1] if len(parts) > 1 else None
+    
+    # Resolve prompt
+    from ohtv.prompts import resolve_prompt, list_families
+    try:
+        prompt_meta = resolve_prompt(family, variant)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        console.print(f"[dim]Available families: {', '.join(list_families())}[/dim]")
+        raise SystemExit(1)
+    
+    # Check if this is an aggregate job
+    if prompt_meta.is_aggregate:
+        _run_aggregate_job(
+            config=config,
+            prompt_meta=prompt_meta,
+            model=model,
+            refresh=refresh,
+            verbose=verbose,
+            since_date=since_date,
+            until_date=until_date,
+            day_date=day_date,
+            week_date=week_date,
+            period_override=period_override,
+            last_n=last_n,
+            output_dir=output_dir,
+            fmt=fmt,
+            yes=yes,
+        )
+    else:
+        # For single-trajectory jobs, defer to gen objs logic
+        console.print(f"[yellow]Note:[/yellow] {job_id} is a single-trajectory job.")
+        console.print(f"[dim]Use 'ohtv gen objs --variant {variant}' for full options.[/dim]")
+        raise SystemExit(1)
+
+
+def _run_aggregate_job(
+    config: Config,
+    prompt_meta: "PromptMetadata",
+    model: str | None,
+    refresh: bool,
+    verbose: bool,
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
+    period_override: str | None,
+    last_n: int | None,
+    output_dir: str | None,
+    fmt: str,
+    yes: bool,
+) -> None:
+    """Run an aggregate analysis job."""
+    from datetime import date
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from rich.table import Table
+    
+    from ohtv.analysis import (
+        PeriodInfo, iterate_periods, get_last_n_periods,
+        run_aggregate_analysis, ensure_source_cache_populated,
+        get_cache_key_for_source,
+    )
+    from ohtv.analysis.periods import get_date_range_for_periods
+    from ohtv.prompts import resolve_prompt
+    
+    # Determine effective period type
+    period_type = period_override or prompt_meta.input_config.period
+    
+    # Validate --last requires period
+    if last_n is not None and period_type is None:
+        console.print("[red]Error:[/red] --last requires job with period or --per option")
+        raise SystemExit(1)
+    
+    # Resolve source prompt
+    source_job_id = prompt_meta.input_config.source
+    if not source_job_id:
+        console.print(f"[red]Error:[/red] Aggregate job missing 'source' in input config")
+        raise SystemExit(1)
+    
+    source_family, source_variant = source_job_id.split(".", 1) if "." in source_job_id else (source_job_id, None)
+    try:
+        source_meta = resolve_prompt(source_family, source_variant)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] Source job '{source_job_id}' not found: {e}")
+        raise SystemExit(1)
+    
+    # Parse date range
+    since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
+    
+    # Determine periods to process
+    periods: list[PeriodInfo] = []
+    if last_n is not None and period_type:
+        periods = get_last_n_periods(last_n, period_type)  # type: ignore[arg-type]
+    elif period_type:
+        # Iterate over periods in date range
+        if since is None:
+            # Default to last 4 weeks if no date range specified
+            periods = get_last_n_periods(4, period_type)  # type: ignore[arg-type]
+        else:
+            start = since.date() if hasattr(since, 'date') else since
+            end = (until.date() if until and hasattr(until, 'date') else until) or date.today()
+            periods = list(iterate_periods(start, end, period_type))  # type: ignore[arg-type]
+    else:
+        # Non-period aggregate: one output for entire selection
+        periods = [None]  # type: ignore[list-item]
+    
+    if not periods:
+        console.print("[dim]No periods to process.[/dim]")
+        return
+    
+    # Get date range for conversation loading
+    if periods[0] is not None:
+        range_start, range_end = get_date_range_for_periods([p for p in periods if p])
+    else:
+        range_start = since.date() if since else date.today() - timedelta(days=30)
+        range_end = until.date() if until else date.today()
+    
+    # Load conversations in date range
+    filter_result = _apply_conversation_filters(
+        config,
+        since=datetime.combine(range_start, datetime.min.time()) if isinstance(range_start, date) else range_start,
+        until=datetime.combine(range_end, datetime.max.time()) if isinstance(range_end, date) else range_end,
+        include_empty=False,
+        initial_show_all=True,
+    )
+    
+    conversations = filter_result.conversations
+    if not conversations:
+        console.print("[dim]No conversations found in the specified date range.[/dim]")
+        return
+    
+    # Build (conv_dir, conv_info) list
+    conv_data: list[tuple[Path, dict]] = []
+    for conv in conversations:
+        result = _find_conversation_dir(config, conv.id)
+        if result:
+            conv_dir, _ = result
+            conv_data.append((conv_dir, {
+                "id": conv.id,
+                "created_at": conv.created_at,
+                "title": conv.title,
+                "event_count": getattr(conv, "event_count", 0),
+            }))
+    
+    # Determine source cache key
+    # Use default context (minimal) and detail from source variant
+    source_variant_name = source_meta.variant
+    source_assess = source_variant_name.endswith("_assess")
+    source_detail = source_variant_name.replace("_assess", "")
+    source_context = "minimal"  # Default for efficiency
+    source_cache_key = get_cache_key_for_source(source_context, source_detail, source_assess)
+    
+    # Confirmation for large jobs
+    period_count = len([p for p in periods if p is not None]) or 1
+    if period_count > 10 and not yes:
+        from rich.prompt import Confirm
+        if not Confirm.ask(
+            f"This will process {period_count} periods across {len(conv_data)} conversations. Continue?",
+            console=console,
+            default=True
+        ):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+    
+    # Ensure source cache is populated
+    with console.status("[bold blue]Checking source cache..."):
+        new_analyses, populate_cost = ensure_source_cache_populated(
+            config, conv_data, source_meta, source_cache_key, model
+        )
+    if new_analyses > 0:
+        console.print(f"[dim]Ran source job on {new_analyses} new conversations (cost: ${populate_cost:.4f})[/dim]")
+    
+    # Run aggregate for each period
+    results: list[tuple[PeriodInfo | None, dict, int, float, bool]] = []
+    total_cost = populate_cost
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Processing periods...", total=len(periods))
+        
+        for period in periods:
+            period_label = period.label if period else "All conversations"
+            progress.update(task, description=f"Processing {period_label}")
+            
+            result = run_aggregate_analysis(
+                config=config,
+                prompt_meta=prompt_meta,
+                conversations=conv_data,
+                period=period,
+                source_cache_key=source_cache_key,
+                source_prompt_hash=source_meta.content_hash,
+                model=model,
+                force_refresh=refresh,
+            )
+            
+            results.append((period, result.result, result.items_count, result.cost, result.from_cache))
+            total_cost += result.cost
+            progress.advance(task)
+    
+    # Output results
+    if output_dir:
+        _write_aggregate_results_to_files(results, output_dir, prompt_meta.id)
+        console.print(f"[green]Wrote {len(results)} result files to {output_dir}[/green]")
+    elif fmt == "json":
+        _output_aggregate_results_json(results)
+    else:
+        _display_aggregate_results_table(results, prompt_meta)
+    
+    # Show cost summary
+    if total_cost > 0:
+        console.print(f"\n[dim]Total LLM cost: [green]${total_cost:.4f}[/green][/dim]")
+
+
+def _write_aggregate_results_to_files(
+    results: list[tuple["PeriodInfo | None", dict, int, float, bool]],
+    output_dir: str,
+    prompt_id: str,
+) -> None:
+    """Write aggregate results to separate files."""
+    from pathlib import Path
+    import json
+    
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    
+    for period, result, items_count, cost, from_cache in results:
+        if period:
+            filename = f"{period.iso}.json"
+        else:
+            filename = "all.json"
+        
+        file_data = {
+            "prompt_id": prompt_id,
+            "period": period.to_dict() if period else None,
+            "items_count": items_count,
+            "result": result,
+        }
+        
+        (out_path / filename).write_text(json.dumps(file_data, indent=2))
+
+
+def _output_aggregate_results_json(
+    results: list[tuple["PeriodInfo | None", dict, int, float, bool]],
+) -> None:
+    """Output aggregate results as JSON."""
+    import json
+    
+    output = []
+    for period, result, items_count, cost, from_cache in results:
+        output.append({
+            "period": period.to_dict() if period else None,
+            "items_count": items_count,
+            "result": result,
+            "from_cache": from_cache,
+        })
+    
+    print(json.dumps(output, indent=2))
+
+
+def _display_aggregate_results_table(
+    results: list[tuple["PeriodInfo | None", dict, int, float, bool]],
+    prompt_meta: "PromptMetadata",
+) -> None:
+    """Display aggregate results as a table."""
+    from rich.table import Table
+    
+    table = Table(title=f"Aggregate Analysis: {prompt_meta.id}")
+    
+    # Add standard columns
+    table.add_column("Period", style="cyan")
+    table.add_column("Items", justify="right")
+    table.add_column("Summary", no_wrap=False)
+    table.add_column("Cached", justify="center")
+    
+    for period, result, items_count, cost, from_cache in results:
+        period_str = period.label if period else "All"
+        cached_str = "✓" if from_cache else ""
+        
+        # Extract summary from result - try common field names
+        summary = ""
+        if isinstance(result, dict):
+            for key in ["summary", "goal", "themes", "description"]:
+                if key in result:
+                    val = result[key]
+                    if isinstance(val, str):
+                        summary = val[:80] + "..." if len(val) > 80 else val
+                    elif isinstance(val, list):
+                        summary = ", ".join(str(v)[:20] for v in val[:3])
+                        if len(val) > 3:
+                            summary += f" (+{len(val)-3} more)"
+                    break
+            if not summary and "skipped" in result:
+                summary = f"[dim]{result.get('reason', 'Skipped')}[/dim]"
+        
+        table.add_row(period_str, str(items_count), summary, cached_str)
+    
+    console.print(table)
+
+
 if __name__ == "__main__":
     main()
