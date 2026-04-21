@@ -5161,7 +5161,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
     from ohtv.db import get_connection, get_db_path, migrate
     from ohtv.db.stores import ConversationStore, EmbeddingStore
     from ohtv.analysis.embeddings import (
-        estimate_cost, get_embedding_model, embed_conversation_full,
+        EmbeddingStats, estimate_cost, get_embedding_model, embed_conversation_full,
         estimate_conversation_tokens, build_summary_text
     )
     from ohtv.analysis.cache import load_events
@@ -5273,7 +5273,11 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 console.print("[dim]Cancelled.[/dim]")
                 return
         
-        # Build embeddings with progress bar
+        # Build embeddings with progress bar (parallel processing)
+        import threading
+        import time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
         embedded = 0
         skipped = 0
         errors = 0
@@ -5281,57 +5285,119 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         actual_embeddings = 0
         error_counts: dict[str, int] = {}  # error message -> count
         
+        # Use parallel processing for embedding API calls
+        # 20 workers to maximize throughput (API rate limits are the bottleneck)
+        max_workers = min(20, len(valid_convs)) if len(valid_convs) > 1 else 1
+        
+        # Thread-safe lock for counters
+        _lock = threading.Lock()
+        start_time = time.perf_counter()
+        processed_count = 0
+        
+        def _format_rate(count: int, elapsed: float) -> str:
+            """Format processing rate as conv/min."""
+            if elapsed < 0.1 or count == 0:
+                return "-- conv/min"
+            rate = count / (elapsed / 60.0)
+            return f"{rate:.1f} conv/min"
+        
+        def _embed_one(conv, conv_dir) -> tuple[EmbeddingStats | None, str | None]:
+            """Embed a single conversation. Returns (stats, error_msg)."""
+            # Each thread gets its own connection (SQLite connections aren't thread-safe)
+            with get_connection() as thread_conn:
+                try:
+                    stats = embed_conversation_full(
+                        conv_dir,
+                        thread_conn,
+                        model=model,
+                        skip_existing=not force,
+                    )
+                    
+                    # Also update FTS for keyword search
+                    if stats.embeddings_created > 0:
+                        events = load_events(conv_dir)
+                        if events:
+                            summary = build_summary_text(events)
+                            if summary:
+                                thread_embed_store = EmbeddingStore(thread_conn)
+                                thread_embed_store.upsert_fts(conv.id, summary)
+                    
+                    thread_conn.commit()
+                    return stats, None
+                except Exception as e:
+                    return None, str(e)
+        
         with Progress(
             SpinnerColumn(),
             TextColumn("[bold blue]Embedding"),
             BarColumn(),
             TaskProgressColumn(),
-            TextColumn("[dim]{task.fields[current]}[/dim]"),
+            TextColumn("[dim]{task.fields[rate]}[/dim]"),
             console=console,
             transient=True,
         ) as progress:
             task = progress.add_task(
                 "Embedding",
                 total=len(valid_convs),
-                current="starting..."
+                rate="starting..."
             )
             
-            for conv, conv_dir, _, _ in valid_convs:
-                short_id = conv.id[:12]
-                progress.update(task, current=short_id)
-                
-                try:
-                    stats = embed_conversation_full(
-                        conv_dir, 
-                        conn, 
-                        model=model,
-                        skip_existing=not force,
-                    )
+            if max_workers == 1:
+                # Sequential processing
+                for conv, conv_dir, _, _ in valid_convs:
+                    stats, err_msg = _embed_one(conv, conv_dir)
                     
-                    if stats.embeddings_created == 0:
-                        skipped += 1
-                    else:
-                        embedded += 1
-                        actual_tokens += stats.total_tokens
-                        actual_embeddings += stats.embeddings_created
+                    if err_msg:
+                        errors += 1
+                        error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
+                        if verbose:
+                            console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
+                    elif stats:
+                        if stats.embeddings_created == 0:
+                            skipped += 1
+                        else:
+                            embedded += 1
+                            actual_tokens += stats.total_tokens
+                            actual_embeddings += stats.embeddings_created
+                            processed_count += 1
+                    
+                    elapsed = time.perf_counter() - start_time
+                    progress.update(task, advance=1, rate=_format_rate(processed_count, elapsed))
+            else:
+                # Parallel processing with ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_to_conv = {
+                        executor.submit(_embed_one, conv, conv_dir): (conv, conv_dir)
+                        for conv, conv_dir, _, _ in valid_convs
+                    }
+                    
+                    for future in as_completed(future_to_conv):
+                        conv, conv_dir = future_to_conv[future]
                         
-                        # Also update FTS for keyword search
-                        events = load_events(conv_dir)
-                        if events:
-                            summary = build_summary_text(events)
-                            if summary:
-                                embed_store.upsert_fts(conv.id, summary)
+                        try:
+                            stats, err_msg = future.result()
+                        except Exception as e:
+                            err_msg = str(e)
+                            stats = None
                         
-                except Exception as e:
-                    errors += 1
-                    err_msg = str(e)
-                    error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
-                    if verbose:
-                        console.print(f"\n[red]Error embedding {short_id}:[/red] {e}")
-                
-                progress.advance(task)
-            
-            conn.commit()
+                        with _lock:
+                            if err_msg:
+                                errors += 1
+                                error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
+                                if verbose:
+                                    console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
+                            elif stats:
+                                if stats.embeddings_created == 0:
+                                    skipped += 1
+                                else:
+                                    embedded += 1
+                                    actual_tokens += stats.total_tokens
+                                    actual_embeddings += stats.embeddings_created
+                                    processed_count += 1
+                            
+                            elapsed = time.perf_counter() - start_time
+                        
+                        progress.update(task, advance=1, rate=_format_rate(processed_count, elapsed))
         
         # Log deduplicated errors to file
         for err_msg, count in error_counts.items():
