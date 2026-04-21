@@ -636,7 +636,7 @@ def embed_conversation_full(
         EmbeddingStats with counts and totals
     """
     from ohtv.analysis.cache import load_events, load_analysis
-    from ohtv.db.stores import EmbeddingStore, GitRefStore
+    from ohtv.db.stores import EmbeddingStore, LinkStore, ReferenceStore
     
     conv_id = conv_dir.name
     store = EmbeddingStore(conn)
@@ -655,12 +655,14 @@ def embed_conversation_full(
     # Load refs if not provided
     if refs is None:
         try:
-            ref_store = GitRefStore(conn)
-            ref_rows = ref_store.list_for_conversation(conv_id)
-            refs = [
-                {"ref_type": r.ref_type, "url": r.url}
-                for r in ref_rows
-            ]
+            link_store = LinkStore(conn)
+            ref_store = ReferenceStore(conn)
+            ref_links = link_store.get_refs_for_conversation(conv_id)
+            refs = []
+            for ref_id, _link_type in ref_links:
+                ref = ref_store.get_by_id(ref_id)
+                if ref:
+                    refs.append({"ref_type": ref.ref_type.value, "url": ref.url})
         except Exception:
             refs = []
     
