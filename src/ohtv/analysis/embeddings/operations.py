@@ -129,18 +129,23 @@ def embed_conversation_full(
 
     if texts.summary_text:
         if not skip_existing or not store.has_embedding(conv_id, "summary"):
-            result = get_embedding(texts.summary_text, model=model)
-            store.upsert(
-                conversation_id=conv_id,
-                embedding=result.embedding,
-                model=result.model,
-                embed_type="summary",
-                chunk_index=0,
-                token_count=result.token_count,
-                source_text=texts.summary_text,
-            )
-            stats.summary_tokens = result.token_count
-            stats.embeddings_created += 1
+            # Chunk summary text if it's too long for the model
+            from .chunking import chunk_text
+            summary_chunks = chunk_text(texts.summary_text)
+            
+            for chunk in summary_chunks:
+                result = get_embedding(chunk.text, model=model)
+                store.upsert(
+                    conversation_id=conv_id,
+                    embedding=result.embedding,
+                    model=result.model,
+                    embed_type="summary",
+                    chunk_index=chunk.chunk_index,
+                    token_count=result.token_count,
+                    source_text=chunk.text,
+                )
+                stats.summary_tokens += result.token_count
+                stats.embeddings_created += 1
 
     if texts.content_chunks:
         for chunk in texts.content_chunks:
