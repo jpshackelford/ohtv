@@ -5276,7 +5276,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         # Build embeddings with progress bar (parallel processing)
         import threading
         import time
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
         
         embedded = 0
         skipped = 0
@@ -5395,33 +5395,39 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                             for conv, conv_dir, _, _ in valid_convs
                         }
                         
-                        for future in as_completed(future_to_conv):
-                            conv, conv_dir = future_to_conv[future]
+                        # Use timeout to allow Ctrl+C to be detected
+                        pending = set(future_to_conv.keys())
+                        while pending:
+                            # Wait with timeout so KeyboardInterrupt can be caught
+                            done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
                             
-                            try:
-                                stats, err_msg = future.result()
-                            except Exception as e:
-                                err_msg = str(e)
-                                stats = None
-                            
-                            with _lock:
-                                processed_count += 1
-                                if err_msg:
-                                    errors += 1
-                                    error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
-                                    if verbose:
-                                        console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
-                                elif stats:
-                                    if stats.embeddings_created == 0:
-                                        skipped += 1
-                                    else:
-                                        embedded += 1
-                                        actual_tokens += stats.total_tokens
-                                        actual_embeddings += stats.embeddings_created
+                            for future in done:
+                                conv, conv_dir = future_to_conv[future]
                                 
-                                elapsed = time.perf_counter() - start_time
-                            
-                            progress.update(task, advance=1, rate=_format_rate(processed_count, embedded, elapsed))
+                                try:
+                                    stats, err_msg = future.result()
+                                except Exception as e:
+                                    err_msg = str(e)
+                                    stats = None
+                                
+                                with _lock:
+                                    processed_count += 1
+                                    if err_msg:
+                                        errors += 1
+                                        error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
+                                        if verbose:
+                                            console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
+                                    elif stats:
+                                        if stats.embeddings_created == 0:
+                                            skipped += 1
+                                        else:
+                                            embedded += 1
+                                            actual_tokens += stats.total_tokens
+                                            actual_embeddings += stats.embeddings_created
+                                    
+                                    elapsed = time.perf_counter() - start_time
+                                
+                                progress.update(task, advance=1, rate=_format_rate(processed_count, embedded, elapsed))
                     finally:
                         executor.shutdown(wait=False, cancel_futures=True)
         except KeyboardInterrupt:
