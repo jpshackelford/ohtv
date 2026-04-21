@@ -5231,14 +5231,17 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 
                 conv_dir = Path(conv.location)
                 if not conv_dir.exists():
+                    log.debug("Skipping %s: conv_dir does not exist", short_id)
                     progress.advance(task)
                     continue
                 
                 tokens, num_embeddings = estimate_conversation_tokens(conv_dir)
                 if tokens == 0:
+                    log.debug("Skipping %s: 0 tokens estimated", short_id)
                     progress.advance(task)
                     continue
                 
+                log.debug("Including %s: %d tokens, %d embeddings", short_id, tokens, num_embeddings)
                 total_tokens += tokens
                 total_embeddings += num_embeddings
                 valid_convs.append((conv, conv_dir, tokens, num_embeddings))
