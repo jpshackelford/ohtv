@@ -5296,13 +5296,13 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         # Thread-safe lock for counters
         _lock = threading.Lock()
         start_time = time.perf_counter()
-        processed_count = 0
+        completed_count = 0  # tracks all completed (embedded + skipped + errors)
         
-        def _format_rate(count: int, elapsed: float) -> str:
+        def _format_rate(completed: int, elapsed: float) -> str:
             """Format processing rate as conv/min."""
-            if elapsed < 0.1 or count == 0:
+            if elapsed < 0.1 or completed == 0:
                 return "-- conv/min"
-            rate = count / (elapsed / 60.0)
+            rate = completed / (elapsed / 60.0)
             return f"{rate:.1f} conv/min"
         
         def _embed_one(conv, conv_dir) -> tuple[EmbeddingStats | None, str | None]:
@@ -5363,6 +5363,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 # Sequential processing
                 for conv, conv_dir, _, _ in valid_convs:
                     stats, err_msg = _embed_one(conv, conv_dir)
+                    completed_count += 1
                     
                     if err_msg:
                         errors += 1
@@ -5376,10 +5377,9 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                             embedded += 1
                             actual_tokens += stats.total_tokens
                             actual_embeddings += stats.embeddings_created
-                            processed_count += 1
                     
                     elapsed = time.perf_counter() - start_time
-                    progress.update(task, advance=1, rate=_format_rate(processed_count, elapsed))
+                    progress.update(task, advance=1, rate=_format_rate(completed_count, elapsed))
             else:
                 # Parallel processing with ThreadPoolExecutor
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -5398,6 +5398,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                             stats = None
                         
                         with _lock:
+                            completed_count += 1
                             if err_msg:
                                 errors += 1
                                 error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
@@ -5410,11 +5411,10 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                                     embedded += 1
                                     actual_tokens += stats.total_tokens
                                     actual_embeddings += stats.embeddings_created
-                                    processed_count += 1
                             
                             elapsed = time.perf_counter() - start_time
                         
-                        progress.update(task, advance=1, rate=_format_rate(processed_count, elapsed))
+                        progress.update(task, advance=1, rate=_format_rate(completed_count, elapsed))
         
         # Log deduplicated errors to file
         for err_msg, count in error_counts.items():
