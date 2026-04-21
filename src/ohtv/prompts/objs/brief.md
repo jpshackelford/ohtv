@@ -51,7 +51,10 @@ display:
         format: date
         width: 10
       - name: Summary
-        field: goal
+        fields:
+          - goal
+          - refs_display
+        combine: newline
 ---
 Analyze this conversation between a user and an AI coding assistant.
 
