@@ -10,6 +10,11 @@ import logging
 import os
 from dataclasses import dataclass
 
+import litellm
+
+# Suppress LiteLLM info messages that spam output during batch operations
+litellm.suppress_debug_info = True
+
 log = logging.getLogger("ohtv")
 
 DEFAULT_LLM_MODEL = "openai/gpt-4o-mini"
@@ -162,8 +167,6 @@ class RAGAnswerer:
         context_chunks: list[ContextChunk],
     ) -> str:
         """Generate an answer using the LLM."""
-        import litellm
-        
         api_key = os.environ.get("LLM_API_KEY")
         api_base = os.environ.get("LLM_BASE_URL")
         

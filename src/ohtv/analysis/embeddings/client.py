@@ -7,6 +7,11 @@ import logging
 import os
 from dataclasses import dataclass
 
+import litellm
+
+# Suppress LiteLLM info messages that spam output during batch operations
+litellm.suppress_debug_info = True
+
 log = logging.getLogger("ohtv")
 
 DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
@@ -89,8 +94,6 @@ def get_embedding(text: str, model: str | None = None) -> EmbeddingResult:
     Raises:
         RuntimeError: If LLM configuration is missing or API call fails
     """
-    import litellm
-
     if model is None:
         model = get_embedding_model()
 
