@@ -62,6 +62,31 @@ def load_events(conv_dir: Path) -> list[dict]:
     return events
 
 
+def load_analysis(conv_dir: Path) -> dict | None:
+    """Load cached analysis from a conversation directory.
+
+    Args:
+        conv_dir: Path to conversation directory
+
+    Returns:
+        Analysis dict with keys like 'goal', 'primary_outcomes', etc.
+        Returns None if no cache exists or no analysis found.
+    """
+    cache_file = conv_dir / "objective_analysis.json"
+    if not cache_file.exists():
+        return None
+
+    try:
+        data = json.loads(cache_file.read_text())
+        analyses = data.get("analyses", {})
+        if not analyses:
+            return None
+        # Return first analysis found (they all have the same goal/outcomes)
+        return next(iter(analyses.values()))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def compute_content_hash(content: str | list | dict) -> str:
     """Compute a hash of content for cache invalidation.
 
