@@ -5347,77 +5347,86 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             
             return None, "database is locked (max retries exceeded)"
         
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]Embedding"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TextColumn("[dim]{task.fields[rate]}[/dim]"),
-            console=console,
-            transient=True,
-        ) as progress:
-            task = progress.add_task(
-                "Embedding",
-                total=len(valid_convs),
-                rate="starting..."
-            )
-            
-            if max_workers == 1:
-                # Sequential processing
-                for conv, conv_dir, _, _ in valid_convs:
-                    stats, err_msg = _embed_one(conv, conv_dir)
-                    processed_count += 1
-                    
-                    if err_msg:
-                        errors += 1
-                        error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
-                        if verbose:
-                            console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
-                    elif stats:
-                        if stats.embeddings_created == 0:
-                            skipped += 1
-                        else:
-                            embedded += 1
-                            actual_tokens += stats.total_tokens
-                            actual_embeddings += stats.embeddings_created
-                    
-                    elapsed = time.perf_counter() - start_time
-                    progress.update(task, advance=1, rate=_format_rate(processed_count, embedded, elapsed))
-            else:
-                # Parallel processing with ThreadPoolExecutor
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    future_to_conv = {
-                        executor.submit(_embed_one, conv, conv_dir): (conv, conv_dir)
-                        for conv, conv_dir, _, _ in valid_convs
-                    }
-                    
-                    for future in as_completed(future_to_conv):
-                        conv, conv_dir = future_to_conv[future]
+        interrupted = False
+        
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[bold blue]Embedding"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TextColumn("[dim]{task.fields[rate]}[/dim]"),
+                console=console,
+                transient=True,
+            ) as progress:
+                task = progress.add_task(
+                    "Embedding",
+                    total=len(valid_convs),
+                    rate="starting..."
+                )
+                
+                if max_workers == 1:
+                    # Sequential processing
+                    for conv, conv_dir, _, _ in valid_convs:
+                        stats, err_msg = _embed_one(conv, conv_dir)
+                        processed_count += 1
                         
-                        try:
-                            stats, err_msg = future.result()
-                        except Exception as e:
-                            err_msg = str(e)
-                            stats = None
+                        if err_msg:
+                            errors += 1
+                            error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
+                            if verbose:
+                                console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
+                        elif stats:
+                            if stats.embeddings_created == 0:
+                                skipped += 1
+                            else:
+                                embedded += 1
+                                actual_tokens += stats.total_tokens
+                                actual_embeddings += stats.embeddings_created
                         
-                        with _lock:
-                            processed_count += 1
-                            if err_msg:
-                                errors += 1
-                                error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
-                                if verbose:
-                                    console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
-                            elif stats:
-                                if stats.embeddings_created == 0:
-                                    skipped += 1
-                                else:
-                                    embedded += 1
-                                    actual_tokens += stats.total_tokens
-                                    actual_embeddings += stats.embeddings_created
-                            
-                            elapsed = time.perf_counter() - start_time
-                        
+                        elapsed = time.perf_counter() - start_time
                         progress.update(task, advance=1, rate=_format_rate(processed_count, embedded, elapsed))
+                else:
+                    # Parallel processing with ThreadPoolExecutor
+                    executor = ThreadPoolExecutor(max_workers=max_workers)
+                    try:
+                        future_to_conv = {
+                            executor.submit(_embed_one, conv, conv_dir): (conv, conv_dir)
+                            for conv, conv_dir, _, _ in valid_convs
+                        }
+                        
+                        for future in as_completed(future_to_conv):
+                            conv, conv_dir = future_to_conv[future]
+                            
+                            try:
+                                stats, err_msg = future.result()
+                            except Exception as e:
+                                err_msg = str(e)
+                                stats = None
+                            
+                            with _lock:
+                                processed_count += 1
+                                if err_msg:
+                                    errors += 1
+                                    error_counts[err_msg] = error_counts.get(err_msg, 0) + 1
+                                    if verbose:
+                                        console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
+                                elif stats:
+                                    if stats.embeddings_created == 0:
+                                        skipped += 1
+                                    else:
+                                        embedded += 1
+                                        actual_tokens += stats.total_tokens
+                                        actual_embeddings += stats.embeddings_created
+                                
+                                elapsed = time.perf_counter() - start_time
+                            
+                            progress.update(task, advance=1, rate=_format_rate(processed_count, embedded, elapsed))
+                    finally:
+                        executor.shutdown(wait=False, cancel_futures=True)
+        except KeyboardInterrupt:
+            interrupted = True
+            console.print("\n[yellow]Interrupted! Partial results saved.[/yellow]")
         
         # Log deduplicated errors to file
         for err_msg, count in error_counts.items():
