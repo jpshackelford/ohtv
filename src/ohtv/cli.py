@@ -3266,15 +3266,6 @@ def _print_summary_table(
     # Use TableRenderer for schema-based rendering
     renderer = TableRenderer(schema, console=console)
     
-    # Pre-process results to combine goal + refs for default schema's Summary column
-    if not display_schema or not display_schema.columns:
-        # Using default schema - need to combine goal and refs into "goal" field
-        for r in results:
-            summary_parts = [r.get("goal", "")]
-            if include_outputs and r.get("refs_display"):
-                summary_parts.append(r["refs_display"])
-            r["goal"] = "\n".join(summary_parts)
-    
     renderer.render(
         results,
         variant=variant,

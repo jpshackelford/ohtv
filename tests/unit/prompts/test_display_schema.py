@@ -382,3 +382,70 @@ class TestFormatValue:
         """Test format_value with None format uses plain."""
         result = format_value(["a", "b"], None)
         assert result == "a, b"
+
+
+class TestTableRenderer:
+    """Tests for TableRenderer class."""
+    
+    def test_nested_field_access(self):
+        """Test nested field access like user.name."""
+        from ohtv.prompts.renderer import TableRenderer
+        
+        schema = DisplaySchema(columns=[
+            ColumnDef(name="Author", field="user.name"),
+        ])
+        renderer = TableRenderer(schema)
+        
+        data = {"user": {"name": "Alice", "email": "alice@example.com"}}
+        value = renderer._get_field_value(data, "user.name")
+        assert value == "Alice"
+    
+    def test_nested_field_access_deep(self):
+        """Test deeply nested field access."""
+        from ohtv.prompts.renderer import TableRenderer
+        
+        schema = DisplaySchema(columns=[])
+        renderer = TableRenderer(schema)
+        
+        data = {"level1": {"level2": {"level3": "deep_value"}}}
+        value = renderer._get_field_value(data, "level1.level2.level3")
+        assert value == "deep_value"
+    
+    def test_nested_field_access_missing(self):
+        """Test nested field access with missing intermediate key."""
+        from ohtv.prompts.renderer import TableRenderer
+        
+        schema = DisplaySchema(columns=[])
+        renderer = TableRenderer(schema)
+        
+        data = {"user": {"name": "Bob"}}
+        value = renderer._get_field_value(data, "user.email.domain")
+        assert value is None
+    
+    def test_nested_field_access_non_dict(self):
+        """Test nested field access when intermediate value is not a dict."""
+        from ohtv.prompts.renderer import TableRenderer
+        
+        schema = DisplaySchema(columns=[])
+        renderer = TableRenderer(schema)
+        
+        data = {"user": "string_value"}
+        value = renderer._get_field_value(data, "user.name")
+        assert value is None
+
+
+class TestTruncateFormatterEdgeCases:
+    """Additional tests for truncate formatter edge cases."""
+    
+    def test_truncate_with_invalid_args(self):
+        """Test truncate gracefully handles non-numeric args."""
+        result = format_truncate("This is a test string", "invalid")
+        # Should fall back to default of 50
+        assert result == "This is a test string"  # String is shorter than 50
+    
+    def test_truncate_with_empty_args(self):
+        """Test truncate with empty string args."""
+        result = format_truncate("A" * 100, "")
+        # Should fall back to default of 50
+        assert len(result) == 50
+        assert result.endswith("…")

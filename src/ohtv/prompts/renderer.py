@@ -202,5 +202,8 @@ def get_default_display_schema() -> DisplaySchema:
     return DisplaySchema(columns=[
         ColumnDef(name="ID", field="short_id", width=7),
         ColumnDef(name="Date", field="created_at", format="date", width=10),
-        ColumnDef(name="Summary", field="goal"),
+        ColumnDef(name="Summary", fields=[
+            FieldRef(field_name="goal"),
+            FieldRef(field_name="refs_display"),
+        ], combine="newline"),
     ])

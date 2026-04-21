@@ -86,7 +86,7 @@ def format_truncate(value: Any, args: str | None = None) -> str:
     if value is None:
         return ""
     text = str(value)
-    max_len = int(args) if args else 50
+    max_len = int(args) if args and args.isdigit() else 50
     if len(text) <= max_len:
         return text
     return text[:max_len - 1] + "…"
