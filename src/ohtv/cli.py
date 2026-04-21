@@ -5293,6 +5293,8 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         else:
             max_workers = min(20, len(valid_convs)) if len(valid_convs) > 1 else 1
         
+        log.info("Using model=%s, max_workers=%d", model, max_workers)
+        
         # Thread-safe lock for counters
         _lock = threading.Lock()
         start_time = time.perf_counter()
