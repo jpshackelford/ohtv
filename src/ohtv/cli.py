@@ -5443,8 +5443,10 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                                             actual_embeddings += stats.embeddings_created
                                     
                                     elapsed = time.perf_counter() - start_time
+                                    # Capture values inside lock for consistent display
+                                    rate_str = _format_rate(processed_count, embedded, elapsed)
                                 
-                                progress.update(task, advance=1, rate=_format_rate(processed_count, embedded, elapsed))
+                                progress.update(task, advance=1, rate=rate_str)
                     finally:
                         executor.shutdown(wait=False, cancel_futures=True)
         except KeyboardInterrupt:
