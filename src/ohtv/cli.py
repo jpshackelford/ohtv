@@ -5307,29 +5307,42 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         
         def _embed_one(conv, conv_dir) -> tuple[EmbeddingStats | None, str | None]:
             """Embed a single conversation. Returns (stats, error_msg)."""
-            # Each thread gets its own connection (SQLite connections aren't thread-safe)
-            with get_connection() as thread_conn:
-                try:
-                    stats = embed_conversation_full(
-                        conv_dir,
-                        thread_conn,
-                        model=model,
-                        skip_existing=not force,
-                    )
-                    
-                    # Also update FTS for keyword search
-                    if stats.embeddings_created > 0:
-                        events = load_events(conv_dir)
-                        if events:
-                            summary = build_summary_text(events)
-                            if summary:
-                                thread_embed_store = EmbeddingStore(thread_conn)
-                                thread_embed_store.upsert_fts(conv.id, summary)
-                    
-                    thread_conn.commit()
-                    return stats, None
-                except Exception as e:
-                    return None, str(e)
+            import sqlite3
+            
+            max_retries = 5
+            retry_delay = 0.5  # seconds
+            
+            for attempt in range(max_retries):
+                # Each thread gets its own connection (SQLite connections aren't thread-safe)
+                with get_connection() as thread_conn:
+                    try:
+                        stats = embed_conversation_full(
+                            conv_dir,
+                            thread_conn,
+                            model=model,
+                            skip_existing=not force,
+                        )
+                        
+                        # Also update FTS for keyword search
+                        if stats.embeddings_created > 0:
+                            events = load_events(conv_dir)
+                            if events:
+                                summary = build_summary_text(events)
+                                if summary:
+                                    thread_embed_store = EmbeddingStore(thread_conn)
+                                    thread_embed_store.upsert_fts(conv.id, summary)
+                        
+                        thread_conn.commit()
+                        return stats, None
+                    except sqlite3.OperationalError as e:
+                        if "database is locked" in str(e) and attempt < max_retries - 1:
+                            time.sleep(retry_delay * (attempt + 1))  # exponential backoff
+                            continue
+                        return None, str(e)
+                    except Exception as e:
+                        return None, str(e)
+            
+            return None, "database is locked (max retries exceeded)"
         
         with Progress(
             SpinnerColumn(),
