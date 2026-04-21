@@ -197,6 +197,10 @@ def estimate_conversation_tokens(
 
     texts = build_conversation_texts(events, analysis, refs)
 
+    # Check if there's any embeddable content
+    if not texts.analysis_text and not texts.summary_text and not texts.content_chunks:
+        return 0, 0
+
     total_tokens = 0
     total_embeddings = 0
 

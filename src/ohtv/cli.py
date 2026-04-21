@@ -5287,9 +5287,9 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         
         # Use parallel processing for embedding API calls
         # For cloud APIs: 20 workers (API rate limits are the bottleneck)
-        # For Ollama: 2 workers (SQLite can't handle too many concurrent writes)
+        # For Ollama: 4 workers (local model, moderate concurrency)
         if model.startswith("ollama/"):
-            max_workers = min(2, len(valid_convs)) if len(valid_convs) > 1 else 1
+            max_workers = min(4, len(valid_convs)) if len(valid_convs) > 1 else 1
         else:
             max_workers = min(20, len(valid_convs)) if len(valid_convs) > 1 else 1
         
@@ -5324,8 +5324,8 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             """Embed a single conversation. Returns (stats, error_msg)."""
             import sqlite3
             
-            max_retries = 10
-            retry_delay = 0.3  # seconds (with exponential backoff: 0.3, 0.6, 0.9, ...)
+            max_retries = 5
+            retry_delay = 0.5  # seconds
             
             # Each thread gets its own connection (SQLite connections aren't thread-safe)
             with get_connection() as thread_conn:
