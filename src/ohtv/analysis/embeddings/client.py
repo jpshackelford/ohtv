@@ -154,12 +154,19 @@ def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
             )
         except urllib.error.HTTPError as e:
             last_error = e
+            # Try to read the error response body for more details
+            error_body = ""
+            try:
+                error_body = e.read().decode("utf-8")
+            except Exception:
+                pass
+            log.debug("Ollama HTTP %d error (attempt %d): %s", e.code, attempt + 1, error_body or str(e))
             # Retry on 500 errors (Ollama overloaded)
             if e.code == 500 and attempt < max_retries - 1:
                 time.sleep(retry_delay * (attempt + 1))
                 continue
             raise RuntimeError(
-                f"Ollama connection failed: {e}. "
+                f"Ollama connection failed: {e}. Body: {error_body}. "
                 f"Is Ollama running? Try: ollama serve"
             ) from e
         except urllib.error.URLError as e:
