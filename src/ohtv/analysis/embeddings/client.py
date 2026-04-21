@@ -122,8 +122,11 @@ def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
     
     # Retry logic for transient Ollama errors (500s when overloaded)
     max_retries = 3
-    retry_delay = 1.0  # seconds
+    retry_delay = 2.0  # seconds - give Ollama time to recover
     last_error = None
+    
+    # Small delay before each request to avoid overwhelming Ollama
+    time.sleep(0.2)
     
     for attempt in range(max_retries):
         req = urllib.request.Request(
