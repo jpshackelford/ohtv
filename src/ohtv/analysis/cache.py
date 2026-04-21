@@ -281,12 +281,21 @@ class AnalysisCacheManager:
         log.debug("Cache hit for key '%s'", cache_key)
         return analysis
 
-    def save(self, conv_dir: Path, analysis: T, **key_kwargs) -> None:
+    def save(
+        self,
+        conv_dir: Path,
+        analysis: T,
+        update_embeddings: bool = False,
+        **key_kwargs,
+    ) -> None:
         """Save analysis to cache.
 
         Args:
             conv_dir: Conversation directory
             analysis: Analysis result to cache
+            update_embeddings: Whether to update the analysis embedding in the
+                database. This triggers an API call to generate embeddings.
+                Default is False to avoid hidden side effects.
             **key_kwargs: Parameters that identify the analysis type.
                 If not provided, extracts from analysis object attributes
                 matching common parameter names.
@@ -323,8 +332,9 @@ class AnalysisCacheManager:
         # Sync to database if available
         self._sync_cache_to_db(conv_dir.name, cache_key, analysis)
         
-        # Update analysis embedding (if embeddings are enabled)
-        self._update_analysis_embedding(conv_dir, analysis)
+        # Update analysis embedding only if explicitly requested
+        if update_embeddings:
+            self._update_analysis_embedding(conv_dir, analysis)
 
     def _sync_cache_to_db(self, conversation_id: str, cache_key: str, analysis: T) -> None:
         """Sync cache entry to database for fast lookup.
@@ -401,8 +411,11 @@ class AnalysisCacheManager:
                 conn.commit()
                 log.debug("Updated analysis embedding for %s", conv_dir.name)
                 
-        except Exception as e:
+        except (ImportError, RuntimeError, OSError) as e:
             # Embedding update is optional, don't fail analysis
+            # - ImportError: missing dependencies
+            # - RuntimeError: API errors (e.g., LLM call failed)
+            # - OSError: I/O errors (database access issues)
             log.debug("Failed to update analysis embedding (non-fatal): %s", e)
 
     def is_skipped(self, conv_dir: Path, event_count: int) -> str | None:

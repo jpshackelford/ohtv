@@ -1456,12 +1456,11 @@ def ask(
       ohtv ask "what changes were made to the API?" --context 10
       ohtv ask "summarize the docker deployment work" --show-context
     """
-    import time
     from ohtv.db import get_connection, get_db_path, migrate
     from ohtv.db.stores import ConversationStore, EmbeddingStore
+    from ohtv.analysis.rag import RAGAnswerer
     
     _init_logging(verbose=verbose)
-    config = Config.from_env()
     db_path = get_db_path()
     
     if not db_path.exists():
@@ -1482,127 +1481,51 @@ def ask(
             console.print("[dim]Run 'ohtv db embed' to build embeddings first.[/dim]")
             raise SystemExit(1)
         
-        # Embed the question
         console.print("[dim]Searching for relevant context...[/dim]")
-        start_time = time.perf_counter()
+        
+        # Use RAGAnswerer for context retrieval and answer generation
+        answerer = RAGAnswerer(embed_store, conv_store, model=model)
         
         try:
-            from ohtv.analysis.embeddings import get_embedding
-            query_result = get_embedding(question)
-            query_embedding = query_result.embedding
+            result = answerer.answer_question(
+                question,
+                max_context_chunks=context,
+                min_score=min_score,
+            )
+        except ValueError as e:
+            console.print(f"[yellow]{e}[/yellow]")
+            console.print("[dim]Try lowering --min-score or building more embeddings.[/dim]")
+            raise SystemExit(1)
         except RuntimeError as e:
             console.print(f"[red]Error:[/red] {e}")
             console.print("[dim]Make sure LLM_API_KEY is set.[/dim]")
             raise SystemExit(1)
         
-        # Get relevant context chunks
-        context_results = embed_store.get_context_for_rag(
-            query_embedding,
-            max_chunks=context,
-            min_score=min_score,
-        )
-        
-        search_time = time.perf_counter() - start_time
-        
-        if not context_results:
-            console.print("[yellow]No relevant context found.[/yellow]")
-            console.print("[dim]Try lowering --min-score or building more embeddings.[/dim]")
-            raise SystemExit(1)
-        
-        # Build context for the LLM
-        context_parts = []
-        source_convs = set()
-        
-        for i, r in enumerate(context_results, 1):
-            conv = conv_store.get(r.conversation_id)
-            title = conv.title if conv and conv.title else f"Conversation {r.conversation_id[:8]}"
-            source_convs.add(r.conversation_id)
-            
-            context_parts.append(f"[Source {i}: {title} ({r.embed_type})]")
-            context_parts.append(r.source_text)
-            context_parts.append("")  # Empty line between sources
-        
-        context_text = "\n".join(context_parts)
-        
+        # Show context if requested
         if show_context:
-            console.print(f"\n[bold]Retrieved Context ({len(context_results)} chunks):[/bold]")
+            console.print(f"\n[bold]Retrieved Context ({len(result.context_chunks)} chunks):[/bold]")
             console.print("-" * 60)
-            for r in context_results:
-                conv = conv_store.get(r.conversation_id)
-                title = conv.title if conv and conv.title else r.conversation_id[:8]
-                console.print(f"[cyan]{title}[/cyan] ({r.embed_type}, score: {r.score:.2f})")
-                # Show truncated preview
-                preview = r.source_text[:200] + "..." if len(r.source_text) > 200 else r.source_text
+            for chunk in result.context_chunks:
+                console.print(f"[cyan]{chunk.title}[/cyan] ({chunk.embed_type}, score: {chunk.score:.2f})")
+                preview = chunk.source_text[:200] + "..." if len(chunk.source_text) > 200 else chunk.source_text
                 console.print(f"[dim]{preview}[/dim]")
                 console.print()
             console.print("-" * 60)
         
-        # Generate answer using LLM
-        console.print("[dim]Generating answer...[/dim]")
-        
-        import os
-        import litellm
-        
-        llm_model = model or os.environ.get("LLM_MODEL", "openai/gpt-4o-mini")
-        api_key = os.environ.get("LLM_API_KEY")
-        api_base = os.environ.get("LLM_BASE_URL")
-        
-        if not api_key:
-            console.print("[red]Error: LLM_API_KEY not set[/red]")
-            raise SystemExit(1)
-        
-        # Build prompt
-        system_prompt = """You are a helpful assistant that answers questions about software development conversations and coding sessions. 
-
-You have been provided with context from relevant conversation history. Use this context to answer the user's question accurately and concisely.
-
-Guidelines:
-- Base your answer on the provided context
-- If the context doesn't contain enough information, say so
-- Reference specific conversations when relevant
-- Be concise but thorough
-- Use markdown formatting for code snippets"""
-
-        user_prompt = f"""Context from conversation history:
-{context_text}
-
-Question: {question}
-
-Please provide a helpful answer based on the context above."""
-
-        try:
-            gen_start = time.perf_counter()
-            response = litellm.completion(
-                model=llm_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                api_key=api_key,
-                api_base=api_base,
-            )
-            gen_time = time.perf_counter() - gen_start
-            
-            answer = response.choices[0].message.content
-            
-        except Exception as e:
-            console.print(f"[red]Error generating answer:[/red] {e}")
-            raise SystemExit(1)
-        
         # Display answer
         console.print(f"\n[bold]Answer:[/bold]\n")
-        console.print(answer)
+        console.print(result.answer)
         
         # Show sources
         console.print(f"\n[dim]─────────────────────────────────────────────────[/dim]")
-        console.print(f"[dim]Sources ({len(source_convs)} conversations):[/dim]")
-        for conv_id in source_convs:
+        console.print(f"[dim]Sources ({len(result.source_conversation_ids)} conversations):[/dim]")
+        for conv_id in result.source_conversation_ids:
             conv = conv_store.get(conv_id)
             title = conv.title if conv and conv.title else "(no title)"
             short_title = title[:50] + "..." if len(title) > 50 else title
             console.print(f"[dim]  • [{conv_id[:8]}] {short_title}[/dim]")
         
-        console.print(f"\n[dim]Search: {search_time:.2f}s | Generation: {gen_time:.2f}s | Model: {llm_model}[/dim]")
+        console.print(f"\n[dim]Search: {result.search_time_seconds:.2f}s | Generation: {result.generation_time_seconds:.2f}s | Model: {result.model}[/dim]")
 
 
 def _load_all_conversations(

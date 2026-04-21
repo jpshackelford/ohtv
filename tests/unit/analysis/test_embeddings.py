@@ -543,7 +543,7 @@ class TestEmbedConversationFull:
         mock_result.token_count = 10
         mock_result.model = "test-model"
 
-        with patch("ohtv.analysis.embeddings.get_embedding", return_value=mock_result):
+        with patch("ohtv.analysis.embeddings.client.get_embedding", return_value=mock_result):
             stats = embed_conversation_full(
                 conv_dir=conv_dir,
                 conn=db_conn,
@@ -598,7 +598,7 @@ class TestEmbedConversationFull:
         mock_result.token_count = 10
         mock_result.model = "test-model"
 
-        with patch("ohtv.analysis.embeddings.get_embedding", return_value=mock_result):
+        with patch("ohtv.analysis.embeddings.client.get_embedding", return_value=mock_result):
             stats = embed_conversation_full(
                 conv_dir=conv_dir,
                 conn=db_conn,
