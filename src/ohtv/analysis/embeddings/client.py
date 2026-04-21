@@ -106,17 +106,11 @@ def get_embedding(text: str, model: str | None = None) -> EmbeddingResult:
             "This is required for embedding generation."
         )
 
-    # When using a LiteLLM proxy (api_base is set), strip the provider prefix
-    # The proxy handles routing based on model name alone
-    request_model = model
-    if api_base and "/" in model:
-        request_model = model.split("/", 1)[1]
-
-    log.debug("Getting embedding with model %s", request_model)
+    log.debug("Getting embedding with model %s", model)
 
     try:
         response = litellm.embedding(
-            model=request_model,
+            model=model,
             input=[text],
             api_key=api_key,
             api_base=api_base,

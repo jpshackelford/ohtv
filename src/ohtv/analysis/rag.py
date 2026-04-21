@@ -176,12 +176,6 @@ class RAGAnswerer:
                 "This is required for answer generation."
             )
         
-        # When using a LiteLLM proxy (api_base is set), strip the provider prefix
-        # The proxy handles routing based on model name alone
-        request_model = self.model
-        if api_base and "/" in self.model:
-            request_model = self.model.split("/", 1)[1]
-        
         # Build context text
         context_parts = []
         for i, chunk in enumerate(context_chunks, 1):
@@ -200,7 +194,7 @@ Please provide a helpful answer based on the context above."""
         
         try:
             response = litellm.completion(
-                model=request_model,
+                model=self.model,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": user_prompt},
