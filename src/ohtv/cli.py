@@ -5287,9 +5287,9 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         
         # Use parallel processing for embedding API calls
         # For cloud APIs: 20 workers (API rate limits are the bottleneck)
-        # For Ollama: 1 worker (local model can't handle concurrent requests well)
+        # For Ollama: 4 workers (local model, moderate concurrency)
         if model.startswith("ollama/"):
-            max_workers = 1  # Sequential for Ollama - it doesn't handle concurrency well
+            max_workers = min(4, len(valid_convs)) if len(valid_convs) > 1 else 1
         else:
             max_workers = min(20, len(valid_convs)) if len(valid_convs) > 1 else 1
         
