@@ -297,6 +297,9 @@ class AnalysisCacheManager:
         
         # Sync to database if available
         self._sync_cache_to_db(conv_dir.name, cache_key, analysis)
+        
+        # Update analysis embedding (if embeddings are enabled)
+        self._update_analysis_embedding(conv_dir, analysis)
 
     def _sync_cache_to_db(self, conversation_id: str, cache_key: str, analysis: T) -> None:
         """Sync cache entry to database for fast lookup.
@@ -325,6 +328,57 @@ class AnalysisCacheManager:
         except Exception as e:
             # DB sync is optional, don't fail if it doesn't work
             log.debug("Failed to sync cache to DB (non-fatal): %s", e)
+    
+    def _update_analysis_embedding(self, conv_dir: Path, analysis: T) -> None:
+        """Update the analysis embedding after new analysis is cached.
+        
+        This ensures the embedding store stays in sync with analysis changes.
+        Only updates the 'analysis' embedding type, not summary/content.
+        """
+        try:
+            from ohtv.db import get_connection, migrate
+            from ohtv.db.stores import EmbeddingStore
+            from ohtv.analysis.embeddings import (
+                build_analysis_text, get_embedding, get_embedding_model
+            )
+            import os
+            
+            # Only attempt if LLM_API_KEY is configured
+            if not os.environ.get("LLM_API_KEY"):
+                log.debug("Skipping embedding update - LLM_API_KEY not set")
+                return
+            
+            # Build analysis text
+            analysis_dict = analysis.model_dump()
+            analysis_text = build_analysis_text(analysis_dict)
+            
+            if not analysis_text:
+                log.debug("No analysis text to embed for %s", conv_dir.name)
+                return
+            
+            # Get embedding
+            model = get_embedding_model()
+            result = get_embedding(analysis_text, model=model)
+            
+            # Save to database
+            with get_connection() as conn:
+                migrate(conn)
+                store = EmbeddingStore(conn)
+                store.upsert(
+                    conversation_id=conv_dir.name,
+                    embedding=result.embedding,
+                    model=result.model,
+                    embed_type="analysis",
+                    chunk_index=0,
+                    token_count=result.token_count,
+                    source_text=analysis_text,
+                )
+                conn.commit()
+                log.debug("Updated analysis embedding for %s", conv_dir.name)
+                
+        except Exception as e:
+            # Embedding update is optional, don't fail analysis
+            log.debug("Failed to update analysis embedding (non-fatal): %s", e)
 
     def is_skipped(self, conv_dir: Path, event_count: int) -> str | None:
         """Check if conversation is marked as skipped.

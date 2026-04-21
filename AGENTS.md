@@ -236,37 +236,54 @@ uv run ohtv prompts show brief         # Show specific prompt content
 - Prefers push output over checkout inference when available
 - Marks inferred branches with `branch_inferred: true` in metadata
 
-## Completed: Semantic Search with Embeddings
+## Completed: Semantic Search with Embeddings + RAG
 
-**PR**: #24 (implements issue #1)
+**PR**: #25 (implements issue #1)
 
 **Features**:
-1. ✅ Embedding generation using LiteLLM (same LLM_API_KEY/LLM_BASE_URL as gen command)
-2. ✅ Vector storage in SQLite BLOBs with numpy-based cosine similarity search
-3. ✅ FTS5 keyword search fallback with `--exact` flag
-4. ✅ Cost estimation before embedding (shows token count and estimated cost)
-5. ✅ 19 tests for embedding store and search functionality
+1. ✅ Multi-type embeddings: analysis, summary, content (chunked)
+2. ✅ RAG question answering via `ohtv ask`
+3. ✅ Automatic embedding updates when `gen objs` runs
+4. ✅ Refs (PRs, repos, issues) included in summary embeddings
+5. ✅ File contents included in content embeddings
+6. ✅ FTS5 keyword search fallback with `--exact` flag
+7. ✅ 21 tests for embedding store and search
 
 **CLI Commands**:
 ```bash
+# Build embeddings
 ohtv db embed                    # Build embeddings for all conversations
 ohtv db embed --estimate         # Show cost estimate only
 ohtv db embed --force            # Rebuild all embeddings
+
+# Search conversations
 ohtv search "fix auth bugs"      # Semantic search
 ohtv search "error 404" --exact  # Keyword search
 ohtv search "docker" -n 20       # Limit results
 ohtv search "api" --since 7d     # Filter by date
+
+# Ask questions (RAG)
+ohtv ask "how did we fix the auth bug?"     # Question answering
+ohtv ask "summarize the API changes" -c 10  # More context chunks
+ohtv ask "what PRs were created?" --show-context  # Show retrieved chunks
 ```
 
+**Embedding Types**:
+- `analysis` - Goal + outcomes from cached LLM analysis (auto-updated on `gen objs`)
+- `summary` - User messages + refs (repos/PRs/issues) + file paths + commands
+- `content` - File contents + terminal outputs (chunked if >1000 tokens)
+
 **Environment Variables**:
-- `EMBEDDING_MODEL` - Model to use (default: `openai/text-embedding-3-small`)
+- `EMBEDDING_MODEL` - Embedding model (default: `openai/text-embedding-3-small`)
+- `LLM_MODEL` - RAG answer model (default: `openai/gpt-4o-mini`)
 - `LLM_API_KEY` - Same key used for `gen objs`
 - `LLM_BASE_URL` - Same base URL used for `gen objs`
 
 **Implementation Details**:
-- `src/ohtv/db/migrations/008_embeddings.py` - Schema for embeddings and FTS5 tables
-- `src/ohtv/db/stores/embedding_store.py` - Data access for vectors and FTS
-- `src/ohtv/analysis/embeddings.py` - LiteLLM embedding generation
-- Uses "lean transcript" for embedding: user messages + finish blocks + thinking blocks
+- `src/ohtv/db/migrations/008_embeddings.py` - Initial embeddings schema
+- `src/ohtv/db/migrations/009_embedding_types.py` - Multi-type schema
+- `src/ohtv/db/stores/embedding_store.py` - Vector/FTS storage, aggregated search
+- `src/ohtv/analysis/embeddings.py` - Text builders, chunking, embedding
+- `src/ohtv/analysis/cache.py` - Auto-updates analysis embedding on gen objs
 - Vectors stored as BLOB with struct-packed float32 arrays
-- Search uses numpy for efficient matrix multiplication (cosine similarity)
+- Search aggregates best match per conversation across all embedding types
