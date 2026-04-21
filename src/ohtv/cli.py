@@ -5326,6 +5326,8 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                             skip_existing=not force,
                         )
                         
+                        log.debug("Embedded %s: %d embeddings created", conv.id[:12], stats.embeddings_created)
+                        
                         # Also update FTS for keyword search
                         if stats.embeddings_created > 0:
                             events = load_events(conv_dir)
@@ -5336,13 +5338,16 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                                     thread_embed_store.upsert_fts(conv.id, summary)
                         
                         thread_conn.commit()
+                        log.debug("Committed %s", conv.id[:12])
                         return stats, None
                     except sqlite3.OperationalError as e:
+                        log.debug("SQLite error on %s (attempt %d): %s", conv.id[:12], attempt + 1, e)
                         if "database is locked" in str(e) and attempt < max_retries - 1:
                             time.sleep(retry_delay * (attempt + 1))  # exponential backoff
                             continue
                         return None, str(e)
                     except Exception as e:
+                        log.debug("Error on %s: %s", conv.id[:12], e)
                         return None, str(e)
             
             return None, "database is locked (max retries exceeded)"
