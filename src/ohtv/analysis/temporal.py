@@ -16,6 +16,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Callable
 
 import litellm
 
@@ -40,6 +41,42 @@ class TemporalQuery:
     end_date: datetime | None
     cleaned_query: str
     has_temporal_intent: bool
+
+
+# Month name mapping (shared between extraction and cleaning)
+MONTH_NAMES = {
+    "january": 1, "jan": 1,
+    "february": 2, "feb": 2,
+    "march": 3, "mar": 3,
+    "april": 4, "apr": 4,
+    "may": 5,
+    "june": 6, "jun": 6,
+    "july": 7, "jul": 7,
+    "august": 8, "aug": 8,
+    "september": 9, "sep": 9, "sept": 9,
+    "october": 10, "oct": 10,
+    "november": 11, "nov": 11,
+    "december": 12, "dec": 12,
+}
+
+# Build month pattern once for reuse
+_MONTH_PATTERN = '|'.join(MONTH_NAMES.keys())
+
+
+@dataclass
+class TemporalPattern:
+    """A temporal pattern with its regex and date calculation logic.
+    
+    Attributes:
+        name: Descriptive name for logging/debugging
+        regex: Compiled regex pattern to match
+        calculate: Function (now, match) -> (start_date, end_date)
+        removal_pattern: Optional separate regex for cleaning (uses main regex if None)
+    """
+    name: str
+    regex: re.Pattern
+    calculate: Callable[[datetime, re.Match | None], tuple[datetime, datetime]]
+    removal_pattern: re.Pattern | None = None
 
 
 EXTRACTION_PROMPT = """You are a query analyzer that extracts temporal (time-based) constraints from user questions.
@@ -105,6 +142,201 @@ def extract_temporal_filter(
     return _llm_extract(question, current_date, model)
 
 
+def _infer_year_for_month(month_num: int, current_date: datetime) -> int:
+    """Infer the most likely year for a month reference.
+    
+    If the month is in the future relative to current date, assume last year.
+    Otherwise assume current year.
+    """
+    if month_num > current_date.month:
+        return current_date.year - 1
+    return current_date.year
+
+
+def _get_month_end(year: int, month: int) -> datetime:
+    """Get the last moment of a given month."""
+    if month == 12:
+        return datetime(year + 1, 1, 1, tzinfo=timezone.utc) - timedelta(seconds=1)
+    return datetime(year, month + 1, 1, tzinfo=timezone.utc) - timedelta(seconds=1)
+
+
+def _build_temporal_patterns() -> list[TemporalPattern]:
+    """Build the list of temporal patterns.
+    
+    Each pattern has a regex and a calculation function that takes (current_date, match)
+    and returns (start_date, end_date).
+    """
+    
+    def today_start(now: datetime) -> datetime:
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    def today_end(now: datetime) -> datetime:
+        return now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    
+    patterns = [
+        # Simple patterns
+        TemporalPattern(
+            name="yesterday",
+            regex=re.compile(r'\byesterday\b', re.IGNORECASE),
+            calculate=lambda now, m: (today_start(now) - timedelta(days=1), today_start(now)),
+        ),
+        TemporalPattern(
+            name="today",
+            regex=re.compile(r'\btoday\b', re.IGNORECASE),
+            calculate=lambda now, m: (today_start(now), today_end(now)),
+        ),
+        TemporalPattern(
+            name="this_week",
+            regex=re.compile(r'\bthis week\b', re.IGNORECASE),
+            calculate=lambda now, m: (
+                today_start(now) - timedelta(days=now.weekday()),
+                now,
+            ),
+        ),
+        TemporalPattern(
+            name="last_week",
+            regex=re.compile(r'\blast week\b', re.IGNORECASE),
+            calculate=lambda now, m: (today_start(now) - timedelta(days=7), today_start(now)),
+        ),
+        TemporalPattern(
+            name="last_month",
+            regex=re.compile(r'\blast month\b', re.IGNORECASE),
+            calculate=lambda now, m: (today_start(now) - timedelta(days=30), today_start(now)),
+        ),
+        TemporalPattern(
+            name="recently",
+            regex=re.compile(r'\brecent(ly)?\b', re.IGNORECASE),
+            calculate=lambda now, m: (today_start(now) - timedelta(days=7), now),
+        ),
+        # Vague quantifiers
+        TemporalPattern(
+            name="few_days_ago",
+            regex=re.compile(r'\b(a\s+)?few\s+days?\s+(ago|back)\b', re.IGNORECASE),
+            calculate=lambda now, m: (
+                today_start(now) - timedelta(days=5),
+                today_start(now) - timedelta(days=2),
+            ),
+        ),
+        TemporalPattern(
+            name="few_weeks_ago",
+            regex=re.compile(r'\b(a\s+)?few\s+weeks?\s+(ago|back)\b', re.IGNORECASE),
+            calculate=lambda now, m: (
+                today_start(now) - timedelta(weeks=4),
+                today_start(now) - timedelta(weeks=2),
+            ),
+        ),
+        TemporalPattern(
+            name="couple_days_ago",
+            regex=re.compile(r'\b(a\s+)?couple\s+(of\s+)?days?\s+(ago|back)\b', re.IGNORECASE),
+            calculate=lambda now, m: (
+                today_start(now) - timedelta(days=3),
+                today_start(now) - timedelta(days=1),
+            ),
+        ),
+        TemporalPattern(
+            name="couple_weeks_ago",
+            regex=re.compile(r'\b(a\s+)?couple\s+(of\s+)?weeks?\s+(ago|back)\b', re.IGNORECASE),
+            calculate=lambda now, m: (
+                today_start(now) - timedelta(weeks=3),
+                today_start(now) - timedelta(weeks=1),
+            ),
+        ),
+        # Numeric patterns
+        TemporalPattern(
+            name="past_n_units",
+            regex=re.compile(r'\bpast\s+(\d+)\s+(day|week|month)s?\b', re.IGNORECASE),
+            calculate=lambda now, m: (
+                now - _unit_to_delta(int(m.group(1)), m.group(2)),
+                now,
+            ),
+        ),
+        TemporalPattern(
+            name="n_units_ago",
+            regex=re.compile(r'\b(\d+)\s+(day|week|month)s?\s+(ago|back)\b', re.IGNORECASE),
+            calculate=lambda now, m: (
+                (target := now - _unit_to_delta(int(m.group(1)), m.group(2))) - timedelta(days=1),
+                target + timedelta(days=1),
+            )[0:2],  # walrus operator trick for temp variable
+        ),
+        # Month qualifiers (must come before generic "in <month>")
+        TemporalPattern(
+            name="early_month",
+            regex=re.compile(rf'\bearly\s+({_MONTH_PATTERN})\b', re.IGNORECASE),
+            calculate=lambda now, m: _month_range(m.group(1), now, 1, 10),
+        ),
+        TemporalPattern(
+            name="mid_month",
+            regex=re.compile(rf'\bmid[-\s]?({_MONTH_PATTERN})\b', re.IGNORECASE),
+            calculate=lambda now, m: _month_range(m.group(1), now, 10, 20),
+        ),
+        TemporalPattern(
+            name="late_month",
+            regex=re.compile(rf'\blate\s+({_MONTH_PATTERN})\b', re.IGNORECASE),
+            calculate=lambda now, m: _month_range_to_end(m.group(1), now, 20),
+        ),
+        TemporalPattern(
+            name="in_month",
+            regex=re.compile(rf'\bin\s+({_MONTH_PATTERN})\b', re.IGNORECASE),
+            calculate=lambda now, m: _full_month_range(m.group(1), now),
+        ),
+    ]
+    return patterns
+
+
+def _unit_to_delta(n: int, unit: str) -> timedelta:
+    """Convert a numeric amount and unit to a timedelta."""
+    unit = unit.lower()
+    if unit == "day":
+        return timedelta(days=n)
+    elif unit == "week":
+        return timedelta(weeks=n)
+    else:  # month
+        return timedelta(days=n * 30)
+
+
+def _month_range(
+    month_name: str, current_date: datetime, start_day: int, end_day: int
+) -> tuple[datetime, datetime]:
+    """Calculate a date range within a specific month."""
+    month_num = MONTH_NAMES[month_name.lower()]
+    year = _infer_year_for_month(month_num, current_date)
+    start = datetime(year, month_num, start_day, tzinfo=timezone.utc)
+    end = datetime(year, month_num, end_day, 23, 59, 59, tzinfo=timezone.utc)
+    return start, end
+
+
+def _month_range_to_end(
+    month_name: str, current_date: datetime, start_day: int
+) -> tuple[datetime, datetime]:
+    """Calculate a date range from a day to the end of a month."""
+    month_num = MONTH_NAMES[month_name.lower()]
+    year = _infer_year_for_month(month_num, current_date)
+    start = datetime(year, month_num, start_day, tzinfo=timezone.utc)
+    end = _get_month_end(year, month_num)
+    return start, end
+
+
+def _full_month_range(month_name: str, current_date: datetime) -> tuple[datetime, datetime]:
+    """Calculate a date range for a full month."""
+    month_num = MONTH_NAMES[month_name.lower()]
+    year = _infer_year_for_month(month_num, current_date)
+    start = datetime(year, month_num, 1, tzinfo=timezone.utc)
+    end = _get_month_end(year, month_num)
+    return start, end
+
+
+# Build patterns once at module load
+TEMPORAL_PATTERNS = _build_temporal_patterns()
+
+# Keywords for quick check (avoids regex on non-temporal queries)
+TEMPORAL_KEYWORDS = [
+    "yesterday", "today", "last week", "this week", "last month",
+    "this month", "past", "recent", "ago", "before", "after",
+    "since", "until", "week", "month", "day", "back",
+    "few days", "few weeks", "couple", "early", "mid", "late",
+]
+
+
 def _fast_extract(question: str, current_date: datetime) -> TemporalQuery | None:
     """Fast regex-based extraction for common temporal patterns.
     
@@ -112,32 +344,9 @@ def _fast_extract(question: str, current_date: datetime) -> TemporalQuery | None
     """
     q_lower = question.lower()
     
-    # Month name mapping
-    month_names = {
-        "january": 1, "jan": 1,
-        "february": 2, "feb": 2,
-        "march": 3, "mar": 3,
-        "april": 4, "apr": 4,
-        "may": 5,
-        "june": 6, "jun": 6,
-        "july": 7, "jul": 7,
-        "august": 8, "aug": 8,
-        "september": 9, "sep": 9, "sept": 9,
-        "october": 10, "oct": 10,
-        "november": 11, "nov": 11,
-        "december": 12, "dec": 12,
-    }
-    
-    # No temporal intent - check for temporal keywords
-    temporal_keywords = [
-        "yesterday", "today", "last week", "this week", "last month",
-        "this month", "past", "recent", "ago", "before", "after",
-        "since", "until", "week", "month", "day", "back",
-        "few days", "few weeks", "couple", "early", "mid", "late",
-    ]
-    # Also check for month names
-    has_month_name = any(m in q_lower for m in month_names.keys())
-    has_temporal_keyword = any(kw in q_lower for kw in temporal_keywords)
+    # Quick check: skip regex if no temporal keywords present
+    has_month_name = any(m in q_lower for m in MONTH_NAMES.keys())
+    has_temporal_keyword = any(kw in q_lower for kw in TEMPORAL_KEYWORDS)
     
     if not has_temporal_keyword and not has_month_name:
         return TemporalQuery(
@@ -147,264 +356,36 @@ def _fast_extract(question: str, current_date: datetime) -> TemporalQuery | None
             has_temporal_intent=False,
         )
     
-    today_start = current_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = current_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-    
-    # "yesterday"
-    if re.search(r'\byesterday\b', q_lower):
-        yesterday = today_start - timedelta(days=1)
-        return TemporalQuery(
-            start_date=yesterday,
-            end_date=today_start,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "today"
-    if re.search(r'\btoday\b', q_lower):
-        return TemporalQuery(
-            start_date=today_start,
-            end_date=today_end,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "this week"
-    if re.search(r'\bthis week\b', q_lower):
-        # Start of week (Monday)
-        days_since_monday = current_date.weekday()
-        week_start = today_start - timedelta(days=days_since_monday)
-        return TemporalQuery(
-            start_date=week_start,
-            end_date=current_date,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "last week"
-    if re.search(r'\blast week\b', q_lower):
-        return TemporalQuery(
-            start_date=today_start - timedelta(days=7),
-            end_date=today_start,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "last month"
-    if re.search(r'\blast month\b', q_lower):
-        return TemporalQuery(
-            start_date=today_start - timedelta(days=30),
-            end_date=today_start,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "a few days ago" / "a few days back" / "few days ago"
-    if re.search(r'\b(a\s+)?few\s+days?\s+(ago|back)\b', q_lower):
-        # "a few" typically means 3-5, we'll use ~4 days with a range
-        return TemporalQuery(
-            start_date=today_start - timedelta(days=5),
-            end_date=today_start - timedelta(days=2),
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "a few weeks ago" / "a few weeks back"
-    if re.search(r'\b(a\s+)?few\s+weeks?\s+(ago|back)\b', q_lower):
-        # "a few weeks" = ~2-4 weeks
-        return TemporalQuery(
-            start_date=today_start - timedelta(weeks=4),
-            end_date=today_start - timedelta(weeks=2),
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "a couple days ago" / "couple of days ago"
-    if re.search(r'\b(a\s+)?couple\s+(of\s+)?days?\s+(ago|back)\b', q_lower):
-        return TemporalQuery(
-            start_date=today_start - timedelta(days=3),
-            end_date=today_start - timedelta(days=1),
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "a couple weeks ago" / "couple of weeks ago"
-    if re.search(r'\b(a\s+)?couple\s+(of\s+)?weeks?\s+(ago|back)\b', q_lower):
-        return TemporalQuery(
-            start_date=today_start - timedelta(weeks=3),
-            end_date=today_start - timedelta(weeks=1),
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "past N days/weeks"
-    match = re.search(r'\bpast\s+(\d+)\s+(day|week|month)s?\b', q_lower)
-    if match:
-        n = int(match.group(1))
-        unit = match.group(2)
-        if unit == "day":
-            delta = timedelta(days=n)
-        elif unit == "week":
-            delta = timedelta(weeks=n)
-        else:  # month
-            delta = timedelta(days=n * 30)
-        return TemporalQuery(
-            start_date=current_date - delta,
-            end_date=current_date,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "N days/weeks ago" or "N days/weeks back"
-    match = re.search(r'\b(\d+)\s+(day|week|month)s?\s+(ago|back)\b', q_lower)
-    if match:
-        n = int(match.group(1))
-        unit = match.group(2)
-        if unit == "day":
-            delta = timedelta(days=n)
-        elif unit == "week":
-            delta = timedelta(weeks=n)
-        else:  # month
-            delta = timedelta(days=n * 30)
-        # For "N days ago", search around that period
-        target = current_date - delta
-        return TemporalQuery(
-            start_date=target - timedelta(days=1),
-            end_date=target + timedelta(days=1),
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "recently" or "recent"
-    if re.search(r'\brecent(ly)?\b', q_lower):
-        return TemporalQuery(
-            start_date=today_start - timedelta(days=7),
-            end_date=current_date,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # Month with qualifier: "early March", "mid-March", "late March", "in March"
-    # Build regex pattern for all month names
-    month_pattern = '|'.join(month_names.keys())
-    
-    # "early <month>" - first 10 days
-    match = re.search(rf'\bearly\s+({month_pattern})\b', q_lower)
-    if match:
-        month_num = month_names[match.group(1)]
-        year = _infer_year_for_month(month_num, current_date)
-        start = datetime(year, month_num, 1, tzinfo=timezone.utc)
-        end = datetime(year, month_num, 10, 23, 59, 59, tzinfo=timezone.utc)
-        return TemporalQuery(
-            start_date=start,
-            end_date=end,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "mid-<month>" or "mid <month>" - days 10-20
-    match = re.search(rf'\bmid[-\s]?({month_pattern})\b', q_lower)
-    if match:
-        month_num = month_names[match.group(1)]
-        year = _infer_year_for_month(month_num, current_date)
-        start = datetime(year, month_num, 10, tzinfo=timezone.utc)
-        end = datetime(year, month_num, 20, 23, 59, 59, tzinfo=timezone.utc)
-        return TemporalQuery(
-            start_date=start,
-            end_date=end,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "late <month>" - days 20-end
-    match = re.search(rf'\blate\s+({month_pattern})\b', q_lower)
-    if match:
-        month_num = month_names[match.group(1)]
-        year = _infer_year_for_month(month_num, current_date)
-        start = datetime(year, month_num, 20, tzinfo=timezone.utc)
-        # Get last day of month
-        if month_num == 12:
-            end = datetime(year + 1, 1, 1, tzinfo=timezone.utc) - timedelta(seconds=1)
-        else:
-            end = datetime(year, month_num + 1, 1, tzinfo=timezone.utc) - timedelta(seconds=1)
-        return TemporalQuery(
-            start_date=start,
-            end_date=end,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
-    
-    # "in <month>" - whole month
-    match = re.search(rf'\bin\s+({month_pattern})\b', q_lower)
-    if match:
-        month_num = month_names[match.group(1)]
-        year = _infer_year_for_month(month_num, current_date)
-        start = datetime(year, month_num, 1, tzinfo=timezone.utc)
-        # Get last day of month
-        if month_num == 12:
-            end = datetime(year + 1, 1, 1, tzinfo=timezone.utc) - timedelta(seconds=1)
-        else:
-            end = datetime(year, month_num + 1, 1, tzinfo=timezone.utc) - timedelta(seconds=1)
-        return TemporalQuery(
-            start_date=start,
-            end_date=end,
-            cleaned_query=_remove_temporal_refs(question),
-            has_temporal_intent=True,
-        )
+    # Try each pattern in order
+    for pattern in TEMPORAL_PATTERNS:
+        match = pattern.regex.search(q_lower)
+        if match:
+            start_date, end_date = pattern.calculate(current_date, match)
+            return TemporalQuery(
+                start_date=start_date,
+                end_date=end_date,
+                cleaned_query=_remove_temporal_refs(question),
+                has_temporal_intent=True,
+            )
     
     # Pattern not recognized, fall back to LLM
     return None
 
 
-def _infer_year_for_month(month_num: int, current_date: datetime) -> int:
-    """Infer the most likely year for a month reference.
-    
-    If the month is in the future relative to current date, assume last year.
-    Otherwise assume current year.
-    """
-    current_month = current_date.month
-    current_year = current_date.year
-    
-    # If the referenced month is after the current month, it's probably last year
-    if month_num > current_month:
-        return current_year - 1
-    return current_year
-
-
 def _remove_temporal_refs(question: str) -> str:
-    """Remove common temporal references from a question.
+    """Remove temporal references from a question using the pattern registry.
     
-    Keeps the semantic intent while removing time-specific words.
+    Uses the same patterns as extraction to ensure consistency.
     """
-    # Month names for pattern building
-    month_names = (
-        "january|jan|february|feb|march|mar|april|apr|may|june|jun|"
-        "july|jul|august|aug|september|sep|sept|october|oct|november|nov|december|dec"
-    )
-    
-    patterns = [
-        r'\byesterday\b',
-        r'\btoday\b',
-        r'\bthis week\b',
-        r'\blast week\b',
-        r'\bthis month\b',
-        r'\blast month\b',
-        r'\bpast\s+\d+\s+(day|week|month)s?\b',
-        r'\b\d+\s+(day|week|month)s?\s+(ago|back)\b',
-        r'\b(a\s+)?few\s+(day|week)s?\s+(ago|back)\b',
-        r'\b(a\s+)?couple\s+(of\s+)?(day|week)s?\s+(ago|back)\b',
-        r'\brecent(ly)?\b',
-        r'\bin the\s+',  # "in the past week" -> "past week" already handled
-        # Month patterns
-        rf'\bearly\s+({month_names})\b',
-        rf'\bmid[-\s]?({month_names})\b',
-        rf'\blate\s+({month_names})\b',
-        rf'\bin\s+({month_names})\b',
-    ]
-    
     result = question
-    for pattern in patterns:
-        result = re.sub(pattern, '', result, flags=re.IGNORECASE)
+    
+    # Remove matches for all registered patterns
+    for pattern in TEMPORAL_PATTERNS:
+        removal_regex = pattern.removal_pattern or pattern.regex
+        result = removal_regex.sub('', result)
+    
+    # Also remove "in the" which often precedes temporal references
+    result = re.sub(r'\bin the\s+', ' ', result, flags=re.IGNORECASE)
     
     # Clean up extra whitespace
     result = re.sub(r'\s+', ' ', result).strip()
