@@ -1438,6 +1438,9 @@ def _print_search_json(
 @click.option("--min-score", "-s", type=float, default=0.3, help="Minimum similarity score (0-1)")
 @click.option("--model", "-m", help="LLM model for answer generation")
 @click.option("--show-context", is_flag=True, help="Show retrieved context chunks")
+@click.option("--since", type=str, help="Only search conversations from this date (YYYY-MM-DD or relative: 7d, 2w, 1m)")
+@click.option("--until", type=str, help="Only search conversations until this date (YYYY-MM-DD)")
+@click.option("--no-temporal", is_flag=True, help="Disable automatic temporal filtering from question")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def ask(
     question: str,
@@ -1445,6 +1448,9 @@ def ask(
     min_score: float,
     model: str | None,
     show_context: bool,
+    since: str | None,
+    until: str | None,
+    no_temporal: bool,
     verbose: bool,
 ) -> None:
     """Ask a question about your conversations (RAG).
@@ -1453,6 +1459,9 @@ def ask(
     then generates an answer using an LLM. This is like search but provides
     a synthesized answer instead of just listing matches.
     
+    Temporal filtering is automatic - questions like "what did we work on
+    yesterday?" will only search conversations from that time period.
+    
     \b
     Before asking, build embeddings with:
       ohtv db embed
@@ -1460,12 +1469,16 @@ def ask(
     \b
     Examples:
       ohtv ask "how did we fix the authentication bug?"
+      ohtv ask "what did we work on yesterday?"          # Auto temporal filter
       ohtv ask "what changes were made to the API?" --context 10
-      ohtv ask "summarize the docker deployment work" --show-context
+      ohtv ask "summarize deployment work" --since 7d    # Last 7 days
+      ohtv ask "show me API changes" --since 2026-04-01 --until 2026-04-15
+      ohtv ask "recent issues" --no-temporal             # Disable auto-filter
     """
     from ohtv.db import get_connection, get_db_path, migrate
     from ohtv.db.stores import ConversationStore, EmbeddingStore
     from ohtv.analysis.rag import RAGAnswerer
+    from ohtv.filters import parse_date_filter
     
     _init_logging(verbose=verbose)
     db_path = get_db_path()
@@ -1474,6 +1487,22 @@ def ask(
         console.print("[yellow]No database found.[/yellow]")
         console.print("[dim]Run 'ohtv db scan' and 'ohtv db embed' first.[/dim]")
         raise SystemExit(1)
+    
+    # Parse explicit date filters
+    start_date = None
+    end_date = None
+    if since:
+        start_date = parse_date_filter(since)
+        if start_date is None:
+            console.print(f"[red]Invalid --since format: {since}[/red]")
+            console.print("[dim]Use YYYY-MM-DD or relative: 7d, 2w, 1m[/dim]")
+            raise SystemExit(1)
+    if until:
+        end_date = parse_date_filter(until)
+        if end_date is None:
+            console.print(f"[red]Invalid --until format: {until}[/red]")
+            console.print("[dim]Use YYYY-MM-DD format[/dim]")
+            raise SystemExit(1)
     
     with get_connection() as conn:
         migrate(conn)
@@ -1491,13 +1520,21 @@ def ask(
         console.print("[dim]Searching for relevant context...[/dim]")
         
         # Use RAGAnswerer for context retrieval and answer generation
-        answerer = RAGAnswerer(embed_store, conv_store, model=model)
+        # Disable temporal filter if explicit dates provided or --no-temporal flag
+        enable_temporal = not no_temporal and start_date is None and end_date is None
+        answerer = RAGAnswerer(
+            embed_store, conv_store, 
+            model=model, 
+            enable_temporal_filter=enable_temporal,
+        )
         
         try:
             result = answerer.answer_question(
                 question,
                 max_context_chunks=context,
                 min_score=min_score,
+                start_date=start_date,
+                end_date=end_date,
             )
         except ValueError as e:
             console.print(f"[yellow]{e}[/yellow]")
@@ -1507,6 +1544,24 @@ def ask(
             console.print(f"[red]Error:[/red] {e}")
             console.print("[dim]Make sure LLM_API_KEY is set.[/dim]")
             raise SystemExit(1)
+        
+        # Show temporal filter info if applied
+        if result.temporal_filter_applied and result.date_range:
+            start, end = result.date_range
+            if start and end:
+                console.print(f"[dim]📅 Filtering to: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}[/dim]")
+            elif start:
+                console.print(f"[dim]📅 Filtering to: from {start.strftime('%Y-%m-%d')}[/dim]")
+            elif end:
+                console.print(f"[dim]📅 Filtering to: until {end.strftime('%Y-%m-%d')}[/dim]")
+        elif start_date or end_date:
+            # Explicit date filter was provided
+            if start_date and end_date:
+                console.print(f"[dim]📅 Explicit filter: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}[/dim]")
+            elif start_date:
+                console.print(f"[dim]📅 Explicit filter: from {start_date.strftime('%Y-%m-%d')}[/dim]")
+            elif end_date:
+                console.print(f"[dim]📅 Explicit filter: until {end_date.strftime('%Y-%m-%d')}[/dim]")
         
         # Show context if requested
         if show_context:
@@ -1532,7 +1587,15 @@ def ask(
             short_title = title[:50] + "..." if len(title) > 50 else title
             console.print(f"[dim]  • [{conv_id[:8]}] {short_title}[/dim]")
         
-        console.print(f"\n[dim]Search: {result.search_time_seconds:.2f}s | Generation: {result.generation_time_seconds:.2f}s | Model: {result.model}[/dim]")
+        # Show timing info
+        timing_parts = [
+            f"Search: {result.search_time_seconds:.2f}s",
+            f"Generation: {result.generation_time_seconds:.2f}s",
+            f"Model: {result.model}",
+        ]
+        if result.temporal_filter_applied:
+            timing_parts.append("📅 auto-filtered")
+        console.print(f"\n[dim]{' | '.join(timing_parts)}[/dim]")
 
 
 def _load_all_conversations(

@@ -4,7 +4,10 @@ import sqlite3
 import struct
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 # Embedding types
@@ -195,6 +198,8 @@ class EmbeddingStore:
         limit: int = 10,
         min_score: float = 0.0,
         embed_types: list[EmbedType] | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> list[SearchResult]:
         """Search for similar embeddings using cosine similarity.
         
@@ -205,6 +210,8 @@ class EmbeddingStore:
             limit: Maximum number of results
             min_score: Minimum similarity score (0-1)
             embed_types: Filter by embedding types (None = all types)
+            start_date: Only include conversations created on or after this date
+            end_date: Only include conversations created on or before this date
         
         Returns:
             List of SearchResult ordered by score descending
@@ -216,23 +223,45 @@ class EmbeddingStore:
         
         query_dims = len(query_embedding)
         
-        # Build query with optional type filter
-        if embed_types:
-            placeholders = ",".join("?" * len(embed_types))
-            query = f"""
+        # Build query with optional filters
+        has_date_filter = start_date is not None or end_date is not None
+        
+        if has_date_filter:
+            # JOIN with conversations table for date filtering
+            base_query = """
+                SELECT e.conversation_id, e.embed_type, e.chunk_index, e.embedding, e.source_text
+                FROM embeddings e
+                JOIN conversations c ON e.conversation_id = c.id
+                WHERE e.dimensions = ?
+            """
+        else:
+            base_query = """
                 SELECT conversation_id, embed_type, chunk_index, embedding, source_text
                 FROM embeddings 
-                WHERE dimensions = ? AND embed_type IN ({placeholders})
+                WHERE dimensions = ?
             """
-            params = [query_dims] + list(embed_types)
-        else:
-            query = """
-                SELECT conversation_id, embed_type, chunk_index, embedding, source_text
-                FROM embeddings WHERE dimensions = ?
-            """
-            params = [query_dims]
         
-        cursor = self.conn.execute(query, params)
+        params: list = [query_dims]
+        
+        # Add type filter
+        if embed_types:
+            placeholders = ",".join("?" * len(embed_types))
+            if has_date_filter:
+                base_query += f" AND e.embed_type IN ({placeholders})"
+            else:
+                base_query += f" AND embed_type IN ({placeholders})"
+            params.extend(embed_types)
+        
+        # Add date filters
+        if start_date is not None:
+            base_query += " AND c.created_at >= ?"
+            params.append(start_date.isoformat())
+        
+        if end_date is not None:
+            base_query += " AND c.created_at <= ?"
+            params.append(end_date.isoformat())
+        
+        cursor = self.conn.execute(base_query, params)
         rows = cursor.fetchall()
         
         if not rows:
@@ -291,6 +320,8 @@ class EmbeddingStore:
         limit: int = 10,
         min_score: float = 0.0,
         embed_types: list[EmbedType] | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> list[ConversationSearchResult]:
         """Search for similar conversations, aggregating by best match.
         
@@ -301,6 +332,8 @@ class EmbeddingStore:
             limit: Maximum number of conversations to return
             min_score: Minimum similarity score (0-1)
             embed_types: Filter by embedding types (None = all types)
+            start_date: Only include conversations created on or after this date
+            end_date: Only include conversations created on or before this date
         
         Returns:
             List of ConversationSearchResult ordered by score descending
@@ -311,6 +344,8 @@ class EmbeddingStore:
             limit=limit * 5,  # Get extras for aggregation
             min_score=min_score,
             embed_types=embed_types,
+            start_date=start_date,
+            end_date=end_date,
         )
         
         # Aggregate by conversation - keep best match and all matches
@@ -346,6 +381,8 @@ class EmbeddingStore:
         query_embedding: list[float],
         max_chunks: int = 5,
         min_score: float = 0.3,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> list[SearchResult]:
         """Get relevant context chunks for RAG.
         
@@ -355,6 +392,8 @@ class EmbeddingStore:
             query_embedding: Query embedding vector
             max_chunks: Maximum chunks to return
             min_score: Minimum similarity score
+            start_date: Only include conversations created on or after this date
+            end_date: Only include conversations created on or before this date
         
         Returns:
             List of SearchResult with source_text populated
@@ -363,6 +402,8 @@ class EmbeddingStore:
             query_embedding,
             limit=max_chunks,
             min_score=min_score,
+            start_date=start_date,
+            end_date=end_date,
         )
         # Filter to only results with source text
         return [r for r in results if r.source_text]
