@@ -88,28 +88,53 @@ class CloudClient:
         self,
         method: str,
         path: str,
-        max_retries: int = 5,
+        max_retries: int = 10,
         **kwargs,
     ) -> httpx.Response:
-        """Make request with exponential backoff on rate limiting."""
-        base_delay = 1.0
+        """Make request with aggressive exponential backoff on rate limiting.
+        
+        Uses longer delays and more retries to handle rate limiting gracefully,
+        especially when running parallel downloads.
+        """
+        base_delay = 2.0  # Start with 2 seconds
+        max_delay = 120.0  # Cap at 2 minutes
+        
         for attempt in range(max_retries):
             response = self._client.request(method, path, **kwargs)
             if response.status_code != 429:
                 response.raise_for_status()
                 return response
-            delay = self._get_retry_delay(response, base_delay, attempt)
+            
+            delay = self._get_retry_delay(response, base_delay, attempt, max_delay)
             log.warning("Rate limited (429), retrying in %.1fs (attempt %d/%d)", delay, attempt + 1, max_retries)
             time.sleep(delay)
-        log.error("Rate limit retries exhausted for %s", path)
+        
+        log.error("Rate limit retries exhausted for %s after %d attempts", path, max_retries)
         raise RateLimitExceededError(f"Rate limit retries exhausted for {path}")
 
-    def _get_retry_delay(self, response: httpx.Response, base_delay: float, attempt: int) -> float:
-        """Calculate retry delay from headers or exponential backoff."""
+    def _get_retry_delay(self, response: httpx.Response, base_delay: float, attempt: int, max_delay: float) -> float:
+        """Calculate retry delay from headers or exponential backoff with jitter.
+        
+        Uses exponential backoff with random jitter to prevent thundering herd
+        when multiple parallel requests all get rate limited at the same time.
+        """
+        import random
+        
+        # Prefer server-provided Retry-After header
         retry_after = response.headers.get("Retry-After")
         if retry_after:
-            return float(retry_after)
-        return base_delay * (2**attempt)
+            try:
+                return min(float(retry_after), max_delay)
+            except ValueError:
+                pass
+        
+        # Exponential backoff: 2, 4, 8, 16, 32, 64, 120, 120, 120, 120...
+        delay = base_delay * (2 ** attempt)
+        delay = min(delay, max_delay)
+        
+        # Add jitter (±25%) to prevent thundering herd
+        jitter = delay * 0.25 * (2 * random.random() - 1)
+        return delay + jitter
 
 
 class RateLimitExceededError(Exception):

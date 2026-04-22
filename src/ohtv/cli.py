@@ -563,7 +563,7 @@ def _run_sync_with_progress(
         expected_total: If known, the expected total number of items to sync
     """
     import signal
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
     
     if quiet:
         return sync_fn(None, None)
@@ -581,24 +581,30 @@ def _run_sync_with_progress(
     # Counters for progress display
     start_time = time.perf_counter()
     processed_count = [0]
-    download_count = [0]  # Count of actual downloads (new + updated)
+    success_count = [0]  # new + updated
+    failed_count = [0]
     current_total = [expected_total]  # Mutable to allow update from callback
     
     # Rate tracking with smoothing
     last_rate_str = [""]
     last_rate_update = [0.0]
     
-    def _format_rate_smooth(downloaded: int, elapsed: float) -> str:
-        """Format rate with smoothing to avoid jitter."""
-        if elapsed < 0.1 or downloaded == 0:
-            return ""
-        # Only recalculate every 0.5s
-        if elapsed - last_rate_update[0] < 0.5 and last_rate_str[0]:
-            return last_rate_str[0]
-        last_rate_update[0] = elapsed
-        rate = downloaded / (elapsed / 60.0)
-        last_rate_str[0] = f"{rate:.1f}/min"
-        return last_rate_str[0]
+    def _format_stats(success: int, failed: int, elapsed: float) -> str:
+        """Format stats string with success/fail counts and rate."""
+        if elapsed < 0.1 or success == 0:
+            if failed > 0:
+                return f"[green]{success}[/green] ok, [red]{failed}[/red] failed"
+            return f"[green]{success}[/green] ok"
+        
+        # Only recalculate rate every 0.5s
+        if elapsed - last_rate_update[0] >= 0.5 or not last_rate_str[0]:
+            last_rate_update[0] = elapsed
+            rate = success / (elapsed / 60.0)
+            last_rate_str[0] = f"{rate:.1f}/min"
+        
+        if failed > 0:
+            return f"[green]{success}[/green] ok, [red]{failed}[/red] failed • {last_rate_str[0]}"
+        return f"[green]{success}[/green] ok • {last_rate_str[0]}"
     
     try:
         with Progress(
@@ -606,14 +612,15 @@ def _run_sync_with_progress(
             TextColumn("[bold blue]Syncing"),
             BarColumn(),
             TaskProgressColumn(),
-            TextColumn("[dim]{task.fields[rate]}[/dim]"),
+            TimeRemainingColumn(),
+            TextColumn("{task.fields[stats]}"),
             console=console,
             transient=True,
         ) as progress:
             task = progress.add_task(
                 "Syncing",
                 total=expected_total,
-                rate="starting..."
+                stats="starting..."
             )
             
             def progress_callback(conv_id: str, title: str, action: str, total: int | None = None) -> None:
@@ -638,15 +645,17 @@ def _run_sync_with_progress(
                 
                 processed_count[0] += 1
                 
-                # Count actual downloads for rate calculation
+                # Track success/failure
                 if action in ("new", "updated"):
-                    download_count[0] += 1
+                    success_count[0] += 1
+                elif action == "failed":
+                    failed_count[0] += 1
                 
                 elapsed = time.perf_counter() - start_time
-                rate_str = _format_rate_smooth(download_count[0], elapsed)
+                stats_str = _format_stats(success_count[0], failed_count[0], elapsed)
                 
                 # Update progress bar
-                progress.update(task, completed=processed_count[0], rate=rate_str)
+                progress.update(task, completed=processed_count[0], stats=stats_str)
             
             def shutdown_check() -> bool:
                 return shutdown_requested[0]
