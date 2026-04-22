@@ -6362,9 +6362,7 @@ def gen_run_cmd(
         console.print(f"[red]Error:[/red] Job ID must be family.variant (e.g., objs.brief)")
         raise SystemExit(1)
     
-    parts = job_id.split(".", 1)
-    family = parts[0]
-    variant = parts[1] if len(parts) > 1 else None
+    family, variant = job_id.split(".", 1)
     
     # Resolve prompt
     from ohtv.prompts import resolve_prompt, list_families
@@ -6453,8 +6451,8 @@ def _run_aggregate_job(
     # Parse date range
     since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
     
-    # Determine periods to process
-    periods: list[PeriodInfo] = []
+    # Determine periods to process (None represents non-period aggregate)
+    periods: list[PeriodInfo | None] = []
     if last_n is not None and period_type:
         periods = get_last_n_periods(last_n, period_type)  # type: ignore[arg-type]
     elif period_type:
@@ -6468,7 +6466,7 @@ def _run_aggregate_job(
             periods = list(iterate_periods(start, end, period_type))  # type: ignore[arg-type]
     else:
         # Non-period aggregate: one output for entire selection
-        periods = [None]  # type: ignore[list-item]
+        periods = [None]
     
     if not periods:
         console.print("[dim]No periods to process.[/dim]")

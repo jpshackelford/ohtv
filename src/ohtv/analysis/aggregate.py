@@ -7,8 +7,9 @@ conversations into a single output, optionally iterating over time periods.
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,34 @@ from ohtv.config import Config, get_ohtv_dir
 from ohtv.prompts.metadata import PromptMetadata
 
 log = logging.getLogger("ohtv")
+
+
+def _to_date(dt: datetime | date | None) -> date | None:
+    """Convert datetime or date to date, handling None."""
+    if dt is None:
+        return None
+    return dt.date() if isinstance(dt, datetime) else dt
+
+
+def _get_conversation_summaries_for_period(
+    conversations: list[tuple[Path, dict]],
+    period: "PeriodInfo | None",
+) -> list[dict]:
+    """Get conversation summaries for state hash computation.
+    
+    Filters conversations by period and extracts id/event_count for hashing.
+    """
+    summaries = []
+    for conv_dir, info in conversations:
+        if period is not None:
+            conv_date = _to_date(info.get("created_at"))
+            if conv_date is None or not period.contains(conv_date):
+                continue
+        summaries.append({
+            "id": info.get("id", conv_dir.name),
+            "event_count": info.get("event_count", 0),
+        })
+    return summaries
 
 
 @dataclass
@@ -120,18 +149,8 @@ def collect_items_for_period(
     for conv_dir, conv_info in conversations:
         # Filter by period if specified
         if period is not None:
-            created_at = conv_info.get("created_at")
-            if created_at is None:
-                continue
-            # Handle both datetime and date
-            if isinstance(created_at, datetime):
-                conv_date = created_at.date()
-            elif isinstance(created_at, date):
-                conv_date = created_at
-            else:
-                continue
-            
-            if not period.contains(conv_date):
+            conv_date = _to_date(conv_info.get("created_at"))
+            if conv_date is None or not period.contains(conv_date):
                 continue
         
         # Load cached result
@@ -264,8 +283,8 @@ def get_aggregate_cache_file(
     # Use period ISO as part of filename, or "all" for non-period
     period_key = period.iso if period else "all"
     
-    # Sanitize prompt_id for filename
-    safe_prompt_id = prompt_id.replace("/", "_").replace(".", "_")
+    # Sanitize prompt_id for filename - allow only alphanumeric, underscore, hyphen
+    safe_prompt_id = re.sub(r'[^\w\-]', '_', prompt_id)
     
     filename = f"{safe_prompt_id}_{period_key}_{state_hash}.json"
     return cache_dir / filename
@@ -332,7 +351,7 @@ def save_aggregate_cache(
         "state_hash": state_hash,
         "items_count": items_count,
         "result": result,
-        "cached_at": datetime.utcnow().isoformat(),
+        "cached_at": datetime.now(timezone.utc).isoformat(),
     }
     
     cache_file.write_text(json.dumps(cache_data, indent=2))
@@ -384,14 +403,7 @@ def run_aggregate_analysis(
         )
     
     # Compute state hash for caching
-    conv_summaries = [
-        {"id": info.get("id", d.name), "event_count": info.get("event_count", 0)}
-        for d, info in conversations
-        if period is None or (
-            info.get("created_at") is not None and 
-            period.contains(info["created_at"].date() if isinstance(info["created_at"], datetime) else info["created_at"])
-        )
-    ]
+    conv_summaries = _get_conversation_summaries_for_period(conversations, period)
     state_hash = compute_period_state_hash(
         period if period else PeriodInfo("day", date.today(), date.today(), "all", "all"),
         conv_summaries,
