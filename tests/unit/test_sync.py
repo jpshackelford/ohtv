@@ -175,67 +175,76 @@ class TestSyncManagerMaxNew:
             }
             return mgr
 
-    def test_sync_one_skips_new_when_limit_reached(self, manager):
+    def test_categorize_skips_new_when_limit_reached(self, manager):
         """Test that new conversations are skipped when max_new limit is reached."""
-        result = SyncResult(new=5)  # Already at limit
+        result = SyncResult()
         
-        conv = {"id": "newconv123", "updated_at": "2024-01-02T12:00:00Z", "title": "New Conv"}
+        # 6 new conversations, but limit is 5
+        conversations = [
+            {"id": f"newconv{i:03d}", "updated_at": "2024-01-02T12:00:00Z", "title": f"New Conv {i}"}
+            for i in range(6)
+        ]
         
-        action = manager._sync_one(
-            client=MagicMock(),
-            conv=conv,
+        work_items = manager._categorize_conversations(
+            conversations=conversations,
             force=False,
-            dry_run=False,
-            max_new=5,  # Limit already reached
-            on_progress=None,
+            max_new=5,
             result=result,
         )
         
-        assert action == "skipped"
+        # First 5 should be "new", 6th should be "skipped"
+        actions = [action for _, action in work_items]
+        assert actions.count("new") == 5
+        assert actions.count("skipped") == 1
+        assert result.skipped_new == 1
 
-    def test_sync_one_allows_new_when_under_limit(self, manager):
+    def test_categorize_allows_new_when_under_limit(self, manager):
         """Test that new conversations are allowed when under max_new limit."""
-        result = SyncResult(new=2)  # Under limit
+        result = SyncResult()
         
-        conv = {"id": "newconv123", "updated_at": "2024-01-02T12:00:00Z", "title": "New Conv"}
+        # 3 new conversations, limit is 5
+        conversations = [
+            {"id": f"newconv{i:03d}", "updated_at": "2024-01-02T12:00:00Z", "title": f"New Conv {i}"}
+            for i in range(3)
+        ]
         
-        # Mock the download to succeed
-        mock_client = MagicMock()
-        mock_client.download_trajectory.return_value = _create_minimal_zip()
-        
-        action = manager._sync_one(
-            client=mock_client,
-            conv=conv,
+        work_items = manager._categorize_conversations(
+            conversations=conversations,
             force=False,
-            dry_run=False,
             max_new=5,  # Still under limit
-            on_progress=None,
             result=result,
         )
         
-        assert action == "new"
+        # All 3 should be "new"
+        actions = [action for _, action in work_items]
+        assert all(a == "new" for a in actions)
+        assert result.skipped_new == 0
 
-    def test_sync_one_allows_updates_regardless_of_limit(self, manager):
+    def test_categorize_allows_updates_regardless_of_limit(self, manager):
         """Test that updates are always allowed, even when max_new limit is reached."""
-        result = SyncResult(new=5)  # At new limit
+        result = SyncResult()
         
-        conv = {"id": "existing001", "updated_at": "2024-01-02T12:00:00Z", "title": "Updated"}
+        # 5 new + 1 update, limit is 5
+        conversations = [
+            {"id": f"newconv{i:03d}", "updated_at": "2024-01-02T12:00:00Z", "title": f"New Conv {i}"}
+            for i in range(5)
+        ]
+        # Add an update (existing001 is in manager.manifest.conversations)
+        conversations.append({"id": "existing001", "updated_at": "2024-01-02T12:00:00Z", "title": "Updated"})
         
-        # Mock the download to succeed
-        mock_client = MagicMock()
-        mock_client.download_trajectory.return_value = _create_minimal_zip()
-        
-        action = manager._sync_one(
-            client=mock_client,
-            conv=conv,
+        work_items = manager._categorize_conversations(
+            conversations=conversations,
             force=False,
-            dry_run=False,
-            max_new=5,  # Limit reached, but this is an update
-            on_progress=None,
+            max_new=5,  # Limit reached for new, but updates should still work
             result=result,
         )
         
-        assert action == "updated"
+        # First 5 new + 1 update
+        actions = [action for _, action in work_items]
+        assert actions.count("new") == 5
+        assert actions.count("updated") == 1
+        assert "skipped" not in actions
+        assert result.skipped_new == 0
 
 
 class TestSyncManagerFinalizeSync:
@@ -339,6 +348,108 @@ class TestSyncManagerGetLocalConversationCount:
             "conv3": {},
         }
         assert manager.get_local_conversation_count() == 3
+
+
+class TestSyncManagerParallel:
+    """Tests for parallel sync functionality."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a SyncManager with mocked config."""
+        config = MagicMock()
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.synced_conversations_dir.mkdir(parents=True)
+        config.api_key = "test-key"
+        
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_download_parallel_processes_all_items(self, manager):
+        """Test that parallel download processes all work items."""
+        result = SyncResult()
+        
+        # Create work items
+        work_items = [
+            ({"id": f"conv{i:03d}", "updated_at": "2024-01-01T00:00:00Z", "title": f"Conv {i}"}, "new")
+            for i in range(5)
+        ]
+        
+        # Mock client
+        mock_client = MagicMock()
+        mock_client.download_trajectory.return_value = _create_minimal_zip()
+        
+        # Track progress calls
+        progress_calls = []
+        def track_progress(conv_id, title, action):
+            progress_calls.append((conv_id, action))
+        
+        manager._download_parallel(
+            client=mock_client,
+            work_items=work_items,
+            result=result,
+            on_progress=track_progress,
+        )
+        
+        # All should succeed
+        assert result.new == 5
+        assert result.failed == 0
+        assert len(progress_calls) == 5
+
+    def test_download_sequential_processes_all_items(self, manager):
+        """Test that sequential download processes all work items."""
+        result = SyncResult()
+        
+        work_items = [
+            ({"id": f"conv{i:03d}", "updated_at": "2024-01-01T00:00:00Z", "title": f"Conv {i}"}, "new")
+            for i in range(3)
+        ]
+        
+        mock_client = MagicMock()
+        mock_client.download_trajectory.return_value = _create_minimal_zip()
+        
+        progress_calls = []
+        def track_progress(conv_id, title, action):
+            progress_calls.append((conv_id, action))
+        
+        manager._download_sequential(
+            client=mock_client,
+            work_items=work_items,
+            result=result,
+            on_progress=track_progress,
+        )
+        
+        assert result.new == 3
+        assert len(progress_calls) == 3
+
+    def test_shutdown_check_stops_parallel_download(self, manager):
+        """Test that shutdown_check stops parallel processing."""
+        result = SyncResult()
+        
+        # Create many work items
+        work_items = [
+            ({"id": f"conv{i:03d}", "updated_at": "2024-01-01T00:00:00Z", "title": f"Conv {i}"}, "new")
+            for i in range(20)
+        ]
+        
+        mock_client = MagicMock()
+        mock_client.download_trajectory.return_value = _create_minimal_zip()
+        
+        # Shutdown after first few items
+        call_count = [0]
+        def shutdown_after_3():
+            call_count[0] += 1
+            return call_count[0] > 3
+        
+        manager._download_parallel(
+            client=mock_client,
+            work_items=work_items,
+            result=result,
+            on_progress=None,
+            shutdown_check=shutdown_after_3,
+        )
+        
+        # Should have processed some but not all
+        assert result.new < 20
 
 
 def _create_minimal_zip() -> bytes:

@@ -321,8 +321,16 @@ def _run_force_reset(
                 console.print("[dim]Cancelled.[/dim]")
                 raise SystemExit(0)
     
-    on_progress = None if quiet else _make_progress_callback()
-    return manager.reset_to_n_newest(max_new, dry_run=dry_run, on_progress=on_progress)
+    return _run_sync_with_progress(
+        lambda progress_cb, shutdown_check: manager.reset_to_n_newest(
+            max_new, 
+            dry_run=dry_run, 
+            on_progress=progress_cb,
+            shutdown_check=shutdown_check,
+        ),
+        quiet=quiet,
+        expected_total=max_new,
+    )
 
 
 @main.command()
@@ -529,8 +537,120 @@ def _run_sync(
     if not quiet:
         _print_sync_header(force, since, dry_run, max_new)
 
-    on_progress = None if quiet else _make_progress_callback()
-    return manager.sync(force=force, since=since, dry_run=dry_run, max_new=max_new, on_progress=on_progress)
+    return _run_sync_with_progress(
+        lambda progress_cb, shutdown_check: manager.sync(
+            force=force, 
+            since=since, 
+            dry_run=dry_run, 
+            max_new=max_new, 
+            on_progress=progress_cb,
+            shutdown_check=shutdown_check,
+        ),
+        quiet=quiet,
+    )
+
+
+def _run_sync_with_progress(
+    sync_fn,
+    quiet: bool,
+    expected_total: int | None = None,
+) -> SyncResult:
+    """Run a sync operation with Rich progress bar and graceful shutdown handling.
+    
+    Args:
+        sync_fn: Function that takes (progress_callback, shutdown_check) and returns SyncResult
+        quiet: If True, skip progress display
+        expected_total: If known, the expected total number of items to sync
+    """
+    import signal
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from ohtv.parallel import format_rate
+    
+    if quiet:
+        return sync_fn(None, None)
+    
+    # Shutdown handling
+    shutdown_requested = [False]
+    
+    def _handle_shutdown(signum, frame):
+        shutdown_requested[0] = True
+        console.print("\n[yellow]Shutdown requested - finishing current downloads...[/yellow]")
+    
+    old_sigint = signal.signal(signal.SIGINT, _handle_shutdown)
+    old_sigterm = signal.signal(signal.SIGTERM, _handle_shutdown)
+    
+    # Counters for progress display
+    start_time = time.perf_counter()
+    processed_count = [0]
+    download_count = [0]  # Count of actual downloads (new + updated)
+    
+    # Rate tracking with smoothing
+    last_rate_str = [""]
+    last_rate_update = [0.0]
+    
+    def _format_rate_smooth(downloaded: int, elapsed: float) -> str:
+        """Format rate with smoothing to avoid jitter."""
+        if elapsed < 0.1 or downloaded == 0:
+            return ""
+        # Only recalculate every 0.5s
+        if elapsed - last_rate_update[0] < 0.5 and last_rate_str[0]:
+            return last_rate_str[0]
+        last_rate_update[0] = elapsed
+        rate = downloaded / (elapsed / 60.0)
+        last_rate_str[0] = f"{rate:.1f}/min"
+        return last_rate_str[0]
+    
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Syncing"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("[dim]{task.fields[rate]}[/dim]"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task(
+                "Syncing",
+                total=expected_total,
+                rate="starting..."
+            )
+            
+            def progress_callback(conv_id: str, title: str, action: str) -> None:
+                """Progress callback that updates the Rich progress bar."""
+                processed_count[0] += 1
+                
+                # Count actual downloads for rate calculation
+                if action in ("new", "updated"):
+                    download_count[0] += 1
+                
+                elapsed = time.perf_counter() - start_time
+                rate_str = _format_rate_smooth(download_count[0], elapsed)
+                
+                # Update progress bar
+                if expected_total is not None:
+                    progress.update(task, advance=1, rate=rate_str)
+                else:
+                    # Unknown total - just show count
+                    progress.update(task, completed=processed_count[0], rate=rate_str)
+            
+            def shutdown_check() -> bool:
+                return shutdown_requested[0]
+            
+            result = sync_fn(progress_callback, shutdown_check)
+            
+            # Final update to show completion
+            if expected_total is None:
+                progress.update(task, total=processed_count[0], completed=processed_count[0])
+        
+        if shutdown_requested[0]:
+            console.print("[yellow]Sync interrupted. Partial results saved.[/yellow]")
+        
+        return result
+    
+    finally:
+        signal.signal(signal.SIGINT, old_sigint)
+        signal.signal(signal.SIGTERM, old_sigterm)
 
 
 def _print_sync_header(force: bool, since: datetime | None, dry_run: bool, max_new: int | None) -> None:
@@ -543,24 +663,6 @@ def _print_sync_header(force: bool, since: datetime | None, dry_run: bool, max_n
         console.print(f"{mode}Syncing conversations since {since.isoformat()}{limit_suffix}...")
     else:
         console.print(f"{mode}Syncing cloud conversations{limit_suffix}...")
-
-
-def _make_progress_callback():
-    """Create progress callback for sync."""
-
-    def callback(conv_id: str, title: str, action: str) -> None:
-        short_id = conv_id[:7]
-        status_style = {
-            "new": "green",
-            "updated": "yellow",
-            "unchanged": "dim",
-            "failed": "red",
-            "skipped": "dim cyan",
-        }
-        style = status_style.get(action, "")
-        console.print(f"  [{style}]{short_id}[/{style}] {title[:40]}... ({action})")
-
-    return callback
 
 
 def _show_result(result: SyncResult, dry_run: bool) -> None:
