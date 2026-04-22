@@ -6,8 +6,9 @@ from ohtv.prompts.parser import (
     parse_event_filter,
     parse_context_level,
     parse_prompt_file,
+    parse_input_config,
 )
-from ohtv.prompts.metadata import EventFilter, ContextLevel
+from ohtv.prompts.metadata import EventFilter, ContextLevel, InputConfig
 
 
 class TestParseFrontmatter:
@@ -267,3 +268,150 @@ Template"""
             assert meta.id == "objs.brief"
         finally:
             shutil.rmtree(tmpdir)
+
+
+class TestParseInputConfig:
+    """Tests for parse_input_config()"""
+    
+    def test_empty_dict_returns_default(self):
+        """Test parsing empty dict returns single mode defaults"""
+        cfg = parse_input_config({})
+        assert cfg.mode == "single"
+        assert cfg.source is None
+        assert cfg.period is None
+        assert cfg.min_items == 1
+    
+    def test_single_mode_explicit(self):
+        """Test parsing explicit single mode"""
+        cfg = parse_input_config({"mode": "single"})
+        assert cfg.mode == "single"
+        assert cfg.source is None
+    
+    def test_aggregate_mode_with_source(self):
+        """Test parsing aggregate mode with source"""
+        cfg = parse_input_config({
+            "mode": "aggregate",
+            "source": "objs.brief"
+        })
+        assert cfg.mode == "aggregate"
+        assert cfg.source == "objs.brief"
+        assert cfg.period is None
+    
+    def test_aggregate_mode_with_period(self):
+        """Test parsing aggregate mode with period"""
+        cfg = parse_input_config({
+            "mode": "aggregate",
+            "source": "objs.brief",
+            "period": "week"
+        })
+        assert cfg.mode == "aggregate"
+        assert cfg.source == "objs.brief"
+        assert cfg.period == "week"
+    
+    def test_aggregate_mode_missing_source_raises(self):
+        """Test that aggregate mode without source raises error"""
+        with pytest.raises(ValueError, match="requires 'source'"):
+            parse_input_config({"mode": "aggregate"})
+    
+    def test_invalid_period_raises(self):
+        """Test that invalid period value raises error"""
+        with pytest.raises(ValueError, match="Invalid period"):
+            parse_input_config({
+                "mode": "aggregate",
+                "source": "objs.brief",
+                "period": "quarter"  # Invalid
+            })
+    
+    def test_valid_period_values(self):
+        """Test all valid period values"""
+        for period in ["week", "day", "month"]:
+            cfg = parse_input_config({
+                "mode": "aggregate",
+                "source": "objs.brief",
+                "period": period
+            })
+            assert cfg.period == period
+    
+    def test_min_items_custom(self):
+        """Test custom min_items value"""
+        cfg = parse_input_config({
+            "mode": "aggregate",
+            "source": "objs.brief",
+            "min_items": 5
+        })
+        assert cfg.min_items == 5
+
+
+class TestParsePromptFileWithInput:
+    """Tests for parse_prompt_file() with input config"""
+    
+    def test_prompt_without_input_has_default(self):
+        """Test prompt without input section has single mode default"""
+        content = """---
+id: test.simple
+---
+Template"""
+        
+        with NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write(content)
+            f.flush()
+            path = Path(f.name)
+        
+        try:
+            meta = parse_prompt_file(path)
+            assert meta.input_config.mode == "single"
+            assert meta.is_aggregate is False
+            assert meta.has_period is False
+        finally:
+            path.unlink()
+    
+    def test_prompt_with_aggregate_input(self):
+        """Test prompt with aggregate input section"""
+        content = """---
+id: reports.weekly
+input:
+  mode: aggregate
+  source: objs.brief
+  period: week
+  min_items: 2
+---
+Aggregate prompt template"""
+        
+        with NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write(content)
+            f.flush()
+            path = Path(f.name)
+        
+        try:
+            meta = parse_prompt_file(path)
+            assert meta.input_config.mode == "aggregate"
+            assert meta.input_config.source == "objs.brief"
+            assert meta.input_config.period == "week"
+            assert meta.input_config.min_items == 2
+            assert meta.is_aggregate is True
+            assert meta.has_period is True
+        finally:
+            path.unlink()
+    
+    def test_prompt_with_aggregate_no_period(self):
+        """Test aggregate prompt without period"""
+        content = """---
+id: themes.all
+input:
+  mode: aggregate
+  source: objs.brief
+---
+Theme discovery prompt"""
+        
+        with NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write(content)
+            f.flush()
+            path = Path(f.name)
+        
+        try:
+            meta = parse_prompt_file(path)
+            assert meta.is_aggregate is True
+            assert meta.has_period is False
+            assert meta.input_config.period is None
+        finally:
+            path.unlink()

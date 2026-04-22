@@ -65,7 +65,8 @@ class TestGenerateUniqueSourceNames:
         result = generate_unique_source_names(paths)
         assert result == ["my_experiments", "my_experiments_1"]
 
-    def test_reserved_names_allowed(self):
+    def test_reserved_names_get_suffix(self):
+        """Reserved names ('local', 'cloud') get _1 suffix to avoid collision"""
         paths = [Path("/data/local"), Path("/data/cloud")]
         result = generate_unique_source_names(paths)
         assert result == ["local_1", "cloud_1"]

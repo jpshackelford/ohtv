@@ -26,6 +26,9 @@ ohtv gen objs <conversation_id> -v detailed_assess  # with completion status
 # Summarize today's conversations (requires LLM_API_KEY)
 ohtv gen objs --day
 
+# Generate weekly reports across conversations (requires LLM_API_KEY)
+ohtv gen run reports.weekly --last 4
+
 # See what GitHub repos/PRs/issues were referenced
 ohtv refs <conversation_id>
 
@@ -544,6 +547,110 @@ Showing 2 of 150 (2/2 cached)
 | `-y, --yes` | Skip confirmation for large result sets (>20 conversations) |
 | `-q, --quiet` | Generate/cache summaries without displaying output |
 | `--verbose` | Show debug output |
+
+#### `ohtv gen run` - Run Aggregate Analysis Jobs
+
+Runs aggregate analysis jobs that synthesize cached results from multiple conversations into a single output. Supports periodic iteration (weekly, daily, monthly reports) and non-periodic aggregation (theme discovery across all selected conversations).
+
+```bash
+# PERIODIC AGGREGATE JOBS (iterate over time periods)
+
+# Generate weekly reports for the last 4 weeks
+ohtv gen run reports.weekly --last 4
+
+# Generate weekly reports for a specific date range
+ohtv gen run reports.weekly --since 2024-01-01 --until 2024-03-31
+
+# Generate monthly reports instead of weekly (override job's default period)
+ohtv gen run reports.weekly --since 2024-01 --until 2024-06 --per month
+
+# Generate weekly report for this week only
+ohtv gen run reports.weekly --week
+
+# NON-PERIODIC AGGREGATE JOBS (single output from all conversations)
+
+# Discover themes across this week's conversations
+ohtv gen run themes.discover --week
+
+# Discover themes across a date range
+ohtv gen run themes.discover --since 2024-01-01 --until 2024-03-31
+
+# OUTPUT OPTIONS
+
+# Output as JSON (for automation)
+ohtv gen run reports.weekly --last 4 --format json
+
+# Write each period's result to separate files
+ohtv gen run reports.weekly --last 4 --out ./reports/
+
+# Force re-analysis (refresh cache)
+ohtv gen run reports.weekly --last 4 -r
+
+# Skip confirmation prompts
+ohtv gen run reports.weekly --last 4 -y
+```
+
+**How Aggregate Jobs Work:**
+
+1. **Source Cache**: Aggregate jobs require cached results from a source job (e.g., `objs.brief`). If not cached, the source job runs automatically on uncached conversations.
+
+2. **Period Iteration**: Jobs with `period: week|day|month` in their frontmatter iterate over time periods. Use `--last N` for the last N periods, or `--since`/`--until` for a date range.
+
+3. **Non-Periodic Jobs**: Jobs without a `period` field aggregate all selected conversations into a single output.
+
+4. **Minimum Items**: Jobs can specify `min_items` to skip periods with insufficient data.
+
+**Built-in Aggregate Jobs:**
+
+| Job ID | Type | Description |
+|--------|------|-------------|
+| `reports.weekly` | Periodic (week) | Generate weekly summary with themes, highlights, and stats |
+| `themes.discover` | Non-periodic | Identify common themes across all selected conversations |
+
+**Creating Custom Aggregate Jobs:**
+
+Create a markdown file in `~/.ohtv/prompts/` with aggregate frontmatter:
+
+```markdown
+---
+id: my.aggregate
+description: My custom aggregate analysis
+
+input:
+  mode: aggregate
+  source: objs.brief    # Source job for cached results
+  period: week          # Optional: week, day, or month
+  min_items: 1          # Minimum conversations required
+
+output:
+  schema:
+    type: object
+    properties:
+      summary:
+        type: string
+---
+Analyze the following {{ items | length }} conversations:
+
+{% for item in items %}
+- [{{ item.conversation_id[:8] }}] {{ item.result.goal }}
+{% endfor %}
+
+Respond with JSON matching the output schema.
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--per week\|day\|month` | Override/specify iteration granularity |
+| `--last N` | Process last N periods |
+| `--since`, `--until` | Date range for period iteration |
+| `--week`, `--day` | Shorthand for current week/day |
+| `--out DIR` | Write each period's output to separate files |
+| `-F, --format` | Output format: `table`, `json`, `markdown` |
+| `-r, --refresh` | Force re-analysis (refresh cache) |
+| `-m, --model` | LLM model to use |
+| `-y, --yes` | Skip confirmation prompts |
 
 ---
 

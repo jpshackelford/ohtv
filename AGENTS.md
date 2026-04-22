@@ -287,3 +287,44 @@ ohtv ask "what PRs were created?" --show-context  # Show retrieved chunks
 - `src/ohtv/analysis/cache.py` - Auto-updates analysis embedding on gen objs
 - Vectors stored as BLOB with struct-packed float32 arrays
 - Search aggregates best match per conversation across all embedding types
+
+## Completed: Aggregate Analysis Jobs (Issue #22)
+
+**Branch**: `openhands/aggregate-analysis-issue-22`
+
+**Implemented features**:
+1. **InputConfig dataclass** in `metadata.py` with mode (single/aggregate), source, period, min_items
+2. **Period iteration utilities** in `analysis/periods.py`:
+   - `PeriodInfo` dataclass with ISO labels, date ranges, contains() check
+   - `iterate_periods()` for generating periods in date ranges
+   - `get_last_n_periods()` for "last N weeks/days/months"
+   - `compute_period_state_hash()` for cache invalidation
+
+3. **Aggregate execution** in `analysis/aggregate.py`:
+   - `run_aggregate_analysis()` - collect items, render Jinja2 template, call LLM
+   - `ensure_source_cache_populated()` - auto-run source job on uncached conversations
+   - State-hash based caching that invalidates on conversation/prompt changes
+
+4. **CLI command** `gen run <job_id>`:
+   - `--per week|day|month` - override iteration granularity
+   - `--last N` - last N periods
+   - `--out <dir>` - write results to separate files
+   - Auto-detects aggregate vs single-trajectory jobs
+
+5. **Example prompts**:
+   - `reports/weekly.md` - periodic weekly summary with themes
+   - `themes/discover.md` - one-shot theme discovery across all selected conversations
+
+**Usage examples**:
+```bash
+# Weekly reports for last 4 weeks
+ohtv gen run reports.weekly --last 4
+
+# Weekly reports for Q1 2024
+ohtv gen run reports.weekly --since 2024-01-01 --until 2024-03-31
+
+# Theme discovery across this week
+ohtv gen run themes.discover --week
+```
+
+**Tests**: 64 new tests for periods and input parsing (601 total tests passing)
