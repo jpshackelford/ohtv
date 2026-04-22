@@ -129,6 +129,134 @@ class TestFastExtract:
         # but not matched by fast extract
         assert result is None  # Falls through to LLM
 
+    def test_few_days_ago(self):
+        """'a few days ago' should filter to 2-5 days ago."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what did we discuss a few days ago?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        # Should be roughly 2-5 days ago
+        assert result.start_date.date() == (now - timedelta(days=5)).date()
+        assert result.end_date.date() == (now - timedelta(days=2)).date()
+
+    def test_few_days_back(self):
+        """'few days back' should also work."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what happened few days back?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+
+    def test_few_weeks_ago(self):
+        """'a few weeks ago' should filter to 2-4 weeks ago."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what were we working on a few weeks ago?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        # Should be roughly 2-4 weeks ago
+        assert result.start_date.date() == (now - timedelta(weeks=4)).date()
+        assert result.end_date.date() == (now - timedelta(weeks=2)).date()
+
+    def test_couple_days_ago(self):
+        """'a couple days ago' should filter to 1-3 days ago."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what did we do a couple days ago?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        assert result.start_date.date() == (now - timedelta(days=3)).date()
+        assert result.end_date.date() == (now - timedelta(days=1)).date()
+
+    def test_couple_of_days_ago(self):
+        """'couple of days ago' should also work."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what happened couple of days ago?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+
+    def test_early_march(self):
+        """'early March' should filter to March 1-10."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what PRs were reviewed in early March?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        assert result.start_date == datetime(2026, 3, 1, tzinfo=timezone.utc)
+        assert result.end_date.day == 10
+        assert result.end_date.month == 3
+
+    def test_mid_march(self):
+        """'mid-March' should filter to March 10-20."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what happened mid-March?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        assert result.start_date.day == 10
+        assert result.start_date.month == 3
+        assert result.end_date.day == 20
+        assert result.end_date.month == 3
+
+    def test_mid_march_with_space(self):
+        """'mid March' (with space) should also work."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what happened mid march?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+
+    def test_late_march(self):
+        """'late March' should filter to March 20-31."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what did we work on in late March?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        assert result.start_date.day == 20
+        assert result.start_date.month == 3
+        assert result.end_date.month == 3
+        assert result.end_date.day == 31
+
+    def test_in_march(self):
+        """'in March' should filter to entire month."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what PRs were merged in March?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        assert result.start_date == datetime(2026, 3, 1, tzinfo=timezone.utc)
+        assert result.end_date.month == 3
+        assert result.end_date.day == 31
+
+    def test_in_april(self):
+        """'in April' should filter to current April (same year)."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what happened in April?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        assert result.start_date == datetime(2026, 4, 1, tzinfo=timezone.utc)
+        assert result.end_date.month == 4
+
+    def test_future_month_infers_last_year(self):
+        """If month is in future, assume last year."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what happened in December?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        # December is after April, so should be December 2025
+        assert result.start_date.year == 2025
+        assert result.start_date.month == 12
+
+    def test_abbreviated_month(self):
+        """Abbreviated month names should work."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what happened in early Mar?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        assert result.start_date.month == 3
+
+    def test_days_back(self):
+        """'N days back' should work like 'N days ago'."""
+        now = datetime(2026, 4, 22, 14, 30, 0, tzinfo=timezone.utc)
+        result = _fast_extract("what did we discuss 5 days back?", now)
+        assert result is not None
+        assert result.has_temporal_intent is True
+        target = now - timedelta(days=5)
+        assert result.start_date.date() == (target - timedelta(days=1)).date()
+
 
 class TestRemoveTemporalRefs:
     """Test removal of temporal references from queries."""
