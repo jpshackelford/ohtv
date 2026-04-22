@@ -128,36 +128,45 @@ def embed_conversation_full(
             stats.embeddings_created += 1
 
     if texts.summary_text:
-        if not skip_existing or not store.has_embedding(conv_id, "summary"):
-            result = get_embedding(texts.summary_text, model=model)
+        # Chunk summary text if it's too long for the model
+        from .chunking import chunk_text
+        summary_chunks = chunk_text(texts.summary_text)
+        
+        for chunk in summary_chunks:
+            # Check per-chunk existence to handle interrupted runs correctly
+            if skip_existing and store.has_embedding(conv_id, "summary", chunk.chunk_index):
+                continue
+            result = get_embedding(chunk.text, model=model)
             store.upsert(
                 conversation_id=conv_id,
                 embedding=result.embedding,
                 model=result.model,
                 embed_type="summary",
-                chunk_index=0,
+                chunk_index=chunk.chunk_index,
                 token_count=result.token_count,
-                source_text=texts.summary_text,
+                source_text=chunk.text,
             )
-            stats.summary_tokens = result.token_count
+            stats.summary_tokens += result.token_count
             stats.embeddings_created += 1
 
     if texts.content_chunks:
         for chunk in texts.content_chunks:
-            if not skip_existing or not store.has_embedding(conv_id, "content"):
-                result = get_embedding(chunk.text, model=model)
-                store.upsert(
-                    conversation_id=conv_id,
-                    embedding=result.embedding,
-                    model=result.model,
-                    embed_type="content",
-                    chunk_index=chunk.chunk_index,
-                    token_count=result.token_count,
-                    source_text=chunk.text,
-                )
-                stats.content_tokens += result.token_count
-                stats.content_chunks += 1
-                stats.embeddings_created += 1
+            # Check per-chunk existence to handle interrupted runs correctly
+            if skip_existing and store.has_embedding(conv_id, "content", chunk.chunk_index):
+                continue
+            result = get_embedding(chunk.text, model=model)
+            store.upsert(
+                conversation_id=conv_id,
+                embedding=result.embedding,
+                model=result.model,
+                embed_type="content",
+                chunk_index=chunk.chunk_index,
+                token_count=result.token_count,
+                source_text=chunk.text,
+            )
+            stats.content_tokens += result.token_count
+            stats.content_chunks += 1
+            stats.embeddings_created += 1
 
     stats.total_tokens = stats.analysis_tokens + stats.summary_tokens + stats.content_tokens
 
@@ -191,6 +200,10 @@ def estimate_conversation_tokens(
         analysis = load_analysis(conv_dir)
 
     texts = build_conversation_texts(events, analysis, refs)
+
+    # Check if there's any embeddable content
+    if not texts.analysis_text and not texts.summary_text and not texts.content_chunks:
+        return 0, 0
 
     total_tokens = 0
     total_embeddings = 0

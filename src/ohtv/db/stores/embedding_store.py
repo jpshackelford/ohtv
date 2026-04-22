@@ -403,15 +403,22 @@ class EmbeddingStore:
     def has_embedding(
         self, 
         conversation_id: str, 
-        embed_type: EmbedType | None = None
+        embed_type: EmbedType | None = None,
+        chunk_index: int | None = None,
     ) -> bool:
         """Check if a conversation has embeddings.
         
         Args:
             conversation_id: Conversation ID
             embed_type: Check for specific type, or any if None
+            chunk_index: Check for specific chunk, or any if None
         """
-        if embed_type:
+        if embed_type and chunk_index is not None:
+            cursor = self.conn.execute(
+                "SELECT 1 FROM embeddings WHERE conversation_id = ? AND embed_type = ? AND chunk_index = ? LIMIT 1",
+                (conversation_id, embed_type, chunk_index),
+            )
+        elif embed_type:
             cursor = self.conn.execute(
                 "SELECT 1 FROM embeddings WHERE conversation_id = ? AND embed_type = ? LIMIT 1",
                 (conversation_id, embed_type),

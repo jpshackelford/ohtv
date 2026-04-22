@@ -1,11 +1,20 @@
-"""Embedding client for LiteLLM API calls.
+"""Embedding client for LiteLLM and Ollama API calls.
 
 Handles configuration, API interaction, and result types.
+
+Supports two modes:
+- LiteLLM: Uses LLM_API_KEY and LLM_BASE_URL for cloud embeddings
+- Ollama: Uses local Ollama server (set EMBEDDING_MODEL=ollama/nomic-embed-text)
 """
 
 import logging
 import os
 from dataclasses import dataclass
+
+import litellm
+
+# Suppress LiteLLM info messages that spam output during batch operations
+litellm.suppress_debug_info = True
 
 log = logging.getLogger("ohtv")
 
@@ -18,15 +27,25 @@ KNOWN_DIMENSIONS: dict[str, int] = {
     "mistral/mistral-embed": 1024,
     "gemini/gemini-embedding-001": 768,
     "bedrock/cohere.embed-english-v3": 1024,
+    # Ollama models
+    "ollama/nomic-embed-text": 768,
+    "ollama/mxbai-embed-large": 1024,
+    "ollama/all-minilm": 384,
+    "ollama/bge-m3": 1024,
 }
 
-# Cost per 1M tokens for known models
+# Cost per 1M tokens for known models (Ollama models are free/local)
 KNOWN_COSTS: dict[str, float] = {
     "openai/text-embedding-3-small": 0.02,
     "openai/text-embedding-3-large": 0.13,
     "mistral/mistral-embed": 0.10,
     "gemini/gemini-embedding-001": 0.15,
     "bedrock/cohere.embed-english-v3": 0.10,
+    # Ollama models are free (local)
+    "ollama/nomic-embed-text": 0.0,
+    "ollama/mxbai-embed-large": 0.0,
+    "ollama/all-minilm": 0.0,
+    "ollama/bge-m3": 0.0,
 }
 
 
@@ -74,33 +93,139 @@ def estimate_cost(token_count: int, model: str | None = None) -> float:
     return (token_count / 1_000_000) * cost_per_million
 
 
-def get_embedding(text: str, model: str | None = None) -> EmbeddingResult:
-    """Get embedding for text using LiteLLM.
+def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
+    """Get embedding from local Ollama server.
+    
+    Args:
+        text: Text to embed
+        model: Model name (e.g., 'ollama/nomic-embed-text')
+    
+    Returns:
+        EmbeddingResult with embedding vector and metadata
+    """
+    import time
+    import urllib.request
+    import urllib.error
+    import json
+    
+    # Strip 'ollama/' prefix for the API call
+    ollama_model = model.split("/", 1)[1] if "/" in model else model
+    ollama_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    
+    # nomic-embed-text has 2048 token context (from model_info)
+    # BERT tokenizer averages ~4 chars/token, so ~8000 chars max
+    # But we see failures at 6342 chars, so use conservative 4000 char limit
+    MAX_CHARS = 4000
+    original_len = len(text)
+    if original_len > MAX_CHARS:
+        # Truncate at word boundary to avoid cutting mid-word
+        truncate_at = text.rfind(' ', 0, MAX_CHARS)
+        if truncate_at > MAX_CHARS * 0.8:  # Don't lose too much content
+            text = text[:truncate_at]
+        else:
+            text = text[:MAX_CHARS]
+        log.debug("Truncated text from %d to %d chars for Ollama (2048 token limit)", original_len, len(text))
+    
+    text_len = len(text)
+    log.debug("Getting Ollama embedding with model %s from %s (text length: %d chars)", ollama_model, ollama_url, text_len)
+    
+    request_data = json.dumps({
+        "model": ollama_model,
+        "prompt": text,
+    }).encode("utf-8")
+    
+    # Retry logic for transient Ollama errors
+    max_retries = 3
+    retry_delay = 1.0  # seconds
+    last_error = None
+    
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            f"{ollama_url}/api/embeddings",
+            data=request_data,
+            headers={"Content-Type": "application/json"},
+        )
+        
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            
+            embedding = result.get("embedding", [])
+            if not embedding:
+                raise RuntimeError(f"Ollama returned empty embedding. Response: {result}")
+            
+            # Rough estimate: ~1.3 tokens per word (Ollama doesn't report token usage)
+            # Precision matters less for local/free models than for paid APIs
+            token_count = int(len(text.split()) * 1.3)
+            
+            return EmbeddingResult(
+                embedding=embedding,
+                token_count=token_count,
+                model=model,
+                dimensions=len(embedding),
+            )
+        except urllib.error.HTTPError as e:
+            last_error = e
+            # Try to read the error response body for more details
+            error_body = ""
+            try:
+                error_body = e.read().decode("utf-8")
+            except Exception:
+                pass
+            log.debug("Ollama HTTP %d error (attempt %d): %s", e.code, attempt + 1, error_body or str(e))
+            # Retry on 500 errors (Ollama overloaded) with linear backoff
+            if e.code == 500 and attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))  # 1s, 2s, 3s...
+                continue
+            raise RuntimeError(
+                f"Ollama connection failed: {e}. Body: {error_body}. "
+                f"Is Ollama running? Try: ollama serve"
+            ) from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(
+                f"Ollama connection failed: {e}. "
+                f"Is Ollama running? Try: ollama serve"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"Ollama embedding failed: {e}") from e
+    
+    # Should not reach here, but just in case
+    raise RuntimeError(f"Ollama embedding failed after {max_retries} retries: {last_error}")
 
-    Uses the same LLM_API_KEY and LLM_BASE_URL as the gen command.
+
+def get_embedding(text: str, model: str | None = None) -> EmbeddingResult:
+    """Get embedding for text using LiteLLM or Ollama.
+
+    Uses LLM_API_KEY and LLM_BASE_URL for cloud embeddings,
+    or local Ollama server for ollama/* models.
 
     Args:
         text: Text to embed
         model: Model name (uses EMBEDDING_MODEL env var if None)
+               Use 'ollama/nomic-embed-text' for local Ollama embeddings
 
     Returns:
         EmbeddingResult with embedding vector and metadata
 
     Raises:
-        RuntimeError: If LLM configuration is missing or API call fails
+        RuntimeError: If configuration is missing or API call fails
     """
-    import litellm
-
     if model is None:
         model = get_embedding_model()
 
+    # Use Ollama for ollama/* models
+    if model.startswith("ollama/"):
+        return _get_ollama_embedding(text, model)
+
+    # Use LiteLLM for cloud models
     api_key = os.environ.get("LLM_API_KEY")
     api_base = os.environ.get("LLM_BASE_URL")
 
     if not api_key:
         raise RuntimeError(
             "LLM_API_KEY environment variable not set. "
-            "This is required for embedding generation."
+            "This is required for embedding generation. "
+            "Or use EMBEDDING_MODEL=ollama/nomic-embed-text for local embeddings."
         )
 
     log.debug("Getting embedding with model %s", model)
