@@ -85,12 +85,15 @@ class TestListWithExtraPaths:
                 "HOME": str(tmp_path / "fake_home"),
             },
         ):
-            result = runner.invoke(main, ["list", "-A"])
+            # Use JSON format for reliable parsing (table format wraps long text)
+            result = runner.invoke(main, ["list", "-A", "-F", "json"])
 
         assert result.exit_code == 0
-        # Verify the conversation appears
-        assert "abc123" in result.output or "abc123d" in result.output
-        assert "Extra path test" in result.output
+        data = json.loads(result.output)
+        assert len(data) == 1
+        # Verify the conversation appears with correct data
+        assert data[0]["id"].startswith("abc123")
+        assert data[0]["title"] == "Extra path test"
 
     def test_list_shows_correct_source_name(self, tmp_path):
         """Source name is derived from directory basename, not 'local' or 'cloud'."""

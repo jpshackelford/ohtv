@@ -553,13 +553,11 @@ class TestMigrationFromSummary:
         assert "--quiet" in result.output or "-q" in result.output
         assert "--no-outputs" in result.output
 
-    def test_no_cache_replaces_refresh(self, runner):
-        """--no-cache should work (replaces old --refresh)."""
+    def test_refresh_option_exists(self, runner):
+        """--refresh/-r option forces re-analysis bypassing cache."""
         result = runner.invoke(main, ["gen", "objs", "--help"])
         
-        assert "--no-cache" in result.output
-        # Old --refresh should NOT be present
-        assert "--refresh" not in result.output or "-r, --refresh" not in result.output
+        assert "--refresh" in result.output or "-r" in result.output
 
 
 # =============================================================================

@@ -5,6 +5,10 @@ import io
 import json
 import logging
 import re
+import sqlite3
+import threading
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -1247,7 +1251,6 @@ def search(
       ohtv search "error 404" --exact           # Keyword search
       ohtv ask "how did we fix the auth bug"    # For question answering
     """
-    import time
     from ohtv.db import get_connection, get_db_path, migrate
     from ohtv.db.stores import ConversationStore, EmbeddingStore
     
@@ -5277,10 +5280,6 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 return
         
         # Build embeddings with progress bar (parallel processing)
-        import threading
-        import time
-        from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-        
         embedded = 0
         skipped = 0
         errors = 0
@@ -5325,8 +5324,6 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         
         def _embed_one(conv, conv_dir) -> tuple[EmbeddingStats | None, str | None]:
             """Embed a single conversation. Returns (stats, error_msg)."""
-            import sqlite3
-            
             max_retries = 5
             retry_delay = 0.5  # seconds
             
@@ -6004,13 +6001,11 @@ def _run_batch_objectives_analysis(
             return
 
     # Analyze each conversation with progress indicator
+    import signal
+    
     results: list[dict] = []
     errors: list[tuple[str, str]] = []
     total_cost = 0.0
-    import time
-    import signal
-    import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     start_time = time.perf_counter()
     processed_count = 0
     
