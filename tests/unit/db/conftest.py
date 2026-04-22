@@ -7,6 +7,7 @@ import pytest
 from ohtv.db import migrate
 from ohtv.db.stores import (
     ConversationStore,
+    EmbeddingStore,
     LinkStore,
     ReferenceStore,
     RepoStore,

@@ -32,6 +32,15 @@ ohtv refs <conversation_id>
 # Sync cloud conversations (requires OH_API_KEY)
 ohtv sync
 
+# Build embeddings for search (requires LLM_API_KEY)
+ohtv db embed
+
+# Search conversations semantically
+ohtv search "fix authentication bugs"
+
+# Ask questions about your conversations (RAG)
+ohtv ask "how did we fix the auth bug?"
+
 # Customize prompts
 ohtv prompts init              # Copy prompts to ~/.ohtv/prompts/
 ohtv prompts show brief        # View a prompt
@@ -803,6 +812,129 @@ Actions by type:
   ...
 ```
 
+#### `ohtv db embed` - Build Embeddings for Search
+
+Generates vector embeddings for semantic search and RAG (Retrieval-Augmented Generation). Creates multiple embedding types per conversation:
+- **analysis** - Goal + outcomes from cached LLM analysis
+- **summary** - User messages + refs (repos/PRs/issues) + file paths
+- **content** - File contents + terminal outputs (chunked if large)
+
+```bash
+# Build embeddings for new conversations
+ohtv db embed
+
+# Show cost estimate without embedding
+ohtv db embed --estimate
+
+# Rebuild all embeddings
+ohtv db embed --force
+
+# Skip confirmation prompt
+ohtv db embed --yes
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `-f, --force` | Rebuild all embeddings |
+| `--estimate` | Show cost estimate only |
+| `-y, --yes` | Skip confirmation prompt |
+| `-v, --verbose` | Show detailed output |
+
+---
+
+### `ohtv search` - Semantic Search
+
+Searches conversations using embedding-based semantic search or keyword matching. Finds conversations by concept/intent rather than exact matches.
+
+```bash
+# Semantic search
+ohtv search "fix authentication bugs"
+ohtv search "docker deployment" -n 20
+
+# Filter by date
+ohtv search "API changes" --since 7d
+ohtv search "refactoring" --since 2024-01-01
+
+# Keyword search (exact match, uses FTS5)
+ohtv search "error 404" --exact
+
+# Set minimum similarity score
+ohtv search "performance optimization" --min-score 0.5
+
+# Output as JSON
+ohtv search "testing" --format json
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `-n, --limit N` | Number of results (default: 10) |
+| `--exact` | Use keyword search instead of semantic |
+| `-S, --since DATE` | Filter by date (YYYY-MM-DD or relative like `7d`, `2w`) |
+| `-s, --min-score N` | Minimum similarity score 0-1 (default: 0) |
+| `-F, --format` | Output format: `table`, `json` |
+| `-v, --verbose` | Show debug output |
+
+**Note:** Requires embeddings. Run `ohtv db embed` first.
+
+---
+
+### `ohtv ask` - Question Answering (RAG)
+
+Ask questions about your conversations using RAG (Retrieval-Augmented Generation). Finds relevant context from your conversation history and generates a synthesized answer.
+
+```bash
+# Ask a question
+ohtv ask "how did we fix the authentication bug?"
+
+# Use more context chunks for detailed answers
+ohtv ask "what changes were made to the API?" --context 10
+
+# Show the retrieved context chunks
+ohtv ask "summarize the docker deployment work" --show-context
+
+# Use a specific model for answer generation
+ohtv ask "what PRs did we create?" --model openai/gpt-4
+
+# Lower minimum score to get more context
+ohtv ask "testing strategies" --min-score 0.2
+```
+
+**Example Output:**
+```
+Searching for relevant context...
+Generating answer...
+
+Answer:
+
+Based on conversation abc123 from 2 days ago, the authentication bug was
+fixed by updating the JWT token validation in `src/auth/jwt.py`. The key
+changes were:
+
+1. Added expiration check before signature validation
+2. Returning 401 status instead of 500 for expired tokens
+3. Added unit tests for edge cases
+
+─────────────────────────────────────────────────
+Sources (2 conversations):
+  • [abc12345] Fix JWT token validation
+  • [def56789] Debug login flow
+
+Search: 0.15s | Generation: 2.34s | Model: openai/gpt-4o-mini
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `-c, --context N` | Number of context chunks to use (default: 5) |
+| `-s, --min-score N` | Minimum similarity score 0-1 (default: 0.3) |
+| `-m, --model MODEL` | LLM model for answer generation |
+| `--show-context` | Show retrieved context chunks |
+| `-v, --verbose` | Show debug output |
+
+**Note:** Requires embeddings. Run `ohtv db embed` first.
+
 ---
 
 ## Environment Variables
@@ -816,10 +948,11 @@ Actions by type:
 | `OHTV_CONVERSATIONS_DIR` | Local CLI conversations directory | `~/.openhands/conversations` |
 | `OHTV_CLOUD_CONVERSATIONS_DIR` | Synced cloud conversations directory | `~/.openhands/cloud/conversations` |
 | `OHTV_EXTRA_CONVERSATION_PATHS` | Additional conversation directories (colon-separated paths) | None |
-| `LLM_API_KEY` | API key for LLM provider | Required for `gen` |
-| `LLM_MODEL` | Default LLM model | Provider default |
+| `LLM_API_KEY` | API key for LLM provider | Required for `gen`, `search`, `ask` |
+| `LLM_MODEL` | Default LLM model for `ask` | `openai/gpt-4o-mini` |
 | `LLM_BASE_URL` | Custom LLM base URL | Provider default |
 | `LLM_TIMEOUT` | LLM request timeout in seconds | `300` |
+| `EMBEDDING_MODEL` | Model for embeddings (`db embed`, `search`) | `openai/text-embedding-3-small` |
 
 ## Data Directories
 
