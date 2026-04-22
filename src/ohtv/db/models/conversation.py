@@ -19,6 +19,7 @@ class Conversation:
         updated_at: When the conversation was last updated (UTC)
         selected_repository: Repository selected for this conversation
         source: Source identifier ('local', 'cloud', or custom name)
+        summary: Brief summary of conversation goal/objective (for RAG)
     """
     id: str
     location: str
@@ -30,3 +31,4 @@ class Conversation:
     updated_at: datetime | None = None
     selected_repository: str | None = None
     source: str | None = None
+    summary: str | None = None

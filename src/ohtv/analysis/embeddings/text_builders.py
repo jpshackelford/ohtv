@@ -1,9 +1,51 @@
 """Text building functions for each embedding type.
 
 Converts conversation data into text suitable for embedding.
+Supports contextual chunk enrichment (Anthropic's "contextual retrieval" technique).
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime
+
+
+@dataclass
+class ConversationMetadata:
+    """Metadata for contextual chunk enrichment.
+    
+    Used to prepend context to chunks before embedding, improving
+    retrieval accuracy (Anthropic's "contextual retrieval" technique).
+    """
+    conversation_id: str
+    created_at: datetime | None = None
+    summary: str | None = None
+    ref_fqns: list[str] = field(default_factory=list)  # e.g., ["jpshackelford/ohtv#23"]
+    
+    def build_preamble(self, max_refs: int = 7) -> str:
+        """Build a contextual preamble for chunk enrichment.
+        
+        Args:
+            max_refs: Maximum number of refs to include (default: 7)
+            
+        Returns:
+            Formatted preamble string with date, summary, and refs
+        """
+        parts = []
+        
+        if self.created_at:
+            parts.append(f"Date: {self.created_at.strftime('%Y-%m-%d')}")
+        
+        if self.summary:
+            # Truncate summary if too long
+            summary = self.summary[:200] + "..." if len(self.summary) > 200 else self.summary
+            parts.append(f"Summary: {summary}")
+        
+        if self.ref_fqns:
+            limited_refs = self.ref_fqns[:max_refs]
+            parts.append(f"Related: {', '.join(limited_refs)}")
+        
+        if parts:
+            return "\n".join(parts) + "\n---\n"
+        return ""
 
 
 @dataclass
@@ -266,6 +308,7 @@ def build_conversation_texts(
     events: list[dict],
     analysis: dict | None = None,
     refs: list[dict] | None = None,
+    metadata: ConversationMetadata | None = None,
 ) -> ConversationTexts:
     """Build all text components for a conversation's embeddings.
 
@@ -273,9 +316,10 @@ def build_conversation_texts(
         events: List of conversation events
         analysis: Cached analysis dict (from gen objs)
         refs: List of git refs from database
+        metadata: Optional metadata for contextual preamble enrichment
 
     Returns:
-        ConversationTexts with all components
+        ConversationTexts with all components (with preambles if metadata provided)
     """
     from .chunking import chunk_text
 
@@ -283,6 +327,17 @@ def build_conversation_texts(
     summary_text = build_summary_text(events, refs)
     content_text = build_content_text(events)
     content_chunks = chunk_text(content_text)
+    
+    # Apply contextual preamble enrichment if metadata provided
+    preamble = metadata.build_preamble() if metadata else ""
+    
+    if preamble:
+        if analysis_text:
+            analysis_text = preamble + analysis_text
+        if summary_text:
+            summary_text = preamble + summary_text
+        for chunk in content_chunks:
+            chunk.text = preamble + chunk.text
 
     return ConversationTexts(
         analysis_text=analysis_text.strip() if analysis_text and analysis_text.strip() else None,

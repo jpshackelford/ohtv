@@ -30,6 +30,7 @@ from .client import (
 
 # Text building exports
 from .text_builders import (
+    ConversationMetadata,
     ConversationTexts,
     TextChunk,
     build_analysis_text,
@@ -66,6 +67,7 @@ __all__ = [
     "EmbeddingStats",
     "TextChunk",
     "ConversationTexts",
+    "ConversationMetadata",
     # Constants
     "DEFAULT_EMBEDDING_MODEL",
     "KNOWN_COSTS",

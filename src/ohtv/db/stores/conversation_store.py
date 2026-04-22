@@ -12,7 +12,7 @@ class ConversationStore:
     # All columns for SELECT queries
     _ALL_COLUMNS = """
         id, location, registered_at, events_mtime, event_count,
-        title, created_at, updated_at, selected_repository, source
+        title, created_at, updated_at, selected_repository, source, summary
     """
     
     def __init__(self, conn: sqlite3.Connection):
@@ -32,6 +32,13 @@ class ConversationStore:
         if row["updated_at"]:
             updated_at = datetime.fromisoformat(row["updated_at"])
         
+        # Handle summary column gracefully - may not exist in older databases
+        summary = None
+        try:
+            summary = row["summary"]
+        except (IndexError, KeyError):
+            pass
+        
         return Conversation(
             id=row["id"],
             location=row["location"],
@@ -43,6 +50,7 @@ class ConversationStore:
             updated_at=updated_at,
             selected_repository=row["selected_repository"],
             source=row["source"],
+            summary=summary,
         )
     
     def upsert(self, conversation: Conversation) -> None:
@@ -60,9 +68,9 @@ class ConversationStore:
             """
             INSERT INTO conversations (
                 id, location, registered_at, events_mtime, event_count,
-                title, created_at, updated_at, selected_repository, source
+                title, created_at, updated_at, selected_repository, source, summary
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 location = excluded.location,
                 events_mtime = excluded.events_mtime,
@@ -71,7 +79,8 @@ class ConversationStore:
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at,
                 selected_repository = excluded.selected_repository,
-                source = excluded.source
+                source = excluded.source,
+                summary = COALESCE(excluded.summary, conversations.summary)
             """,
             (
                 conversation.id,
@@ -84,6 +93,7 @@ class ConversationStore:
                 updated_at_str,
                 conversation.selected_repository,
                 conversation.source,
+                conversation.summary,
             ),
         )
     
@@ -176,3 +186,33 @@ class ConversationStore:
             "SELECT COUNT(*) FROM conversations WHERE created_at IS NOT NULL"
         )
         return cursor.fetchone()[0]
+    
+    def count_with_summary(self) -> int:
+        """Return count of conversations that have summary populated."""
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM conversations WHERE summary IS NOT NULL"
+        )
+        return cursor.fetchone()[0]
+    
+    def update_summary(self, conversation_id: str, summary: str) -> bool:
+        """Update the summary for a conversation.
+        
+        Args:
+            conversation_id: The conversation ID
+            summary: The summary text to set
+            
+        Returns:
+            True if a row was updated, False if conversation not found
+        """
+        cursor = self.conn.execute(
+            "UPDATE conversations SET summary = ? WHERE id = ?",
+            (summary, conversation_id),
+        )
+        return cursor.rowcount > 0
+    
+    def list_without_summary(self) -> list[Conversation]:
+        """List conversations that don't have a summary yet."""
+        cursor = self.conn.execute(
+            f"SELECT {self._ALL_COLUMNS} FROM conversations WHERE summary IS NULL"
+        )
+        return [self._row_to_conversation(row) for row in cursor.fetchall()]

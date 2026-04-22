@@ -1476,9 +1476,10 @@ def ask(
       ohtv ask "recent issues" --no-temporal             # Disable auto-filter
     """
     from ohtv.db import get_connection, get_db_path, migrate
-    from ohtv.db.stores import ConversationStore, EmbeddingStore
+    from ohtv.db.stores import ConversationStore, EmbeddingStore, LinkStore, ReferenceStore, RepoStore
     from ohtv.analysis.rag import RAGAnswerer
     from ohtv.filters import parse_date_filter
+    from ohtv.config import Config
     
     _init_logging(verbose=verbose)
     db_path = get_db_path()
@@ -1504,11 +1505,26 @@ def ask(
             console.print("[dim]Use YYYY-MM-DD format[/dim]")
             raise SystemExit(1)
     
+    # Get cloud base URL from config
+    config = Config.from_env()
+    cloud_base_url = config.cloud_api_url
+    
     with get_connection() as conn:
         migrate(conn)
         
         embed_store = EmbeddingStore(conn)
         conv_store = ConversationStore(conn)
+        
+        # Initialize ref stores for enhanced citations (gracefully handle if not available)
+        link_store = None
+        ref_store = None
+        repo_store = None
+        try:
+            link_store = LinkStore(conn)
+            ref_store = ReferenceStore(conn)
+            repo_store = RepoStore(conn)
+        except Exception:
+            pass  # Stores not available, citations will be basic
         
         # Check if we have embeddings
         embed_count = embed_store.count()
@@ -1526,6 +1542,10 @@ def ask(
             embed_store, conv_store, 
             model=model, 
             enable_temporal_filter=enable_temporal,
+            link_store=link_store,
+            ref_store=ref_store,
+            repo_store=repo_store,
+            cloud_base_url=cloud_base_url,
         )
         
         try:
@@ -1578,14 +1598,62 @@ def ask(
         console.print(f"\n[bold]Answer:[/bold]\n")
         console.print(result.answer)
         
-        # Show sources
+        # Show sources with enhanced citations
         console.print(f"\n[dim]─────────────────────────────────────────────────[/dim]")
-        console.print(f"[dim]Sources ({len(result.source_conversation_ids)} conversations):[/dim]")
-        for conv_id in result.source_conversation_ids:
-            conv = conv_store.get(conv_id)
-            title = conv.title if conv and conv.title else "(no title)"
+        console.print(f"[bold]Sources ({len(result.source_conversation_ids)} conversations):[/bold]")
+        
+        # Collect unique chunks per conversation for display
+        seen_convs = set()
+        for chunk in result.context_chunks:
+            if chunk.conversation_id in seen_convs:
+                continue
+            seen_convs.add(chunk.conversation_id)
+            
+            # Format title with date
+            title = chunk.title or "(no title)"
             short_title = title[:50] + "..." if len(title) > 50 else title
-            console.print(f"[dim]  • [{conv_id[:8]}] {short_title}[/dim]")
+            
+            date_str = ""
+            if chunk.created_at:
+                date_str = f" ({chunk.created_at.strftime('%Y-%m-%d')})"
+            
+            console.print(f"• [cyan][{chunk.conversation_id[:8]}][/cyan] {short_title}{date_str}")
+            
+            # Show summary if available
+            if chunk.summary:
+                summary = chunk.summary[:100] + "..." if len(chunk.summary) > 100 else chunk.summary
+                console.print(f"  [dim]{summary}[/dim]")
+            
+            # Show cloud URL if valid (within 14-day retention)
+            display_url = chunk.display_url
+            if display_url:
+                console.print(f"  [link={display_url}]{display_url}[/link]")
+        
+        # Show "See Also" section with related refs
+        has_related = any([
+            result.related_prs,
+            result.related_issues,
+            result.related_repos
+        ])
+        
+        if has_related:
+            console.print()
+            console.print("[bold]See Also:[/bold]")
+            
+            if result.related_prs:
+                console.print("  [bold]Pull Requests:[/bold]")
+                for pr in result.related_prs:
+                    console.print(f"  • [link={pr.url}]{pr.fqn}[/link]")
+            
+            if result.related_issues:
+                console.print("  [bold]Issues:[/bold]")
+                for issue in result.related_issues:
+                    console.print(f"  • [link={issue.url}]{issue.fqn}[/link]")
+            
+            if result.related_repos:
+                console.print("  [bold]Repositories:[/bold]")
+                for repo in result.related_repos:
+                    console.print(f"  • [link={repo.url}]{repo.fqn}[/link]")
         
         # Show timing info
         timing_parts = [

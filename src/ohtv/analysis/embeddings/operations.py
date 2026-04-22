@@ -65,6 +65,9 @@ def embed_conversation_full(
     - analysis: From cached LLM analysis (if available)
     - summary: User messages + refs + file paths
     - content: File contents, chunked if large
+    
+    Uses contextual chunk enrichment (Anthropic's "contextual retrieval" 
+    technique) to prepend date, summary, and refs to chunks before embedding.
 
     Args:
         conv_dir: Path to conversation directory
@@ -78,9 +81,9 @@ def embed_conversation_full(
         EmbeddingStats with counts and totals
     """
     from ohtv.analysis.cache import load_events, load_analysis
-    from ohtv.db.stores import EmbeddingStore, LinkStore, ReferenceStore
+    from ohtv.db.stores import EmbeddingStore, LinkStore, ReferenceStore, ConversationStore
     from .client import get_embedding, get_embedding_model
-    from .text_builders import build_conversation_texts
+    from .text_builders import build_conversation_texts, ConversationMetadata
 
     conv_id = conv_dir.name
     store = EmbeddingStore(conn)
@@ -93,7 +96,9 @@ def embed_conversation_full(
 
     if analysis is None:
         analysis = load_analysis(conv_dir)
-
+    
+    # Build ref FQNs list for contextual enrichment
+    ref_fqns: list[str] = []
     if refs is None:
         try:
             link_store = LinkStore(conn)
@@ -104,10 +109,38 @@ def embed_conversation_full(
                 ref = ref_store.get_by_id(ref_id)
                 if ref:
                     refs.append({"ref_type": ref.ref_type.value, "url": ref.url})
+                    if ref.fqn:
+                        ref_fqns.append(ref.fqn)
         except Exception:
             refs = []
+    else:
+        # Extract FQNs from provided refs if available
+        for ref in refs:
+            fqn = ref.get("fqn")
+            if fqn:
+                ref_fqns.append(fqn)
+    
+    # Get conversation metadata for contextual enrichment
+    metadata = None
+    try:
+        conv_store = ConversationStore(conn)
+        conv = conv_store.get(conv_id)
+        if conv:
+            # Use analysis goal as summary if summary not set
+            summary = conv.summary
+            if not summary and analysis:
+                summary = analysis.get("goal")
+            
+            metadata = ConversationMetadata(
+                conversation_id=conv_id,
+                created_at=conv.created_at,
+                summary=summary,
+                ref_fqns=ref_fqns,
+            )
+    except Exception:
+        log.debug("Could not load conversation metadata for %s", conv_id)
 
-    texts = build_conversation_texts(events, analysis, refs)
+    texts = build_conversation_texts(events, analysis, refs, metadata)
 
     if model is None:
         model = get_embedding_model()
