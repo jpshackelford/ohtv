@@ -15,7 +15,7 @@ from typing import Any
 from jinja2 import Environment, BaseLoader
 
 from ohtv.analysis.periods import PeriodInfo, compute_period_state_hash
-from ohtv.config import Config
+from ohtv.config import Config, get_ohtv_dir
 from ohtv.prompts.metadata import PromptMetadata
 
 log = logging.getLogger("ohtv")
@@ -82,15 +82,19 @@ def get_cached_result_for_conversation(
     Returns:
         Cached result dict, or None if not cached
     """
-    from ohtv.analysis.cache import _get_cache_file
-    
-    cache_file = _get_cache_file(conv_dir, cache_key)
+    # The cache is stored in objective_analysis.json with multiple analyses keyed by parameters
+    cache_file = conv_dir / "objective_analysis.json"
     if not cache_file.exists():
         return None
     
     try:
         data = json.loads(cache_file.read_text())
-        return data.get("result")
+        analyses = data.get("analyses", {})
+        analysis = analyses.get(cache_key)
+        if analysis is None:
+            return None
+        # Return the analysis dict - the caller extracts what it needs (e.g., goal)
+        return analysis
     except (json.JSONDecodeError, OSError) as e:
         log.warning("Failed to load cached result from %s: %s", cache_file, e)
         return None
@@ -188,14 +192,19 @@ def run_aggregate_llm(
     """
     import os
     os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
-    from openhands.sdk import LLM
+    from openhands.sdk import LLM, Message, TextContent
     
     llm = LLM.load_from_env()
     if model:
         llm = llm.clone(model=model)
     
-    # Build messages
-    messages = [{"role": "user", "content": rendered_prompt}]
+    # Build messages using SDK Message objects
+    messages = [
+        Message(
+            role="user",
+            content=[TextContent(type="text", text=rendered_prompt)],
+        )
+    ]
     
     # Request structured output if schema provided
     response_format = None
@@ -207,15 +216,20 @@ def run_aggregate_llm(
         response_format=response_format,
     )
     
+    # Extract text from response (same pattern as objectives.py)
+    response_text = ""
+    for content_item in response.message.content:
+        if hasattr(content_item, "text"):
+            response_text += content_item.text
+    
     # Parse response
-    content = response.choices[0].message.content
     try:
-        result = json.loads(content)
+        result = json.loads(response_text)
     except json.JSONDecodeError:
         # Return raw content if not valid JSON
-        result = {"raw_response": content}
+        result = {"raw_response": response_text}
     
-    # Get cost
+    # Get cost from response metrics
     cost = 0.0
     if hasattr(response, "metrics") and response.metrics:
         cost = getattr(response.metrics, "accumulated_cost", 0.0) or 0.0
@@ -225,7 +239,7 @@ def run_aggregate_llm(
 
 def get_aggregate_cache_dir(config: Config) -> Path:
     """Get the cache directory for aggregate analysis results."""
-    return config.ohtv_dir / "cache" / "aggregate"
+    return get_ohtv_dir() / "cache" / "aggregate"
 
 
 def get_aggregate_cache_file(
