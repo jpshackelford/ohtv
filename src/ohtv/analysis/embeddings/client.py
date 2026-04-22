@@ -118,8 +118,13 @@ def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
     MAX_CHARS = 4000
     original_len = len(text)
     if original_len > MAX_CHARS:
-        text = text[:MAX_CHARS] + "..."
-        log.debug("Truncated text from %d to %d chars for Ollama (2048 token limit)", original_len, MAX_CHARS)
+        # Truncate at word boundary to avoid cutting mid-word
+        truncate_at = text.rfind(' ', 0, MAX_CHARS)
+        if truncate_at > MAX_CHARS * 0.8:  # Don't lose too much content
+            text = text[:truncate_at]
+        else:
+            text = text[:MAX_CHARS]
+        log.debug("Truncated text from %d to %d chars for Ollama (2048 token limit)", original_len, len(text))
     
     text_len = len(text)
     log.debug("Getting Ollama embedding with model %s from %s (text length: %d chars)", ollama_model, ollama_url, text_len)
@@ -149,7 +154,8 @@ def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
             if not embedding:
                 raise RuntimeError(f"Ollama returned empty embedding. Response: {result}")
             
-            # Estimate token count (Ollama doesn't return this)
+            # Rough estimate: ~1.3 tokens per word (Ollama doesn't report token usage)
+            # Precision matters less for local/free models than for paid APIs
             token_count = int(len(text.split()) * 1.3)
             
             return EmbeddingResult(
@@ -167,9 +173,9 @@ def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
             except Exception:
                 pass
             log.debug("Ollama HTTP %d error (attempt %d): %s", e.code, attempt + 1, error_body or str(e))
-            # Retry on 500 errors (Ollama overloaded)
+            # Retry on 500 errors (Ollama overloaded) with linear backoff
             if e.code == 500 and attempt < max_retries - 1:
-                time.sleep(retry_delay * (attempt + 1))
+                time.sleep(retry_delay * (attempt + 1))  # 1s, 2s, 3s...
                 continue
             raise RuntimeError(
                 f"Ollama connection failed: {e}. Body: {error_body}. "

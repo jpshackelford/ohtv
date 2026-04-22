@@ -5452,6 +5452,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         except KeyboardInterrupt:
             interrupted = True
             console.print("\n[yellow]Interrupted! Partial results saved.[/yellow]")
+            console.print("[dim]  Some embeddings may be incomplete. Re-run to complete remaining.[/dim]")
         
         # Log deduplicated errors to file
         for err_msg, count in error_counts.items():
@@ -5469,7 +5470,11 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             console.print(f"[dim]{skipped} conversation(s) skipped (no content or already embedded)[/dim]")
         
         if errors > 0:
-            console.print(f"[yellow]![/yellow] {errors} error(s)")
+            unique_errors = len(error_counts)
+            if unique_errors == errors:
+                console.print(f"[yellow]![/yellow] {errors} error(s)")
+            else:
+                console.print(f"[yellow]![/yellow] {errors} error(s) ({unique_errors} unique)")
             # Show top errors with counts
             sorted_errors = sorted(error_counts.items(), key=lambda x: -x[1])
             for err_msg, count in sorted_errors[:3]:  # Show top 3
