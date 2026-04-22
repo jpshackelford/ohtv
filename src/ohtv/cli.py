@@ -563,7 +563,7 @@ def _run_sync_with_progress(
         expected_total: If known, the expected total number of items to sync
     """
     import signal
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn
     
     if quiet:
         return sync_fn(None, None)
@@ -589,49 +589,46 @@ def _run_sync_with_progress(
     last_rate_str = [""]
     last_rate_update = [0.0]
     
-    def _format_stats(success: int, failed: int, elapsed: float) -> str:
-        """Format stats string with success/fail counts and rate."""
+    def _format_counts(success: int, failed: int) -> str:
+        """Format success/fail counts."""
+        if failed > 0:
+            return f"[green]{success}[/green] ok [red]{failed}[/red] err"
+        return f"[green]{success}[/green] ok"
+    
+    def _format_rate(success: int, elapsed: float) -> str:
+        """Format rate with smoothing."""
         if elapsed < 0.1 or success == 0:
-            if failed > 0:
-                return f"[green]{success}[/green] ok, [red]{failed}[/red] failed"
-            return f"[green]{success}[/green] ok"
-        
-        # Only recalculate rate every 0.5s
+            return ""
+        # Only recalculate every 0.5s
         if elapsed - last_rate_update[0] >= 0.5 or not last_rate_str[0]:
             last_rate_update[0] = elapsed
             rate = success / (elapsed / 60.0)
-            last_rate_str[0] = f"{rate:.1f}/min"
-        
-        if failed > 0:
-            return f"[green]{success}[/green] ok, [red]{failed}[/red] failed • {last_rate_str[0]}"
-        return f"[green]{success}[/green] ok • {last_rate_str[0]}"
+            last_rate_str[0] = f"{rate:.0f}/min"
+        return last_rate_str[0]
     
     try:
+        # Layout: Syncing ━━━━━━━━━ 62% 115 ok 7 err │ 2:15 119/min
         with Progress(
             SpinnerColumn(),
             TextColumn("[bold blue]Syncing"),
             BarColumn(),
             TaskProgressColumn(),
-            TimeRemainingColumn(),
-            TextColumn("{task.fields[stats]}"),
+            TextColumn("{task.fields[counts]}"),
+            TextColumn("[dim]│[/dim]"),
+            TimeElapsedColumn(),
+            TextColumn("[dim]{task.fields[rate]}[/dim]"),
             console=console,
             transient=True,
         ) as progress:
             task = progress.add_task(
                 "Syncing",
                 total=expected_total,
-                stats="starting..."
+                counts="",
+                rate=""
             )
             
             def progress_callback(conv_id: str, title: str, action: str, total: int | None = None) -> None:
-                """Progress callback that updates the Rich progress bar.
-                
-                Args:
-                    conv_id: Conversation ID
-                    title: Conversation title  
-                    action: Action taken (new, updated, unchanged, failed, skipped)
-                    total: If provided, update the total count for the progress bar
-                """
+                """Progress callback that updates the Rich progress bar."""
                 nonlocal current_total
                 
                 # Update total if provided (first call from sync after categorization)
@@ -652,10 +649,11 @@ def _run_sync_with_progress(
                     failed_count[0] += 1
                 
                 elapsed = time.perf_counter() - start_time
-                stats_str = _format_stats(success_count[0], failed_count[0], elapsed)
+                counts_str = _format_counts(success_count[0], failed_count[0])
+                rate_str = _format_rate(success_count[0], elapsed)
                 
                 # Update progress bar
-                progress.update(task, completed=processed_count[0], stats=stats_str)
+                progress.update(task, completed=processed_count[0], counts=counts_str, rate=rate_str)
             
             def shutdown_check() -> bool:
                 return shutdown_requested[0]

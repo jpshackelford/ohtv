@@ -19,8 +19,8 @@ from ohtv.sources.cloud import CloudClient, RateLimitExceededError
 log = logging.getLogger("ohtv")
 
 # Number of parallel workers for API calls
-# Lower than gen (which uses 20) because download API has stricter rate limits
-DEFAULT_MAX_WORKERS = 5
+# Conservative value to avoid overwhelming rate limits on download API
+DEFAULT_MAX_WORKERS = 3
 
 
 class SyncAuthError(Exception):
@@ -324,6 +324,8 @@ class SyncManager:
         pass_total_on_first: bool = False,
     ) -> None:
         """Download conversations in parallel using a thread pool."""
+        import time as time_module
+        
         max_workers = min(DEFAULT_MAX_WORKERS, len(work_items))
         log.info("Starting parallel download with %d workers for %d conversations", 
                  max_workers, len(work_items))
@@ -335,8 +337,21 @@ class SyncManager:
         abort_requested = False
         first_callback = [True]  # Mutable for thread-safe first-call detection
         
+        # Track worker index for staggered delays
+        worker_index = [0]
+        
         def download_one(item: tuple[dict, str]) -> tuple[dict, str, str]:
             """Download a single conversation. Returns (conv, planned_action, actual_action)."""
+            # Stagger initial requests to avoid thundering herd
+            with lock:
+                idx = worker_index[0]
+                worker_index[0] += 1
+            
+            # Small delay based on worker index (0, 0.2s, 0.4s, ...)
+            # This spreads out the initial burst of requests
+            if idx > 0 and idx < max_workers * 2:
+                time_module.sleep(0.2 * idx)
+            
             conv, planned_action = item
             conv_id = conv["id"]
             cloud_updated_at = conv.get("updated_at", "")
