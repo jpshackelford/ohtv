@@ -129,7 +129,6 @@ class CloudClient:
         self,
         method: str,
         path: str,
-        max_retries: int = 10,
         **kwargs,
     ) -> httpx.Response:
         """Make request with shared rate limiter and exponential backoff.
@@ -138,11 +137,15 @@ class CloudClient:
         ALL workers pause before retrying. This properly respects the
         API's rate limit bucket instead of having each worker retry
         independently.
+        
+        Rate limit retries are unlimited - we'll keep backing off until
+        it succeeds. Rate limits are always temporary and fixable with patience.
         """
         base_delay = 2.0  # Start with 2 seconds
         max_delay = 60.0  # Cap at 1 minute
+        attempt = 0
         
-        for attempt in range(max_retries):
+        while True:
             # Wait if another request recently got rate limited
             _global_rate_limiter.wait_if_needed()
             
@@ -152,18 +155,16 @@ class CloudClient:
                 return response
             
             # Calculate delay and notify the shared rate limiter
+            attempt += 1
             delay = self._get_retry_delay(response, base_delay, attempt, max_delay)
-            log.warning("Rate limited (429) on %s, blocking all requests for %.1fs (attempt %d/%d)", 
-                       path, delay, attempt + 1, max_retries)
+            log.warning("Rate limited (429) on %s, blocking all requests for %.1fs (attempt %d)", 
+                       path, delay, attempt)
             
             # Record this in the shared rate limiter so all workers wait
             _global_rate_limiter.record_rate_limit(delay)
             
             # This worker also waits
             time.sleep(delay)
-        
-        log.error("Rate limit retries exhausted for %s after %d attempts", path, max_retries)
-        raise RateLimitExceededError(f"Rate limit retries exhausted for {path}")
 
     def _get_retry_delay(self, response: httpx.Response, base_delay: float, attempt: int, max_delay: float) -> float:
         """Calculate retry delay from headers or exponential backoff with jitter."""
@@ -185,7 +186,11 @@ class CloudClient:
 
 
 class RateLimitExceededError(Exception):
-    """Raised when rate limit retries are exhausted."""
+    """Legacy exception - no longer raised since we retry rate limits forever.
+    
+    Kept for backward compatibility but CloudClient now retries indefinitely
+    with exponential backoff when rate limited.
+    """
 
 
 def parse_conversation_info(data: dict) -> ConversationInfo:
