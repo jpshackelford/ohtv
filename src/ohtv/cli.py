@@ -564,7 +564,6 @@ def _run_sync_with_progress(
     """
     import signal
     from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
-    from ohtv.parallel import format_rate
     
     if quiet:
         return sync_fn(None, None)
@@ -583,6 +582,7 @@ def _run_sync_with_progress(
     start_time = time.perf_counter()
     processed_count = [0]
     download_count = [0]  # Count of actual downloads (new + updated)
+    current_total = [expected_total]  # Mutable to allow update from callback
     
     # Rate tracking with smoothing
     last_rate_str = [""]
@@ -616,8 +616,26 @@ def _run_sync_with_progress(
                 rate="starting..."
             )
             
-            def progress_callback(conv_id: str, title: str, action: str) -> None:
-                """Progress callback that updates the Rich progress bar."""
+            def progress_callback(conv_id: str, title: str, action: str, total: int | None = None) -> None:
+                """Progress callback that updates the Rich progress bar.
+                
+                Args:
+                    conv_id: Conversation ID
+                    title: Conversation title  
+                    action: Action taken (new, updated, unchanged, failed, skipped)
+                    total: If provided, update the total count for the progress bar
+                """
+                nonlocal current_total
+                
+                # Update total if provided (first call from sync after categorization)
+                if total is not None and current_total[0] is None:
+                    current_total[0] = total
+                    progress.update(task, total=total)
+                
+                # Skip counting skipped items in progress
+                if action == "skipped":
+                    return
+                
                 processed_count[0] += 1
                 
                 # Count actual downloads for rate calculation
@@ -628,19 +646,15 @@ def _run_sync_with_progress(
                 rate_str = _format_rate_smooth(download_count[0], elapsed)
                 
                 # Update progress bar
-                if expected_total is not None:
-                    progress.update(task, advance=1, rate=rate_str)
-                else:
-                    # Unknown total - just show count
-                    progress.update(task, completed=processed_count[0], rate=rate_str)
+                progress.update(task, completed=processed_count[0], rate=rate_str)
             
             def shutdown_check() -> bool:
                 return shutdown_requested[0]
             
             result = sync_fn(progress_callback, shutdown_check)
             
-            # Final update to show completion
-            if expected_total is None:
+            # Final update to ensure completion is shown
+            if current_total[0] is None:
                 progress.update(task, total=processed_count[0], completed=processed_count[0])
         
         if shutdown_requested[0]:
