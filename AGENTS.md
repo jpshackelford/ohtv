@@ -247,7 +247,44 @@ uv run ohtv prompts show brief         # Show specific prompt content
 4. ✅ Refs (PRs, repos, issues) included in summary embeddings
 5. ✅ File contents included in content embeddings
 6. ✅ FTS5 keyword search fallback with `--exact` flag
-7. ✅ 21 tests for embedding store and search
+7. ✅ Temporal filtering in RAG (issue #29)
+8. ✅ 25+ tests for embedding store and search
+
+## Completed: Temporal Filtering for RAG (Issue #29)
+
+**Problem solved**: Questions like "What did we work on yesterday?" now filter to the appropriate time period instead of returning results based purely on semantic similarity.
+
+**Implementation**:
+- `src/ohtv/analysis/temporal.py` - Temporal query extraction module
+  - `TemporalQuery` dataclass with start_date, end_date, cleaned_query, has_temporal_intent
+  - `extract_temporal_filter()` - Fast regex-based extraction for common patterns (yesterday, last week, past N days)
+  - Falls back to LLM extraction for complex patterns when needed
+- `src/ohtv/db/stores/embedding_store.py` - Date filtering via JOIN with conversations table
+  - `search()`, `search_conversations()`, `get_context_for_rag()` all accept optional `start_date` and `end_date`
+- `src/ohtv/analysis/rag.py` - RAGAnswerer uses temporal extraction
+  - Auto-extracts dates from question, uses cleaned query for embedding
+  - Falls back to unfiltered search if temporal filter returns no results
+- `src/ohtv/filters.py` - `parse_date_filter()` for CLI date parsing
+  - Supports: YYYY-MM-DD, Nd (7d), Nw (2w), Nm (1m), "today", "yesterday"
+
+**CLI options** (`ohtv ask`):
+- `--since` - Explicit start date filter (YYYY-MM-DD or relative: 7d, 2w, 1m)
+- `--until` - Explicit end date filter (YYYY-MM-DD)
+- `--no-temporal` - Disable automatic temporal extraction from question
+
+**Examples**:
+```bash
+ohtv ask "what did we work on yesterday?"          # Auto-filtered to yesterday
+ohtv ask "show me last week's API changes"         # Auto-filtered to last 7 days
+ohtv ask "summarize deployment work" --since 7d   # Explicit: last 7 days
+ohtv ask "recent issues" --no-temporal            # Disable auto-filter
+```
+
+**Tests**: 56 new tests
+- 21 tests for temporal extraction (`tests/unit/analysis/test_temporal.py`)
+- 10 tests for date parsing (`tests/unit/test_date_filters.py`)
+- 4 tests for date-filtered search in embedding store
+- 21 existing embedding tests updated
 
 **CLI Commands**:
 ```bash

@@ -5,6 +5,7 @@ to be indexed first (via `ohtv db scan` and `ohtv db process refs`).
 """
 
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Sequence
 
 from ohtv.db import (
@@ -21,6 +22,60 @@ from ohtv.db import (
 PR_URL_PATTERN = re.compile(
     r"https?://(?:www\.)?github\.com/([^/]+)/([^/]+)/pull/(\d+)"
 )
+
+# Relative date pattern (e.g., "7d", "2w", "1m")
+RELATIVE_DATE_PATTERN = re.compile(r"^(\d+)([dwm])$", re.IGNORECASE)
+
+
+def parse_date_filter(value: str) -> datetime | None:
+    """Parse a date filter value, supporting both absolute and relative formats.
+    
+    Supported formats:
+    - Absolute: YYYY-MM-DD (e.g., "2026-04-15")
+    - Relative days: Nd (e.g., "7d" = 7 days ago)
+    - Relative weeks: Nw (e.g., "2w" = 2 weeks ago)
+    - Relative months: Nm (e.g., "1m" = 1 month ago, approximated as 30 days)
+    - Keywords: "today", "yesterday"
+    
+    Args:
+        value: Date filter string
+        
+    Returns:
+        datetime object in UTC, or None if parsing failed
+    """
+    value = value.strip().lower()
+    now = datetime.now(timezone.utc)
+    
+    # Handle keywords
+    if value == "today":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if value == "yesterday":
+        return (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Handle relative dates (7d, 2w, 1m)
+    match = RELATIVE_DATE_PATTERN.match(value)
+    if match:
+        n = int(match.group(1))
+        unit = match.group(2).lower()
+        if unit == "d":
+            delta = timedelta(days=n)
+        elif unit == "w":
+            delta = timedelta(weeks=n)
+        else:  # m
+            delta = timedelta(days=n * 30)  # Approximate month
+        return (now - delta).replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Handle absolute date (YYYY-MM-DD)
+    try:
+        # Parse as date and convert to datetime at midnight UTC
+        parts = value.split("-")
+        if len(parts) == 3:
+            year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
+            return datetime(year, month, day, tzinfo=timezone.utc)
+    except (ValueError, IndexError):
+        pass
+    
+    return None
 
 
 def normalize_ref_pattern(pattern: str) -> str:

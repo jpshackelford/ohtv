@@ -344,6 +344,141 @@ class TestSemanticSearch:
         assert len(results[0].all_matches) == 2
 
 
+class TestDateFilteredSearch:
+    """Tests for date-filtered semantic search."""
+    
+    def test_search_with_date_filter(self, embedding_store, conversation_store, db_conn):
+        """Test search filters by conversation date."""
+        from datetime import datetime, timezone
+        
+        # Create conversations with different dates
+        conv1 = Conversation(id="conv-old", location="/test/conv-old")
+        conv1.created_at = datetime(2026, 4, 10, tzinfo=timezone.utc)  # Old
+        conversation_store.upsert(conv1)
+        
+        conv2 = Conversation(id="conv-recent", location="/test/conv-recent")
+        conv2.created_at = datetime(2026, 4, 20, tzinfo=timezone.utc)  # Recent
+        conversation_store.upsert(conv2)
+        
+        conv3 = Conversation(id="conv-today", location="/test/conv-today")
+        conv3.created_at = datetime(2026, 4, 22, tzinfo=timezone.utc)  # Today
+        conversation_store.upsert(conv3)
+        
+        # Create embeddings for all conversations (similar vectors)
+        embedding_store.upsert(
+            "conv-old", [1.0, 0.0, 0.0], "model",
+            embed_type="summary", source_text="Old conversation"
+        )
+        embedding_store.upsert(
+            "conv-recent", [0.95, 0.05, 0.0], "model",
+            embed_type="summary", source_text="Recent conversation"
+        )
+        embedding_store.upsert(
+            "conv-today", [0.9, 0.1, 0.0], "model",
+            embed_type="summary", source_text="Today's conversation"
+        )
+        
+        # Search without date filter - should find all
+        results = embedding_store.search([1.0, 0.0, 0.0], limit=10)
+        assert len(results) == 3
+        
+        # Search with start_date filter - should exclude old
+        start_date = datetime(2026, 4, 15, tzinfo=timezone.utc)
+        results = embedding_store.search(
+            [1.0, 0.0, 0.0], limit=10, start_date=start_date
+        )
+        assert len(results) == 2
+        conv_ids = {r.conversation_id for r in results}
+        assert "conv-old" not in conv_ids
+        assert "conv-recent" in conv_ids
+        assert "conv-today" in conv_ids
+    
+    def test_search_with_end_date(self, embedding_store, conversation_store):
+        """Test search with end_date filter."""
+        from datetime import datetime, timezone
+        
+        # Create conversations
+        conv1 = Conversation(id="conv-old", location="/test/conv-old")
+        conv1.created_at = datetime(2026, 4, 10, tzinfo=timezone.utc)
+        conversation_store.upsert(conv1)
+        
+        conv2 = Conversation(id="conv-new", location="/test/conv-new")
+        conv2.created_at = datetime(2026, 4, 22, tzinfo=timezone.utc)
+        conversation_store.upsert(conv2)
+        
+        embedding_store.upsert("conv-old", [1.0, 0.0, 0.0], "model", embed_type="summary")
+        embedding_store.upsert("conv-new", [1.0, 0.0, 0.0], "model", embed_type="summary")
+        
+        # Filter to only old conversations
+        end_date = datetime(2026, 4, 15, tzinfo=timezone.utc)
+        results = embedding_store.search([1.0, 0.0, 0.0], limit=10, end_date=end_date)
+        
+        assert len(results) == 1
+        assert results[0].conversation_id == "conv-old"
+    
+    def test_search_with_date_range(self, embedding_store, conversation_store):
+        """Test search with both start and end date."""
+        from datetime import datetime, timezone
+        
+        dates = [
+            ("conv-early", datetime(2026, 4, 1, tzinfo=timezone.utc)),
+            ("conv-mid", datetime(2026, 4, 10, tzinfo=timezone.utc)),
+            ("conv-late", datetime(2026, 4, 20, tzinfo=timezone.utc)),
+        ]
+        
+        for conv_id, created_at in dates:
+            conv = Conversation(id=conv_id, location=f"/test/{conv_id}")
+            conv.created_at = created_at
+            conversation_store.upsert(conv)
+            embedding_store.upsert(conv_id, [1.0, 0.0, 0.0], "model", embed_type="summary")
+        
+        # Filter to middle period only
+        start_date = datetime(2026, 4, 5, tzinfo=timezone.utc)
+        end_date = datetime(2026, 4, 15, tzinfo=timezone.utc)
+        
+        results = embedding_store.search(
+            [1.0, 0.0, 0.0], limit=10, 
+            start_date=start_date, end_date=end_date
+        )
+        
+        assert len(results) == 1
+        assert results[0].conversation_id == "conv-mid"
+    
+    def test_get_context_for_rag_with_dates(self, embedding_store, conversation_store):
+        """Test RAG context retrieval with date filtering."""
+        from datetime import datetime, timezone
+        
+        # Create conversations
+        conv1 = Conversation(id="conv-old", location="/test/conv-old")
+        conv1.created_at = datetime(2026, 4, 1, tzinfo=timezone.utc)
+        conversation_store.upsert(conv1)
+        
+        conv2 = Conversation(id="conv-new", location="/test/conv-new")
+        conv2.created_at = datetime(2026, 4, 21, tzinfo=timezone.utc)
+        conversation_store.upsert(conv2)
+        
+        embedding_store.upsert(
+            "conv-old", [1.0, 0.0, 0.0], "model",
+            embed_type="summary", source_text="Old context text"
+        )
+        embedding_store.upsert(
+            "conv-new", [0.99, 0.01, 0.0], "model",
+            embed_type="summary", source_text="New context text"
+        )
+        
+        # Get RAG context with date filter
+        start_date = datetime(2026, 4, 20, tzinfo=timezone.utc)
+        
+        results = embedding_store.get_context_for_rag(
+            [1.0, 0.0, 0.0], max_chunks=5, min_score=0.1,
+            start_date=start_date
+        )
+        
+        assert len(results) == 1
+        assert results[0].conversation_id == "conv-new"
+        assert results[0].source_text == "New context text"
+
+
 class TestFTSSearch:
     """Tests for FTS5 keyword search."""
     

@@ -4,11 +4,13 @@ Provides a clean API for:
 1. Retrieving relevant context from embeddings
 2. Building prompts with context
 3. Generating answers using an LLM
+4. Temporal filtering based on question intent
 """
 
 import logging
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import litellm
 
@@ -50,13 +52,16 @@ class RAGAnswer:
     search_time_seconds: float
     generation_time_seconds: float
     model: str
+    temporal_filter_applied: bool = False
+    date_range: tuple[datetime | None, datetime | None] | None = None
 
 
 class RAGAnswerer:
     """Answers questions using retrieval-augmented generation.
     
     Uses embeddings to find relevant context from conversations,
-    then generates an answer using an LLM.
+    then generates an answer using an LLM. Supports automatic
+    temporal filtering based on question intent.
     """
     
     def __init__(
@@ -65,6 +70,7 @@ class RAGAnswerer:
         conv_store,
         model: str | None = None,
         system_prompt: str | None = None,
+        enable_temporal_filter: bool = True,
     ):
         """Initialize RAG answerer.
         
@@ -73,17 +79,21 @@ class RAGAnswerer:
             conv_store: ConversationStore for conversation metadata
             model: LLM model for generation (default: LLM_MODEL env var or gpt-4o-mini)
             system_prompt: Custom system prompt (default: built-in prompt)
+            enable_temporal_filter: Enable automatic temporal filtering from questions
         """
         self.embed_store = embed_store
         self.conv_store = conv_store
         self.model = model or os.environ.get("LLM_MODEL", DEFAULT_LLM_MODEL)
         self.system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+        self.enable_temporal_filter = enable_temporal_filter
     
     def answer_question(
         self,
         question: str,
         max_context_chunks: int = 5,
         min_score: float = 0.3,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> RAGAnswer:
         """Answer a question using RAG.
         
@@ -91,6 +101,8 @@ class RAGAnswerer:
             question: The question to answer
             max_context_chunks: Maximum number of context chunks to retrieve
             min_score: Minimum similarity score for context (0-1)
+            start_date: Override: only include conversations from this date
+            end_date: Override: only include conversations until this date
         
         Returns:
             RAGAnswer with the generated answer and metadata
@@ -101,10 +113,41 @@ class RAGAnswerer:
         """
         import time
         
+        # Extract temporal filter if enabled and no explicit dates provided
+        temporal_applied = False
+        search_query = question
+        
+        if self.enable_temporal_filter and start_date is None and end_date is None:
+            from ohtv.analysis.temporal import extract_temporal_filter
+            temporal = extract_temporal_filter(question)
+            if temporal.has_temporal_intent:
+                start_date = temporal.start_date
+                end_date = temporal.end_date
+                search_query = temporal.cleaned_query
+                temporal_applied = True
+                log.debug(
+                    "Temporal filter extracted: %s to %s, query: %s",
+                    start_date, end_date, search_query
+                )
+        
         # Retrieve context
         start_time = time.perf_counter()
-        context_chunks = self._retrieve_context(question, max_context_chunks, min_score)
+        context_chunks = self._retrieve_context(
+            search_query, max_context_chunks, min_score, start_date, end_date
+        )
         search_time = time.perf_counter() - start_time
+        
+        if not context_chunks:
+            # If temporal filter found nothing, try without filter
+            if temporal_applied:
+                log.debug("No results with temporal filter, retrying without filter")
+                context_chunks = self._retrieve_context(
+                    question, max_context_chunks, min_score, None, None
+                )
+                if context_chunks:
+                    temporal_applied = False
+                    start_date = None
+                    end_date = None
         
         if not context_chunks:
             raise ValueError("No relevant context found for the question")
@@ -123,6 +166,8 @@ class RAGAnswerer:
             search_time_seconds=search_time,
             generation_time_seconds=gen_time,
             model=self.model,
+            temporal_filter_applied=temporal_applied,
+            date_range=(start_date, end_date) if temporal_applied else None,
         )
     
     def _retrieve_context(
@@ -130,6 +175,8 @@ class RAGAnswerer:
         question: str,
         max_chunks: int,
         min_score: float,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> list[ContextChunk]:
         """Retrieve relevant context chunks for a question."""
         from ohtv.analysis.embeddings import get_embedding
@@ -138,11 +185,13 @@ class RAGAnswerer:
         query_result = get_embedding(question)
         query_embedding = query_result.embedding
         
-        # Search for relevant context
+        # Search for relevant context with optional date filter
         results = self.embed_store.get_context_for_rag(
             query_embedding,
             max_chunks=max_chunks,
             min_score=min_score,
+            start_date=start_date,
+            end_date=end_date,
         )
         
         # Convert to ContextChunk with conversation titles
