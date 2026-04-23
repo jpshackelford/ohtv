@@ -108,7 +108,8 @@ class GlobalRateLimiter:
 
 
 # Global rate limiter shared by all embedding threads
-_rate_limiter = GlobalRateLimiter(base_delay=1.0, max_delay=30.0, max_retries=5)
+# With 10 retries and 30s max delay, we'll wait up to ~3 minutes for recovery
+_rate_limiter = GlobalRateLimiter(base_delay=1.0, max_delay=30.0, max_retries=10)
 
 
 def reset_rate_limiter() -> None:
@@ -118,7 +119,7 @@ def reset_rate_limiter() -> None:
     accumulated error state from previous operations.
     """
     global _rate_limiter
-    _rate_limiter = GlobalRateLimiter(base_delay=1.0, max_delay=30.0, max_retries=5)
+    _rate_limiter = GlobalRateLimiter(base_delay=1.0, max_delay=30.0, max_retries=10)
 
 DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
 
