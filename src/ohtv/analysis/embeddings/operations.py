@@ -170,43 +170,41 @@ def embed_conversation_full(
     if model is None:
         model = get_embedding_model()
 
-    if texts.analysis_text:
-        if not skip_existing or not store.has_embedding(conv_id, "analysis"):
-            result = get_embedding(texts.analysis_text, model=model)
-            store.upsert(
-                conversation_id=conv_id,
-                embedding=result.embedding,
-                model=result.model,
-                embed_type="analysis",
-                chunk_index=0,
-                token_count=result.token_count,
-                source_text=texts.analysis_text,
-            )
-            stats.analysis_tokens = result.token_count
-            stats.embeddings_created += 1
+    # Process analysis chunks
+    for chunk in texts.analysis_chunks:
+        if skip_existing and store.has_embedding(conv_id, "analysis", chunk.chunk_index):
+            continue
+        result = get_embedding(chunk.text, model=model)
+        store.upsert(
+            conversation_id=conv_id,
+            embedding=result.embedding,
+            model=result.model,
+            embed_type="analysis",
+            chunk_index=chunk.chunk_index,
+            token_count=result.token_count,
+            source_text=chunk.text,
+        )
+        stats.analysis_tokens += result.token_count
+        stats.embeddings_created += 1
 
-    if texts.summary_text:
-        # Chunk summary text if it's too long for the model
-        from .chunking import chunk_text
-        summary_chunks = chunk_text(texts.summary_text)
-        
-        for chunk in summary_chunks:
-            # Check per-chunk existence to handle interrupted runs correctly
-            if skip_existing and store.has_embedding(conv_id, "summary", chunk.chunk_index):
-                continue
-            result = get_embedding(chunk.text, model=model)
-            store.upsert(
-                conversation_id=conv_id,
-                embedding=result.embedding,
-                model=result.model,
-                embed_type="summary",
-                chunk_index=chunk.chunk_index,
-                token_count=result.token_count,
-                source_text=chunk.text,
-            )
-            stats.summary_tokens += result.token_count
-            stats.embeddings_created += 1
+    # Process summary chunks
+    for chunk in texts.summary_chunks:
+        if skip_existing and store.has_embedding(conv_id, "summary", chunk.chunk_index):
+            continue
+        result = get_embedding(chunk.text, model=model)
+        store.upsert(
+            conversation_id=conv_id,
+            embedding=result.embedding,
+            model=result.model,
+            embed_type="summary",
+            chunk_index=chunk.chunk_index,
+            token_count=result.token_count,
+            source_text=chunk.text,
+        )
+        stats.summary_tokens += result.token_count
+        stats.embeddings_created += 1
 
+    # Process content chunks
     if texts.content_chunks:
         for chunk in texts.content_chunks:
             # Check per-chunk existence to handle interrupted runs correctly
@@ -260,18 +258,18 @@ def estimate_conversation_tokens(
     texts = build_conversation_texts(events, analysis, refs)
 
     # Check if there's any embeddable content
-    if not texts.analysis_text and not texts.summary_text and not texts.content_chunks:
+    if not texts.analysis_chunks and not texts.summary_chunks and not texts.content_chunks:
         return 0, 0
 
     total_tokens = 0
     total_embeddings = 0
 
-    if texts.analysis_text:
-        total_tokens += estimate_tokens(texts.analysis_text)
+    for chunk in texts.analysis_chunks:
+        total_tokens += chunk.estimated_tokens
         total_embeddings += 1
 
-    if texts.summary_text:
-        total_tokens += estimate_tokens(texts.summary_text)
+    for chunk in texts.summary_chunks:
+        total_tokens += chunk.estimated_tokens
         total_embeddings += 1
 
     for chunk in texts.content_chunks:
@@ -417,61 +415,57 @@ def generate_embeddings_only(
         if model is None:
             model = get_embedding_model()
 
-        # Generate analysis embedding
-        if texts.analysis_text:
-            if not skip_existing or not store.has_embedding(conv_id, "analysis"):
-                result = get_embedding(texts.analysis_text, model=model)
-                batch.embeddings.append(PendingEmbedding(
-                    conversation_id=conv_id,
-                    embedding=result.embedding,
-                    model=result.model,
-                    embed_type="analysis",
-                    chunk_index=0,
-                    token_count=result.token_count,
-                    source_text=texts.analysis_text,
-                ))
-                stats.analysis_tokens = result.token_count
-                stats.embeddings_created += 1
+        # Generate analysis embeddings
+        for chunk in texts.analysis_chunks:
+            if skip_existing and store.has_embedding(conv_id, "analysis", chunk.chunk_index):
+                continue
+            result = get_embedding(chunk.text, model=model)
+            batch.embeddings.append(PendingEmbedding(
+                conversation_id=conv_id,
+                embedding=result.embedding,
+                model=result.model,
+                embed_type="analysis",
+                chunk_index=chunk.chunk_index,
+                token_count=result.token_count,
+                source_text=chunk.text,
+            ))
+            stats.analysis_tokens += result.token_count
+            stats.embeddings_created += 1
 
         # Generate summary embeddings
-        if texts.summary_text:
-            from .chunking import chunk_text
-            summary_chunks = chunk_text(texts.summary_text)
-            
-            for chunk in summary_chunks:
-                if skip_existing and store.has_embedding(conv_id, "summary", chunk.chunk_index):
-                    continue
-                result = get_embedding(chunk.text, model=model)
-                batch.embeddings.append(PendingEmbedding(
-                    conversation_id=conv_id,
-                    embedding=result.embedding,
-                    model=result.model,
-                    embed_type="summary",
-                    chunk_index=chunk.chunk_index,
-                    token_count=result.token_count,
-                    source_text=chunk.text,
-                ))
-                stats.summary_tokens += result.token_count
-                stats.embeddings_created += 1
+        for chunk in texts.summary_chunks:
+            if skip_existing and store.has_embedding(conv_id, "summary", chunk.chunk_index):
+                continue
+            result = get_embedding(chunk.text, model=model)
+            batch.embeddings.append(PendingEmbedding(
+                conversation_id=conv_id,
+                embedding=result.embedding,
+                model=result.model,
+                embed_type="summary",
+                chunk_index=chunk.chunk_index,
+                token_count=result.token_count,
+                source_text=chunk.text,
+            ))
+            stats.summary_tokens += result.token_count
+            stats.embeddings_created += 1
 
         # Generate content embeddings
-        if texts.content_chunks:
-            for chunk in texts.content_chunks:
-                if skip_existing and store.has_embedding(conv_id, "content", chunk.chunk_index):
-                    continue
-                result = get_embedding(chunk.text, model=model)
-                batch.embeddings.append(PendingEmbedding(
-                    conversation_id=conv_id,
-                    embedding=result.embedding,
-                    model=result.model,
-                    embed_type="content",
-                    chunk_index=chunk.chunk_index,
-                    token_count=result.token_count,
-                    source_text=chunk.text,
-                ))
-                stats.content_tokens += result.token_count
-                stats.content_chunks += 1
-                stats.embeddings_created += 1
+        for chunk in texts.content_chunks:
+            if skip_existing and store.has_embedding(conv_id, "content", chunk.chunk_index):
+                continue
+            result = get_embedding(chunk.text, model=model)
+            batch.embeddings.append(PendingEmbedding(
+                conversation_id=conv_id,
+                embedding=result.embedding,
+                model=result.model,
+                embed_type="content",
+                chunk_index=chunk.chunk_index,
+                token_count=result.token_count,
+                source_text=chunk.text,
+            ))
+            stats.content_tokens += result.token_count
+            stats.content_chunks += 1
+            stats.embeddings_created += 1
 
         stats.total_tokens = stats.analysis_tokens + stats.summary_tokens + stats.content_tokens
         batch.stats = stats

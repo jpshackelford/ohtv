@@ -127,9 +127,13 @@ class ConversationMetadata:
 
 @dataclass
 class ConversationTexts:
-    """All text components for a conversation's embeddings."""
-    analysis_text: str | None = None
-    summary_text: str | None = None
+    """All text components for a conversation's embeddings.
+    
+    All fields are lists of TextChunk to support splitting long content
+    into multiple overlapping chunks while preserving all data.
+    """
+    analysis_chunks: list["TextChunk"] = field(default_factory=list)
+    summary_chunks: list["TextChunk"] = field(default_factory=list)
     content_chunks: list["TextChunk"] = field(default_factory=list)
 
 
@@ -403,37 +407,70 @@ def build_conversation_texts(
     analysis_text = build_analysis_text(analysis) if analysis else None
     summary_text = build_summary_text(events, refs)
     content_text = build_content_text(events)
-    content_chunks = chunk_text(content_text)
+    initial_content_chunks = chunk_text(content_text)
     
-    # Apply contextual preamble enrichment if metadata provided
-    # Uses smart splitting to ensure content fits model context without data loss
-    if metadata:
-        # Analysis text - take first piece (analysis is usually concise)
-        if analysis_text:
-            pieces = metadata.prepend_to_text(analysis_text)
-            analysis_text = pieces[0] if pieces else None
+    def _text_to_chunks(text: str | None, metadata: ConversationMetadata | None) -> list[TextChunk]:
+        """Convert text to chunks, applying preamble and splitting if needed."""
+        if not text or not text.strip():
+            return []
         
-        # Summary text - take first piece (summary should fit)
-        if summary_text:
-            pieces = metadata.prepend_to_text(summary_text)
-            summary_text = pieces[0] if pieces else None
+        if metadata:
+            pieces = metadata.prepend_to_text(text)
+        else:
+            # No metadata - still need to respect max size for Ollama
+            max_chars = 3000
+            if len(text) <= max_chars:
+                pieces = [text]
+            else:
+                # Simple split without preamble
+                pieces = []
+                start = 0
+                overlap = 200
+                while start < len(text):
+                    end = min(start + max_chars, len(text))
+                    if end < len(text):
+                        break_at = text.rfind(' ', start, end)
+                        if break_at > start + max_chars * 0.7:
+                            end = break_at
+                    pieces.append(text[start:end])
+                    if end >= len(text):
+                        break
+                    start = end - overlap
         
-        # Content chunks - may expand into more chunks
-        new_content_chunks = []
-        chunk_index = 0
-        for chunk in content_chunks:
-            pieces = metadata.prepend_to_text(chunk.text)
-            for piece in pieces:
-                new_content_chunks.append(TextChunk(
-                    text=piece,
+        return [
+            TextChunk(
+                text=piece.strip(),
+                chunk_index=i,
+                estimated_tokens=int(len(piece.split()) * 1.3),
+            )
+            for i, piece in enumerate(pieces)
+            if piece.strip()
+        ]
+    
+    # Build chunks for all text types
+    analysis_chunks = _text_to_chunks(analysis_text, metadata)
+    summary_chunks = _text_to_chunks(summary_text, metadata)
+    
+    # Content chunks - process each initial chunk through preamble/splitting
+    content_chunks = []
+    chunk_index = 0
+    for initial_chunk in initial_content_chunks:
+        if metadata:
+            pieces = metadata.prepend_to_text(initial_chunk.text)
+        else:
+            pieces = [initial_chunk.text]
+        
+        for piece in pieces:
+            if piece.strip():
+                content_chunks.append(TextChunk(
+                    text=piece.strip(),
                     chunk_index=chunk_index,
                     estimated_tokens=int(len(piece.split()) * 1.3),
                 ))
                 chunk_index += 1
-        content_chunks = new_content_chunks
 
     return ConversationTexts(
-        analysis_text=analysis_text.strip() if analysis_text and analysis_text.strip() else None,
-        summary_text=summary_text.strip() if summary_text and summary_text.strip() else None,
+        analysis_chunks=analysis_chunks,
+        summary_chunks=summary_chunks,
         content_chunks=content_chunks,
     )
