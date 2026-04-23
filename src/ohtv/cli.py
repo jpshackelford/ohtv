@@ -624,6 +624,11 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                 
             needs_embedding.append(conv)
         
+        log.info(
+            "Embedding check: total=%d, already_embedded=%d, no_content=%d, needs_embedding=%d",
+            len(all_convs), already_embedded, no_local_content, len(needs_embedding)
+        )
+        
         if not needs_embedding:
             if not quiet:
                 if no_local_content > 0:
