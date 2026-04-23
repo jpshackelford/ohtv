@@ -40,14 +40,6 @@ class ParallelResult:
     errors: list[tuple[str, str]] = field(default_factory=list)  # (id, error_message)
 
 
-@dataclass
-class WorkItem:
-    """A unit of work for parallel processing."""
-    
-    id: str
-    data: dict
-
-
 @contextmanager
 def graceful_shutdown_handler(
     console,

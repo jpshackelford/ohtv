@@ -124,7 +124,8 @@ class TestRunParallel:
         assert (1, 2) in callback_items
         assert (2, 4) in callback_items
 
-    def test_shutdown_check_stops_processing(self):
+    def test_shutdown_check_stops_processing_sequential(self):
+        """Test shutdown_check with sequential processing (max_workers=1)."""
         processed = []
         call_count = [0]
         
@@ -146,3 +147,34 @@ class TestRunParallel:
         
         # Should have processed 2 or 3 items before shutdown
         assert len(processed) <= 3
+
+    def test_shutdown_check_stops_processing_parallel(self):
+        """Test shutdown_check with parallel processing (multiple workers)."""
+        processed = []
+        processed_lock = threading.Lock()
+        shutdown_requested = [False]
+        
+        def process(x):
+            time.sleep(0.05)  # Simulate work
+            with processed_lock:
+                processed.append(x)
+            return x
+        
+        def request_shutdown_after_some():
+            with processed_lock:
+                # Request shutdown after some items are processed
+                if len(processed) >= 2:
+                    shutdown_requested[0] = True
+            return shutdown_requested[0]
+        
+        run_parallel(
+            list(range(20)), 
+            process, 
+            max_workers=4,  # Parallel processing
+            shutdown_check=request_shutdown_after_some
+        )
+        
+        # With 4 workers and shutdown after 2 processed, we might have up to
+        # 4 in-flight + 2 already done before shutdown is detected
+        # Due to timing, some extra items may complete - allow reasonable tolerance
+        assert len(processed) < 20, "Should stop before all items are processed"
