@@ -5512,24 +5512,40 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 current="calculating tokens..."
             )
             
-            for conv in to_embed:
-                short_id = conv.id[:12]
-                progress.update(task, current=short_id)
-                
+            # Parallelize estimation - it's I/O bound (reading files)
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            
+            def _estimate_one(conv):
+                """Estimate tokens for a single conversation."""
                 conv_dir = Path(conv.location)
                 if not conv_dir.exists():
-                    progress.advance(task)
-                    continue
-                
+                    return None
                 tokens, num_embeddings = estimate_conversation_tokens(conv_dir)
                 if tokens == 0:
-                    progress.advance(task)
-                    continue
+                    return None
+                return (conv, conv_dir, tokens, num_embeddings)
+            
+            # Use more workers for estimate since it's just file I/O
+            max_workers = min(16, len(to_embed))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(_estimate_one, conv): conv for conv in to_embed}
                 
-                total_tokens += tokens
-                total_embeddings += num_embeddings
-                valid_convs.append((conv, conv_dir, tokens, num_embeddings))
-                progress.advance(task)
+                for future in as_completed(futures):
+                    conv = futures[future]
+                    short_id = conv.id[:12]
+                    progress.update(task, current=short_id)
+                    
+                    try:
+                        result = future.result()
+                        if result:
+                            conv, conv_dir, tokens, num_embeddings = result
+                            total_tokens += tokens
+                            total_embeddings += num_embeddings
+                            valid_convs.append((conv, conv_dir, tokens, num_embeddings))
+                    except Exception as e:
+                        log.debug("Error estimating %s: %s", short_id, e)
+                    
+                    progress.advance(task)
         
         if not valid_convs:
             console.print("[dim]No conversations with content to embed.[/dim]")
