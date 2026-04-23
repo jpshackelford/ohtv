@@ -244,6 +244,8 @@ def main() -> None:
 @click.option("--status", "-s", is_flag=True, help="Show sync status")
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output for cron jobs")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@click.option("--no-llm", is_flag=True, help="Skip LLM-powered analysis (summaries won't be generated)")
+@click.option("--no-embed", is_flag=True, help="Skip embedding generation")
 def sync(
     force: bool,
     since: datetime | None,
@@ -252,14 +254,18 @@ def sync(
     status: bool,
     quiet: bool,
     verbose: bool,
+    no_llm: bool,
+    no_embed: bool,
 ) -> None:
     """Sync cloud conversations to local storage.
     
     Use -n/--max-new to limit the number of NEW conversations synced.
     Updates to existing conversations are always synced (no limit).
     
-    After syncing, automatically indexes conversations and runs all
-    processing stages (refs, actions, branch_context, push_pr_links).
+    After syncing, automatically:
+    - Indexes conversations and runs processing stages
+    - Generates LLM analysis and extracts summaries (unless --no-llm)
+    - Generates embeddings for RAG search (unless --no-embed)
     
     Combining --force with -n resets local storage to only the N most
     recent conversations (destructive operation, requires confirmation).
@@ -289,7 +295,7 @@ def sync(
         
         # Always run processing stages after sync (unless dry-run)
         if not dry_run:
-            _run_post_sync_processing(quiet, verbose)
+            _run_post_sync_processing(quiet, verbose, no_llm, no_embed)
             
     except SyncAuthError as e:
         console.print(f"[red]Authentication error:[/red] {e}")
@@ -438,8 +444,15 @@ def _show_config() -> None:
         console.print(f"  [yellow]![/yellow] manifest not found")
 
 
-def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
-    """Run all processing stages after sync."""
+def _run_post_sync_processing(quiet: bool, verbose: bool, no_llm: bool = False, no_embed: bool = False) -> None:
+    """Run all processing stages after sync.
+    
+    Args:
+        quiet: Minimal output
+        verbose: Show debug output
+        no_llm: Skip LLM-powered analysis (summaries won't be generated)
+        no_embed: Skip embedding generation
+    """
     from ohtv.db import get_connection, migrate, scan_conversations
     from ohtv.db.stages import STAGES
     from ohtv.db.stores import ConversationStore, StageStore
@@ -489,6 +502,142 @@ def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
     
     if not quiet:
         console.print("[green]✓[/green] Processing complete")
+    
+    # Run LLM analysis to generate summaries (unless --no-llm)
+    if not no_llm:
+        _run_post_sync_llm_analysis(quiet, verbose)
+    
+    # Generate embeddings (unless --no-embed)
+    if not no_embed:
+        _run_post_sync_embeddings(quiet, verbose)
+
+
+def _run_post_sync_llm_analysis(quiet: bool, verbose: bool) -> None:
+    """Run LLM analysis on conversations that need it."""
+    import os
+    from pathlib import Path
+    from ohtv.db import get_connection
+    from ohtv.db.stores import ConversationStore
+    from ohtv.analysis.cache import load_analysis
+    
+    # Check if LLM is configured
+    if not os.environ.get("LLM_API_KEY"):
+        if not quiet:
+            console.print("\n[dim]Skipping LLM analysis (LLM_API_KEY not set)[/dim]")
+        return
+    
+    if not quiet:
+        console.print("\n[bold]Generating LLM analysis...[/bold]")
+    
+    with get_connection() as conn:
+        conv_store = ConversationStore(conn)
+        all_convs = conv_store.list_all()
+        
+        # Find conversations without analysis cache
+        needs_analysis = []
+        for conv in all_convs:
+            conv_dir = Path(conv.location)
+            if not load_analysis(conv_dir):
+                needs_analysis.append(conv)
+        
+        if not needs_analysis:
+            if not quiet:
+                console.print("  [dim]All conversations have analysis cached[/dim]")
+            return
+        
+        if not quiet:
+            console.print(f"  Analyzing {len(needs_analysis)} conversation(s)...")
+        
+        # Import and run the objective analysis generator
+        try:
+            from ohtv.analysis.objectives import generate_objective_analysis
+            from ohtv.analysis.cache import load_events, save_analysis
+            
+            for conv in needs_analysis:
+                conv_dir = Path(conv.location)
+                try:
+                    events = load_events(conv_dir)
+                    if events:
+                        analysis = generate_objective_analysis(events)
+                        if analysis:
+                            save_analysis(conv_dir, analysis)
+                            # Update summary in database
+                            goal = analysis.get("goal")
+                            if goal:
+                                conv_store.update_summary(conv.id, goal)
+                            if verbose:
+                                console.print(f"    [dim]Analyzed {conv.id[:8]}[/dim]")
+                except Exception as e:
+                    if verbose:
+                        console.print(f"    [red]Error analyzing {conv.id}:[/red] {e}")
+            
+            conn.commit()
+            
+        except ImportError as e:
+            if verbose:
+                console.print(f"  [red]Could not import analysis module:[/red] {e}")
+    
+    if not quiet:
+        console.print("[green]✓[/green] LLM analysis complete")
+
+
+def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
+    """Generate embeddings for conversations that need them."""
+    import os
+    from ohtv.db import get_connection
+    from ohtv.db.stores import ConversationStore, EmbeddingStore
+    
+    # Check if embedding is configured
+    if not os.environ.get("LLM_API_KEY"):
+        if not quiet:
+            console.print("\n[dim]Skipping embeddings (LLM_API_KEY not set)[/dim]")
+        return
+    
+    if not quiet:
+        console.print("\n[bold]Generating embeddings...[/bold]")
+    
+    with get_connection() as conn:
+        conv_store = ConversationStore(conn)
+        embed_store = EmbeddingStore(conn)
+        
+        all_convs = conv_store.list_all()
+        
+        # Find conversations without embeddings
+        needs_embedding = []
+        for conv in all_convs:
+            if not embed_store.has_embeddings(conv.id):
+                needs_embedding.append(conv)
+        
+        if not needs_embedding:
+            if not quiet:
+                console.print("  [dim]All conversations have embeddings[/dim]")
+            return
+        
+        if not quiet:
+            console.print(f"  Embedding {len(needs_embedding)} conversation(s)...")
+        
+        try:
+            from pathlib import Path
+            from ohtv.analysis.embeddings import embed_conversation_full
+            
+            for conv in needs_embedding:
+                conv_dir = Path(conv.location)
+                try:
+                    embed_conversation_full(conv_dir, conn)
+                    if verbose:
+                        console.print(f"    [dim]Embedded {conv.id[:8]}[/dim]")
+                except Exception as e:
+                    if verbose:
+                        console.print(f"    [red]Error embedding {conv.id}:[/red] {e}")
+            
+            conn.commit()
+            
+        except ImportError as e:
+            if verbose:
+                console.print(f"  [red]Could not import embedding module:[/red] {e}")
+    
+    if not quiet:
+        console.print("[green]✓[/green] Embedding complete")
 
 
 def _show_status(manager: SyncManager) -> None:
