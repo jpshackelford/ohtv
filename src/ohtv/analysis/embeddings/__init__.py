@@ -26,6 +26,7 @@ from .client import (
     get_embedding,
     get_embedding_dimension,
     get_embedding_model,
+    reset_rate_limiter,
 )
 
 # Text building exports
@@ -83,6 +84,7 @@ __all__ = [
     "get_embedding_model",
     "get_embedding_dimension",
     "estimate_cost",
+    "reset_rate_limiter",
     # Text builders
     "build_analysis_text",
     "build_summary_text",

@@ -5607,7 +5607,10 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             return _last_rate_str[0]
         
         # Import the new batched embedding function
-        from ohtv.analysis.embeddings import generate_embeddings_only, EmbeddingBatch, EmbeddingWriter
+        from ohtv.analysis.embeddings import generate_embeddings_only, EmbeddingBatch, EmbeddingWriter, reset_rate_limiter
+        
+        # Reset rate limiter state from any previous operations
+        reset_rate_limiter()
         
         # Start the writer thread with the main connection
         writer = EmbeddingWriter(conn, batch_size=20)
