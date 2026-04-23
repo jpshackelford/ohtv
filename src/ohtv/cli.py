@@ -620,17 +620,25 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
             from pathlib import Path
             from ohtv.analysis.embeddings import embed_conversation_full
             
+            embedded_count = 0
             for conv in needs_embedding:
                 conv_dir = Path(conv.location)
                 try:
-                    embed_conversation_full(conv_dir, conn)
-                    if verbose:
-                        console.print(f"    [dim]Embedded {conv.id[:8]}[/dim]")
+                    stats = embed_conversation_full(conv_dir, conn)
+                    if stats.embeddings_created > 0:
+                        embedded_count += 1
+                        if verbose:
+                            console.print(f"    [dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
+                    elif verbose:
+                        console.print(f"    [dim]Skipped {conv.id[:8]} (no content)[/dim]")
                 except Exception as e:
                     if verbose:
                         console.print(f"    [red]Error embedding {conv.id}:[/red] {e}")
             
             conn.commit()
+            
+            if verbose and embedded_count < len(needs_embedding):
+                console.print(f"  [dim]Actually embedded: {embedded_count}/{len(needs_embedding)}[/dim]")
             
         except ImportError as e:
             if verbose:
