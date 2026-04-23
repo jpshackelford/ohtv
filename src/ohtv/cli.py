@@ -1813,6 +1813,7 @@ def ask(
         source_infos = []
         for conv_id, chunks in conv_chunks.items():
             first_chunk = chunks[0]
+            scores = [c.score for c in chunks]
             source_infos.append({
                 "conv_id": conv_id,
                 "created_at": first_chunk.created_at,
@@ -1821,6 +1822,8 @@ def ask(
                 "display_url": first_chunk.display_url,
                 "conv_source": first_chunk.conv_source,
                 "chunk_count": len(chunks),
+                "score_min": min(scores),
+                "score_max": max(scores),
             })
         
         # Sort by date descending (newest first), None dates at the end
@@ -1832,7 +1835,7 @@ def ask(
         table = Table(show_header=False, box=None, padding=(0, 1), expand=False)
         table.add_column("Date", style="dim", no_wrap=True, width=10)
         table.add_column("ID", style="cyan", no_wrap=True, width=8)
-        table.add_column("Chunks", style="dim", no_wrap=True, width=5)
+        table.add_column("Conf", no_wrap=True, width=11)  # e.g., "0.82-0.91"
         table.add_column("Summary", width=CLOUD_URL_WIDTH, overflow="fold")
         
         for i, info in enumerate(source_infos):
@@ -1840,7 +1843,21 @@ def ask(
             raw_conv_id = info["conv_id"] or ""
             # Handle both dashed (with -) and undashed conversation IDs, always show 8 chars
             conv_id = raw_conv_id.replace("-", "")[:8] if raw_conv_id else "--------"
-            chunk_count = f"{info['chunk_count']}ch"
+            
+            # Format confidence as range or single value
+            score_min, score_max = info["score_min"], info["score_max"]
+            if info["chunk_count"] == 1 or abs(score_max - score_min) < 0.01:
+                confidence = f"{score_max:.2f}"
+            else:
+                confidence = f"{score_min:.2f}-{score_max:.2f}"
+            # Color based on max score: green (>0.8), yellow (0.6-0.8), dim (<0.6)
+            if score_max >= 0.8:
+                conf_style = "green"
+            elif score_max >= 0.6:
+                conf_style = "yellow"
+            else:
+                conf_style = "dim"
+            confidence_text = f"[{conf_style}]{confidence}[/{conf_style}]"
             
             # Build summary with optional URL on separate line
             summary_parts = []
@@ -1859,7 +1876,7 @@ def ask(
             table.add_row(
                 date_str,
                 conv_id,
-                chunk_count,
+                confidence_text,
                 summary_text,
             )
         
