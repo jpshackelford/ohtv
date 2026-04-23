@@ -1829,28 +1829,34 @@ def ask(
         # Build borderless table for sources
         table = Table(show_header=False, box=None, padding=(0, 1), expand=True)
         table.add_column("Date", style="dim", no_wrap=True, width=10)
-        table.add_column("ID", style="cyan", no_wrap=True, width=10)
-        table.add_column("Type", no_wrap=True, width=7)
-        table.add_column("Chunks", no_wrap=True, width=10)
+        table.add_column("ID", style="cyan", no_wrap=True, width=8)
+        table.add_column("Chunks", style="dim", no_wrap=True, width=5)
         table.add_column("Summary", ratio=1)  # Flexible width, will wrap
         
-        for info in source_infos:
+        for i, info in enumerate(source_infos):
             date_str = info["created_at"].strftime("%Y-%m-%d") if info["created_at"] else "unknown"
-            source_type = "cloud" if info["conv_source"] == "cloud" else "local"
-            chunk_count = f"{info['chunk_count']} chunk{'s' if info['chunk_count'] > 1 else ''}"
+            raw_conv_id = info["conv_id"] or ""
+            # Handle both dashed (with -) and undashed conversation IDs, always show 8 chars
+            conv_id = raw_conv_id.replace("-", "")[:8] if raw_conv_id else "--------"
+            chunk_count = f"{info['chunk_count']}ch"
             
-            # Build summary with optional URL
+            # Build summary with optional URL on separate line
             summary_parts = []
             if info["summary"]:
-                summary_parts.append(f"[dim]{info['summary']}[/dim]")
+                summary_parts.append(info["summary"])
+            else:
+                summary_parts.append("[dim]—[/dim]")
             if info["display_url"]:
-                summary_parts.append(f"[link={info['display_url']}]{info['display_url']}[/link]")
-            summary_text = "\n".join(summary_parts) if summary_parts else "[dim]—[/dim]"
+                summary_parts.append(f"[dim][link={info['display_url']}]{info['display_url']}[/link][/dim]")
+            summary_text = "\n".join(summary_parts)
+            
+            # Add blank row between entries (except before first)
+            if i > 0:
+                table.add_row("", "", "", "")
             
             table.add_row(
                 date_str,
-                f"[{info['conv_id'][:8]}]",
-                f"[{source_type}]",
+                conv_id,
                 chunk_count,
                 summary_text,
             )
