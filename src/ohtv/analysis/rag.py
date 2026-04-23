@@ -505,7 +505,16 @@ Please provide a helpful answer based on the context above."""
                     total_tokens = usage.prompt_tokens + usage.completion_tokens
                 cost = metrics.accumulated_cost or 0.0
             
-            return response.message.content, context_tokens, total_tokens, cost
+            # Extract text from message content (which is a list of TextContent/ImageContent)
+            answer_text = ""
+            if response.message.content:
+                text_parts = [
+                    part.text for part in response.message.content
+                    if hasattr(part, 'text') and part.text
+                ]
+                answer_text = "".join(text_parts)
+            
+            return answer_text, context_tokens, total_tokens, cost
         except Exception as e:
             raise RuntimeError(f"LLM API call failed: {e}") from e
     
