@@ -1868,7 +1868,9 @@ def ask(
             else:
                 summary_parts.append("[dim]—[/dim]")
             if info["display_url"]:
-                summary_parts.append(f"[dim][link={info['display_url']}]{info['display_url']}[/link][/dim]")
+                # No styling on URL - keeps Terminal.app auto-detection working
+                # OSC 8 link markup for modern terminals (iTerm2, Windows Terminal, etc)
+                summary_parts.append(f"[link={info['display_url']}]{info['display_url']}[/link]")
             summary_text = "\n".join(summary_parts)
             
             # Add blank row between entries (except before first)
