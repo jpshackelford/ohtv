@@ -16,6 +16,8 @@ from datetime import datetime, timezone, timedelta
 import litellm
 from pydantic import SecretStr
 
+# Suppress openhands-sdk banner before import
+os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
 from openhands.sdk.llm import LLM
 from openhands.sdk.llm.message import Message
 
