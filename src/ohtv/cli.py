@@ -5397,6 +5397,7 @@ def db_index_cache(verbose: bool) -> None:
     
     Scans all conversation directories for objective_analysis.json files
     and imports their metadata into the database for fast cache lookup.
+    Also syncs the goal/summary from cached analysis to the conversations table.
     
     This enables the summary command to quickly determine which conversations
     need analysis without reading event files.
@@ -5406,6 +5407,7 @@ def db_index_cache(verbose: bool) -> None:
     from ohtv.db import get_connection, migrate
     from ohtv.db.stores import AnalysisCacheStore, ConversationStore
     from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry, AnalysisSkipEntry
+    from ohtv.analysis.cache import load_analysis
     
     config = Config.from_env()
     
@@ -5423,6 +5425,7 @@ def db_index_cache(verbose: bool) -> None:
         
         indexed = 0
         skipped = 0
+        summaries_updated = 0
         errors = 0
         
         with Progress(
@@ -5478,6 +5481,14 @@ def db_index_cache(verbose: bool) -> None:
                         )
                         cache_store.upsert_cache(entry)
                         indexed += 1
+                    
+                    # Sync summary/goal from cached analysis to conversations table
+                    analysis = load_analysis(conv_dir)
+                    if analysis:
+                        goal = analysis.get("goal")
+                        if goal and goal != conv.summary:
+                            conv_store.update_summary(conv.id, goal)
+                            summaries_updated += 1
                         
                 except (json.JSONDecodeError, KeyError) as e:
                     errors += 1
@@ -5491,11 +5502,13 @@ def db_index_cache(verbose: bool) -> None:
     # Display results
     if indexed > 0:
         console.print(f"[green]✓[/green] Indexed {indexed} cached analysis entries")
+    if summaries_updated > 0:
+        console.print(f"[green]✓[/green] Updated {summaries_updated} conversation summaries")
     if skipped > 0:
         console.print(f"[dim]{skipped} skip markers indexed[/dim]")
     if errors > 0:
         console.print(f"[yellow]![/yellow] {errors} error(s) reading cache files")
-    if indexed == 0 and skipped == 0 and errors == 0:
+    if indexed == 0 and skipped == 0 and summaries_updated == 0 and errors == 0:
         console.print("[dim]No cache files found to index.[/dim]")
 
 
