@@ -219,8 +219,11 @@ def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
     
     # nomic-embed-text has 2048 token context (from model_info)
     # BERT tokenizer averages ~4 chars/token, so ~8000 chars max
-    # But we see failures at 6342 chars, so use conservative 4000 char limit
-    MAX_CHARS = 4000
+    # But in practice we see failures even at 4000 chars, likely due to:
+    # - Special tokens added by the model
+    # - Non-ASCII characters counting as multiple tokens
+    # Use conservative 3000 char limit to avoid context length errors
+    MAX_CHARS = 3000
     original_len = len(text)
     if original_len > MAX_CHARS:
         # Truncate at word boundary to avoid cutting mid-word
@@ -281,6 +284,14 @@ def _get_ollama_embedding(text: str, model: str) -> EmbeddingResult:
             except Exception:
                 pass
             log.debug("Ollama HTTP %d error: %s", e.code, error_body or str(e))
+            
+            # Context length errors are NOT transient - don't retry, just fail
+            # Ollama returns these as 500 but they're really input validation errors
+            if "context length" in error_body.lower() or "input length" in error_body.lower():
+                raise RuntimeError(
+                    f"Text too long for Ollama model (even after truncation). "
+                    f"Consider using smaller chunks. Error: {error_body}"
+                ) from e
             
             # Retry on 429 (rate limit) or 500-599 (server errors)
             if e.code == 429 or (500 <= e.code < 600):
