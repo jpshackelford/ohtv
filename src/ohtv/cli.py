@@ -1826,27 +1826,36 @@ def ask(
         # Sort by date descending (newest first), None dates at the end
         source_infos.sort(key=lambda x: x["created_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
         
+        # Build borderless table for sources
+        table = Table(show_header=False, box=None, padding=(0, 1), expand=True)
+        table.add_column("Date", style="dim", no_wrap=True, width=10)
+        table.add_column("ID", style="cyan", no_wrap=True, width=10)
+        table.add_column("Type", no_wrap=True, width=7)
+        table.add_column("Chunks", no_wrap=True, width=10)
+        table.add_column("Summary", ratio=1)  # Flexible width, will wrap
+        
         for info in source_infos:
-            # Date first
             date_str = info["created_at"].strftime("%Y-%m-%d") if info["created_at"] else "unknown"
-            
-            # Conversation ID with source type
             source_type = "cloud" if info["conv_source"] == "cloud" else "local"
+            chunk_count = f"{info['chunk_count']} chunk{'s' if info['chunk_count'] > 1 else ''}"
             
-            # Chunk count
-            chunk_count = f"({info['chunk_count']} chunk{'s' if info['chunk_count'] > 1 else ''})"
-            
-            console.print(f"• [dim]{date_str}[/dim] [cyan][{info['conv_id'][:8]}][/cyan] [{source_type}] {chunk_count}")
-            
-            # Show summary if available
+            # Build summary with optional URL
+            summary_parts = []
             if info["summary"]:
-                summary = info["summary"][:100] + "..." if len(info["summary"]) > 100 else info["summary"]
-                console.print(f"  [dim]{summary}[/dim]")
+                summary_parts.append(f"[dim]{info['summary']}[/dim]")
+            if info["display_url"]:
+                summary_parts.append(f"[link={info['display_url']}]{info['display_url']}[/link]")
+            summary_text = "\n".join(summary_parts) if summary_parts else "[dim]—[/dim]"
             
-            # Show cloud URL if valid (within retention)
-            display_url = info["display_url"]
-            if display_url:
-                console.print(f"  [link={display_url}]{display_url}[/link]")
+            table.add_row(
+                date_str,
+                f"[{info['conv_id'][:8]}]",
+                f"[{source_type}]",
+                chunk_count,
+                summary_text,
+            )
+        
+        console.print(table)
         
         # Show "See Also" section with related refs
         has_related = any([
