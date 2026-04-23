@@ -1835,7 +1835,7 @@ def ask(
         table = Table(show_header=False, box=None, padding=(0, 1), expand=False)
         table.add_column("Date", style="dim", no_wrap=True, width=10)
         table.add_column("ID", style="cyan", no_wrap=True, width=8)
-        table.add_column("Conf", no_wrap=True, width=11)  # e.g., "0.82-0.91"
+        table.add_column("Sim", no_wrap=True, width=16)  # e.g., "0.823-0.671 22ch"
         table.add_column("Summary", width=CLOUD_URL_WIDTH, overflow="fold")
         
         for i, info in enumerate(source_infos):
@@ -1844,20 +1844,22 @@ def ask(
             # Handle both dashed (with -) and undashed conversation IDs, always show 8 chars
             conv_id = raw_conv_id.replace("-", "")[:8] if raw_conv_id else "--------"
             
-            # Format confidence as range or single value
+            # Format similarity as range (high-low) or single value, with chunk count
             score_min, score_max = info["score_min"], info["score_max"]
-            if info["chunk_count"] == 1 or abs(score_max - score_min) < 0.01:
-                confidence = f"{score_max:.2f}"
+            chunk_count = info["chunk_count"]
+            if chunk_count == 1 or abs(score_max - score_min) < 0.005:
+                sim_score = f"{score_max:.3f}"
             else:
-                confidence = f"{score_min:.2f}-{score_max:.2f}"
+                sim_score = f"{score_max:.3f}-{score_min:.3f}"  # High to low
             # Color based on max score: green (>0.8), yellow (0.6-0.8), dim (<0.6)
             if score_max >= 0.8:
-                conf_style = "green"
+                sim_style = "green"
             elif score_max >= 0.6:
-                conf_style = "yellow"
+                sim_style = "yellow"
             else:
-                conf_style = "dim"
-            confidence_text = f"[{conf_style}]{confidence}[/{conf_style}]"
+                sim_style = "dim"
+            # Combine similarity and chunk count
+            sim_text = f"[{sim_style}]{sim_score}[/{sim_style}] [dim]{chunk_count}ch[/dim]"
             
             # Build summary with optional URL on separate line
             summary_parts = []
@@ -1876,7 +1878,7 @@ def ask(
             table.add_row(
                 date_str,
                 conv_id,
-                confidence_text,
+                sim_text,
                 summary_text,
             )
         
