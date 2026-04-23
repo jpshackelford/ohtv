@@ -487,8 +487,11 @@ class EmbeddingWriter:
     This class collects embeddings from multiple worker threads and writes
     them to the database in batches, avoiding SQLite locking issues.
     
+    The writer creates its own database connection in its thread, since
+    SQLite connections cannot be shared across threads.
+    
     Usage:
-        writer = EmbeddingWriter(conn, batch_size=50)
+        writer = EmbeddingWriter(batch_size=50)
         writer.start()
         
         # Worker threads submit batches
@@ -500,15 +503,13 @@ class EmbeddingWriter:
         stats = writer.get_stats()
     """
     
-    def __init__(self, conn, batch_size: int = 50, on_batch_complete: Callable[[int], None] | None = None):
+    def __init__(self, batch_size: int = 50, on_batch_complete: Callable[[int], None] | None = None):
         """Initialize the writer.
         
         Args:
-            conn: Database connection (must be created in the writer thread)
             batch_size: Number of conversations to batch before writing
             on_batch_complete: Callback called after each batch write with count
         """
-        self._conn = conn
         self._batch_size = batch_size
         self._on_batch_complete = on_batch_complete
         self._queue: queue.Queue[EmbeddingBatch | None] = queue.Queue()
@@ -553,42 +554,45 @@ class EmbeddingWriter:
     def _writer_loop(self) -> None:
         """Main writer loop - collects batches and writes to DB."""
         from ohtv.db.stores import EmbeddingStore
+        from ohtv.db.connection import get_connection
         
-        store = EmbeddingStore(self._conn)
-        pending: list[EmbeddingBatch] = []
-        
-        while True:
-            try:
-                # Wait for batches with timeout to allow periodic flushing
+        # Create connection in this thread - SQLite connections can't cross threads
+        with get_connection() as conn:
+            store = EmbeddingStore(conn)
+            pending: list[EmbeddingBatch] = []
+            
+            while True:
                 try:
-                    batch = self._queue.get(timeout=0.5)
-                except queue.Empty:
-                    batch = None
-                
-                if batch is None:
-                    if self._stop_event.is_set():
-                        # Flush remaining and exit
-                        if pending:
-                            self._write_batches(store, pending)
-                        break
-                    continue
-                
-                if batch.error:
-                    with self._lock:
-                        self._errors += 1
-                    continue
-                
-                pending.append(batch)
-                
-                # Write when we have enough batches
-                if len(pending) >= self._batch_size:
-                    self._write_batches(store, pending)
-                    pending = []
+                    # Wait for batches with timeout to allow periodic flushing
+                    try:
+                        batch = self._queue.get(timeout=0.5)
+                    except queue.Empty:
+                        batch = None
                     
-            except Exception as e:
-                log.error("Error in embedding writer: %s", e)
+                    if batch is None:
+                        if self._stop_event.is_set():
+                            # Flush remaining and exit
+                            if pending:
+                                self._write_batches(store, conn, pending)
+                            break
+                        continue
+                    
+                    if batch.error:
+                        with self._lock:
+                            self._errors += 1
+                        continue
+                    
+                    pending.append(batch)
+                    
+                    # Write when we have enough batches
+                    if len(pending) >= self._batch_size:
+                        self._write_batches(store, conn, pending)
+                        pending = []
+                        
+                except Exception as e:
+                    log.error("Error in embedding writer: %s", e)
     
-    def _write_batches(self, store, batches: list[EmbeddingBatch]) -> None:
+    def _write_batches(self, store, conn, batches: list[EmbeddingBatch]) -> None:
         """Write a list of batches to the database."""
         try:
             count = 0
@@ -615,7 +619,7 @@ class EmbeddingWriter:
                 
                 count += 1
             
-            self._conn.commit()
+            conn.commit()
             
             with self._lock:
                 self._written += count

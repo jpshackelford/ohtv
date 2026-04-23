@@ -5612,8 +5612,8 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         # Reset rate limiter state from any previous operations
         reset_rate_limiter()
         
-        # Start the writer thread with the main connection
-        writer = EmbeddingWriter(conn, batch_size=20)
+        # Start the writer thread (it creates its own DB connection)
+        writer = EmbeddingWriter(batch_size=20)
         writer.start()
         
         def _embed_one(conv, conv_dir) -> tuple[EmbeddingStats | None, str | None]:
