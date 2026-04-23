@@ -621,6 +621,9 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
             from ohtv.analysis.embeddings import embed_conversation_full
             
             embedded_count = 0
+            skipped_count = 0
+            error_count = 0
+            
             for conv in needs_embedding:
                 conv_dir = Path(conv.location)
                 try:
@@ -629,20 +632,27 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                         embedded_count += 1
                         if verbose:
                             console.print(f"    [dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
-                    elif verbose:
-                        console.print(f"    [dim]Skipped {conv.id[:8]} (no content)[/dim]")
+                    else:
+                        skipped_count += 1
+                        if verbose:
+                            console.print(f"    [dim]Skipped {conv.id[:8]} (no content)[/dim]")
                 except Exception as e:
+                    error_count += 1
+                    # Always log errors, not just in verbose mode
+                    log.warning("Error embedding %s: %s", conv.id[:8], e)
                     if verbose:
                         console.print(f"    [red]Error embedding {conv.id}:[/red] {e}")
             
             conn.commit()
             
-            if verbose and embedded_count < len(needs_embedding):
-                console.print(f"  [dim]Actually embedded: {embedded_count}/{len(needs_embedding)}[/dim]")
+            # Always show summary if there were issues
+            if skipped_count > 0 or error_count > 0:
+                console.print(f"  [dim]Results: {embedded_count} embedded, {skipped_count} skipped (no content), {error_count} errors[/dim]")
             
-        except ImportError as e:
-            if verbose:
-                console.print(f"  [red]Could not import embedding module:[/red] {e}")
+        except Exception as e:
+            # Catch ALL exceptions including import errors
+            console.print(f"  [red]Embedding failed:[/red] {e}")
+            log.exception("Embedding failed")
     
     if not quiet:
         console.print("[green]✓[/green] Embedding complete")
