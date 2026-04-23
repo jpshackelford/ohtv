@@ -602,19 +602,20 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
         
         all_convs = conv_store.list_all()
         
-        # Find conversations without embeddings that have local directories
+        # Find conversations without embeddings that have local content
         needs_embedding = []
-        no_local_dir = 0
+        no_local_content = 0
         already_embedded = 0
         
         for conv in all_convs:
-            # Skip if no local directory
+            # Skip if no local directory or no events file
             if not conv.location:
-                no_local_dir += 1
+                no_local_content += 1
                 continue
             conv_dir = Path(conv.location)
-            if not conv_dir.exists():
-                no_local_dir += 1
+            events_file = conv_dir / "events.json"
+            if not events_file.exists():
+                no_local_content += 1
                 continue
             
             if embed_store.has_embedding(conv.id):
@@ -625,16 +626,16 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
         
         if not needs_embedding:
             if not quiet:
-                if no_local_dir > 0:
-                    console.print(f"  [dim]All local conversations have embeddings ({no_local_dir} cloud-only skipped)[/dim]")
+                if no_local_content > 0:
+                    console.print(f"  [dim]All local conversations have embeddings ({no_local_content} without content skipped)[/dim]")
                 else:
                     console.print("  [dim]All conversations have embeddings[/dim]")
             return
         
         if not quiet:
             msg = f"  Embedding {len(needs_embedding)} conversation(s)..."
-            if no_local_dir > 0:
-                msg += f" ({no_local_dir} cloud-only skipped)"
+            if no_local_content > 0:
+                msg += f" ({no_local_content} without content skipped)"
             console.print(msg)
         
         try:
