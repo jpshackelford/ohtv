@@ -26,10 +26,12 @@ from .client import (
     get_embedding,
     get_embedding_dimension,
     get_embedding_model,
+    reset_rate_limiter,
 )
 
 # Text building exports
 from .text_builders import (
+    ConversationMetadata,
     ConversationTexts,
     TextChunk,
     build_analysis_text,
@@ -49,12 +51,16 @@ from .chunking import (
 
 # Operations exports
 from .operations import (
+    EmbeddingBatch,
     EmbeddingStats,
+    EmbeddingWriter,
+    PendingEmbedding,
     check_embedding_status,
     check_embedding_types,
     embed_conversation,
     embed_conversation_full,
     estimate_conversation_tokens,
+    generate_embeddings_only,
 )
 
 EmbedType = Literal["analysis", "summary", "content"]
@@ -66,6 +72,7 @@ __all__ = [
     "EmbeddingStats",
     "TextChunk",
     "ConversationTexts",
+    "ConversationMetadata",
     # Constants
     "DEFAULT_EMBEDDING_MODEL",
     "KNOWN_COSTS",
@@ -77,6 +84,7 @@ __all__ = [
     "get_embedding_model",
     "get_embedding_dimension",
     "estimate_cost",
+    "reset_rate_limiter",
     # Text builders
     "build_analysis_text",
     "build_summary_text",
@@ -89,7 +97,11 @@ __all__ = [
     # Operations
     "embed_conversation",
     "embed_conversation_full",
+    "generate_embeddings_only",
     "estimate_conversation_tokens",
     "check_embedding_status",
     "check_embedding_types",
+    "EmbeddingBatch",
+    "PendingEmbedding",
+    "EmbeddingWriter",
 ]

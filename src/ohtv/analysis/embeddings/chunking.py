@@ -2,7 +2,10 @@
 
 from .text_builders import TextChunk
 
-CHUNK_SIZE = 1000  # Target tokens per chunk
+# Target tokens per chunk
+# Note: Contextual preambles are handled by smart truncation in
+# ConversationMetadata.prepend_to_text() which accounts for preamble size
+CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 100  # Overlap between chunks
 
 

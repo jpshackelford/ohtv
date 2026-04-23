@@ -244,6 +244,8 @@ def main() -> None:
 @click.option("--status", "-s", is_flag=True, help="Show sync status")
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output for cron jobs")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@click.option("--no-llm", is_flag=True, help="Skip LLM-powered analysis (summaries won't be generated)")
+@click.option("--no-embed", is_flag=True, help="Skip embedding generation")
 def sync(
     force: bool,
     since: datetime | None,
@@ -252,14 +254,18 @@ def sync(
     status: bool,
     quiet: bool,
     verbose: bool,
+    no_llm: bool,
+    no_embed: bool,
 ) -> None:
     """Sync cloud conversations to local storage.
     
     Use -n/--max-new to limit the number of NEW conversations synced.
     Updates to existing conversations are always synced (no limit).
     
-    After syncing, automatically indexes conversations and runs all
-    processing stages (refs, actions, branch_context, push_pr_links).
+    After syncing, automatically:
+    - Indexes conversations and runs processing stages
+    - Generates LLM analysis and extracts summaries (unless --no-llm)
+    - Generates embeddings for RAG search (unless --no-embed)
     
     Combining --force with -n resets local storage to only the N most
     recent conversations (destructive operation, requires confirmation).
@@ -289,7 +295,7 @@ def sync(
         
         # Always run processing stages after sync (unless dry-run)
         if not dry_run:
-            _run_post_sync_processing(quiet, verbose)
+            _run_post_sync_processing(quiet, verbose, no_llm, no_embed)
             
     except SyncAuthError as e:
         console.print(f"[red]Authentication error:[/red] {e}")
@@ -446,8 +452,15 @@ def _show_config() -> None:
         console.print(f"  [yellow]![/yellow] manifest not found")
 
 
-def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
-    """Run all processing stages after sync."""
+def _run_post_sync_processing(quiet: bool, verbose: bool, no_llm: bool = False, no_embed: bool = False) -> None:
+    """Run all processing stages after sync.
+    
+    Args:
+        quiet: Minimal output
+        verbose: Show debug output
+        no_llm: Skip LLM-powered analysis (summaries won't be generated)
+        no_embed: Skip embedding generation
+    """
     from ohtv.db import get_connection, migrate, scan_conversations
     from ohtv.db.stages import STAGES
     from ohtv.db.stores import ConversationStore, StageStore
@@ -497,6 +510,193 @@ def _run_post_sync_processing(quiet: bool, verbose: bool) -> None:
     
     if not quiet:
         console.print("[green]✓[/green] Processing complete")
+    
+    # Run LLM analysis to generate summaries (unless --no-llm)
+    if not no_llm:
+        _run_post_sync_llm_analysis(quiet, verbose)
+    
+    # Generate embeddings (unless --no-embed)
+    if not no_embed:
+        _run_post_sync_embeddings(quiet, verbose)
+
+
+def _run_post_sync_llm_analysis(quiet: bool, verbose: bool) -> None:
+    """Run LLM analysis on conversations that need it."""
+    import os
+    from pathlib import Path
+    from ohtv.db import get_connection
+    from ohtv.db.stores import ConversationStore
+    from ohtv.analysis.cache import load_analysis
+    
+    # Check if LLM is configured
+    if not os.environ.get("LLM_API_KEY"):
+        if not quiet:
+            console.print("\n[dim]Skipping LLM analysis (LLM_API_KEY not set)[/dim]")
+        return
+    
+    if not quiet:
+        console.print("\n[bold]Generating LLM analysis...[/bold]")
+    
+    with get_connection() as conn:
+        conv_store = ConversationStore(conn)
+        all_convs = conv_store.list_all()
+        
+        # Find conversations without analysis cache
+        needs_analysis = []
+        for conv in all_convs:
+            conv_dir = Path(conv.location)
+            if not load_analysis(conv_dir):
+                needs_analysis.append(conv)
+        
+        if not needs_analysis:
+            if not quiet:
+                console.print("  [dim]All conversations have analysis cached[/dim]")
+            return
+        
+        if not quiet:
+            console.print(f"  Analyzing {len(needs_analysis)} conversation(s)...")
+        
+        # Import and run the objective analysis generator
+        try:
+            from ohtv.analysis.objectives import generate_objective_analysis
+            from ohtv.analysis.cache import load_events, save_analysis
+            
+            for conv in needs_analysis:
+                conv_dir = Path(conv.location)
+                try:
+                    events = load_events(conv_dir)
+                    if events:
+                        analysis = generate_objective_analysis(events)
+                        if analysis:
+                            save_analysis(conv_dir, analysis)
+                            # Update summary in database
+                            goal = analysis.get("goal")
+                            if goal:
+                                conv_store.update_summary(conv.id, goal)
+                            if verbose:
+                                console.print(f"    [dim]Analyzed {conv.id[:8]}[/dim]")
+                except Exception as e:
+                    if verbose:
+                        console.print(f"    [red]Error analyzing {conv.id}:[/red] {e}")
+            
+            conn.commit()
+            
+        except ImportError as e:
+            if verbose:
+                console.print(f"  [red]Could not import analysis module:[/red] {e}")
+    
+    if not quiet:
+        console.print("[green]✓[/green] LLM analysis complete")
+
+
+def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
+    """Generate embeddings for conversations that need them."""
+    import os
+    from ohtv.db import get_connection
+    from pathlib import Path
+    from ohtv.db.stores import ConversationStore, EmbeddingStore
+    
+    # Check if embedding is configured
+    if not os.environ.get("LLM_API_KEY"):
+        if not quiet:
+            console.print("\n[dim]Skipping embeddings (LLM_API_KEY not set)[/dim]")
+        return
+    
+    if not quiet:
+        console.print("\n[bold]Generating embeddings...[/bold]")
+    
+    with get_connection() as conn:
+        conv_store = ConversationStore(conn)
+        embed_store = EmbeddingStore(conn)
+        
+        all_convs = conv_store.list_all()
+        
+        # Find conversations without embeddings that have local content
+        needs_embedding = []
+        no_local_content = 0
+        already_embedded = 0
+        
+        for conv in all_convs:
+            # Skip if no local directory or no events file
+            if not conv.location:
+                no_local_content += 1
+                continue
+            conv_dir = Path(conv.location)
+            events_file = conv_dir / "events.json"
+            if not events_file.exists():
+                no_local_content += 1
+                continue
+            
+            if embed_store.has_embedding(conv.id):
+                already_embedded += 1
+                continue
+                
+            needs_embedding.append(conv)
+        
+        log.info(
+            "Embedding check: total=%d, already_embedded=%d, no_content=%d, needs_embedding=%d",
+            len(all_convs), already_embedded, no_local_content, len(needs_embedding)
+        )
+        
+        if not needs_embedding:
+            if not quiet:
+                if no_local_content > 0:
+                    console.print(f"  [dim]All local conversations have embeddings ({no_local_content} without content skipped)[/dim]")
+                else:
+                    console.print("  [dim]All conversations have embeddings[/dim]")
+            return
+        
+        if not quiet:
+            msg = f"  Embedding {len(needs_embedding)} conversation(s)..."
+            if no_local_content > 0:
+                msg += f" ({no_local_content} without content skipped)"
+            console.print(msg)
+        
+        try:
+            from ohtv.analysis.embeddings import embed_conversation_full
+            
+            embedded_count = 0
+            skipped_no_content = 0
+            error_count = 0
+            
+            for conv in needs_embedding:
+                conv_dir = Path(conv.location)  # Already verified exists above
+                
+                try:
+                    stats = embed_conversation_full(conv_dir, conn)
+                    if stats.embeddings_created > 0:
+                        embedded_count += 1
+                        if verbose:
+                            console.print(f"    [dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
+                    else:
+                        skipped_no_content += 1
+                        if verbose:
+                            console.print(f"    [dim]Skipped {conv.id[:8]} (no content)[/dim]")
+                except Exception as e:
+                    error_count += 1
+                    # Always log errors, not just in verbose mode
+                    log.warning("Error embedding %s: %s", conv.id[:8], e)
+                    if verbose:
+                        console.print(f"    [red]Error embedding {conv.id}:[/red] {e}")
+            
+            conn.commit()
+            
+            # Always show summary if there were issues
+            if skipped_no_content > 0 or error_count > 0:
+                parts = [f"{embedded_count} embedded"]
+                if skipped_no_content > 0:
+                    parts.append(f"{skipped_no_content} skipped (no content)")
+                if error_count > 0:
+                    parts.append(f"{error_count} errors")
+                console.print(f"  [dim]Results: {', '.join(parts)}[/dim]")
+            
+        except Exception as e:
+            # Catch ALL exceptions including import errors
+            console.print(f"  [red]Embedding failed:[/red] {e}")
+            log.exception("Embedding failed")
+    
+    if not quiet:
+        console.print("[green]✓[/green] Embedding complete")
 
 
 def _show_status(manager: SyncManager) -> None:
@@ -1628,9 +1828,10 @@ def ask(
       ohtv ask "recent issues" --no-temporal             # Disable auto-filter
     """
     from ohtv.db import get_connection, get_db_path, migrate
-    from ohtv.db.stores import ConversationStore, EmbeddingStore
+    from ohtv.db.stores import ConversationStore, EmbeddingStore, LinkStore, ReferenceStore, RepoStore
     from ohtv.analysis.rag import RAGAnswerer
     from ohtv.filters import parse_date_filter
+    from ohtv.config import Config
     
     _init_logging(verbose=verbose)
     db_path = get_db_path()
@@ -1656,11 +1857,26 @@ def ask(
             console.print("[dim]Use YYYY-MM-DD format[/dim]")
             raise SystemExit(1)
     
+    # Get cloud base URL from config
+    config = Config.from_env()
+    cloud_base_url = config.cloud_api_url
+    
     with get_connection() as conn:
         migrate(conn)
         
         embed_store = EmbeddingStore(conn)
         conv_store = ConversationStore(conn)
+        
+        # Initialize ref stores for enhanced citations (gracefully handle if not available)
+        link_store = None
+        ref_store = None
+        repo_store = None
+        try:
+            link_store = LinkStore(conn)
+            ref_store = ReferenceStore(conn)
+            repo_store = RepoStore(conn)
+        except Exception:
+            pass  # Stores not available, citations will be basic
         
         # Check if we have embeddings
         embed_count = embed_store.count()
@@ -1678,6 +1894,10 @@ def ask(
             embed_store, conv_store, 
             model=model, 
             enable_temporal_filter=enable_temporal,
+            link_store=link_store,
+            ref_store=ref_store,
+            repo_store=repo_store,
+            cloud_base_url=cloud_base_url,
         )
         
         try:
@@ -1730,14 +1950,134 @@ def ask(
         console.print(f"\n[bold]Answer:[/bold]\n")
         console.print(result.answer)
         
-        # Show sources
+        # Show sources with enhanced citations
         console.print(f"\n[dim]─────────────────────────────────────────────────[/dim]")
-        console.print(f"[dim]Sources ({len(result.source_conversation_ids)} conversations):[/dim]")
-        for conv_id in result.source_conversation_ids:
-            conv = conv_store.get(conv_id)
-            title = conv.title if conv and conv.title else "(no title)"
-            short_title = title[:50] + "..." if len(title) > 50 else title
-            console.print(f"[dim]  • [{conv_id[:8]}] {short_title}[/dim]")
+        console.print(f"[bold]Sources ({len(result.source_conversation_ids)} conversations):[/bold]")
+        
+        # Group chunks by conversation and count them
+        conv_chunks: dict[str, list] = {}
+        for chunk in result.context_chunks:
+            if chunk.conversation_id not in conv_chunks:
+                conv_chunks[chunk.conversation_id] = []
+            conv_chunks[chunk.conversation_id].append(chunk)
+        
+        # Build source info list and sort by date (newest first)
+        source_infos = []
+        for conv_id, chunks in conv_chunks.items():
+            first_chunk = chunks[0]
+            scores = [c.score for c in chunks]
+            source_infos.append({
+                "conv_id": conv_id,
+                "created_at": first_chunk.created_at,
+                "summary": first_chunk.summary,
+                "cloud_url": first_chunk.cloud_url if first_chunk.conv_source == "cloud" else None,
+                "display_url": first_chunk.display_url,
+                "conv_source": first_chunk.conv_source,
+                "chunk_count": len(chunks),
+                "score_min": min(scores),
+                "score_max": max(scores),
+            })
+        
+        # Sort by date descending (newest first), None dates at the end
+        source_infos.sort(key=lambda x: x["created_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        
+        # Build borderless table for sources
+        # Fix summary width to match cloud URL length (72 chars) for consistent wrapping
+        CLOUD_URL_WIDTH = 72  # len("https://app.all-hands.dev/conversations/{32-char-id}")
+        table = Table(show_header=False, box=None, padding=(0, 1), expand=False)
+        table.add_column("Date", style="dim", no_wrap=True, width=10)
+        table.add_column("ID", style="cyan", no_wrap=True, width=8)
+        table.add_column("Stats", no_wrap=True, width=11)  # "22 chunks\n0.703-0.671"
+        table.add_column("Summary", width=CLOUD_URL_WIDTH, overflow="fold")
+        
+        for i, info in enumerate(source_infos):
+            date_str = info["created_at"].strftime("%Y-%m-%d") if info["created_at"] else "unknown"
+            raw_conv_id = info["conv_id"] or ""
+            # Handle both dashed (with -) and undashed conversation IDs, always show 8 chars
+            conv_id = raw_conv_id.replace("-", "")[:8] if raw_conv_id else "--------"
+            
+            # Format stats: chunk count on first line, similarity on second
+            score_min, score_max = info["score_min"], info["score_max"]
+            chunk_count = info["chunk_count"]
+            chunk_label = f"{chunk_count} chunk" if chunk_count == 1 else f"{chunk_count} chunks"
+            if chunk_count == 1 or abs(score_max - score_min) < 0.005:
+                sim_score = f"{score_max:.3f}"
+            else:
+                sim_score = f"{score_max:.3f}-{score_min:.3f}"  # High to low
+            # Color based on max score: green (>0.8), yellow (0.6-0.8), dim (<0.6)
+            if score_max >= 0.8:
+                sim_style = "green"
+            elif score_max >= 0.6:
+                sim_style = "yellow"
+            else:
+                sim_style = "dim"
+            stats_text = f"[dim]{chunk_label}[/dim]\n[{sim_style}]{sim_score}[/{sim_style}]"
+            
+            # Build summary with optional URL on separate line
+            summary_parts = []
+            if info["summary"]:
+                summary_parts.append(info["summary"])
+            else:
+                summary_parts.append("[dim]—[/dim]")
+            if info["display_url"]:
+                # No styling on URL - keeps Terminal.app auto-detection working
+                # OSC 8 link markup for modern terminals (iTerm2, Windows Terminal, etc)
+                summary_parts.append(f"[link={info['display_url']}]{info['display_url']}[/link]")
+            summary_text = "\n".join(summary_parts)
+            
+            # Add blank row between entries (except before first)
+            if i > 0:
+                table.add_row("", "", "", "")
+            
+            table.add_row(
+                date_str,
+                conv_id,
+                stats_text,
+                summary_text,
+            )
+        
+        console.print(table)
+        
+        # Show "See Also" section with related refs
+        has_related = any([
+            result.related_prs,
+            result.related_issues,
+            result.related_repos
+        ])
+        
+        if has_related:
+            console.print()
+            console.print("[bold]See Also:[/bold]")
+            
+            def ref_sort_key(ref):
+                """Sort by repo name, then by ID number descending."""
+                fqn = ref.fqn
+                if "#" in fqn:
+                    repo_part, num_part = fqn.rsplit("#", 1)
+                    try:
+                        num = int(num_part)
+                    except ValueError:
+                        num = 0
+                    return (repo_part.lower(), -num)  # Negative for descending
+                return (fqn.lower(), 0)
+            
+            if result.related_prs:
+                console.print("  [bold]Pull Requests:[/bold]")
+                sorted_prs = sorted(result.related_prs, key=ref_sort_key)
+                for pr in sorted_prs:
+                    console.print(f"  • [link={pr.url}]{pr.fqn}[/link]")
+            
+            if result.related_issues:
+                console.print("  [bold]Issues:[/bold]")
+                sorted_issues = sorted(result.related_issues, key=ref_sort_key)
+                for issue in sorted_issues:
+                    console.print(f"  • [link={issue.url}]{issue.fqn}[/link]")
+            
+            if result.related_repos:
+                console.print("  [bold]Repositories:[/bold]")
+                sorted_repos = sorted(result.related_repos, key=lambda r: r.fqn.lower())
+                for repo in sorted_repos:
+                    console.print(f"  • [link={repo.url}]{repo.fqn}[/link]")
         
         # Show timing info
         timing_parts = [
@@ -1745,6 +2085,8 @@ def ask(
             f"Generation: {result.generation_time_seconds:.2f}s",
             f"Model: {result.model}",
         ]
+        if result.total_tokens > 0:
+            timing_parts.append(f"Tokens: {result.total_tokens:,} (${result.cost:.4f})")
         if result.temporal_filter_applied:
             timing_parts.append("📅 auto-filtered")
         console.print(f"\n[dim]{' | '.join(timing_parts)}[/dim]")
@@ -4933,7 +5275,7 @@ def db_init(verbose: bool) -> None:
 
 
 @db.command("process")
-@click.argument("stage", type=click.Choice(["refs", "actions", "branch_context", "push_pr_links", "all"]))
+@click.argument("stage", type=click.Choice(["refs", "actions", "branch_context", "push_pr_links", "summaries", "all"]))
 @click.option("--force", "-f", is_flag=True, help="Reprocess all conversations, ignoring stage completion")
 @click.option("--conversation", "-c", help="Process only this conversation ID")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
@@ -4949,6 +5291,7 @@ def db_process(stage: str, force: bool, conversation: str | None, verbose: bool)
       actions        - Recognize actions (file edits, git ops, PRs, etc.)
       branch_context - Track branches and create branch refs
       push_pr_links  - Correlate git pushes with PRs via branch matching
+      summaries      - Extract summaries from objective analysis cache
       all            - Run all stages in sequence
     """
     from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
@@ -5206,6 +5549,7 @@ def db_index_cache(verbose: bool) -> None:
     
     Scans all conversation directories for objective_analysis.json files
     and imports their metadata into the database for fast cache lookup.
+    Also syncs the goal/summary from cached analysis to the conversations table.
     
     This enables the summary command to quickly determine which conversations
     need analysis without reading event files.
@@ -5215,6 +5559,7 @@ def db_index_cache(verbose: bool) -> None:
     from ohtv.db import get_connection, migrate
     from ohtv.db.stores import AnalysisCacheStore, ConversationStore
     from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry, AnalysisSkipEntry
+    from ohtv.analysis.cache import load_analysis
     
     config = Config.from_env()
     
@@ -5232,6 +5577,7 @@ def db_index_cache(verbose: bool) -> None:
         
         indexed = 0
         skipped = 0
+        summaries_updated = 0
         errors = 0
         
         with Progress(
@@ -5287,6 +5633,14 @@ def db_index_cache(verbose: bool) -> None:
                         )
                         cache_store.upsert_cache(entry)
                         indexed += 1
+                    
+                    # Sync summary/goal from cached analysis to conversations table
+                    analysis = load_analysis(conv_dir)
+                    if analysis:
+                        goal = analysis.get("goal")
+                        if goal and goal != conv.summary:
+                            conv_store.update_summary(conv.id, goal)
+                            summaries_updated += 1
                         
                 except (json.JSONDecodeError, KeyError) as e:
                     errors += 1
@@ -5300,11 +5654,13 @@ def db_index_cache(verbose: bool) -> None:
     # Display results
     if indexed > 0:
         console.print(f"[green]✓[/green] Indexed {indexed} cached analysis entries")
+    if summaries_updated > 0:
+        console.print(f"[green]✓[/green] Updated {summaries_updated} conversation summaries")
     if skipped > 0:
         console.print(f"[dim]{skipped} skip markers indexed[/dim]")
     if errors > 0:
         console.print(f"[yellow]![/yellow] {errors} error(s) reading cache files")
-    if indexed == 0 and skipped == 0 and errors == 0:
+    if indexed == 0 and skipped == 0 and summaries_updated == 0 and errors == 0:
         console.print("[dim]No cache files found to index.[/dim]")
 
 
@@ -5446,24 +5802,40 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 current="calculating tokens..."
             )
             
-            for conv in to_embed:
-                short_id = conv.id[:12]
-                progress.update(task, current=short_id)
-                
+            # Parallelize estimation - it's I/O bound (reading files)
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            
+            def _estimate_one(conv):
+                """Estimate tokens for a single conversation."""
                 conv_dir = Path(conv.location)
                 if not conv_dir.exists():
-                    progress.advance(task)
-                    continue
-                
+                    return None
                 tokens, num_embeddings = estimate_conversation_tokens(conv_dir)
                 if tokens == 0:
-                    progress.advance(task)
-                    continue
+                    return None
+                return (conv, conv_dir, tokens, num_embeddings)
+            
+            # Use more workers for estimate since it's just file I/O
+            max_workers = min(20, len(to_embed))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(_estimate_one, conv): conv for conv in to_embed}
                 
-                total_tokens += tokens
-                total_embeddings += num_embeddings
-                valid_convs.append((conv, conv_dir, tokens, num_embeddings))
-                progress.advance(task)
+                for future in as_completed(futures):
+                    conv = futures[future]
+                    short_id = conv.id[:12]
+                    progress.update(task, current=short_id)
+                    
+                    try:
+                        result = future.result()
+                        if result:
+                            conv, conv_dir, tokens, num_embeddings = result
+                            total_tokens += tokens
+                            total_embeddings += num_embeddings
+                            valid_convs.append((conv, conv_dir, tokens, num_embeddings))
+                    except Exception as e:
+                        log.debug("Error estimating %s: %s", short_id, e)
+                    
+                    progress.advance(task)
         
         if not valid_convs:
             console.print("[dim]No conversations with content to embed.[/dim]")
@@ -5495,6 +5867,9 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 return
         
         # Build embeddings with progress bar (parallel processing)
+        # Uses a single-writer pattern to avoid SQLite locking issues:
+        # - Multiple worker threads generate embeddings (API calls)
+        # - A single writer thread batches and commits to the database
         embedded = 0
         skipped = 0
         errors = 0
@@ -5537,47 +5912,46 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 _last_rate_str[0] = f"{rate:.0f}/min"
             return _last_rate_str[0]
         
+        # Import the new batched embedding function
+        from ohtv.analysis.embeddings import generate_embeddings_only, EmbeddingBatch, EmbeddingWriter, reset_rate_limiter
+        
+        # Reset rate limiter state from any previous operations
+        reset_rate_limiter()
+        
+        # Start the writer thread (it creates its own DB connection)
+        writer = EmbeddingWriter(batch_size=20)
+        writer.start()
+        
         def _embed_one(conv, conv_dir) -> tuple[EmbeddingStats | None, str | None]:
-            """Embed a single conversation. Returns (stats, error_msg)."""
-            max_retries = 5
-            retry_delay = 0.5  # seconds
+            """Generate embeddings for a single conversation (no DB writes).
             
-            # Each thread gets its own connection (SQLite connections aren't thread-safe)
-            with get_connection() as thread_conn:
-                for attempt in range(max_retries):
-                    try:
-                        stats = embed_conversation_full(
-                            conv_dir,
-                            thread_conn,
-                            model=model,
-                            skip_existing=not force,
-                        )
-                        
-                        log.debug("Embedded %s: %d embeddings created", conv.id[:12], stats.embeddings_created)
-                        
-                        # Also update FTS for keyword search
-                        if stats.embeddings_created > 0:
-                            events = load_events(conv_dir)
-                            if events:
-                                summary = build_summary_text(events)
-                                if summary:
-                                    thread_embed_store = EmbeddingStore(thread_conn)
-                                    thread_embed_store.upsert_fts(conv.id, summary)
-                        
-                        thread_conn.commit()
-                        log.debug("Committed %s", conv.id[:12])
-                        return stats, None
-                    except sqlite3.OperationalError as e:
-                        log.debug("SQLite error on %s (attempt %d): %s", conv.id[:12], attempt + 1, e)
-                        if "database is locked" in str(e) and attempt < max_retries - 1:
-                            time.sleep(retry_delay * (attempt + 1))  # exponential backoff
-                            continue
-                        return None, str(e)
-                    except Exception as e:
-                        log.debug("Error on %s: %s", conv.id[:12], e)
-                        return None, str(e)
-            
-            return None, "database is locked (max retries exceeded)"
+            Returns (stats, error_msg). The batch is submitted to the writer queue.
+            """
+            # Use a read-only connection for checking existing embeddings
+            with get_connection() as read_conn:
+                try:
+                    batch = generate_embeddings_only(
+                        conv_dir,
+                        read_conn,
+                        model=model,
+                        skip_existing=not force,
+                    )
+                    
+                    if batch.error:
+                        return None, batch.error
+                    
+                    # Submit batch to writer (non-blocking)
+                    writer.submit(batch)
+                    
+                    log.debug("Generated %d embeddings for %s", 
+                              batch.stats.embeddings_created if batch.stats else 0, 
+                              conv.id[:12])
+                    
+                    return batch.stats, None
+                    
+                except Exception as e:
+                    log.debug("Error on %s: %s", conv.id[:12], e)
+                    return None, str(e)
         
         interrupted = False
         
@@ -5668,6 +6042,11 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             interrupted = True
             console.print("\n[yellow]Interrupted! Partial results saved.[/yellow]")
             console.print("[dim]  Some embeddings may be incomplete. Re-run to complete remaining.[/dim]")
+        finally:
+            # Stop the writer thread and flush any pending batches
+            writer.stop(timeout=30.0)
+            writer_stats = writer.get_stats()
+            log.info("Writer stats: %s", writer_stats)
         
         # Log deduplicated errors to file
         for err_msg, count in error_counts.items():

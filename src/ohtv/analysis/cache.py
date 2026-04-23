@@ -344,12 +344,12 @@ class AnalysisCacheManager:
         """
         try:
             from ohtv.db import get_connection, migrate
-            from ohtv.db.stores import AnalysisCacheStore
+            from ohtv.db.stores import AnalysisCacheStore, ConversationStore
             from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
             
             with get_connection() as conn:
                 migrate(conn)
-                store = AnalysisCacheStore(conn)
+                cache_store = AnalysisCacheStore(conn)
                 entry = AnalysisCacheEntry(
                     conversation_id=conversation_id,
                     cache_key=cache_key,
@@ -357,7 +357,16 @@ class AnalysisCacheManager:
                     content_hash=analysis.content_hash,
                     analyzed_at=analysis.analyzed_at,
                 )
-                store.upsert_cache(entry)
+                cache_store.upsert_cache(entry)
+                
+                # Also sync goal to conversation summary
+                analysis_dict = analysis.model_dump() if hasattr(analysis, 'model_dump') else {}
+                goal = analysis_dict.get("goal")
+                if goal:
+                    conv_store = ConversationStore(conn)
+                    conv_store.update_summary(conversation_id, goal)
+                    log.debug("Updated conversation summary: %s", conversation_id)
+                
                 conn.commit()
                 log.debug("Synced cache to DB: %s (key: %s)", conversation_id, cache_key)
         except Exception as e:

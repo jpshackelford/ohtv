@@ -333,10 +333,10 @@ class TestBuildConversationTexts:
 
         result = build_conversation_texts(events, analysis, refs)
 
-        assert result.analysis_text is not None
-        assert "Test goal" in result.analysis_text
-        assert result.summary_text is not None
-        assert "[USER]: Hello" in result.summary_text
+        assert len(result.analysis_chunks) > 0
+        assert "Test goal" in result.analysis_chunks[0].text
+        assert len(result.summary_chunks) > 0
+        assert "[USER]: Hello" in result.summary_chunks[0].text
 
     def test_handles_no_analysis(self):
         from ohtv.analysis.embeddings import build_conversation_texts
@@ -348,8 +348,8 @@ class TestBuildConversationTexts:
             }
         ]
         result = build_conversation_texts(events, analysis=None, refs=None)
-        assert result.analysis_text is None
-        assert result.summary_text is not None
+        assert len(result.analysis_chunks) == 0
+        assert len(result.summary_chunks) > 0
 
 
 class TestChunkText:
@@ -430,8 +430,8 @@ class TestConversationTexts:
     def test_default_values(self):
         from ohtv.analysis.embeddings import ConversationTexts
         texts = ConversationTexts()
-        assert texts.analysis_text is None
-        assert texts.summary_text is None
+        assert texts.analysis_chunks == []
+        assert texts.summary_chunks == []
         assert texts.content_chunks == []
 
 
