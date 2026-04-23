@@ -497,8 +497,13 @@ Please provide a helpful answer based on the context above."""
             
             # Get metrics from response
             metrics = response.metrics
-            total_tokens = metrics.accumulated_token_usage if metrics else 0
-            cost = metrics.accumulated_cost if metrics else 0.0
+            total_tokens = 0
+            cost = 0.0
+            if metrics:
+                if metrics.accumulated_token_usage:
+                    usage = metrics.accumulated_token_usage
+                    total_tokens = usage.prompt_tokens + usage.completion_tokens
+                cost = metrics.accumulated_cost or 0.0
             
             return response.message.content, context_tokens, total_tokens, cost
         except Exception as e:
