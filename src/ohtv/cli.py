@@ -1861,6 +1861,8 @@ def ask(
             f"Generation: {result.generation_time_seconds:.2f}s",
             f"Model: {result.model}",
         ]
+        if result.total_tokens > 0:
+            timing_parts.append(f"Tokens: {result.total_tokens:,}")
         if result.temporal_filter_applied:
             timing_parts.append("📅 auto-filtered")
         console.print(f"\n[dim]{' | '.join(timing_parts)}[/dim]")

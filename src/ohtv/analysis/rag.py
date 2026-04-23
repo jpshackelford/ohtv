@@ -125,6 +125,9 @@ class RAGAnswer:
     related_repos: list[RepoInfo] | None = None
     related_prs: list[RefInfo] | None = None
     related_issues: list[RefInfo] | None = None
+    # Token counts
+    context_tokens: int = 0
+    total_tokens: int = 0  # Context + question + system prompt
 
 
 class RAGAnswerer:
@@ -244,7 +247,7 @@ class RAGAnswerer:
         
         # Generate answer
         gen_start = time.perf_counter()
-        answer = self._generate_answer(question, context_chunks)
+        answer, context_tokens, total_tokens = self._generate_answer(question, context_chunks)
         gen_time = time.perf_counter() - gen_start
         
         source_ids = {c.conversation_id for c in context_chunks}
@@ -278,6 +281,8 @@ class RAGAnswerer:
             related_repos=list(all_repos.values()) if all_repos else None,
             related_prs=list(all_prs.values()) if all_prs else None,
             related_issues=list(all_issues.values()) if all_issues else None,
+            context_tokens=context_tokens,
+            total_tokens=total_tokens,
         )
     
     def _retrieve_context(
@@ -403,8 +408,12 @@ class RAGAnswerer:
         self,
         question: str,
         context_chunks: list[ContextChunk],
-    ) -> str:
-        """Generate an answer using the LLM with rich context."""
+    ) -> tuple[str, int, int]:
+        """Generate an answer using the LLM with rich context.
+        
+        Returns:
+            Tuple of (answer, context_tokens, total_input_tokens)
+        """
         api_key = os.environ.get("LLM_API_KEY")
         api_base = os.environ.get("LLM_BASE_URL")
         
@@ -457,17 +466,28 @@ Question: {question}
 
 Please provide a helpful answer based on the context above."""
         
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        
+        # Estimate token counts (approximate using litellm's token counter)
+        try:
+            context_tokens = litellm.token_counter(model=self.model, text=context_text)
+            total_tokens = litellm.token_counter(model=self.model, messages=messages)
+        except Exception:
+            # Fallback: rough estimate of ~4 chars per token
+            context_tokens = len(context_text) // 4
+            total_tokens = (len(self.system_prompt) + len(user_prompt)) // 4
+        
         try:
             response = litellm.completion(
                 model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+                messages=messages,
                 api_key=api_key,
                 api_base=api_base,
             )
-            return response.choices[0].message.content
+            return response.choices[0].message.content, context_tokens, total_tokens
         except Exception as e:
             raise RuntimeError(f"LLM API call failed: {e}") from e
     
