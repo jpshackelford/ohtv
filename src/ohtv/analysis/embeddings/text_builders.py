@@ -47,11 +47,11 @@ class ConversationMetadata:
             return "\n".join(parts) + "\n---\n"
         return ""
     
-    def prepend_to_text(self, content: str, max_chars: int = 3000, max_refs: int = 7) -> str:
-        """Prepend preamble to content, truncating content to fit max_chars.
+    def prepend_to_text(self, content: str, max_chars: int = 3000, max_refs: int = 7) -> list[str]:
+        """Prepend preamble to content, splitting into multiple chunks if needed.
         
-        This ensures the combined text (preamble + content) doesn't exceed
-        the model's context window, while preserving the full preamble.
+        This ensures no data is lost - if content is too long to fit with the
+        preamble, it's split into overlapping chunks, each with the preamble.
         
         Args:
             content: The main content text
@@ -59,37 +59,70 @@ class ConversationMetadata:
             max_refs: Maximum number of refs in preamble
             
         Returns:
-            Combined preamble + content, truncated to fit max_chars
+            List of strings, each with preamble + content portion, fitting max_chars
         """
         preamble = self.build_preamble(max_refs=max_refs)
         
         if not preamble:
-            # No preamble - just truncate content if needed
-            if len(content) > max_chars:
-                truncate_at = content.rfind(' ', 0, max_chars)
-                if truncate_at > max_chars * 0.8:
-                    return content[:truncate_at]
-                return content[:max_chars]
-            return content
+            # No preamble - just split content if needed
+            if len(content) <= max_chars:
+                return [content]
+            return self._split_content(content, max_chars)
         
         # Calculate available space for content
         available_for_content = max_chars - len(preamble)
         
         if available_for_content < 100:
             # Preamble is too long - shouldn't happen, but handle it
-            # Truncate preamble and give content at least 500 chars
             available_for_content = 500
             preamble = preamble[:max_chars - 500]
         
-        # Truncate content to fit
-        if len(content) > available_for_content:
-            truncate_at = content.rfind(' ', 0, available_for_content)
-            if truncate_at > available_for_content * 0.8:
-                content = content[:truncate_at]
-            else:
-                content = content[:available_for_content]
+        # If content fits, return single chunk
+        if len(content) <= available_for_content:
+            return [preamble + content]
         
-        return preamble + content
+        # Split content into pieces that fit, with overlap
+        content_pieces = self._split_content(content, available_for_content)
+        return [preamble + piece for piece in content_pieces]
+    
+    def _split_content(self, content: str, max_chars: int, overlap: int = 200) -> list[str]:
+        """Split content into overlapping pieces that fit max_chars.
+        
+        Args:
+            content: Text to split
+            max_chars: Maximum chars per piece
+            overlap: Character overlap between pieces
+            
+        Returns:
+            List of content pieces
+        """
+        if len(content) <= max_chars:
+            return [content]
+        
+        pieces = []
+        start = 0
+        
+        while start < len(content):
+            end = start + max_chars
+            
+            if end >= len(content):
+                # Last piece
+                pieces.append(content[start:])
+                break
+            
+            # Try to break at word boundary
+            break_at = content.rfind(' ', start, end)
+            if break_at > start + max_chars * 0.7:
+                end = break_at
+            
+            pieces.append(content[start:end])
+            
+            # Next piece starts with overlap
+            start = end - overlap
+            if start < 0:
+                start = 0
+        
+        return pieces
 
 
 @dataclass
@@ -373,14 +406,31 @@ def build_conversation_texts(
     content_chunks = chunk_text(content_text)
     
     # Apply contextual preamble enrichment if metadata provided
-    # Uses smart truncation to ensure total size fits model context
+    # Uses smart splitting to ensure content fits model context without data loss
     if metadata:
+        # Analysis text - take first piece (analysis is usually concise)
         if analysis_text:
-            analysis_text = metadata.prepend_to_text(analysis_text)
+            pieces = metadata.prepend_to_text(analysis_text)
+            analysis_text = pieces[0] if pieces else None
+        
+        # Summary text - take first piece (summary should fit)
         if summary_text:
-            summary_text = metadata.prepend_to_text(summary_text)
+            pieces = metadata.prepend_to_text(summary_text)
+            summary_text = pieces[0] if pieces else None
+        
+        # Content chunks - may expand into more chunks
+        new_content_chunks = []
+        chunk_index = 0
         for chunk in content_chunks:
-            chunk.text = metadata.prepend_to_text(chunk.text)
+            pieces = metadata.prepend_to_text(chunk.text)
+            for piece in pieces:
+                new_content_chunks.append(TextChunk(
+                    text=piece,
+                    chunk_index=chunk_index,
+                    estimated_tokens=int(len(piece.split()) * 1.3),
+                ))
+                chunk_index += 1
+        content_chunks = new_content_chunks
 
     return ConversationTexts(
         analysis_text=analysis_text.strip() if analysis_text and analysis_text.strip() else None,
