@@ -5526,7 +5526,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 return (conv, conv_dir, tokens, num_embeddings)
             
             # Use more workers for estimate since it's just file I/O
-            max_workers = min(16, len(to_embed))
+            max_workers = min(20, len(to_embed))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {executor.submit(_estimate_one, conv): conv for conv in to_embed}
                 
