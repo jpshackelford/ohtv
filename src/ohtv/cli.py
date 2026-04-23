@@ -1827,11 +1827,13 @@ def ask(
         source_infos.sort(key=lambda x: x["created_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
         
         # Build borderless table for sources
-        table = Table(show_header=False, box=None, padding=(0, 1), expand=True)
+        # Fix summary width to match cloud URL length (72 chars) for consistent wrapping
+        CLOUD_URL_WIDTH = 72  # len("https://app.all-hands.dev/conversations/{32-char-id}")
+        table = Table(show_header=False, box=None, padding=(0, 1), expand=False)
         table.add_column("Date", style="dim", no_wrap=True, width=10)
         table.add_column("ID", style="cyan", no_wrap=True, width=8)
         table.add_column("Chunks", style="dim", no_wrap=True, width=5)
-        table.add_column("Summary", ratio=1)  # Flexible width, will wrap
+        table.add_column("Summary", width=CLOUD_URL_WIDTH, overflow="fold")
         
         for i, info in enumerate(source_infos):
             date_str = info["created_at"].strftime("%Y-%m-%d") if info["created_at"] else "unknown"
