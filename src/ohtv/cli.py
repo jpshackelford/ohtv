@@ -1802,30 +1802,49 @@ def ask(
         console.print(f"\n[dim]─────────────────────────────────────────────────[/dim]")
         console.print(f"[bold]Sources ({len(result.source_conversation_ids)} conversations):[/bold]")
         
-        # Collect unique chunks per conversation for display
-        seen_convs = set()
+        # Group chunks by conversation and count them
+        conv_chunks: dict[str, list] = {}
         for chunk in result.context_chunks:
-            if chunk.conversation_id in seen_convs:
-                continue
-            seen_convs.add(chunk.conversation_id)
+            if chunk.conversation_id not in conv_chunks:
+                conv_chunks[chunk.conversation_id] = []
+            conv_chunks[chunk.conversation_id].append(chunk)
+        
+        # Build source info list and sort by date (newest first)
+        source_infos = []
+        for conv_id, chunks in conv_chunks.items():
+            first_chunk = chunks[0]
+            source_infos.append({
+                "conv_id": conv_id,
+                "created_at": first_chunk.created_at,
+                "summary": first_chunk.summary,
+                "cloud_url": first_chunk.cloud_url if first_chunk.conv_source == "cloud" else None,
+                "display_url": first_chunk.display_url,
+                "conv_source": first_chunk.conv_source,
+                "chunk_count": len(chunks),
+            })
+        
+        # Sort by date descending (newest first), None dates at the end
+        source_infos.sort(key=lambda x: x["created_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+        
+        for info in source_infos:
+            # Date first
+            date_str = info["created_at"].strftime("%Y-%m-%d") if info["created_at"] else "unknown"
             
-            # Format title with date
-            title = chunk.title or "(no title)"
-            short_title = title[:50] + "..." if len(title) > 50 else title
+            # Conversation ID with source type
+            source_type = "cloud" if info["conv_source"] == "cloud" else "local"
             
-            date_str = ""
-            if chunk.created_at:
-                date_str = f" ({chunk.created_at.strftime('%Y-%m-%d')})"
+            # Chunk count
+            chunk_count = f"({info['chunk_count']} chunk{'s' if info['chunk_count'] > 1 else ''})"
             
-            console.print(f"• [cyan][{chunk.conversation_id[:8]}][/cyan] {short_title}{date_str}")
+            console.print(f"• [dim]{date_str}[/dim] [cyan][{info['conv_id'][:8]}][/cyan] [{source_type}] {chunk_count}")
             
             # Show summary if available
-            if chunk.summary:
-                summary = chunk.summary[:100] + "..." if len(chunk.summary) > 100 else chunk.summary
+            if info["summary"]:
+                summary = info["summary"][:100] + "..." if len(info["summary"]) > 100 else info["summary"]
                 console.print(f"  [dim]{summary}[/dim]")
             
-            # Show cloud URL if valid (within 14-day retention)
-            display_url = chunk.display_url
+            # Show cloud URL if valid (within retention)
+            display_url = info["display_url"]
             if display_url:
                 console.print(f"  [link={display_url}]{display_url}[/link]")
         
