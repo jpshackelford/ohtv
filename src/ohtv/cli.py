@@ -1835,7 +1835,7 @@ def ask(
         table = Table(show_header=False, box=None, padding=(0, 1), expand=False)
         table.add_column("Date", style="dim", no_wrap=True, width=10)
         table.add_column("ID", style="cyan", no_wrap=True, width=8)
-        table.add_column("Sim", no_wrap=True, width=16)  # e.g., "0.823-0.671 22ch"
+        table.add_column("Stats", no_wrap=True, width=11)  # "22 chunks\n0.703-0.671"
         table.add_column("Summary", width=CLOUD_URL_WIDTH, overflow="fold")
         
         for i, info in enumerate(source_infos):
@@ -1844,9 +1844,10 @@ def ask(
             # Handle both dashed (with -) and undashed conversation IDs, always show 8 chars
             conv_id = raw_conv_id.replace("-", "")[:8] if raw_conv_id else "--------"
             
-            # Format similarity as range (high-low) or single value, with chunk count
+            # Format stats: chunk count on first line, similarity on second
             score_min, score_max = info["score_min"], info["score_max"]
             chunk_count = info["chunk_count"]
+            chunk_label = f"{chunk_count} chunk" if chunk_count == 1 else f"{chunk_count} chunks"
             if chunk_count == 1 or abs(score_max - score_min) < 0.005:
                 sim_score = f"{score_max:.3f}"
             else:
@@ -1858,8 +1859,7 @@ def ask(
                 sim_style = "yellow"
             else:
                 sim_style = "dim"
-            # Combine similarity and chunk count
-            sim_text = f"[{sim_style}]{sim_score}[/{sim_style}] [dim]{chunk_count}ch[/dim]"
+            stats_text = f"[dim]{chunk_label}[/dim]\n[{sim_style}]{sim_score}[/{sim_style}]"
             
             # Build summary with optional URL on separate line
             summary_parts = []
@@ -1878,7 +1878,7 @@ def ask(
             table.add_row(
                 date_str,
                 conv_id,
-                sim_text,
+                stats_text,
                 summary_text,
             )
         
