@@ -94,6 +94,7 @@ class ContextChunk:
     embed_type: str
     source_text: str
     score: float
+    chunk_index: int = 0  # For ordering chunks within a conversation
     # New fields for citations
     summary: str | None = None
     cloud_url: str | None = None
@@ -322,12 +323,17 @@ class RAGAnswerer:
                 embed_type=r.embed_type,
                 source_text=r.source_text,
                 score=r.score,
+                chunk_index=r.chunk_index,
                 summary=summary,
                 cloud_url=cloud_url,
                 created_at=created_at,
                 conv_source=conv_source or "local",
                 source=source,
             ))
+        
+        # Sort chunks: group by conversation, then by embed_type, then by chunk_index
+        # This ensures the LLM sees coherent context from each conversation
+        chunks.sort(key=lambda c: (c.conversation_id, c.embed_type, c.chunk_index))
         
         return chunks
     
