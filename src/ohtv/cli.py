@@ -602,30 +602,52 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
         
         all_convs = conv_store.list_all()
         
-        # Find conversations without embeddings
+        # Find conversations without embeddings that have local directories
         needs_embedding = []
+        no_local_dir = 0
+        already_embedded = 0
+        
         for conv in all_convs:
-            if not embed_store.has_embedding(conv.id):
-                needs_embedding.append(conv)
+            # Skip if no local directory
+            if not conv.location:
+                no_local_dir += 1
+                continue
+            conv_dir = Path(conv.location)
+            if not conv_dir.exists():
+                no_local_dir += 1
+                continue
+            
+            if embed_store.has_embedding(conv.id):
+                already_embedded += 1
+                continue
+                
+            needs_embedding.append(conv)
         
         if not needs_embedding:
             if not quiet:
-                console.print("  [dim]All conversations have embeddings[/dim]")
+                if no_local_dir > 0:
+                    console.print(f"  [dim]All local conversations have embeddings ({no_local_dir} cloud-only skipped)[/dim]")
+                else:
+                    console.print("  [dim]All conversations have embeddings[/dim]")
             return
         
         if not quiet:
-            console.print(f"  Embedding {len(needs_embedding)} conversation(s)...")
+            msg = f"  Embedding {len(needs_embedding)} conversation(s)..."
+            if no_local_dir > 0:
+                msg += f" ({no_local_dir} cloud-only skipped)"
+            console.print(msg)
         
         try:
             from pathlib import Path
             from ohtv.analysis.embeddings import embed_conversation_full
             
             embedded_count = 0
-            skipped_count = 0
+            skipped_no_content = 0
             error_count = 0
             
             for conv in needs_embedding:
-                conv_dir = Path(conv.location)
+                conv_dir = Path(conv.location)  # Already verified exists above
+                
                 try:
                     stats = embed_conversation_full(conv_dir, conn)
                     if stats.embeddings_created > 0:
@@ -633,7 +655,7 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                         if verbose:
                             console.print(f"    [dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
                     else:
-                        skipped_count += 1
+                        skipped_no_content += 1
                         if verbose:
                             console.print(f"    [dim]Skipped {conv.id[:8]} (no content)[/dim]")
                 except Exception as e:
@@ -646,8 +668,13 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
             conn.commit()
             
             # Always show summary if there were issues
-            if skipped_count > 0 or error_count > 0:
-                console.print(f"  [dim]Results: {embedded_count} embedded, {skipped_count} skipped (no content), {error_count} errors[/dim]")
+            if skipped_no_content > 0 or error_count > 0:
+                parts = [f"{embedded_count} embedded"]
+                if skipped_no_content > 0:
+                    parts.append(f"{skipped_no_content} skipped (no content)")
+                if error_count > 0:
+                    parts.append(f"{error_count} errors")
+                console.print(f"  [dim]Results: {', '.join(parts)}[/dim]")
             
         except Exception as e:
             # Catch ALL exceptions including import errors
