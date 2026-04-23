@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 
 import litellm
+from pydantic import SecretStr
+
+from openhands.sdk.llm import LLM
+from openhands.sdk.llm.message import Message
 
 # Suppress LiteLLM info messages that spam output during batch operations
 litellm.suppress_debug_info = True
@@ -179,6 +183,19 @@ class RAGAnswerer:
         self.repo_store = repo_store
         self.cloud_base_url = cloud_base_url or os.environ.get(
             "OHTV_CLOUD_API_URL", "https://app.all-hands.dev"
+        )
+        
+        # Initialize LLM using openhands-sdk
+        api_key = os.environ.get("LLM_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "LLM_API_KEY environment variable not set. "
+                "This is required for answer generation."
+            )
+        self.llm = LLM(
+            model=self.model,
+            api_key=SecretStr(api_key),
+            base_url=os.environ.get("LLM_BASE_URL"),
         )
     
     def answer_question(
@@ -416,15 +433,6 @@ class RAGAnswerer:
         Returns:
             Tuple of (answer, context_tokens, total_input_tokens, cost)
         """
-        api_key = os.environ.get("LLM_API_KEY")
-        api_base = os.environ.get("LLM_BASE_URL")
-        
-        if not api_key:
-            raise RuntimeError(
-                "LLM_API_KEY environment variable not set. "
-                "This is required for answer generation."
-            )
-        
         # Build context text with richer metadata for LLM
         # Sort by score descending so most relevant sources come first
         sorted_chunks = sorted(context_chunks, key=lambda c: c.score, reverse=True)
@@ -468,37 +476,29 @@ Question: {question}
 
 Please provide a helpful answer based on the context above."""
         
+        # Build messages using openhands-sdk Message format
         messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": user_prompt},
+            Message(role="system", content=self.system_prompt),
+            Message(role="user", content=user_prompt),
         ]
         
-        # Estimate token counts (approximate using litellm's token counter)
+        # Estimate context tokens (approximate using litellm's token counter)
         try:
             context_tokens = litellm.token_counter(model=self.model, text=context_text)
-            total_tokens = litellm.token_counter(model=self.model, messages=messages)
         except Exception:
             # Fallback: rough estimate of ~4 chars per token
             context_tokens = len(context_text) // 4
-            total_tokens = (len(self.system_prompt) + len(user_prompt)) // 4
         
         try:
-            response = litellm.completion(
-                model=self.model,
-                messages=messages,
-                api_key=api_key,
-                api_base=api_base,
-            )
+            # Use openhands-sdk LLM for completion
+            response = self.llm.completion(messages)
             
-            # Calculate cost using litellm's completion_cost
-            cost = 0.0
-            try:
-                cost = litellm.completion_cost(completion_response=response)
-            except Exception:
-                # Fallback: rough estimate if model not in litellm's pricing
-                pass
+            # Get metrics from response
+            metrics = response.metrics
+            total_tokens = metrics.accumulated_token_usage if metrics else 0
+            cost = metrics.accumulated_cost if metrics else 0.0
             
-            return response.choices[0].message.content, context_tokens, total_tokens, cost
+            return response.message.content, context_tokens, total_tokens, cost
         except Exception as e:
             raise RuntimeError(f"LLM API call failed: {e}") from e
     
