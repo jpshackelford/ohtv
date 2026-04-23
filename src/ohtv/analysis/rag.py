@@ -125,9 +125,10 @@ class RAGAnswer:
     related_repos: list[RepoInfo] | None = None
     related_prs: list[RefInfo] | None = None
     related_issues: list[RefInfo] | None = None
-    # Token counts
+    # Token counts and cost
     context_tokens: int = 0
     total_tokens: int = 0  # Context + question + system prompt
+    cost: float = 0.0  # Estimated cost in USD
 
 
 class RAGAnswerer:
@@ -247,7 +248,7 @@ class RAGAnswerer:
         
         # Generate answer
         gen_start = time.perf_counter()
-        answer, context_tokens, total_tokens = self._generate_answer(question, context_chunks)
+        answer, context_tokens, total_tokens, cost = self._generate_answer(question, context_chunks)
         gen_time = time.perf_counter() - gen_start
         
         source_ids = {c.conversation_id for c in context_chunks}
@@ -283,6 +284,7 @@ class RAGAnswerer:
             related_issues=list(all_issues.values()) if all_issues else None,
             context_tokens=context_tokens,
             total_tokens=total_tokens,
+            cost=cost,
         )
     
     def _retrieve_context(
@@ -408,11 +410,11 @@ class RAGAnswerer:
         self,
         question: str,
         context_chunks: list[ContextChunk],
-    ) -> tuple[str, int, int]:
+    ) -> tuple[str, int, int, float]:
         """Generate an answer using the LLM with rich context.
         
         Returns:
-            Tuple of (answer, context_tokens, total_input_tokens)
+            Tuple of (answer, context_tokens, total_input_tokens, cost)
         """
         api_key = os.environ.get("LLM_API_KEY")
         api_base = os.environ.get("LLM_BASE_URL")
@@ -487,7 +489,16 @@ Please provide a helpful answer based on the context above."""
                 api_key=api_key,
                 api_base=api_base,
             )
-            return response.choices[0].message.content, context_tokens, total_tokens
+            
+            # Calculate cost using litellm's completion_cost
+            cost = 0.0
+            try:
+                cost = litellm.completion_cost(completion_response=response)
+            except Exception:
+                # Fallback: rough estimate if model not in litellm's pricing
+                pass
+            
+            return response.choices[0].message.content, context_tokens, total_tokens, cost
         except Exception as e:
             raise RuntimeError(f"LLM API call failed: {e}") from e
     
