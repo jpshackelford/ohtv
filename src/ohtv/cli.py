@@ -585,6 +585,7 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
     """Generate embeddings for conversations that need them."""
     import os
     from ohtv.db import get_connection
+    from pathlib import Path
     from ohtv.db.stores import ConversationStore, EmbeddingStore
     
     # Check if embedding is configured
@@ -644,7 +645,6 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
             console.print(msg)
         
         try:
-            from pathlib import Path
             from ohtv.analysis.embeddings import embed_conversation_full
             
             embedded_count = 0
