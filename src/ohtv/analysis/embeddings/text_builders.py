@@ -46,6 +46,50 @@ class ConversationMetadata:
         if parts:
             return "\n".join(parts) + "\n---\n"
         return ""
+    
+    def prepend_to_text(self, content: str, max_chars: int = 3000, max_refs: int = 7) -> str:
+        """Prepend preamble to content, truncating content to fit max_chars.
+        
+        This ensures the combined text (preamble + content) doesn't exceed
+        the model's context window, while preserving the full preamble.
+        
+        Args:
+            content: The main content text
+            max_chars: Maximum total characters (default: 3000 for Ollama safety)
+            max_refs: Maximum number of refs in preamble
+            
+        Returns:
+            Combined preamble + content, truncated to fit max_chars
+        """
+        preamble = self.build_preamble(max_refs=max_refs)
+        
+        if not preamble:
+            # No preamble - just truncate content if needed
+            if len(content) > max_chars:
+                truncate_at = content.rfind(' ', 0, max_chars)
+                if truncate_at > max_chars * 0.8:
+                    return content[:truncate_at]
+                return content[:max_chars]
+            return content
+        
+        # Calculate available space for content
+        available_for_content = max_chars - len(preamble)
+        
+        if available_for_content < 100:
+            # Preamble is too long - shouldn't happen, but handle it
+            # Truncate preamble and give content at least 500 chars
+            available_for_content = 500
+            preamble = preamble[:max_chars - 500]
+        
+        # Truncate content to fit
+        if len(content) > available_for_content:
+            truncate_at = content.rfind(' ', 0, available_for_content)
+            if truncate_at > available_for_content * 0.8:
+                content = content[:truncate_at]
+            else:
+                content = content[:available_for_content]
+        
+        return preamble + content
 
 
 @dataclass
@@ -329,15 +373,14 @@ def build_conversation_texts(
     content_chunks = chunk_text(content_text)
     
     # Apply contextual preamble enrichment if metadata provided
-    preamble = metadata.build_preamble() if metadata else ""
-    
-    if preamble:
+    # Uses smart truncation to ensure total size fits model context
+    if metadata:
         if analysis_text:
-            analysis_text = preamble + analysis_text
+            analysis_text = metadata.prepend_to_text(analysis_text)
         if summary_text:
-            summary_text = preamble + summary_text
+            summary_text = metadata.prepend_to_text(summary_text)
         for chunk in content_chunks:
-            chunk.text = preamble + chunk.text
+            chunk.text = metadata.prepend_to_text(chunk.text)
 
     return ConversationTexts(
         analysis_text=analysis_text.strip() if analysis_text and analysis_text.strip() else None,
