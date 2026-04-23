@@ -415,14 +415,17 @@ class RAGAnswerer:
             )
         
         # Build context text with richer metadata for LLM
+        # Sort by score descending so most relevant sources come first
+        sorted_chunks = sorted(context_chunks, key=lambda c: c.score, reverse=True)
+        
         context_parts = []
-        for i, chunk in enumerate(context_chunks, 1):
-            # Header with title and date
+        for i, chunk in enumerate(sorted_chunks, 1):
+            # Header with title, date, and relevance score
             header = f"[Source {i}: {chunk.title}"
             if chunk.created_at:
                 age = self._format_age(chunk.created_at)
                 header += f" ({age})"
-            header += "]"
+            header += f" - relevance: {chunk.score:.0%}]"
             context_parts.append(header)
             
             # Summary (if available)
