@@ -405,10 +405,11 @@ class RAGAnswerer:
                         display_name=ref.display_name,
                         link_type=link_type.value,
                     )
-                    if ref.ref_type.value == "pull_request":
+                    if ref.ref_type.value == "pr":
                         prs.append(ref_info)
-                    else:
+                    elif ref.ref_type.value == "issue":
                         issues.append(ref_info)
+                    # Skip branches and other ref types for now
             
             return ConversationSource(
                 conversation_id=conversation_id,
