@@ -605,7 +605,7 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
         # Find conversations without embeddings
         needs_embedding = []
         for conv in all_convs:
-            if not embed_store.has_embeddings(conv.id):
+            if not embed_store.has_embedding(conv.id):
                 needs_embedding.append(conv)
         
         if not needs_embedding:
