@@ -5561,6 +5561,9 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 return
         
         # Build embeddings with progress bar (parallel processing)
+        # Uses a single-writer pattern to avoid SQLite locking issues:
+        # - Multiple worker threads generate embeddings (API calls)
+        # - A single writer thread batches and commits to the database
         embedded = 0
         skipped = 0
         errors = 0
@@ -5603,47 +5606,43 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                 _last_rate_str[0] = f"{rate:.0f}/min"
             return _last_rate_str[0]
         
+        # Import the new batched embedding function
+        from ohtv.analysis.embeddings import generate_embeddings_only, EmbeddingBatch, EmbeddingWriter
+        
+        # Start the writer thread with the main connection
+        writer = EmbeddingWriter(conn, batch_size=20)
+        writer.start()
+        
         def _embed_one(conv, conv_dir) -> tuple[EmbeddingStats | None, str | None]:
-            """Embed a single conversation. Returns (stats, error_msg)."""
-            max_retries = 5
-            retry_delay = 0.5  # seconds
+            """Generate embeddings for a single conversation (no DB writes).
             
-            # Each thread gets its own connection (SQLite connections aren't thread-safe)
-            with get_connection() as thread_conn:
-                for attempt in range(max_retries):
-                    try:
-                        stats = embed_conversation_full(
-                            conv_dir,
-                            thread_conn,
-                            model=model,
-                            skip_existing=not force,
-                        )
-                        
-                        log.debug("Embedded %s: %d embeddings created", conv.id[:12], stats.embeddings_created)
-                        
-                        # Also update FTS for keyword search
-                        if stats.embeddings_created > 0:
-                            events = load_events(conv_dir)
-                            if events:
-                                summary = build_summary_text(events)
-                                if summary:
-                                    thread_embed_store = EmbeddingStore(thread_conn)
-                                    thread_embed_store.upsert_fts(conv.id, summary)
-                        
-                        thread_conn.commit()
-                        log.debug("Committed %s", conv.id[:12])
-                        return stats, None
-                    except sqlite3.OperationalError as e:
-                        log.debug("SQLite error on %s (attempt %d): %s", conv.id[:12], attempt + 1, e)
-                        if "database is locked" in str(e) and attempt < max_retries - 1:
-                            time.sleep(retry_delay * (attempt + 1))  # exponential backoff
-                            continue
-                        return None, str(e)
-                    except Exception as e:
-                        log.debug("Error on %s: %s", conv.id[:12], e)
-                        return None, str(e)
-            
-            return None, "database is locked (max retries exceeded)"
+            Returns (stats, error_msg). The batch is submitted to the writer queue.
+            """
+            # Use a read-only connection for checking existing embeddings
+            with get_connection() as read_conn:
+                try:
+                    batch = generate_embeddings_only(
+                        conv_dir,
+                        read_conn,
+                        model=model,
+                        skip_existing=not force,
+                    )
+                    
+                    if batch.error:
+                        return None, batch.error
+                    
+                    # Submit batch to writer (non-blocking)
+                    writer.submit(batch)
+                    
+                    log.debug("Generated %d embeddings for %s", 
+                              batch.stats.embeddings_created if batch.stats else 0, 
+                              conv.id[:12])
+                    
+                    return batch.stats, None
+                    
+                except Exception as e:
+                    log.debug("Error on %s: %s", conv.id[:12], e)
+                    return None, str(e)
         
         interrupted = False
         
@@ -5734,6 +5733,11 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             interrupted = True
             console.print("\n[yellow]Interrupted! Partial results saved.[/yellow]")
             console.print("[dim]  Some embeddings may be incomplete. Re-run to complete remaining.[/dim]")
+        finally:
+            # Stop the writer thread and flush any pending batches
+            writer.stop(timeout=30.0)
+            writer_stats = writer.get_stats()
+            log.info("Writer stats: %s", writer_stats)
         
         # Log deduplicated errors to file
         for err_msg, count in error_counts.items():
