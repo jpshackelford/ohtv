@@ -5,81 +5,40 @@ conversations table for use in RAG contextual enrichment.
 """
 
 import logging
+import sqlite3
 from pathlib import Path
 
 from ohtv.analysis.cache import load_analysis
-from ohtv.db.stores import ConversationStore
+from ohtv.db.models import Conversation
+from ohtv.db.stores import ConversationStore, StageStore
 
 log = logging.getLogger("ohtv")
 
+STAGE_NAME = "summaries"
 
-def process_summaries(
-    conn,
-    conv_dirs: list[Path],
-    force: bool = False,
-) -> int:
-    """Extract summaries from analysis cache and store in database.
-    
+
+def process_summaries(conn: sqlite3.Connection, conversation: Conversation) -> None:
+    """Extract summary from analysis cache and store in database.
+
+    Loads the objective analysis from cache (if available) and extracts
+    the goal as a summary for use in RAG contextual enrichment.
+
     Args:
         conn: Database connection
-        conv_dirs: List of conversation directories to process
-        force: If True, reprocess even if summary already exists
-    
-    Returns:
-        Number of summaries extracted
+        conversation: The conversation to process
     """
+    conv_dir = Path(conversation.location)
     conv_store = ConversationStore(conn)
-    extracted = 0
-    
-    for conv_dir in conv_dirs:
-        conv_id = conv_dir.name
-        
-        # Skip if already has summary (unless force)
-        if not force:
-            conv = conv_store.get(conv_id)
-            if conv and conv.summary:
-                continue
-        
-        # Load analysis from cache
-        analysis = load_analysis(conv_dir)
-        if not analysis:
-            continue
-        
+    stage_store = StageStore(conn)
+
+    # Load analysis from cache
+    analysis = load_analysis(conv_dir)
+    if analysis:
         # Extract goal as summary
         goal = analysis.get("goal")
         if goal:
-            if conv_store.update_summary(conv_id, goal):
-                extracted += 1
-                log.debug("Extracted summary for %s: %s", conv_id[:8], goal[:50])
-    
-    return extracted
+            conv_store.update_summary(conversation.id, goal)
+            log.debug("Extracted summary for %s: %s", conversation.id[:8], goal[:50])
 
-
-def extract_summary_for_conversation(
-    conn,
-    conv_dir: Path,
-) -> str | None:
-    """Extract and store summary for a single conversation.
-    
-    Args:
-        conn: Database connection
-        conv_dir: Conversation directory
-    
-    Returns:
-        Extracted summary or None if not available
-    """
-    conv_id = conv_dir.name
-    conv_store = ConversationStore(conn)
-    
-    # Load analysis from cache
-    analysis = load_analysis(conv_dir)
-    if not analysis:
-        return None
-    
-    # Extract goal as summary
-    goal = analysis.get("goal")
-    if goal:
-        conv_store.update_summary(conv_id, goal)
-        return goal
-    
-    return None
+    # Mark stage as complete (even if no summary found - we tried)
+    stage_store.mark_complete(conversation.id, STAGE_NAME, conversation.event_count)

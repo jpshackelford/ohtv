@@ -4849,7 +4849,7 @@ def db_init(verbose: bool) -> None:
 
 
 @db.command("process")
-@click.argument("stage", type=click.Choice(["refs", "actions", "branch_context", "push_pr_links", "all"]))
+@click.argument("stage", type=click.Choice(["refs", "actions", "branch_context", "push_pr_links", "summaries", "all"]))
 @click.option("--force", "-f", is_flag=True, help="Reprocess all conversations, ignoring stage completion")
 @click.option("--conversation", "-c", help="Process only this conversation ID")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
@@ -4865,6 +4865,7 @@ def db_process(stage: str, force: bool, conversation: str | None, verbose: bool)
       actions        - Recognize actions (file edits, git ops, PRs, etc.)
       branch_context - Track branches and create branch refs
       push_pr_links  - Correlate git pushes with PRs via branch matching
+      summaries      - Extract summaries from objective analysis cache
       all            - Run all stages in sequence
     """
     from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
