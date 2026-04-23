@@ -1874,19 +1874,34 @@ def ask(
             console.print()
             console.print("[bold]See Also:[/bold]")
             
+            def ref_sort_key(ref):
+                """Sort by repo name, then by ID number descending."""
+                fqn = ref.fqn
+                if "#" in fqn:
+                    repo_part, num_part = fqn.rsplit("#", 1)
+                    try:
+                        num = int(num_part)
+                    except ValueError:
+                        num = 0
+                    return (repo_part.lower(), -num)  # Negative for descending
+                return (fqn.lower(), 0)
+            
             if result.related_prs:
                 console.print("  [bold]Pull Requests:[/bold]")
-                for pr in result.related_prs:
+                sorted_prs = sorted(result.related_prs, key=ref_sort_key)
+                for pr in sorted_prs:
                     console.print(f"  • [link={pr.url}]{pr.fqn}[/link]")
             
             if result.related_issues:
                 console.print("  [bold]Issues:[/bold]")
-                for issue in result.related_issues:
+                sorted_issues = sorted(result.related_issues, key=ref_sort_key)
+                for issue in sorted_issues:
                     console.print(f"  • [link={issue.url}]{issue.fqn}[/link]")
             
             if result.related_repos:
                 console.print("  [bold]Repositories:[/bold]")
-                for repo in result.related_repos:
+                sorted_repos = sorted(result.related_repos, key=lambda r: r.fqn.lower())
+                for repo in sorted_repos:
                     console.print(f"  • [link={repo.url}]{repo.fqn}[/link]")
         
         # Show timing info
