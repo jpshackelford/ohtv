@@ -106,7 +106,17 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - Event loading/transcript building: <100ms
     - Cache operations: <10ms
 
-20. **Parallel LLM processing**: The `gen objs` command (batch mode) automatically uses parallel processing (20 workers) when analyzing multiple conversations. This is an internal optimization - no CLI option needed. Uses `ThreadPoolExecutor` with thread-safe counters. **Graceful shutdown**: SIGINT/SIGTERM signals are caught - in-flight LLM requests complete and cache is saved before exit, preventing data corruption. **Confirmation prompt**: Shows model name when analyzing >20 conversations.
+20. **Parallel processing**: Multiple commands use parallel processing with 20 workers:
+    - **`gen objs`** (batch mode): Parallel LLM analysis of conversations
+    - **`sync`**: Parallel download of conversations from cloud
+    - **`db embed`**: Parallel embedding generation
+    
+    All use `ThreadPoolExecutor` with thread-safe counters. **Graceful shutdown**: SIGINT/SIGTERM signals are caught - in-flight requests complete before exit, preventing data corruption. **Progress display**: Rich progress bar shows processing rate.
+    
+    The `ohtv.parallel` module provides shared utilities:
+    - `format_rate(count, elapsed, unit)` - Format processing rate
+    - `RateTracker` - Thread-safe rate tracking with smoothing
+    - `run_parallel(items, process_fn, ...)` - Generic parallel execution helper
 
 21. **Model configuration**: LLM model can be set via:
     - CLI: `--model/-m` option on `gen objs` command

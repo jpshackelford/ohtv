@@ -280,12 +280,12 @@ def sync(
     try:
         # Handle --force -n combination (reset to N newest)
         if force and max_new is not None:
-            result = _run_force_reset(manager, max_new, dry_run, quiet)
+            result, elapsed = _run_force_reset(manager, max_new, dry_run, quiet)
         else:
-            result = _run_sync(manager, force, since, dry_run, max_new, quiet)
+            result, elapsed = _run_sync(manager, force, since, dry_run, max_new, quiet)
         
         if not quiet:
-            _show_result(result, dry_run)
+            _show_result(result, dry_run, elapsed)
         
         # Always run processing stages after sync (unless dry-run)
         if not dry_run:
@@ -304,7 +304,7 @@ def _run_force_reset(
     max_new: int,
     dry_run: bool,
     quiet: bool,
-) -> SyncResult:
+) -> tuple[SyncResult, float]:
     """Handle --force -n combination: reset to N newest conversations."""
     from rich.prompt import Confirm
     
@@ -321,8 +321,16 @@ def _run_force_reset(
                 console.print("[dim]Cancelled.[/dim]")
                 raise SystemExit(0)
     
-    on_progress = None if quiet else _make_progress_callback()
-    return manager.reset_to_n_newest(max_new, dry_run=dry_run, on_progress=on_progress)
+    return _run_sync_with_progress(
+        lambda progress_cb, shutdown_check: manager.reset_to_n_newest(
+            max_new, 
+            dry_run=dry_run, 
+            on_progress=progress_cb,
+            shutdown_check=shutdown_check,
+        ),
+        quiet=quiet,
+        expected_total=max_new,
+    )
 
 
 @main.command()
@@ -524,13 +532,174 @@ def _run_sync(
     dry_run: bool,
     max_new: int | None,
     quiet: bool,
-) -> SyncResult:
+) -> tuple[SyncResult, float]:
     """Execute sync with progress display."""
     if not quiet:
         _print_sync_header(force, since, dry_run, max_new)
 
-    on_progress = None if quiet else _make_progress_callback()
-    return manager.sync(force=force, since=since, dry_run=dry_run, max_new=max_new, on_progress=on_progress)
+    return _run_sync_with_progress(
+        lambda progress_cb, shutdown_check: manager.sync(
+            force=force, 
+            since=since, 
+            dry_run=dry_run, 
+            max_new=max_new, 
+            on_progress=progress_cb,
+            shutdown_check=shutdown_check,
+        ),
+        quiet=quiet,
+    )
+
+
+def _run_sync_with_progress(
+    sync_fn,
+    quiet: bool,
+    expected_total: int | None = None,
+) -> tuple[SyncResult, float]:
+    """Run a sync operation with Rich progress bar and graceful shutdown handling.
+    
+    Args:
+        sync_fn: Function that takes (progress_callback, shutdown_check) and returns SyncResult
+        quiet: If True, skip progress display
+        expected_total: If known, the expected total number of items to sync
+        
+    Returns:
+        Tuple of (SyncResult, elapsed_seconds)
+    """
+    import signal
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+    
+    start_time = time.perf_counter()
+    
+    if quiet:
+        result = sync_fn(None, None)
+        return result, time.perf_counter() - start_time
+    
+    # Shutdown handling
+    shutdown_requested = [False]
+    
+    def _handle_shutdown(signum, frame):
+        shutdown_requested[0] = True
+        console.print("\n[yellow]Shutdown requested - finishing current downloads...[/yellow]")
+    
+    old_sigint = signal.signal(signal.SIGINT, _handle_shutdown)
+    old_sigterm = signal.signal(signal.SIGTERM, _handle_shutdown)
+    
+    # Counters for progress display
+    processed_count = [0]
+    success_count = [0]  # new + updated
+    failed_count = [0]
+    current_total = [expected_total]  # Mutable to allow update from callback
+    
+    # Rate tracking with smoothing
+    last_rate_str = [""]
+    last_rate_update = [0.0]
+    
+    def _format_remaining(total: int | None, processed: int, failed: int) -> str:
+        """Format remaining count (counting down)."""
+        if total is None:
+            # Unknown total - show what we've done
+            if failed > 0:
+                return f"[green]{processed - failed}[/green] ok [red]{failed}[/red] err"
+            return f"[green]{processed}[/green] ok"
+        
+        remaining = total - processed
+        if failed > 0:
+            return f"[dim]{remaining}[/dim] left [red]{failed}[/red] err"
+        return f"[dim]{remaining}[/dim] left"
+    
+    def _format_rate(processed: int, elapsed: float) -> str:
+        """Format rate with smoothing."""
+        if elapsed < 0.5 or processed < 2:
+            return ""
+        # Only recalculate every 0.5s
+        if elapsed - last_rate_update[0] >= 0.5 or not last_rate_str[0]:
+            last_rate_update[0] = elapsed
+            rate = processed / (elapsed / 60.0)
+            last_rate_str[0] = f"{rate:.0f}/min"
+        return last_rate_str[0]
+    
+    try:
+        # Layout: Syncing ━━━━━━━━━ 62% 190 left │ ETA 0:02:15 119/min
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Syncing"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn("{task.fields[remaining]}"),
+            TextColumn("[dim]│[/dim]"),
+            TextColumn("[dim]ETA[/dim]"),
+            TimeRemainingColumn(),
+            TextColumn("[dim]{task.fields[rate]}[/dim]"),
+            console=console,
+            transient=True,
+        ) as progress:
+            task = progress.add_task(
+                "Syncing",
+                total=expected_total,
+                remaining="",
+                rate=""
+            )
+            
+            def progress_callback(conv_id: str, title: str, action: str, total: int | None = None) -> None:
+                """Progress callback that updates the Rich progress bar."""
+                nonlocal current_total
+                
+                # Update total if provided (first call from sync after categorization)
+                if total is not None and current_total[0] is None:
+                    current_total[0] = total
+                    progress.update(task, total=total)
+                
+                # Skip counting skipped items in progress
+                if action == "skipped":
+                    return
+                
+                processed_count[0] += 1
+                
+                # Track success/failure
+                if action in ("new", "updated"):
+                    success_count[0] += 1
+                elif action == "failed":
+                    failed_count[0] += 1
+                
+                elapsed = time.perf_counter() - start_time
+                remaining_str = _format_remaining(current_total[0], processed_count[0], failed_count[0])
+                rate_str = _format_rate(processed_count[0], elapsed)
+                
+                # Update progress bar
+                progress.update(task, completed=processed_count[0], remaining=remaining_str, rate=rate_str)
+            
+            def shutdown_check() -> bool:
+                return shutdown_requested[0]
+            
+            result = sync_fn(progress_callback, shutdown_check)
+            
+            # Final update to ensure completion is shown
+            if current_total[0] is None:
+                progress.update(task, total=processed_count[0], completed=processed_count[0])
+        
+        elapsed = time.perf_counter() - start_time
+        
+        if shutdown_requested[0]:
+            console.print(f"[yellow]Sync interrupted after {_format_elapsed(elapsed)}. Partial results saved.[/yellow]")
+        
+        return result, elapsed
+    
+    finally:
+        signal.signal(signal.SIGINT, old_sigint)
+        signal.signal(signal.SIGTERM, old_sigterm)
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Format elapsed time as human-readable string."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes = int(seconds // 60)
+    secs = int(seconds % 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s"
+    hours = minutes // 60
+    mins = minutes % 60
+    return f"{hours}h {mins}m"
 
 
 def _print_sync_header(force: bool, since: datetime | None, dry_run: bool, max_new: int | None) -> None:
@@ -545,31 +714,14 @@ def _print_sync_header(force: bool, since: datetime | None, dry_run: bool, max_n
         console.print(f"{mode}Syncing cloud conversations{limit_suffix}...")
 
 
-def _make_progress_callback():
-    """Create progress callback for sync."""
-
-    def callback(conv_id: str, title: str, action: str) -> None:
-        short_id = conv_id[:7]
-        status_style = {
-            "new": "green",
-            "updated": "yellow",
-            "unchanged": "dim",
-            "failed": "red",
-            "skipped": "dim cyan",
-        }
-        style = status_style.get(action, "")
-        console.print(f"  [{style}]{short_id}[/{style}] {title[:40]}... ({action})")
-
-    return callback
-
-
-def _show_result(result: SyncResult, dry_run: bool) -> None:
+def _show_result(result: SyncResult, dry_run: bool, elapsed: float | None = None) -> None:
     """Display sync result summary."""
     console.print()
     if dry_run:
         console.print("[yellow]Would sync:[/yellow]")
     else:
-        console.print("[green]Sync complete:[/green]")
+        elapsed_str = f" in {_format_elapsed(elapsed)}" if elapsed else ""
+        console.print(f"[green]Sync complete{elapsed_str}:[/green]")
 
     console.print(f"  New:       {result.new}")
     console.print(f"  Updated:   {result.updated}")

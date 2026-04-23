@@ -3,6 +3,8 @@
 import json
 import logging
 import shutil
+import threading
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +17,10 @@ from ohtv.exporter import TrajectoryExporter, count_events
 from ohtv.sources.cloud import CloudClient, RateLimitExceededError
 
 log = logging.getLogger("ohtv")
+
+# Number of parallel workers for API calls
+# Conservative value to avoid overwhelming rate limits on download API
+DEFAULT_MAX_WORKERS = 3
 
 
 class SyncAuthError(Exception):
@@ -36,6 +42,7 @@ class SyncResult:
     skipped_new: int = 0  # New conversations skipped due to max_new limit
     errors: list[tuple[str, str]] = field(default_factory=list)
     failed_ids: list[str] = field(default_factory=list)
+    total_to_process: int = 0  # Total conversations to process (for progress display)
 
     @property
     def total_synced(self) -> int:
@@ -48,6 +55,11 @@ class SyncResult:
     @property
     def has_skipped_new(self) -> bool:
         return self.skipped_new > 0
+    
+    @property
+    def processed_count(self) -> int:
+        """Total processed (excluding skipped_new which aren't processed)."""
+        return self.new + self.updated + self.unchanged + self.failed
 
 
 @dataclass
@@ -100,6 +112,8 @@ class SyncManager:
         dry_run: bool = False,
         max_new: int | None = None,
         on_progress: Callable[[str, str, str], None] | None = None,
+        parallel: bool = True,
+        shutdown_check: Callable[[], bool] | None = None,
     ) -> SyncResult:
         """Sync conversations from cloud.
         
@@ -109,19 +123,25 @@ class SyncManager:
             dry_run: Show what would sync without downloading
             max_new: Maximum number of NEW conversations to sync (no limit on updates)
             on_progress: Callback for progress updates (conv_id, title, action)
+            parallel: Use parallel downloads (default True, uses 20 workers)
+            shutdown_check: Optional function that returns True to request graceful shutdown
         """
         if not self.config.api_key:
             raise ValueError("API key required. Set OH_API_KEY environment variable.")
 
         cutoff = self._determine_cutoff(force, since)
-        log.info("Starting sync (force=%s, cutoff=%s, dry_run=%s, max_new=%s)", force, cutoff, dry_run, max_new)
+        log.info("Starting sync (force=%s, cutoff=%s, dry_run=%s, max_new=%s, parallel=%s)", 
+                 force, cutoff, dry_run, max_new, parallel)
 
         try:
             with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
                 conversations = client.search_all_conversations(updated_since=cutoff)
                 conversations = self._add_failed_conversations(conversations)
                 log.info("Found %d conversations to process", len(conversations))
-                return self._process_conversations(client, conversations, force, dry_run, max_new, on_progress)
+                return self._process_conversations(
+                    client, conversations, force, dry_run, max_new, on_progress, 
+                    parallel=parallel, shutdown_check=shutdown_check
+                )
         except httpx.HTTPStatusError as e:
             log.error("HTTP error during sync: %s %s", e.response.status_code, e.response.reason_phrase)
             if e.response.status_code in (401, 403):
@@ -169,20 +189,226 @@ class SyncManager:
         dry_run: bool,
         max_new: int | None,
         on_progress: Callable[[str, str, str], None] | None,
+        parallel: bool = True,
+        shutdown_check: Callable[[], bool] | None = None,
     ) -> SyncResult:
-        """Process each conversation that needs syncing."""
+        """Process each conversation that needs syncing.
+        
+        Args:
+            client: Cloud API client
+            conversations: List of conversation dicts from API
+            force: Re-download all conversations
+            dry_run: Don't actually download, just report what would happen
+            max_new: Limit on number of new conversations to sync
+            on_progress: Callback for progress updates
+            parallel: Use parallel downloads (default True)
+            shutdown_check: Optional function that returns True to request graceful shutdown
+        """
         result = SyncResult()
-        consecutive_failures = 0
-        max_consecutive_failures = 5
-
-        for conv in conversations:
-            action = self._sync_one(client, conv, force, dry_run, max_new, on_progress, result)
-            self._update_result(result, action)
-            consecutive_failures = self._check_abort(action, consecutive_failures, max_consecutive_failures)
+        
+        # Phase 1: Determine what action to take for each conversation
+        # This handles max_new limit correctly before parallel processing
+        work_items = self._categorize_conversations(conversations, force, max_new, result)
+        
+        # Set total for progress display (excluding skipped items)
+        result.total_to_process = sum(1 for _, action in work_items if action != "skipped")
+        
+        # Phase 2: Handle dry-run or unchanged (no download needed)
+        # Also notify progress callback of total on first call
+        first_progress_call = True
+        to_download = []
+        for conv, action in work_items:
+            if action in ("unchanged", "skipped") or dry_run:
+                self._update_result(result, action)
+                if on_progress:
+                    # Pass total on first call so progress bar can set its total
+                    if first_progress_call:
+                        on_progress(conv["id"], conv.get("title", "")[:50], action, result.total_to_process)
+                        first_progress_call = False
+                    else:
+                        on_progress(conv["id"], conv.get("title", "")[:50], action)
+            else:
+                to_download.append((conv, action))
+        
+        # Phase 3: Download conversations (parallel or sequential)
+        if to_download:
+            # If no items were processed in phase 2, pass total on first download callback
+            pass_total = first_progress_call
+            if parallel and len(to_download) > 1:
+                self._download_parallel(client, to_download, result, on_progress, shutdown_check, pass_total)
+            else:
+                self._download_sequential(client, to_download, result, on_progress, shutdown_check, pass_total)
 
         if not dry_run:
             self._finalize_sync(result)
         return result
+
+    def _categorize_conversations(
+        self,
+        conversations: list[dict],
+        force: bool,
+        max_new: int | None,
+        result: SyncResult,
+    ) -> list[tuple[dict, str]]:
+        """Determine action for each conversation, respecting max_new limit.
+        
+        Returns list of (conv, action) tuples.
+        """
+        work_items = []
+        new_count = 0
+        
+        for conv in conversations:
+            conv_id = conv["id"]
+            cloud_updated_at = conv.get("updated_at", "")
+            action = self._determine_action(conv_id, cloud_updated_at, force)
+            
+            # Handle max_new limit
+            if action == "new":
+                if max_new is not None and new_count >= max_new:
+                    action = "skipped"
+                    result.skipped_new += 1
+                else:
+                    new_count += 1
+            
+            work_items.append((conv, action))
+        
+        return work_items
+
+    def _download_sequential(
+        self,
+        client: CloudClient,
+        work_items: list[tuple[dict, str]],
+        result: SyncResult,
+        on_progress: Callable[[str, str, str], None] | None,
+        shutdown_check: Callable[[], bool] | None = None,
+        pass_total_on_first: bool = False,
+    ) -> None:
+        """Download conversations sequentially."""
+        consecutive_failures = 0
+        max_consecutive_failures = 5
+        first_callback = True
+        
+        for conv, planned_action in work_items:
+            if shutdown_check and shutdown_check():
+                log.info("Shutdown requested, stopping sync")
+                break
+            
+            conv_id = conv["id"]
+            cloud_updated_at = conv.get("updated_at", "")
+            title = conv.get("title", "")[:50]
+            
+            # Clean up for force mode
+            if planned_action == "updated":
+                self._cleanup_conversation_dir(conv_id)
+            
+            actual_action = self._download_and_update(
+                client, conv, conv_id, cloud_updated_at, planned_action, result
+            )
+            self._update_result(result, actual_action)
+            if on_progress:
+                if first_callback and pass_total_on_first:
+                    on_progress(conv_id, title, actual_action, result.total_to_process)
+                    first_callback = False
+                else:
+                    on_progress(conv_id, title, actual_action)
+            
+            consecutive_failures = self._check_abort(actual_action, consecutive_failures, max_consecutive_failures)
+
+    def _download_parallel(
+        self,
+        client: CloudClient,
+        work_items: list[tuple[dict, str]],
+        result: SyncResult,
+        on_progress: Callable[[str, str, str], None] | None,
+        shutdown_check: Callable[[], bool] | None = None,
+        pass_total_on_first: bool = False,
+    ) -> None:
+        """Download conversations in parallel using a thread pool.
+        
+        Rate limiting is handled by a shared rate limiter in the CloudClient,
+        so when one worker hits a 429, all workers will pause before making
+        new requests.
+        """
+        max_workers = min(DEFAULT_MAX_WORKERS, len(work_items))
+        log.info("Starting parallel download with %d workers for %d conversations", 
+                 max_workers, len(work_items))
+        
+        # Thread-safe lock for result updates
+        lock = threading.Lock()
+        total_failures = 0
+        max_total_failures = len(work_items) // 2 + 5  # Allow up to ~50% failures before aborting
+        abort_requested = False
+        first_callback = [True]  # Mutable for thread-safe first-call detection
+        
+        def download_one(item: tuple[dict, str]) -> tuple[dict, str, str]:
+            """Download a single conversation. Returns (conv, planned_action, actual_action)."""
+            conv, planned_action = item
+            conv_id = conv["id"]
+            cloud_updated_at = conv.get("updated_at", "")
+            
+            # Clean up for force mode (thread-safe - each conv has its own dir)
+            if planned_action == "updated":
+                self._cleanup_conversation_dir(conv_id)
+            
+            actual_action = self._download_and_update(
+                client, conv, conv_id, cloud_updated_at, planned_action, result
+            )
+            return conv, planned_action, actual_action
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_item = {executor.submit(download_one, item): item for item in work_items}
+            
+            pending = set(future_to_item.keys())
+            while pending:
+                # Check for shutdown
+                if shutdown_check and shutdown_check():
+                    log.info("Shutdown requested, cancelling remaining downloads")
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+                
+                if abort_requested:
+                    log.info("Aborting due to too many failures")
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+                
+                # Wait with timeout to allow shutdown check
+                done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
+                
+                for future in done:
+                    try:
+                        conv, planned_action, actual_action = future.result()
+                    except SyncAuthError:
+                        # Re-raise auth errors - they apply to all requests
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        raise
+                    except Exception as e:
+                        # Unexpected error in the download function
+                        item = future_to_item[future]
+                        conv, _ = item
+                        log.error("Unexpected error downloading %s: %s", conv["id"], e)
+                        actual_action = "failed"
+                        with lock:
+                            self._record_failure(result, conv["id"], str(e))
+                    
+                    # Update result (thread-safe)
+                    with lock:
+                        self._update_result(result, actual_action)
+                        if actual_action == "failed":
+                            total_failures += 1
+                            if total_failures >= max_total_failures:
+                                abort_requested = True
+                    
+                    # Progress callback
+                    if on_progress:
+                        with lock:
+                            is_first = first_callback[0]
+                            if is_first:
+                                first_callback[0] = False
+                        
+                        if is_first and pass_total_on_first:
+                            on_progress(conv["id"], conv.get("title", "")[:50], actual_action, result.total_to_process)
+                        else:
+                            on_progress(conv["id"], conv.get("title", "")[:50], actual_action)
 
     def _check_abort(self, action: str, consecutive_failures: int, max_failures: int) -> int:
         """Check if we should abort due to too many consecutive failures."""
@@ -193,45 +419,6 @@ class SyncManager:
                 raise SyncAbortedError(f"Aborting after {max_failures} consecutive failures")
             return consecutive_failures
         return 0  # Reset on success
-
-    def _sync_one(
-        self,
-        client: CloudClient,
-        conv: dict,
-        force: bool,
-        dry_run: bool,
-        max_new: int | None,
-        on_progress: Callable[[str, str, str], None] | None,
-        result: SyncResult,
-    ) -> str:
-        """Sync a single conversation. Returns action taken: 'new', 'updated', 'unchanged', 'failed', 'skipped'."""
-        conv_id = conv["id"]
-        cloud_updated_at = conv.get("updated_at", "")
-        title = conv.get("title", "")[:50]
-
-        planned_action = self._determine_action(conv_id, cloud_updated_at, force)
-
-        # Check if we should skip this new conversation due to max_new limit
-        if planned_action == "new" and max_new is not None and result.new >= max_new:
-            if on_progress:
-                on_progress(conv_id, title, "skipped")
-            return "skipped"
-
-        if planned_action == "unchanged" or dry_run:
-            if on_progress:
-                on_progress(conv_id, title, planned_action)
-            return planned_action
-
-        # For force mode, clean up existing directory before re-download
-        if force and planned_action == "updated":
-            self._cleanup_conversation_dir(conv_id)
-
-        actual_action = self._download_and_update(
-            client, conv, conv_id, cloud_updated_at, planned_action, result
-        )
-        if on_progress:
-            on_progress(conv_id, title, actual_action)
-        return actual_action
 
     def _cleanup_conversation_dir(self, conv_id: str) -> None:
         """Remove existing conversation directory before re-download."""
@@ -366,6 +553,8 @@ class SyncManager:
         n: int,
         dry_run: bool = False,
         on_progress: Callable[[str, str, str], None] | None = None,
+        parallel: bool = True,
+        shutdown_check: Callable[[], bool] | None = None,
     ) -> SyncResult:
         """Reset local storage to only the N most recently updated conversations.
         
@@ -379,11 +568,13 @@ class SyncManager:
             n: Number of conversations to keep
             dry_run: Show what would happen without making changes
             on_progress: Callback for progress updates
+            parallel: Use parallel downloads (default True, uses 20 workers)
+            shutdown_check: Optional function that returns True to request graceful shutdown
         """
         if not self.config.api_key:
             raise ValueError("API key required. Set OH_API_KEY environment variable.")
 
-        log.info("Resetting to %d newest conversations (dry_run=%s)", n, dry_run)
+        log.info("Resetting to %d newest conversations (dry_run=%s, parallel=%s)", n, dry_run, parallel)
 
         try:
             with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
@@ -416,19 +607,15 @@ class SyncManager:
                 self.manifest.conversations = {}
                 self.manifest.failed_ids = []
                 
-                # Download the N newest conversations
+                # Download using the same infrastructure as regular sync
                 result = SyncResult()
-                consecutive_failures = 0
-                max_consecutive_failures = 5
+                result.total_to_process = len(conversations_to_sync)
+                work_items = [(conv, "new") for conv in conversations_to_sync]
                 
-                for conv in conversations_to_sync:
-                    action = self._download_and_update(
-                        client, conv, conv["id"], conv.get("updated_at", ""), "new", result
-                    )
-                    self._update_result(result, action)
-                    if on_progress:
-                        on_progress(conv["id"], conv.get("title", "")[:50], action)
-                    consecutive_failures = self._check_abort(action, consecutive_failures, max_consecutive_failures)
+                if parallel and len(work_items) > 1:
+                    self._download_parallel(client, work_items, result, on_progress, shutdown_check, pass_total_on_first=True)
+                else:
+                    self._download_sequential(client, work_items, result, on_progress, shutdown_check, pass_total_on_first=True)
                 
                 # Track how many were available but not synced
                 if len(conversations) > n:
