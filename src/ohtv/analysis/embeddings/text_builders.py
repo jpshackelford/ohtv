@@ -7,6 +7,11 @@ Supports contextual chunk enrichment (Anthropic's "contextual retrieval" techniq
 from dataclasses import dataclass, field
 from datetime import datetime
 
+# Minimum characters required for content after subtracting preamble.
+# If preamble is so long that less than this remains for content,
+# we truncate the preamble to ensure meaningful content is embedded.
+MIN_CONTENT_SPACE = 100
+
 
 @dataclass
 class ConversationMetadata:
@@ -72,7 +77,7 @@ class ConversationMetadata:
         # Calculate available space for content
         available_for_content = max_chars - len(preamble)
         
-        if available_for_content < 100:
+        if available_for_content < MIN_CONTENT_SPACE:
             # Preamble is too long - shouldn't happen, but handle it
             available_for_content = 500
             preamble = preamble[:max_chars - 500]

@@ -436,88 +436,105 @@ class RAGAnswerer:
         Returns:
             Tuple of (answer, context_tokens, total_input_tokens, cost)
         """
-        # Build context text with richer metadata for LLM
-        # Sort by score descending so most relevant sources come first
-        sorted_chunks = sorted(context_chunks, key=lambda c: c.score, reverse=True)
+        context_text = self._build_context_text(context_chunks)
+        user_prompt = self._build_user_prompt(question, context_text)
+        context_tokens = self._estimate_tokens(context_text)
         
-        context_parts = []
-        for i, chunk in enumerate(sorted_chunks, 1):
-            # Header with title, date, and relevance score
-            header = f"[Source {i}: {chunk.title}"
-            if chunk.created_at:
-                age = self._format_age(chunk.created_at)
-                header += f" ({age})"
-            header += f" - relevance: {chunk.score:.0%}]"
-            context_parts.append(header)
-            
-            # Summary (if available)
-            if chunk.summary:
-                context_parts.append(f"Summary: {chunk.summary}")
-            
-            # Related refs for disambiguation
-            if chunk.source:
-                ref_fqns = []
-                for pr in chunk.source.prs[:3]:  # Limit to avoid bloat
-                    ref_fqns.append(f"PR {pr.fqn}")
-                for issue in chunk.source.issues[:3]:
-                    ref_fqns.append(f"Issue {issue.fqn}")
-                for repo in chunk.source.repos[:2]:
-                    ref_fqns.append(f"Repo {repo.fqn}")
-                if ref_fqns:
-                    context_parts.append(f"Related: {', '.join(ref_fqns)}")
-            
-            # Content
-            context_parts.append(chunk.source_text)
-            context_parts.append("")
-        
-        context_text = "\n".join(context_parts)
-        
-        user_prompt = f"""Context from conversation history:
-{context_text}
-
-Question: {question}
-
-Please provide a helpful answer based on the context above."""
-        
-        # Build messages using openhands-sdk Message format
         messages = [
             Message(role="system", content=self.system_prompt),
             Message(role="user", content=user_prompt),
         ]
         
-        # Estimate context tokens (approximate using litellm's token counter)
         try:
-            context_tokens = litellm.token_counter(model=self.model, text=context_text)
-        except Exception:
-            # Fallback: rough estimate of ~4 chars per token
-            context_tokens = len(context_text) // 4
-        
-        try:
-            # Use openhands-sdk LLM for completion
             response = self.llm.completion(messages)
-            
-            # Get metrics from response
-            metrics = response.metrics
-            total_tokens = 0
-            cost = 0.0
-            if metrics:
-                if metrics.accumulated_token_usage:
-                    usage = metrics.accumulated_token_usage
-                    total_tokens = usage.prompt_tokens + usage.completion_tokens
-                cost = metrics.accumulated_cost or 0.0
-            
-            # Extract text from message content (which is a list of TextContent/ImageContent)
-            answer_text = ""
-            if response.message.content:
-                text_parts = [
-                    part.text for part in response.message.content
-                    if hasattr(part, 'text') and part.text
-                ]
-                answer_text = "".join(text_parts)
-            
+            answer_text = self._extract_answer_text(response)
+            total_tokens, cost = self._extract_response_metrics(response)
             return answer_text, context_tokens, total_tokens, cost
         except Exception as e:
             raise RuntimeError(f"LLM API call failed: {e}") from e
+    
+    def _build_context_text(self, context_chunks: list[ContextChunk]) -> str:
+        """Build formatted context text from chunks for LLM prompt."""
+        sorted_chunks = sorted(context_chunks, key=lambda c: c.score, reverse=True)
+        
+        context_parts = []
+        for i, chunk in enumerate(sorted_chunks, 1):
+            context_parts.append(self._format_chunk_header(chunk, i))
+            
+            if chunk.summary:
+                context_parts.append(f"Summary: {chunk.summary}")
+            
+            refs_line = self._format_chunk_refs(chunk)
+            if refs_line:
+                context_parts.append(refs_line)
+            
+            context_parts.append(chunk.source_text)
+            context_parts.append("")
+        
+        return "\n".join(context_parts)
+    
+    def _format_chunk_header(self, chunk: ContextChunk, index: int) -> str:
+        """Format the header line for a context chunk."""
+        header = f"[Source {index}: {chunk.title}"
+        if chunk.created_at:
+            header += f" ({self._format_age(chunk.created_at)})"
+        header += f" - relevance: {chunk.score:.0%}]"
+        return header
+    
+    def _format_chunk_refs(self, chunk: ContextChunk) -> str | None:
+        """Format related refs for a chunk, or None if no refs."""
+        if not chunk.source:
+            return None
+        
+        ref_fqns = []
+        for pr in chunk.source.prs[:3]:
+            ref_fqns.append(f"PR {pr.fqn}")
+        for issue in chunk.source.issues[:3]:
+            ref_fqns.append(f"Issue {issue.fqn}")
+        for repo in chunk.source.repos[:2]:
+            ref_fqns.append(f"Repo {repo.fqn}")
+        
+        return f"Related: {', '.join(ref_fqns)}" if ref_fqns else None
+    
+    def _build_user_prompt(self, question: str, context_text: str) -> str:
+        """Build the user prompt with context and question."""
+        return f"""Context from conversation history:
+{context_text}
+
+Question: {question}
+
+Please provide a helpful answer based on the context above."""
+    
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate token count for text."""
+        try:
+            return litellm.token_counter(model=self.model, text=text)
+        except Exception:
+            return len(text) // 4
+    
+    def _extract_answer_text(self, response) -> str:
+        """Extract answer text from LLM response."""
+        if not response.message.content:
+            return ""
+        text_parts = [
+            part.text for part in response.message.content
+            if hasattr(part, 'text') and part.text
+        ]
+        return "".join(text_parts)
+    
+    def _extract_response_metrics(self, response) -> tuple[int, float]:
+        """Extract total tokens and cost from LLM response."""
+        metrics = response.metrics
+        if not metrics:
+            return 0, 0.0
+        
+        total_tokens = 0
+        if metrics.accumulated_token_usage:
+            usage = metrics.accumulated_token_usage
+            total_tokens = usage.prompt_tokens + usage.completion_tokens
+        
+        cost = metrics.accumulated_cost or 0.0
+        return total_tokens, cost
     
     def _format_age(self, dt: datetime) -> str:
         """Format datetime as relative age (e.g., '3 days ago')."""

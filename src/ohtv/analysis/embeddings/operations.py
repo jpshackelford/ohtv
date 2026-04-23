@@ -476,7 +476,7 @@ def generate_embeddings_only(
             
     except Exception as e:
         batch.error = str(e)
-        log.debug("Error generating embeddings for %s: %s", conv_id, e)
+        log.warning("Error generating embeddings for %s: %s", conv_id, e)
     
     return batch
 
