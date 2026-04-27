@@ -437,6 +437,20 @@ def _show_config() -> None:
     console.print()
     console.print(table)
     
+    # Show embedding configuration
+    console.print()
+    console.print("[bold]Embedding Configuration[/bold]")
+    try:
+        from ohtv.analysis.embeddings.config import get_current_config
+        embed_cfg = get_current_config()
+        if embed_cfg.is_configured:
+            console.print(f"  embedding_model: [cyan]{embed_cfg.model}[/cyan] ({_source_style(embed_cfg.source)})")
+        else:
+            console.print("  embedding_model: [dim]not configured[/dim]")
+            console.print("  [dim]Run 'ohtv config-embed' to set up embedding support[/dim]")
+    except Exception:
+        console.print("  embedding_model: [dim]not configured[/dim]")
+    
     # Show data directories
     console.print()
     console.print("[bold]Data Directories[/bold]")
@@ -450,6 +464,303 @@ def _show_config() -> None:
         console.print(f"  [green]✓[/green] manifest exists")
     else:
         console.print(f"  [yellow]![/yellow] manifest not found")
+
+
+@main.command("config-embed")
+@click.option("--test", is_flag=True, help="Test current configuration without changing it")
+@click.option("--reset", is_flag=True, help="Clear saved embedding configuration")
+def config_embed(test: bool, reset: bool) -> None:
+    """Configure embedding model for semantic search.
+    
+    \b
+    Runs a wizard to help configure embedding support. Automatically detects:
+    - Cloud embedding via LLM_API_KEY (OpenAI, etc.)
+    - Local Ollama server for free/offline embeddings
+    
+    \b
+    Usage:
+      ohtv config-embed           Run configuration wizard
+      ohtv config-embed --test    Test current configuration
+      ohtv config-embed --reset   Clear saved configuration
+    
+    \b
+    Supported providers:
+      Cloud (requires LLM_API_KEY):
+        - openai/text-embedding-3-small (default, recommended)
+        - openai/text-embedding-3-large
+        - mistral/mistral-embed
+      
+      Local (free, no API key):
+        - ollama/nomic-embed-text (recommended)
+        - ollama/mxbai-embed-large
+        - ollama/all-minilm
+    """
+    from ohtv.analysis.embeddings.config import (
+        get_current_config, test_current_config, detect_ollama,
+        test_ollama_embedding, save_embedding_config, get_config_file_path,
+        RECOMMENDED_OLLAMA_MODELS, get_effective_embedding_model,
+    )
+    from ohtv.config import get_config_file_path
+    from rich.prompt import Prompt, Confirm
+    from rich.panel import Panel
+    
+    if reset:
+        _reset_embedding_config()
+        return
+    
+    if test:
+        _test_embedding_config()
+        return
+    
+    # Run the wizard
+    _run_embedding_wizard()
+
+
+def _reset_embedding_config() -> None:
+    """Clear saved embedding configuration."""
+    from ohtv.config import get_config_file_path
+    
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+    
+    config_path = get_config_file_path()
+    
+    if not config_path.exists():
+        console.print("[dim]No configuration file found.[/dim]")
+        return
+    
+    # Load and remove embedding keys
+    try:
+        with open(config_path, "rb") as f:
+            existing = tomllib.load(f)
+    except Exception:
+        existing = {}
+    
+    removed = []
+    if "embedding_model" in existing:
+        del existing["embedding_model"]
+        removed.append("embedding_model")
+    if "ollama_host" in existing:
+        del existing["ollama_host"]
+        removed.append("ollama_host")
+    
+    if not removed:
+        console.print("[dim]No embedding configuration to clear.[/dim]")
+        return
+    
+    # Write back
+    lines = ["# ohtv configuration", "# See 'ohtv config --help' for available settings", ""]
+    for key, value in sorted(existing.items()):
+        if isinstance(value, str):
+            lines.append(f'{key} = "{value}"')
+        else:
+            lines.append(f"{key} = {value}")
+    lines.append("")
+    config_path.write_text("\n".join(lines))
+    
+    console.print(f"[green]✓[/green] Cleared: {', '.join(removed)}")
+    console.print("[dim]Embedding will now use environment variables or defaults.[/dim]")
+
+
+def _test_embedding_config() -> None:
+    """Test the current embedding configuration."""
+    from ohtv.analysis.embeddings.config import test_current_config, get_current_config
+    
+    console.print("\n[bold]Testing Embedding Configuration[/bold]\n")
+    
+    # Show current config
+    config = get_current_config()
+    
+    if not config.is_configured:
+        console.print("[yellow]No embedding model configured.[/yellow]")
+        console.print("\nRun [cyan]ohtv config-embed[/cyan] to set up embedding support.")
+        return
+    
+    console.print(f"  Model:    [cyan]{config.model}[/cyan]")
+    console.print(f"  Provider: {config.provider.value}")
+    console.print(f"  Source:   {config.source}")
+    console.print()
+    
+    # Test it
+    console.print("Testing connection...", end=" ")
+    config = test_current_config()
+    
+    if config.is_working:
+        console.print("[green]✓ Working![/green]")
+    else:
+        console.print("[red]✗ Failed[/red]")
+        console.print(f"\n[red]Error:[/red] {config.error}")
+        console.print("\nRun [cyan]ohtv config-embed[/cyan] to reconfigure.")
+
+
+def _run_embedding_wizard() -> None:
+    """Run the interactive embedding configuration wizard."""
+    from ohtv.analysis.embeddings.config import (
+        get_current_config, test_current_config, detect_ollama,
+        test_ollama_embedding, save_embedding_config,
+        RECOMMENDED_OLLAMA_MODELS, test_litellm_embedding,
+    )
+    from ohtv.config import get_config_file_path
+    from rich.prompt import Prompt, Confirm
+    from rich.panel import Panel
+    import os
+    
+    console.print()
+    console.print(Panel.fit(
+        "[bold]Embedding Configuration Wizard[/bold]\n\n"
+        "This wizard will help you configure embedding support for\n"
+        "semantic search ([cyan]ohtv search[/cyan]) and RAG ([cyan]ohtv ask[/cyan]).",
+        border_style="blue",
+    ))
+    console.print()
+    
+    # Step 1: Check current configuration
+    console.print("[bold]Step 1:[/bold] Checking current configuration...")
+    current = get_current_config()
+    
+    has_llm_key = bool(os.environ.get("LLM_API_KEY"))
+    ollama_status = detect_ollama()
+    
+    # Show what we found
+    console.print()
+    if current.is_configured:
+        console.print(f"  [green]✓[/green] Found configured model: [cyan]{current.model}[/cyan] (from {current.source})")
+        
+        # Test if it works
+        console.print("  Testing...", end=" ")
+        tested = test_current_config()
+        if tested.is_working:
+            console.print("[green]working![/green]")
+            console.print()
+            if not Confirm.ask("Current configuration is working. Reconfigure anyway?", default=False):
+                console.print("\n[dim]Keeping current configuration.[/dim]")
+                return
+        else:
+            console.print(f"[red]not working[/red] - {tested.error}")
+    else:
+        console.print("  [yellow]![/yellow] No embedding model configured")
+    
+    if has_llm_key:
+        console.print(f"  [green]✓[/green] LLM_API_KEY is set (cloud embeddings available)")
+    else:
+        console.print(f"  [dim]-[/dim] LLM_API_KEY not set")
+    
+    if ollama_status.is_running:
+        if ollama_status.available_models:
+            models_str = ", ".join(ollama_status.available_models[:3])
+            if len(ollama_status.available_models) > 3:
+                models_str += f" (+{len(ollama_status.available_models) - 3} more)"
+            console.print(f"  [green]✓[/green] Ollama is running with embedding models: {models_str}")
+        else:
+            console.print(f"  [green]✓[/green] Ollama is running (no embedding models installed)")
+    else:
+        console.print(f"  [dim]-[/dim] Ollama not detected at {ollama_status.host}")
+    
+    console.print()
+    
+    # Step 2: Choose provider
+    console.print("[bold]Step 2:[/bold] Choose embedding provider\n")
+    
+    options = []
+    option_map = {}
+    
+    # Build options based on what's available
+    if ollama_status.is_running and ollama_status.available_models:
+        best_ollama = ollama_status.available_models[0]
+        options.append(f"1. [green]Ollama[/green] - Local, free ({best_ollama} ready)")
+        option_map["1"] = ("ollama", best_ollama)
+    elif ollama_status.is_running:
+        options.append("1. [yellow]Ollama[/yellow] - Local, free (needs model download)")
+        option_map["1"] = ("ollama_setup", None)
+    else:
+        options.append("1. [dim]Ollama[/dim] - Not running (start with: ollama serve)")
+        option_map["1"] = ("ollama_unavailable", None)
+    
+    if has_llm_key:
+        options.append("2. [green]OpenAI[/green] - Cloud, uses LLM_API_KEY (~$0.02/1M tokens)")
+        option_map["2"] = ("openai", "openai/text-embedding-3-small")
+    else:
+        options.append("2. [dim]OpenAI[/dim] - Requires LLM_API_KEY")
+        option_map["2"] = ("openai_unavailable", None)
+    
+    options.append("3. Cancel")
+    option_map["3"] = ("cancel", None)
+    
+    for opt in options:
+        console.print(f"  {opt}")
+    
+    console.print()
+    choice = Prompt.ask("Select option", choices=["1", "2", "3"], default="1" if ollama_status.is_running else "2" if has_llm_key else "3")
+    
+    provider, model = option_map[choice]
+    
+    if provider == "cancel":
+        console.print("\n[dim]Cancelled.[/dim]")
+        return
+    
+    if provider == "ollama_unavailable":
+        console.print("\n[yellow]Ollama is not running.[/yellow]")
+        console.print("\nTo use Ollama for free local embeddings:")
+        console.print("  1. Install Ollama: https://ollama.ai")
+        console.print("  2. Start the server: [cyan]ollama serve[/cyan]")
+        console.print("  3. Pull a model: [cyan]ollama pull nomic-embed-text[/cyan]")
+        console.print("  4. Run this wizard again: [cyan]ohtv config-embed[/cyan]")
+        return
+    
+    if provider == "openai_unavailable":
+        console.print("\n[yellow]LLM_API_KEY is not set.[/yellow]")
+        console.print("\nTo use OpenAI embeddings:")
+        console.print("  1. Get an API key from https://platform.openai.com")
+        console.print("  2. Set the environment variable:")
+        console.print("     [cyan]export LLM_API_KEY=sk-...[/cyan]")
+        console.print("  3. Run this wizard again: [cyan]ohtv config-embed[/cyan]")
+        console.print("\n[dim]Or use Ollama for free local embeddings.[/dim]")
+        return
+    
+    if provider == "ollama_setup":
+        # Need to download a model
+        console.print("\n[bold]Ollama Setup[/bold]")
+        console.print("\nNo embedding models found. Recommended model: [cyan]nomic-embed-text[/cyan]")
+        console.print("\nDownload it with:")
+        console.print("  [cyan]ollama pull nomic-embed-text[/cyan]")
+        console.print("\nThen run this wizard again.")
+        return
+    
+    # Step 3: Test and save
+    console.print()
+    console.print("[bold]Step 3:[/bold] Testing configuration...")
+    
+    if provider == "ollama":
+        full_model = f"ollama/{model}"
+        console.print(f"\n  Testing {full_model}...", end=" ")
+        success, error = test_ollama_embedding(model)
+    else:
+        full_model = model
+        console.print(f"\n  Testing {full_model}...", end=" ")
+        success, error = test_litellm_embedding(model)
+    
+    if not success:
+        console.print(f"[red]failed[/red]")
+        console.print(f"\n[red]Error:[/red] {error}")
+        return
+    
+    console.print("[green]success![/green]")
+    
+    # Save configuration
+    console.print()
+    if Confirm.ask(f"Save [cyan]{full_model}[/cyan] as default embedding model?", default=True):
+        save_embedding_config(full_model)
+        config_path = get_config_file_path()
+        console.print(f"\n[green]✓[/green] Saved to {config_path}")
+        console.print("\n[dim]You can now use:[/dim]")
+        console.print("  [cyan]ohtv db embed[/cyan]    - Build embeddings for search")
+        console.print("  [cyan]ohtv search[/cyan]      - Semantic search")
+        console.print("  [cyan]ohtv ask[/cyan]         - Ask questions about conversations")
+    else:
+        console.print("\n[dim]Not saved. To use this model temporarily:[/dim]")
+        console.print(f"  [cyan]export EMBEDDING_MODEL={full_model}[/cyan]")
 
 
 def _run_post_sync_processing(quiet: bool, verbose: bool, no_llm: bool = False, no_embed: bool = False) -> None:
@@ -596,11 +907,20 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
     from pathlib import Path
     from ohtv.db.stores import ConversationStore, EmbeddingStore
     from ohtv.filters import normalize_conversation_id
+    from ohtv.analysis.embeddings.config import is_embedding_configured, get_current_config
     
-    # Check if embedding is configured
-    if not os.environ.get("LLM_API_KEY"):
+    # Check if embedding is configured (env var, config file, or Ollama)
+    if not is_embedding_configured():
+        # Check if Ollama might be available as a fallback
+        from ohtv.analysis.embeddings.config import detect_ollama
+        ollama_status = detect_ollama()
+        
         if not quiet:
-            console.print("\n[dim]Skipping embeddings (LLM_API_KEY not set)[/dim]")
+            console.print("\n[dim]Skipping embeddings (not configured)[/dim]")
+            if ollama_status.is_running:
+                console.print("[dim]Tip: Ollama detected! Run 'ohtv config-embed' to set up free local embeddings.[/dim]")
+            else:
+                console.print("[dim]Run 'ohtv config-embed' to configure embedding support.[/dim]")
         return
     
     if not quiet:

@@ -123,6 +123,18 @@ def reset_rate_limiter() -> None:
 
 DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
 
+
+def _get_configured_model() -> str | None:
+    """Get embedding model from config file if set.
+    
+    Returns None if not configured, allowing fallback to default.
+    """
+    try:
+        from ohtv.analysis.embeddings.config import get_effective_embedding_model
+        return get_effective_embedding_model()
+    except ImportError:
+        return None
+
 # Known model dimensions
 KNOWN_DIMENSIONS: dict[str, int] = {
     "openai/text-embedding-3-small": 1536,
@@ -162,8 +174,24 @@ class EmbeddingResult:
 
 
 def get_embedding_model() -> str:
-    """Get the configured embedding model."""
-    return os.environ.get("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
+    """Get the configured embedding model.
+    
+    Priority:
+    1. EMBEDDING_MODEL environment variable
+    2. embedding_model in config file (~/.ohtv/config.toml)
+    3. Default (openai/text-embedding-3-small)
+    """
+    # Environment variable takes highest priority
+    env_model = os.environ.get("EMBEDDING_MODEL")
+    if env_model:
+        return env_model
+    
+    # Check config file
+    config_model = _get_configured_model()
+    if config_model:
+        return config_model
+    
+    return DEFAULT_EMBEDDING_MODEL
 
 
 def get_embedding_dimension(model: str | None = None) -> int:
