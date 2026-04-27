@@ -595,6 +595,7 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
     from ohtv.db import get_connection
     from pathlib import Path
     from ohtv.db.stores import ConversationStore, EmbeddingStore
+    from ohtv.filters import normalize_conversation_id
     
     # Check if embedding is configured
     if not os.environ.get("LLM_API_KEY"):
@@ -609,6 +610,9 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
         conv_store = ConversationStore(conn)
         embed_store = EmbeddingStore(conn)
         
+        # Build set of already-embedded conversation IDs (normalized for comparison)
+        existing_ids = set(normalize_conversation_id(cid) for cid in embed_store.list_conversation_ids())
+        
         all_convs = conv_store.list_all()
         
         # Find conversations without embeddings that have local content
@@ -617,17 +621,18 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
         already_embedded = 0
         
         for conv in all_convs:
-            # Skip if no local directory or no events file
+            # Skip if no local directory or no events directory
             if not conv.location:
                 no_local_content += 1
                 continue
             conv_dir = Path(conv.location)
-            events_file = conv_dir / "events.json"
-            if not events_file.exists():
+            events_dir = conv_dir / "events"
+            if not events_dir.exists() or not events_dir.is_dir():
                 no_local_content += 1
                 continue
             
-            if embed_store.has_embedding(conv.id):
+            # Check using normalized ID (handles dash variations)
+            if normalize_conversation_id(conv.id) in existing_ids:
                 already_embedded += 1
                 continue
                 
