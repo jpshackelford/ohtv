@@ -611,13 +611,10 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
         
         all_convs = conv_store.list_all()
         
-        # Find conversations without embeddings that have local content
-        needs_embedding = []
+        # Filter to conversations with local content
+        convs_with_content = []
         no_local_content = 0
-        already_embedded = 0
-        
         for conv in all_convs:
-            # Skip if no local directory or no events file
             if not conv.location:
                 no_local_content += 1
                 continue
@@ -626,12 +623,13 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
             if not events_file.exists():
                 no_local_content += 1
                 continue
-            
-            if embed_store.has_embedding(conv.id):
-                already_embedded += 1
-                continue
-                
-            needs_embedding.append(conv)
+            convs_with_content.append(conv)
+        
+        # Use centralized logic to find which need embedding work
+        all_ids = [c.id for c in convs_with_content]
+        needs_work_ids = set(embed_store.list_conversations_needing_embeddings(all_ids))
+        needs_embedding = [c for c in convs_with_content if c.id in needs_work_ids]
+        already_embedded = len(convs_with_content) - len(needs_embedding)
         
         log.info(
             "Embedding check: total=%d, already_embedded=%d, no_content=%d, needs_embedding=%d",
@@ -5813,28 +5811,13 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             return
         
         # Determine which need embedding
-        # Note: conversation IDs may or may not have dashes depending on source.
-        # Normalize both sides for comparison.
-        from ohtv.filters import normalize_conversation_id
         if force:
             to_embed = all_convs
         else:
-            # Include conversations that:
-            # 1. Have no embeddings at all, OR
-            # 2. Have cached analyses missing embeddings (new cache_key variants)
-            existing = set(normalize_conversation_id(cid) for cid in embed_store.list_conversation_ids())
-            
-            # Get conversations with missing analysis embeddings (by cache_key)
-            missing_analysis = set(
-                normalize_conversation_id(cid) 
-                for cid, _cache_key in embed_store.list_cached_missing_embeddings()
-            )
-            
-            to_embed = [
-                c for c in all_convs 
-                if normalize_conversation_id(c.id) not in existing 
-                or normalize_conversation_id(c.id) in missing_analysis
-            ]
+            # Use centralized logic to find conversations needing embedding
+            all_ids = [c.id for c in all_convs]
+            needs_work = set(embed_store.list_conversations_needing_embeddings(all_ids))
+            to_embed = [c for c in all_convs if c.id in needs_work]
         
         if not to_embed:
             count = embed_store.count_conversations()

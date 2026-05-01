@@ -519,6 +519,37 @@ class EmbeddingStore:
         )
         return [row[0] for row in cursor.fetchall()]
 
+    def list_conversations_needing_embeddings(self, all_conversation_ids: list[str]) -> list[str]:
+        """Get conversation IDs that need embedding work.
+        
+        Returns conversations that either:
+        1. Have no embeddings at all, OR
+        2. Have cached analyses missing embeddings (new cache_key variants)
+        
+        Args:
+            all_conversation_ids: List of all known conversation IDs (normalized, no dashes)
+            
+        Returns:
+            List of conversation IDs needing embedding work (normalized, no dashes)
+        """
+        # Get conversations with any embedding
+        existing = set(self.list_conversation_ids())
+        
+        # Get conversations with missing analysis cache_key embeddings
+        missing_analysis = set(
+            conv_id for conv_id, _cache_key in self.list_cached_missing_embeddings()
+        )
+        
+        # Return conversations that need work
+        result = []
+        for conv_id in all_conversation_ids:
+            # Normalize to no-dash format for comparison
+            normalized = conv_id.replace("-", "")
+            if normalized not in existing or normalized in missing_analysis:
+                result.append(conv_id)
+        
+        return result
+
     def has_embedding(
         self, 
         conversation_id: str, 
