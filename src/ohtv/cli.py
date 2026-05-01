@@ -5819,8 +5819,22 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         if force:
             to_embed = all_convs
         else:
+            # Include conversations that:
+            # 1. Have no embeddings at all, OR
+            # 2. Have cached analyses missing embeddings (new cache_key variants)
             existing = set(normalize_conversation_id(cid) for cid in embed_store.list_conversation_ids())
-            to_embed = [c for c in all_convs if normalize_conversation_id(c.id) not in existing]
+            
+            # Get conversations with missing analysis embeddings (by cache_key)
+            missing_analysis = set(
+                normalize_conversation_id(cid) 
+                for cid, _cache_key in embed_store.list_cached_missing_embeddings()
+            )
+            
+            to_embed = [
+                c for c in all_convs 
+                if normalize_conversation_id(c.id) not in existing 
+                or normalize_conversation_id(c.id) in missing_analysis
+            ]
         
         if not to_embed:
             count = embed_store.count_conversations()
