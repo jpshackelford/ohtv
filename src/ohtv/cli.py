@@ -595,18 +595,9 @@ def _test_embedding_config() -> None:
         console.print("\nRun [cyan]ohtv config-embed[/cyan] to reconfigure.")
 
 
-def _run_embedding_wizard() -> None:
-    """Run the interactive embedding configuration wizard."""
-    from ohtv.analysis.embeddings.config import (
-        get_current_config, test_current_config, detect_ollama,
-        test_ollama_embedding, save_embedding_config,
-        RECOMMENDED_OLLAMA_MODELS, test_litellm_embedding,
-    )
-    from ohtv.config import get_config_file_path
-    from rich.prompt import Prompt, Confirm
+def _wizard_print_header() -> None:
+    """Print the wizard header panel."""
     from rich.panel import Panel
-    import os
-    
     console.print()
     console.print(Panel.fit(
         "[bold]Embedding Configuration Wizard[/bold]\n\n"
@@ -615,62 +606,52 @@ def _run_embedding_wizard() -> None:
         border_style="blue",
     ))
     console.print()
-    
-    # Step 1: Check current configuration
-    console.print("[bold]Step 1:[/bold] Checking current configuration...")
-    current = get_current_config()
-    
-    has_llm_key = bool(os.environ.get("LLM_API_KEY"))
-    ollama_status = detect_ollama()
-    
-    # Show what we found
-    console.print()
-    if current.is_configured:
-        console.print(f"  [green]✓[/green] Found configured model: [cyan]{current.model}[/cyan] (from {current.source})")
-        
-        # Test if it works
-        console.print("  Testing...", end=" ")
-        tested = test_current_config()
-        if tested.is_working:
-            console.print("[green]working![/green]")
-            console.print()
-            if not Confirm.ask("Current configuration is working. Reconfigure anyway?", default=False):
-                console.print("\n[dim]Keeping current configuration.[/dim]")
-                return
-        else:
-            console.print(f"[red]not working[/red] - {tested.error}")
-    else:
-        console.print("  [yellow]![/yellow] No embedding model configured")
-    
-    if has_llm_key:
-        console.print(f"  [green]✓[/green] LLM_API_KEY is set (cloud embeddings available)")
-    else:
-        console.print(f"  [dim]-[/dim] LLM_API_KEY not set")
-    
-    if ollama_status.is_running:
-        if ollama_status.available_models:
-            models_str = ", ".join(ollama_status.available_models[:3])
-            if len(ollama_status.available_models) > 3:
-                models_str += f" (+{len(ollama_status.available_models) - 3} more)"
-            console.print(f"  [green]✓[/green] Ollama is running with embedding models: {models_str}")
-        else:
-            console.print(f"  [green]✓[/green] Ollama is running (no embedding models installed)")
-    else:
+
+
+def _wizard_show_ollama_status(ollama_status) -> None:
+    """Display Ollama detection status."""
+    if not ollama_status.is_running:
         console.print(f"  [dim]-[/dim] Ollama not detected at {ollama_status.host}")
-    
+        return
+    if ollama_status.available_models:
+        models_str = ", ".join(ollama_status.available_models[:3])
+        if len(ollama_status.available_models) > 3:
+            models_str += f" (+{len(ollama_status.available_models) - 3} more)"
+        console.print(f"  [green]✓[/green] Ollama is running with embedding models: {models_str}")
+    else:
+        console.print(f"  [green]✓[/green] Ollama is running (no embedding models installed)")
+
+
+def _wizard_check_current_config(current, test_current_config) -> bool:
+    """Check and display current config. Returns False if user wants to keep it."""
+    from rich.prompt import Confirm
     console.print()
+    if not current.is_configured:
+        console.print("  [yellow]![/yellow] No embedding model configured")
+        return True
     
-    # Step 2: Choose provider
-    console.print("[bold]Step 2:[/bold] Choose embedding provider\n")
+    console.print(f"  [green]✓[/green] Found configured model: [cyan]{current.model}[/cyan] (from {current.source})")
+    console.print("  Testing...", end=" ")
+    tested = test_current_config()
+    if tested.is_working:
+        console.print("[green]working![/green]")
+        console.print()
+        if not Confirm.ask("Current configuration is working. Reconfigure anyway?", default=False):
+            console.print("\n[dim]Keeping current configuration.[/dim]")
+            return False
+    else:
+        console.print(f"[red]not working[/red] - {tested.error}")
+    return True
+
+
+def _wizard_build_options(ollama_status, has_llm_key: bool) -> tuple[list[str], dict]:
+    """Build provider selection options based on availability."""
+    options, option_map = [], {}
     
-    options = []
-    option_map = {}
-    
-    # Build options based on what's available
     if ollama_status.is_running and ollama_status.available_models:
-        best_ollama = ollama_status.available_models[0]
-        options.append(f"1. [green]Ollama[/green] - Local, free ({best_ollama} ready)")
-        option_map["1"] = ("ollama", best_ollama)
+        best = ollama_status.available_models[0]
+        options.append(f"1. [green]Ollama[/green] - Local, free ({best} ready)")
+        option_map["1"] = ("ollama", best)
     elif ollama_status.is_running:
         options.append("1. [yellow]Ollama[/yellow] - Local, free (needs model download)")
         option_map["1"] = ("ollama_setup", None)
@@ -687,19 +668,11 @@ def _run_embedding_wizard() -> None:
     
     options.append("3. Cancel")
     option_map["3"] = ("cancel", None)
-    
-    for opt in options:
-        console.print(f"  {opt}")
-    
-    console.print()
-    choice = Prompt.ask("Select option", choices=["1", "2", "3"], default="1" if ollama_status.is_running else "2" if has_llm_key else "3")
-    
-    provider, model = option_map[choice]
-    
-    if provider == "cancel":
-        console.print("\n[dim]Cancelled.[/dim]")
-        return
-    
+    return options, option_map
+
+
+def _wizard_show_setup_instructions(provider: str) -> None:
+    """Show setup instructions for unavailable providers."""
     if provider == "ollama_unavailable":
         console.print("\n[yellow]Ollama is not running.[/yellow]")
         console.print("\nTo use Ollama for free local embeddings:")
@@ -707,28 +680,28 @@ def _run_embedding_wizard() -> None:
         console.print("  2. Start the server: [cyan]ollama serve[/cyan]")
         console.print("  3. Pull a model: [cyan]ollama pull nomic-embed-text[/cyan]")
         console.print("  4. Run this wizard again: [cyan]ohtv config-embed[/cyan]")
-        return
-    
-    if provider == "openai_unavailable":
+    elif provider == "openai_unavailable":
         console.print("\n[yellow]LLM_API_KEY is not set.[/yellow]")
         console.print("\nTo use OpenAI embeddings:")
         console.print("  1. Get an API key from https://platform.openai.com")
-        console.print("  2. Set the environment variable:")
-        console.print("     [cyan]export LLM_API_KEY=sk-...[/cyan]")
+        console.print("  2. Set the environment variable: [cyan]export LLM_API_KEY=sk-...[/cyan]")
         console.print("  3. Run this wizard again: [cyan]ohtv config-embed[/cyan]")
         console.print("\n[dim]Or use Ollama for free local embeddings.[/dim]")
-        return
-    
-    if provider == "ollama_setup":
-        # Need to download a model
+    elif provider == "ollama_setup":
         console.print("\n[bold]Ollama Setup[/bold]")
-        console.print("\nNo embedding models found. Recommended model: [cyan]nomic-embed-text[/cyan]")
-        console.print("\nDownload it with:")
-        console.print("  [cyan]ollama pull nomic-embed-text[/cyan]")
+        console.print("\nNo embedding models found. Recommended: [cyan]nomic-embed-text[/cyan]")
+        console.print("\nDownload it with: [cyan]ollama pull nomic-embed-text[/cyan]")
         console.print("\nThen run this wizard again.")
-        return
+
+
+def _wizard_test_and_save(provider: str, model: str) -> None:
+    """Test the selected provider and save if successful."""
+    from ohtv.analysis.embeddings.config import (
+        test_ollama_embedding, test_litellm_embedding, save_embedding_config
+    )
+    from ohtv.config import get_config_file_path
+    from rich.prompt import Confirm
     
-    # Step 3: Test and save
     console.print()
     console.print("[bold]Step 3:[/bold] Testing configuration...")
     
@@ -742,18 +715,16 @@ def _run_embedding_wizard() -> None:
         success, error = test_litellm_embedding(model)
     
     if not success:
-        console.print(f"[red]failed[/red]")
+        console.print("[red]failed[/red]")
         console.print(f"\n[red]Error:[/red] {error}")
         return
     
     console.print("[green]success![/green]")
-    
-    # Save configuration
     console.print()
+    
     if Confirm.ask(f"Save [cyan]{full_model}[/cyan] as default embedding model?", default=True):
         save_embedding_config(full_model)
-        config_path = get_config_file_path()
-        console.print(f"\n[green]✓[/green] Saved to {config_path}")
+        console.print(f"\n[green]✓[/green] Saved to {get_config_file_path()}")
         console.print("\n[dim]You can now use:[/dim]")
         console.print("  [cyan]ohtv db embed[/cyan]    - Build embeddings for search")
         console.print("  [cyan]ohtv search[/cyan]      - Semantic search")
@@ -761,6 +732,53 @@ def _run_embedding_wizard() -> None:
     else:
         console.print("\n[dim]Not saved. To use this model temporarily:[/dim]")
         console.print(f"  [cyan]export EMBEDDING_MODEL={full_model}[/cyan]")
+
+
+def _run_embedding_wizard() -> None:
+    """Run the interactive embedding configuration wizard."""
+    from ohtv.analysis.embeddings.config import (
+        get_current_config, test_current_config, detect_ollama,
+    )
+    from rich.prompt import Prompt
+    import os
+    
+    _wizard_print_header()
+    
+    # Step 1: Detect providers
+    console.print("[bold]Step 1:[/bold] Checking current configuration...")
+    current = get_current_config()
+    has_llm_key = bool(os.environ.get("LLM_API_KEY"))
+    ollama_status = detect_ollama()
+    
+    if not _wizard_check_current_config(current, test_current_config):
+        return
+    
+    if has_llm_key:
+        console.print("  [green]✓[/green] LLM_API_KEY is set (cloud embeddings available)")
+    else:
+        console.print("  [dim]-[/dim] LLM_API_KEY not set")
+    _wizard_show_ollama_status(ollama_status)
+    console.print()
+    
+    # Step 2: Choose provider
+    console.print("[bold]Step 2:[/bold] Choose embedding provider\n")
+    options, option_map = _wizard_build_options(ollama_status, has_llm_key)
+    for opt in options:
+        console.print(f"  {opt}")
+    console.print()
+    
+    default = "1" if ollama_status.is_running else "2" if has_llm_key else "3"
+    choice = Prompt.ask("Select option", choices=["1", "2", "3"], default=default)
+    provider, model = option_map[choice]
+    
+    if provider == "cancel":
+        console.print("\n[dim]Cancelled.[/dim]")
+        return
+    if provider in ("ollama_unavailable", "openai_unavailable", "ollama_setup"):
+        _wizard_show_setup_instructions(provider)
+        return
+    
+    _wizard_test_and_save(provider, model)
 
 
 def _run_post_sync_processing(quiet: bool, verbose: bool, no_llm: bool = False, no_embed: bool = False) -> None:

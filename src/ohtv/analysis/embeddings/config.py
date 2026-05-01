@@ -16,6 +16,14 @@ import urllib.error
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Any
+
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+
+import tomli_w
 
 log = logging.getLogger("ohtv")
 
@@ -58,6 +66,20 @@ RECOMMENDED_OLLAMA_MODELS = [
     "all-minilm",  # Smallest/fastest, 384 dims
     "bge-m3",  # Multilingual, 1024 dims
 ]
+
+
+def _load_config() -> dict[str, Any]:
+    """Load config file as dict, return {} if missing/invalid."""
+    from ohtv.config import get_config_file_path
+    
+    config_path = get_config_file_path()
+    if not config_path.exists():
+        return {}
+    try:
+        with open(config_path, "rb") as f:
+            return tomllib.load(f)
+    except Exception:
+        return {}
 
 
 def get_ollama_host() -> str:
@@ -104,12 +126,12 @@ def detect_ollama() -> OllamaStatus:
             available_models=[],
             error=f"Cannot connect to Ollama at {host}: {e.reason}",
         )
-    except Exception as e:
+    except (json.JSONDecodeError, KeyError, TimeoutError) as e:
         return OllamaStatus(
             is_running=False,
             host=host,
             available_models=[],
-            error=str(e),
+            error=f"Failed to detect Ollama: {e}",
         )
 
 
@@ -226,33 +248,21 @@ def get_current_config() -> EmbeddingConfig:
             )
     
     # Check config file
-    from ohtv.config import get_config_file_path
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib
-    
-    config_path = get_config_file_path()
-    if config_path.exists():
-        try:
-            with open(config_path, "rb") as f:
-                file_config = tomllib.load(f)
-            file_model = file_config.get("embedding_model")
-            if file_model:
-                if file_model.startswith("ollama/"):
-                    return EmbeddingConfig(
-                        provider=EmbeddingProvider.OLLAMA,
-                        model=file_model,
-                        source="file",
-                    )
-                else:
-                    return EmbeddingConfig(
-                        provider=EmbeddingProvider.LITELLM,
-                        model=file_model,
-                        source="file",
-                    )
-        except Exception:
-            pass
+    file_config = _load_config()
+    file_model = file_config.get("embedding_model")
+    if file_model:
+        if file_model.startswith("ollama/"):
+            return EmbeddingConfig(
+                provider=EmbeddingProvider.OLLAMA,
+                model=file_model,
+                source="file",
+            )
+        else:
+            return EmbeddingConfig(
+                provider=EmbeddingProvider.LITELLM,
+                model=file_model,
+                source="file",
+            )
     
     # Check if LLM_API_KEY is set (implies cloud embedding might work)
     if os.environ.get("LLM_API_KEY"):
@@ -305,37 +315,19 @@ def save_embedding_config(model: str, ollama_host: str | None = None) -> None:
     """
     from ohtv.config import get_config_file_path
     
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib
-    
     config_path = get_config_file_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     
     # Load existing config
-    existing = {}
-    if config_path.exists():
-        try:
-            with open(config_path, "rb") as f:
-                existing = tomllib.load(f)
-        except Exception:
-            pass
+    existing = _load_config()
     
     # Update embedding config
     existing["embedding_model"] = model
     if ollama_host and ollama_host != "http://localhost:11434":
         existing["ollama_host"] = ollama_host
     
-    # Write back as TOML
-    lines = ["# ohtv configuration", "# See 'ohtv config --help' for available settings", ""]
-    for key, value in sorted(existing.items()):
-        if isinstance(value, str):
-            lines.append(f'{key} = "{value}"')
-        else:
-            lines.append(f"{key} = {value}")
-    lines.append("")
-    config_path.write_text("\n".join(lines))
+    # Write back as TOML using tomli_w for proper escaping
+    config_path.write_bytes(tomli_w.dumps(existing))
 
 
 def get_effective_embedding_model() -> str | None:
@@ -344,28 +336,10 @@ def get_effective_embedding_model() -> str | None:
     Checks env var first, then config file. Returns None if not configured.
     This is the function that should be used by embedding operations.
     """
-    # Environment variable takes precedence
     env_model = os.environ.get("EMBEDDING_MODEL")
     if env_model:
         return env_model
-    
-    # Check config file
-    from ohtv.config import get_config_file_path
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib
-    
-    config_path = get_config_file_path()
-    if config_path.exists():
-        try:
-            with open(config_path, "rb") as f:
-                file_config = tomllib.load(f)
-            return file_config.get("embedding_model")
-        except Exception:
-            pass
-    
-    return None
+    return _load_config().get("embedding_model")
 
 
 def is_embedding_configured() -> bool:
