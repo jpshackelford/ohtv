@@ -497,7 +497,7 @@ def config_embed(test: bool, reset: bool) -> None:
     """
     from ohtv.analysis.embeddings.config import (
         get_current_config, test_current_config, detect_ollama,
-        test_ollama_embedding, save_embedding_config, get_config_file_path,
+        test_ollama_embedding, save_embedding_config,
         RECOMMENDED_OLLAMA_MODELS, get_effective_embedding_model,
     )
     from ohtv.config import get_config_file_path
