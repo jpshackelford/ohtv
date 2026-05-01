@@ -43,6 +43,7 @@ class EmbeddingRecord:
     conversation_id: str
     embed_type: str
     chunk_index: int
+    cache_key: str
     dimensions: int
     model: str
     token_count: int | None
@@ -63,6 +64,7 @@ class EmbeddingStore:
         model: str,
         embed_type: EmbedType = "summary",
         chunk_index: int = 0,
+        cache_key: str = "",
         token_count: int | None = None,
         source_text: str | None = None,
     ) -> None:
@@ -74,6 +76,7 @@ class EmbeddingStore:
             model: Model name used for embedding
             embed_type: Type of embedding ('analysis', 'summary', 'content')
             chunk_index: Chunk index (0 for non-chunked, 0+ for content chunks)
+            cache_key: Analysis cache key (only for embed_type='analysis')
             token_count: Number of tokens embedded
             source_text: Original text that was embedded (for RAG context)
         """
@@ -83,11 +86,11 @@ class EmbeddingStore:
         self.conn.execute(
             """
             INSERT INTO embeddings (
-                conversation_id, embed_type, chunk_index, embedding, 
-                dimensions, model, token_count, source_text, created_at
+                conversation_id, embed_type, chunk_index, cache_key,
+                embedding, dimensions, model, token_count, source_text, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(conversation_id, embed_type, chunk_index) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id, embed_type, chunk_index, cache_key) DO UPDATE SET
                 embedding = excluded.embedding,
                 dimensions = excluded.dimensions,
                 model = excluded.model,
@@ -95,7 +98,7 @@ class EmbeddingStore:
                 source_text = excluded.source_text,
                 created_at = excluded.created_at
             """,
-            (conversation_id, embed_type, chunk_index, blob, 
+            (conversation_id, embed_type, chunk_index, cache_key, blob, 
              len(embedding), model, token_count, source_text, now),
         )
 
@@ -104,30 +107,38 @@ class EmbeddingStore:
         conversation_id: str,
         embed_type: EmbedType = "summary",
         chunk_index: int = 0,
+        cache_key: str = "",
     ) -> tuple[list[float], EmbeddingRecord] | None:
         """Get a specific embedding for a conversation.
+        
+        Args:
+            conversation_id: Conversation ID
+            embed_type: Type of embedding
+            chunk_index: Chunk index
+            cache_key: Analysis cache key (only for embed_type='analysis')
         
         Returns:
             Tuple of (embedding vector, metadata record) or None if not found
         """
         cursor = self.conn.execute(
             """
-            SELECT embedding, dimensions, model, token_count, source_text, created_at
+            SELECT embedding, dimensions, model, token_count, source_text, created_at, cache_key
             FROM embeddings 
-            WHERE conversation_id = ? AND embed_type = ? AND chunk_index = ?
+            WHERE conversation_id = ? AND embed_type = ? AND chunk_index = ? AND cache_key = ?
             """,
-            (conversation_id, embed_type, chunk_index),
+            (conversation_id, embed_type, chunk_index, cache_key),
         )
         row = cursor.fetchone()
         if not row:
             return None
         
-        blob, dims, model, token_count, source_text, created_at = row
+        blob, dims, model, token_count, source_text, created_at, cache_key = row
         embedding = list(struct.unpack(f"<{dims}f", blob))
         record = EmbeddingRecord(
             conversation_id=conversation_id,
             embed_type=embed_type,
             chunk_index=chunk_index,
+            cache_key=cache_key,
             dimensions=dims,
             model=model,
             token_count=token_count,
@@ -144,23 +155,24 @@ class EmbeddingStore:
         """
         cursor = self.conn.execute(
             """
-            SELECT embed_type, chunk_index, embedding, dimensions, model, 
+            SELECT embed_type, chunk_index, cache_key, embedding, dimensions, model, 
                    token_count, source_text, created_at
             FROM embeddings 
             WHERE conversation_id = ?
-            ORDER BY embed_type, chunk_index
+            ORDER BY embed_type, cache_key, chunk_index
             """,
             (conversation_id,),
         )
         
         results = []
         for row in cursor.fetchall():
-            embed_type, chunk_index, blob, dims, model, token_count, source_text, created_at = row
+            embed_type, chunk_index, cache_key, blob, dims, model, token_count, source_text, created_at = row
             embedding = list(struct.unpack(f"<{dims}f", blob))
             record = EmbeddingRecord(
                 conversation_id=conversation_id,
                 embed_type=embed_type,
                 chunk_index=chunk_index,
+                cache_key=cache_key,
                 dimensions=dims,
                 model=model,
                 token_count=token_count,
@@ -434,6 +446,72 @@ class EmbeddingStore:
         )
         return cursor.fetchone()[0]
 
+    def count_conversations_by_type(self) -> dict[str, int]:
+        """Return count of unique conversations per embedding type."""
+        cursor = self.conn.execute(
+            "SELECT embed_type, COUNT(DISTINCT conversation_id) FROM embeddings GROUP BY embed_type"
+        )
+        return {row[0]: row[1] for row in cursor.fetchall()}
+
+    def count_cached_missing_embeddings(self) -> int:
+        """Count cached analyses that don't have corresponding embeddings.
+        
+        Joins on both conversation_id and cache_key to properly match
+        each cached analysis variant with its embedding.
+        
+        Returns:
+            Number of (conversation_id, cache_key) pairs in analysis_cache 
+            without a matching embedding
+        """
+        cursor = self.conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM analysis_cache ac
+            LEFT JOIN embeddings e ON ac.conversation_id = e.conversation_id 
+                AND e.embed_type = 'analysis'
+                AND e.cache_key = ac.cache_key
+            WHERE e.conversation_id IS NULL
+            """
+        )
+        return cursor.fetchone()[0]
+
+    def list_cached_missing_embeddings(self) -> list[tuple[str, str]]:
+        """List cached analyses that don't have corresponding embeddings.
+        
+        Returns:
+            List of (conversation_id, cache_key) tuples for cached analyses
+            that are missing embeddings
+        """
+        cursor = self.conn.execute(
+            """
+            SELECT ac.conversation_id, ac.cache_key
+            FROM analysis_cache ac
+            LEFT JOIN embeddings e ON ac.conversation_id = e.conversation_id 
+                AND e.embed_type = 'analysis'
+                AND e.cache_key = ac.cache_key
+            WHERE e.conversation_id IS NULL
+            ORDER BY ac.conversation_id, ac.cache_key
+            """
+        )
+        return [(row[0], row[1]) for row in cursor.fetchall()]
+
+    def count_analysis_embeddings_by_cache_key(self) -> dict[str, int]:
+        """Count analysis embeddings grouped by cache key.
+        
+        Returns:
+            Dict mapping cache_key to count of embeddings
+        """
+        cursor = self.conn.execute(
+            """
+            SELECT cache_key, COUNT(*) 
+            FROM embeddings 
+            WHERE embed_type = 'analysis'
+            GROUP BY cache_key
+            ORDER BY cache_key
+            """
+        )
+        return {row[0]: row[1] for row in cursor.fetchall()}
+
     def list_conversation_ids(self) -> list[str]:
         """List all conversation IDs that have embeddings."""
         cursor = self.conn.execute(
@@ -446,6 +524,7 @@ class EmbeddingStore:
         conversation_id: str, 
         embed_type: EmbedType | None = None,
         chunk_index: int | None = None,
+        cache_key: str | None = None,
     ) -> bool:
         """Check if a conversation has embeddings.
         
@@ -453,22 +532,23 @@ class EmbeddingStore:
             conversation_id: Conversation ID
             embed_type: Check for specific type, or any if None
             chunk_index: Check for specific chunk, or any if None
+            cache_key: Check for specific cache key (for analysis type), or any if None
         """
-        if embed_type and chunk_index is not None:
-            cursor = self.conn.execute(
-                "SELECT 1 FROM embeddings WHERE conversation_id = ? AND embed_type = ? AND chunk_index = ? LIMIT 1",
-                (conversation_id, embed_type, chunk_index),
-            )
-        elif embed_type:
-            cursor = self.conn.execute(
-                "SELECT 1 FROM embeddings WHERE conversation_id = ? AND embed_type = ? LIMIT 1",
-                (conversation_id, embed_type),
-            )
-        else:
-            cursor = self.conn.execute(
-                "SELECT 1 FROM embeddings WHERE conversation_id = ? LIMIT 1",
-                (conversation_id,),
-            )
+        conditions = ["conversation_id = ?"]
+        params: list = [conversation_id]
+        
+        if embed_type is not None:
+            conditions.append("embed_type = ?")
+            params.append(embed_type)
+        if chunk_index is not None:
+            conditions.append("chunk_index = ?")
+            params.append(chunk_index)
+        if cache_key is not None:
+            conditions.append("cache_key = ?")
+            params.append(cache_key)
+        
+        query = f"SELECT 1 FROM embeddings WHERE {' AND '.join(conditions)} LIMIT 1"
+        cursor = self.conn.execute(query, params)
         return cursor.fetchone() is not None
 
     # =========================================================================

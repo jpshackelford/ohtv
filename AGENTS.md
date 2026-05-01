@@ -329,11 +329,18 @@ ohtv ask "what PRs were created?" --show-context  # Show retrieved chunks
 **Implementation Details**:
 - `src/ohtv/db/migrations/008_embeddings.py` - Initial embeddings schema
 - `src/ohtv/db/migrations/009_embedding_types.py` - Multi-type schema
+- `src/ohtv/db/migrations/010_embedding_cache_key.py` - Adds cache_key for analysis variant tracking
 - `src/ohtv/db/stores/embedding_store.py` - Vector/FTS storage, aggregated search
 - `src/ohtv/analysis/embeddings.py` - Text builders, chunking, embedding
 - `src/ohtv/analysis/cache.py` - Auto-updates analysis embedding on gen objs
 - Vectors stored as BLOB with struct-packed float32 arrays
 - Search aggregates best match per conversation across all embedding types
+
+**Analysis Embedding Cache Keys**: A conversation may have multiple cached LLM analyses with different parameters (e.g., `assess=True,context_level=full,detail_level=detailed` vs `assess=False,context_level=minimal,detail_level=brief`). Each analysis variant can be embedded separately:
+- Primary key: `(conversation_id, embed_type, chunk_index, cache_key)`
+- For `analysis` embeddings, cache_key matches the analysis_cache table key
+- For `summary`/`content` embeddings, cache_key is empty string
+- `ohtv db status` shows breakdown by cache_key and identifies missing embeddings
 
 ## Completed: Aggregate Analysis Jobs (Issue #22)
 

@@ -5485,7 +5485,7 @@ def db_scan(force: bool, remove_missing: bool, verbose: bool) -> None:
 def db_status() -> None:
     """Show database status and statistics."""
     from ohtv.db import get_connection, get_db_path
-    from ohtv.db.stores import ActionStore
+    from ohtv.db.stores import ActionStore, AnalysisCacheStore, EmbeddingStore
     
     db_path = get_db_path()
     
@@ -5540,6 +5540,58 @@ def db_status() -> None:
             console.print("\n[bold]Actions by type:[/bold]")
             for action_type, count in action_counts.items():
                 console.print(f"  {action_type}: {count}")
+        
+        # Analysis cache statistics
+        cache_store = AnalysisCacheStore(conn)
+        cache_by_key = cache_store.count_by_cache_key()
+        convs_cached = cache_store.count_conversations_cached()
+        skipped = cache_store.count_skipped()
+        
+        console.print("\n[bold]Analysis cache:[/bold]")
+        console.print(f"  Conversations with analysis: {convs_cached}")
+        if cache_by_key:
+            console.print("  By cache key:")
+            for cache_key, count in cache_by_key.items():
+                console.print(f"    {cache_key}: {count}")
+        if skipped:
+            console.print(f"  Skipped (cannot analyze): {skipped}")
+        
+        # Embeddings statistics
+        embed_store = EmbeddingStore(conn)
+        total_embeddings = embed_store.count()
+        convs_with_embeddings = embed_store.count_conversations()
+        embed_by_type = embed_store.count_by_type()
+        convs_by_type = embed_store.count_conversations_by_type()
+        analysis_by_cache_key = embed_store.count_analysis_embeddings_by_cache_key()
+        
+        console.print("\n[bold]Embeddings:[/bold]")
+        console.print(f"  Total embeddings: {total_embeddings}")
+        console.print(f"  Conversations with embeddings: {convs_with_embeddings}")
+        if embed_by_type:
+            console.print("  By type (embedding count / conversations):")
+            for embed_type, count in embed_by_type.items():
+                conv_count = convs_by_type.get(embed_type, 0)
+                console.print(f"    {embed_type}: {count} / {conv_count} convs")
+        
+        # Show analysis embeddings by cache key
+        if analysis_by_cache_key:
+            console.print("  Analysis embeddings by cache key:")
+            for cache_key, count in analysis_by_cache_key.items():
+                if cache_key:
+                    console.print(f"    {cache_key}: {count}")
+                else:
+                    console.print(f"    [dim](legacy, no cache key)[/dim]: {count}")
+        
+        # Missing embeddings check - now properly joins on cache_key
+        missing_count = embed_store.count_cached_missing_embeddings()
+        total_cached = cache_store.count_cached()
+        
+        if missing_count > 0:
+            console.print(f"\n[yellow]⚠ Missing embeddings:[/yellow]")
+            console.print(f"  Cached analyses without embedding: {missing_count} / {total_cached}")
+            console.print("  [dim]Run 'ohtv db embed' to generate missing embeddings[/dim]")
+        elif total_cached > 0:
+            console.print(f"\n[green]✓ All {total_cached} cached analyses have embeddings[/green]")
 
 
 @db.command("index-cache")

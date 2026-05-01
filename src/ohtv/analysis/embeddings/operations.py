@@ -32,6 +32,7 @@ class PendingEmbedding:
     chunk_index: int
     token_count: int
     source_text: str
+    cache_key: str = ""  # Only used for embed_type='analysis'
 
 
 @dataclass
@@ -609,6 +610,7 @@ class EmbeddingWriter:
                         model=emb.model,
                         embed_type=emb.embed_type,
                         chunk_index=emb.chunk_index,
+                        cache_key=emb.cache_key,
                         token_count=emb.token_count,
                         source_text=emb.source_text,
                     )
