@@ -111,6 +111,14 @@ ohtv list --action open-pr          # Conversations that opened PRs
 
 # Combine action + repo for precise filtering
 ohtv list --action pushed --repo OpenPaw  # Pushed specifically to OpenPaw
+
+# Show idle time instead of duration (for orchestration)
+ohtv list --idle                  # Default: 7 min threshold
+ohtv list --idle 15               # Custom: 15 min threshold
+# Red = active (< threshold), Green = quiet (>= threshold)
+
+# Hide refs from title column
+ohtv list --no-refs               # Refs shown by default
 ```
 
 **Options:**
@@ -130,6 +138,8 @@ ohtv list --action pushed --repo OpenPaw  # Pushed specifically to OpenPaw
 | `--pr PATTERN` | Filter by PR reference (URL, `owner/repo#N`, or `repo#N`) |
 | `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
 | `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`, `git-commit`) |
+| `--idle [MINS]` | Show Idle column (time since last event). Colorized: red if < MINS (default: 7), green if >= MINS |
+| `--no-refs` | Hide git refs from title (refs shown by default) |
 | `-E, --with-errors` | Include error info column (agent/LLM errors) |
 | `--errors-only` | Show only conversations with agent/LLM errors |
 | `-v, --verbose` | Show debug output |
