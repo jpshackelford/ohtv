@@ -1455,7 +1455,9 @@ def _populate_error_info(
 @click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
 @click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
 @click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
-@click.option("--refs", "-R", "show_refs", is_flag=True, help="Show git refs (repos, PRs, issues) from database")
+@click.option("--no-refs", "hide_refs", is_flag=True, help="Hide git refs (shown by default)")
+@click.option("--idle", "idle_minutes", type=int, default=None, is_flag=False, flag_value=7,
+              help="Show Idle column (minutes since last event). Colorized: red if < MINS (default: 7), green if >= MINS")
 @click.option("--with-errors", "-E", "with_errors", is_flag=True, help="Include error info column (agent/LLM errors)")
 @click.option("--errors-only", "errors_only", is_flag=True, help="Show only conversations with agent/LLM errors")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
@@ -1474,7 +1476,8 @@ def list_conversations(
     pr_filter: str | None,
     repo_filter: str | None,
     action_filter: str | None,
-    show_refs: bool,
+    hide_refs: bool,
+    idle_minutes: int | None,
     with_errors: bool,
     errors_only: bool,
     verbose: bool,
@@ -1528,9 +1531,9 @@ def list_conversations(
     # Track if we're using default limit (for hint message)
     using_default_limit = not show_all and limit is None
 
-    # Load refs from database if requested
+    # Load refs from database by default (unless --no-refs)
     refs_map: dict[str, list[str]] | None = None
-    if show_refs:
+    if not hide_refs:
         refs_map = _load_refs_for_conversations(conversations)
 
     # Populate error info if requested (and not already populated by errors_only filter)
@@ -1558,6 +1561,7 @@ def list_conversations(
                 refs_map=refs_map,
                 show_errors=show_errors,
                 hide_title=errors_only,
+                idle_minutes=idle_minutes,
             )
         else:
             # For JSON and CSV, use plain print to avoid rich styling
@@ -2305,19 +2309,36 @@ def _print_list_table(
     refs_map: dict[str, list[str]] | None = None,
     show_errors: bool = False,
     hide_title: bool = False,
+    idle_minutes: int | None = None,
 ) -> None:
     """Print conversations as a rich table."""
+    from datetime import datetime, timezone
     from ohtv.errors import format_error_type_counts
     from ohtv.filters import normalize_conversation_id
     
     if possible_match_ids is None:
         possible_match_ids = set()
+
+    # Calculate idle times if requested
+    # Uses updated_at as the last activity timestamp (this is set when events are added)
+    idle_map: dict[str, int | None] = {}
+    if idle_minutes is not None:
+        now = datetime.now(timezone.utc)
+        for conv in conversations:
+            if conv.updated_at:
+                delta = now - conv.updated_at
+                idle_map[conv.id] = int(delta.total_seconds() / 60)
+            else:
+                idle_map[conv.id] = None
     
     table = Table(show_header=True, header_style="bold")
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Source", no_wrap=True)
     table.add_column("Started", no_wrap=True)
-    table.add_column("Duration", justify="right", no_wrap=True)
+    if idle_minutes is not None:
+        table.add_column("Idle", justify="right", no_wrap=True)
+    else:
+        table.add_column("Duration", justify="right", no_wrap=True)
     table.add_column("Events", justify="right", no_wrap=True)
     if show_errors:
         table.add_column("Errors", no_wrap=True)
@@ -2361,11 +2382,32 @@ def _print_list_table(
             else:
                 error_text = "[dim]-[/dim]"
         
+        # Build time column (idle or duration)
+        if idle_minutes is not None:
+            idle_mins = idle_map.get(conv.id)
+            if idle_mins is not None:
+                # Format as human-readable (e.g., "3m", "2h", "1d")
+                if idle_mins < 60:
+                    idle_str = f"{idle_mins}m"
+                elif idle_mins < 1440:  # Less than a day
+                    idle_str = f"{idle_mins // 60}h"
+                else:
+                    idle_str = f"{idle_mins // 1440}d"
+                # Colorize based on threshold: red if active, green if quiet
+                if idle_mins < idle_minutes:
+                    time_col = f"[red]{idle_str}[/red]"
+                else:
+                    time_col = f"[green]{idle_str}[/green]"
+            else:
+                time_col = "[dim]-[/dim]"
+        else:
+            time_col = _format_duration(conv.duration) if conv.duration else ""
+
         row = [
             id_display,
             f"[{source_style}]{conv.source}[/{source_style}]",
             started,
-            _format_duration(conv.duration) if conv.duration else "",
+            time_col,
             str(conv.event_count),
         ]
         if show_errors:
