@@ -2326,7 +2326,11 @@ def _print_list_table(
         now = datetime.now(timezone.utc)
         for conv in conversations:
             if conv.updated_at:
-                delta = now - conv.updated_at
+                updated = conv.updated_at
+                # Handle naive datetimes by assuming UTC
+                if updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=timezone.utc)
+                delta = now - updated
                 idle_map[conv.id] = int(delta.total_seconds() / 60)
             else:
                 idle_map[conv.id] = None
@@ -2386,13 +2390,15 @@ def _print_list_table(
         if idle_minutes is not None:
             idle_mins = idle_map.get(conv.id)
             if idle_mins is not None:
-                # Format as human-readable (e.g., "3m", "2h", "1d")
+                # Format as human-readable (e.g., "3m", "2h", "1d", "4w")
                 if idle_mins < 60:
                     idle_str = f"{idle_mins}m"
                 elif idle_mins < 1440:  # Less than a day
                     idle_str = f"{idle_mins // 60}h"
-                else:
+                elif idle_mins < 10080:  # Less than a week
                     idle_str = f"{idle_mins // 1440}d"
+                else:
+                    idle_str = f"{idle_mins // 10080}w"
                 # Colorize based on threshold: red if active, green if quiet
                 if idle_mins < idle_minutes:
                     time_col = f"[red]{idle_str}[/red]"
