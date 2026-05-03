@@ -63,6 +63,27 @@ class SyncResult:
 
 
 @dataclass
+class RepairResult:
+    """Results of a repair operation."""
+
+    cloud_count: int = 0
+    manifest_count: int = 0
+    disk_count: int = 0
+    ghost_entries: list[str] = field(default_factory=list)  # In manifest but not on disk
+    orphaned_files: list[str] = field(default_factory=list)  # On disk but not in manifest
+    added_to_manifest: int = 0
+    removed_from_manifest: int = 0
+
+    @property
+    def is_consistent(self) -> bool:
+        return not self.ghost_entries and not self.orphaned_files
+
+    @property
+    def cloud_disk_match(self) -> bool:
+        return self.cloud_count == self.disk_count
+
+
+@dataclass
 class SyncManifest:
     """Persistent sync state."""
 
@@ -547,6 +568,108 @@ class SyncManager:
     def get_local_conversation_count(self) -> int:
         """Get count of locally synced conversations."""
         return len(self.manifest.conversations)
+
+    def repair(
+        self,
+        fix: bool = False,
+        check_cloud: bool = True,
+    ) -> RepairResult:
+        """Check and optionally repair sync state consistency.
+        
+        Compares:
+        1. Manifest entries vs actual files on disk
+        2. Total cloud conversations vs local count
+        
+        Args:
+            fix: If True, repair inconsistencies (add orphaned files to manifest,
+                 remove ghost entries)
+            check_cloud: If True, query cloud API for total conversation count
+        
+        Returns:
+            RepairResult with counts and lists of discrepancies
+        """
+        result = RepairResult()
+        
+        # Get manifest conversation IDs (normalized without dashes)
+        manifest_ids = set(self.manifest.conversations.keys())
+        result.manifest_count = len(manifest_ids)
+        
+        # Scan disk for actual conversation directories
+        disk_ids: set[str] = set()
+        synced_dir = self.config.synced_conversations_dir
+        if synced_dir.exists():
+            for d in synced_dir.iterdir():
+                if d.is_dir():
+                    # Normalize: remove dashes from UUID format
+                    conv_id = d.name.replace("-", "")
+                    disk_ids.add(conv_id)
+        result.disk_count = len(disk_ids)
+        
+        # Find discrepancies
+        result.ghost_entries = sorted(manifest_ids - disk_ids)
+        result.orphaned_files = sorted(disk_ids - manifest_ids)
+        
+        log.info(
+            "Repair check: manifest=%d, disk=%d, ghosts=%d, orphaned=%d",
+            result.manifest_count, result.disk_count,
+            len(result.ghost_entries), len(result.orphaned_files)
+        )
+        
+        # Check cloud count if requested and API key available
+        if check_cloud and self.config.api_key:
+            try:
+                with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
+                    result.cloud_count = client.count_conversations()
+                    log.info("Cloud conversation count: %d", result.cloud_count)
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (401, 403):
+                    raise SyncAuthError(f"Authentication failed (HTTP {e.response.status_code}). Check your API key.")
+                log.warning("Failed to get cloud count: HTTP %s", e.response.status_code)
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                log.warning("Failed to get cloud count: %s", e)
+        
+        # Apply fixes if requested
+        if fix:
+            # Remove ghost entries from manifest
+            for ghost_id in result.ghost_entries:
+                del self.manifest.conversations[ghost_id]
+                result.removed_from_manifest += 1
+            
+            # Add orphaned files to manifest
+            for orphan_id in result.orphaned_files:
+                conv_dir = self._find_conversation_dir(orphan_id)
+                if conv_dir:
+                    self.manifest.conversations[orphan_id] = {
+                        "title": None,  # Unknown - could fetch from cloud if needed
+                        "updated_at": None,
+                        "event_count": count_events(conv_dir),
+                        "downloaded_at": _format_datetime(datetime.now(timezone.utc)),
+                    }
+                    result.added_to_manifest += 1
+            
+            if result.removed_from_manifest > 0 or result.added_to_manifest > 0:
+                self.manifest.save(self.manifest_path)
+                log.info(
+                    "Repair applied: removed %d ghost entries, added %d orphaned files",
+                    result.removed_from_manifest, result.added_to_manifest
+                )
+        
+        return result
+
+    def _find_conversation_dir(self, conv_id: str) -> Path | None:
+        """Find conversation directory on disk, handling UUID format variations."""
+        synced_dir = self.config.synced_conversations_dir
+        # Try without dashes first
+        conv_dir = synced_dir / conv_id
+        if conv_dir.exists():
+            return conv_dir
+        # Try with dashes (UUID format)
+        if len(conv_id) == 32:
+            formatted = f"{conv_id[:8]}-{conv_id[8:12]}-{conv_id[12:16]}-{conv_id[16:20]}-{conv_id[20:]}"
+            conv_dir = synced_dir / formatted
+            if conv_dir.exists():
+                return conv_dir
+        return None
 
     def reset_to_n_newest(
         self,

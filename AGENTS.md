@@ -31,21 +31,27 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
 
 2. **Sync-first architecture**: Cloud conversations must be synced locally before viewing (no direct API queries per-request)
 
-3. **Title derivation**: Local conversations derive titles from first user message (first 60 chars, word boundary truncation)
+3. **Sync state repair**: The `ohtv sync --repair` command checks and fixes sync state consistency:
+   - Compares manifest entries vs actual files on disk
+   - Queries cloud API for total conversation count
+   - Reports ghost entries (in manifest but not on disk) and orphaned files (on disk but not in manifest)
+   - With `--dry-run`, only reports; without, repairs by updating manifest
 
-4. **Timezone handling**: Cloud timestamps are UTC; local CLI timestamps lack timezone info. The codebase normalizes to UTC for sorting, then converts to local time for display. **Limitation:** Local timestamps are interpreted using the current machine's timezone - if data moves between machines with different timezones, times may display incorrectly.
+4. **Title derivation**: Local conversations derive titles from first user message (first 60 chars, word boundary truncation)
 
-5. **LLM analysis caching**: The `gen objs` command caches results keyed by parameter combination (context level, detail level, assess flag). Cache invalidates when event count changes (conversation grew) or when the prompt file changes (detected via prompt hash). Multi-conversation mode (batch) uses minimal context + brief detail for token efficiency.
+5. **Timezone handling**: Cloud timestamps are UTC; local CLI timestamps lack timezone info. The codebase normalizes to UTC for sorting, then converts to local time for display. **Limitation:** Local timestamps are interpreted using the current machine's timezone - if data moves between machines with different timezones, times may display incorrectly.
 
-6. **LLM timeout**: Default 300s. Override with `LLM_TIMEOUT` env var. CLI shows spinner during analysis.
+6. **LLM analysis caching**: The `gen objs` command caches results keyed by parameter combination (context level, detail level, assess flag). Cache invalidates when event count changes (conversation grew) or when the prompt file changes (detected via prompt hash). Multi-conversation mode (batch) uses minimal context + brief detail for token efficiency.
 
-7. **LLM cost tracking**: `analyze_objectives()` returns an `AnalysisResult` dataclass containing `analysis` (ObjectiveAnalysis), `cost` (float, dollars), and `from_cache` (bool). The `gen objs` command (batch mode) displays running cost in the progress bar during analysis and shows total cost after completion. Cost is obtained from `response.metrics.accumulated_cost` via the OpenHands SDK LLM class.
+7. **LLM timeout**: Default 300s. Override with `LLM_TIMEOUT` env var. CLI shows spinner during analysis.
 
-8. **Human-readable action details**: `-d` flag formats tool calls for readability (e.g., `$ git status` for terminal). Use `--debug-tool-call` for raw JSON.
+8. **LLM cost tracking**: `analyze_objectives()` returns an `AnalysisResult` dataclass containing `analysis` (ObjectiveAnalysis), `cost` (float, dollars), and `from_cache` (bool). The `gen objs` command (batch mode) displays running cost in the progress bar during analysis and shows total cost after completion. Cost is obtained from `response.metrics.accumulated_cost` via the OpenHands SDK LLM class.
 
-9. **Output truncation**: `-o` truncates to 2000 chars; `-O` shows full output. Both show exit codes.
+9. **Human-readable action details**: `-d` flag formats tool calls for readability (e.g., `$ git status` for terminal). Use `--debug-tool-call` for raw JSON.
 
-10. **SQLite indexing**: Lightweight index for conversations and relationships. See `docs/DATABASE.md`. Key points:
+10. **Output truncation**: `-o` truncates to 2000 chars; `-O` shows full output. Both show exit codes.
+
+11. **SQLite indexing**: Lightweight index for conversations and relationships. See `docs/DATABASE.md`. Key points:
     - Minimal footprint: metadata only, content stays on filesystem
     - Two-phase: `db scan` (fast registration) + `db process <stage>` (incremental)
     - Change detection: mtime as fast filter, event_count as checkpoint
@@ -54,20 +60,20 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - **Stage order**: refs → actions → branch_context → push_pr_links (defined in `stages/__init__.py`)
     - **Dependency caveat**: Stages don't validate dependencies - running a stage before its dependencies completes successfully but does nothing useful (marks itself complete with empty results). Always use `db process all` to ensure correct ordering.
 
-11. **Data directory separation**:
+12. **Data directory separation**:
     - `~/.openhands/`: Read-only source data (only `sync` writes here)
     - `~/.ohtv/`: All ohtv-generated data (database, logs, cache). Override with `OHTV_DIR`.
 
-12. **Filter matching**: PR/repo/action filters require indexed database (`db scan && db process all`). PR filter uses precise matching (`#1` won't match `#10`). Action+repo combined filter uses target URLs when available.
+13. **Filter matching**: PR/repo/action filters require indexed database (`db scan && db process all`). PR filter uses precise matching (`#1` won't match `#10`). Action+repo combined filter uses target URLs when available.
 
-13. **Conversation ID normalization**: Database stores IDs without dashes; LocalSource returns with dashes. The `filters` module and `_find_conversation_dir` normalize both formats (removing dashes before directory lookup).
+14. **Conversation ID normalization**: Database stores IDs without dashes; LocalSource returns with dashes. The `filters` module and `_find_conversation_dir` normalize both formats (removing dashes before directory lookup).
 
-14. **Refs command dual mode**: The `refs` command supports two modes:
+15. **Refs command dual mode**: The `refs` command supports two modes:
     - **Single conversation mode**: `refs <id>` - Shows rich display with interaction annotations
     - **Multi-conversation mode**: `refs -D` (or other filters) - Aggregates and deduplicates refs across conversations
     - Machine-readable formats (`-1`, `--format lines|csv|json`) suppress rich output for automation
 
-15. **Terminal confirmation prompts**: Use Rich's `Confirm.ask()` with the same console instance:
+16. **Terminal confirmation prompts**: Use Rich's `Confirm.ask()` with the same console instance:
     ```python
     from rich.prompt import Confirm
     if not Confirm.ask("Are you sure?", console=console, default=False):
@@ -75,25 +81,25 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
         return
     ```
 
-16. **Branch and PR tracking**: 
+17. **Branch and PR tracking**: 
     - **Branch refs**: Branches are first-class refs (like issues/PRs). The `branch_context` stage creates branch refs from GIT_PUSH actions
     - **Push-PR linking**: The `push_pr_links` stage correlates pushes with PRs via branch matching
     - **Conservative approach**: Only links when full owner/repo/branch qualification exists on both sides
     - **Current limitation**: Temporal ordering not yet implemented (pushes before PR creation don't link correctly)
     - **Design doc**: See `docs/DESIGN_TEMPORAL_PR_LINKING.md` for planned improvements
 
-17. **Processing stage order**: `refs → actions → branch_context → push_pr_links`
+18. **Processing stage order**: `refs → actions → branch_context → push_pr_links`
     - Each stage can run independently but has dependencies
     - `all` runs all stages in correct order
 
-18. **Error analysis**: The `errors` module (`src/ohtv/errors.py`) tracks agent/LLM errors that impact agent behavior:
+19. **Error analysis**: The `errors` module (`src/ohtv/errors.py`) tracks agent/LLM errors that impact agent behavior:
     - **ConversationErrorEvent**: Terminal errors (LLM errors, budget exceeded, API failures)
     - **AgentErrorEvent**: Agent-level errors (sandbox restarts, tool validation failures)
     - Does NOT track routine terminal command failures (non-zero exit codes)
     - Errors are classified as TERMINAL (conversation stopped) or RECOVERED (agent continued)
     - Used by `ohtv errors <id>` command and `ohtv list --errors-only` filter
 
-19. **LLM analysis performance timing**: The `analysis/objectives.py` module has timing instrumentation. Check `~/.ohtv/logs/ohtv.log` for entries like:
+20. **LLM analysis performance timing**: The `analysis/objectives.py` module has timing instrumentation. Check `~/.ohtv/logs/ohtv.log` for entries like:
     ```
     TIMING load_events: 11.3ms
     TIMING import_sdk: 1962.5ms
@@ -106,7 +112,7 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - Event loading/transcript building: <100ms
     - Cache operations: <10ms
 
-20. **Parallel processing**: Multiple commands use parallel processing with 20 workers:
+21. **Parallel processing**: Multiple commands use parallel processing with 20 workers:
     - **`gen objs`** (batch mode): Parallel LLM analysis of conversations
     - **`sync`**: Parallel download of conversations from cloud
     - **`db embed`**: Parallel embedding generation
@@ -118,12 +124,12 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - `RateTracker` - Thread-safe rate tracking with smoothing
     - `run_parallel(items, process_fn, ...)` - Generic parallel execution helper
 
-21. **Model configuration**: LLM model can be set via:
+22. **Model configuration**: LLM model can be set via:
     - CLI: `--model/-m` option on `gen objs` command
     - Environment: `LLM_MODEL` env var (used by SDK's `LLM.load_from_env()`)
     - Try `haiku` for faster/cheaper analysis, `opus` for higher quality
 
-22. **Analysis cache indexing**: The database tracks LLM analysis cache state for fast lookup. Key tables:
+23. **Analysis cache indexing**: The database tracks LLM analysis cache state for fast lookup. Key tables:
     - `analysis_cache`: Tracks which conversations have cached analysis (by cache_key, event_count, content_hash)
     - `analysis_skips`: Tracks conversations that cannot be analyzed (no events, no content)
     - **520x speedup**: Cache status check via DB (4ms for 700+ convs) vs loading event files (2+ seconds)
@@ -131,21 +137,21 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - **Auto-sync**: Cache entries automatically sync to DB when `gen objs` command saves results
     - **Cache key format**: `assess=False,context_level=minimal,detail_level=brief` (sorted alphabetically)
 
-23. **Database-first conversation listing**: The database stores full conversation metadata for fast listing:
+24. **Database-first conversation listing**: The database stores full conversation metadata for fast listing:
     - Columns: `title`, `created_at`, `updated_at`, `selected_repository`, `source`
     - **45x speedup**: List with date filter via DB (15ms) vs filesystem scanning (3.8s for 1000+ convs)
     - **Auto-populated**: `db scan` extracts metadata from event files
     - **Graceful fallback**: Uses filesystem if DB unavailable or metadata not populated
     - Date filtering is pushed down to DB query when available
 
-24. **Automatic database maintenance**: The system automatically runs migrations and maintenance tasks:
+25. **Automatic database maintenance**: The system automatically runs migrations and maintenance tasks:
     - **No manual intervention**: Users never need to run `db scan --force` or know about migrations
     - **Maintenance tracking**: `maintenance_tasks` table tracks what's been done
     - **One-time tasks**: Metadata backfill and cache indexing run automatically after their migrations
     - **Progress display**: Long-running tasks show progress bars
     - **Implementation**: `ensure_db_ready()` in `db/maintenance.py` handles all maintenance
 
-25. **Customizable prompts**: LLM analysis prompts are stored as markdown files for user customization:
+26. **Customizable prompts**: LLM analysis prompts are stored as markdown files for user customization:
     - **Default prompts**: `src/ohtv/prompts/*.md` - 6 prompt variants (brief, standard, detailed × assess/no-assess)
     - **User prompts**: `~/.ohtv/prompts/*.md` - Override defaults by copying and editing
     - **Load order**: User prompts checked first, then package defaults
