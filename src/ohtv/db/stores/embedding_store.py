@@ -79,7 +79,15 @@ class EmbeddingStore:
             cache_key: Analysis cache key (only for embed_type='analysis')
             token_count: Number of tokens embedded
             source_text: Original text that was embedded (for RAG context)
+
+        Raises:
+            ValueError: If cache_key is non-empty but embed_type is not 'analysis'
         """
+        if cache_key and embed_type != "analysis":
+            raise ValueError(
+                f"cache_key should only be used with embed_type='analysis', got '{embed_type}'"
+            )
+
         blob = struct.pack(f"<{len(embedding)}f", *embedding)
         now = datetime.now(timezone.utc).isoformat()
         
@@ -455,20 +463,22 @@ class EmbeddingStore:
 
     def count_cached_missing_embeddings(self) -> int:
         """Count cached analyses that don't have corresponding embeddings.
-        
+
         Joins on both conversation_id and cache_key to properly match
-        each cached analysis variant with its embedding.
-        
+        each cached analysis variant with its embedding. Also requires
+        chunk_index=0 since analysis embeddings are never chunked.
+
         Returns:
-            Number of (conversation_id, cache_key) pairs in analysis_cache 
+            Number of (conversation_id, cache_key) pairs in analysis_cache
             without a matching embedding
         """
         cursor = self.conn.execute(
             """
             SELECT COUNT(*)
             FROM analysis_cache ac
-            LEFT JOIN embeddings e ON ac.conversation_id = e.conversation_id 
+            LEFT JOIN embeddings e ON ac.conversation_id = e.conversation_id
                 AND e.embed_type = 'analysis'
+                AND e.chunk_index = 0
                 AND e.cache_key = ac.cache_key
             WHERE e.conversation_id IS NULL
             """
@@ -477,7 +487,7 @@ class EmbeddingStore:
 
     def list_cached_missing_embeddings(self) -> list[tuple[str, str]]:
         """List cached analyses that don't have corresponding embeddings.
-        
+
         Returns:
             List of (conversation_id, cache_key) tuples for cached analyses
             that are missing embeddings
@@ -486,8 +496,9 @@ class EmbeddingStore:
             """
             SELECT ac.conversation_id, ac.cache_key
             FROM analysis_cache ac
-            LEFT JOIN embeddings e ON ac.conversation_id = e.conversation_id 
+            LEFT JOIN embeddings e ON ac.conversation_id = e.conversation_id
                 AND e.embed_type = 'analysis'
+                AND e.chunk_index = 0
                 AND e.cache_key = ac.cache_key
             WHERE e.conversation_id IS NULL
             ORDER BY ac.conversation_id, ac.cache_key

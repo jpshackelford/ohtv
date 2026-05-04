@@ -396,14 +396,16 @@ class AnalysisCacheManager:
     
     def _update_analysis_embedding(self, conv_dir: Path, analysis: T, cache_key: str) -> None:
         """Update the analysis embedding after new analysis is cached.
-        
+
         This ensures the embedding store stays in sync with analysis changes.
         Only updates the 'analysis' embedding type, not summary/content.
-        
+
         Args:
             conv_dir: Conversation directory
             analysis: The analysis result
-            cache_key: The cache key identifying this analysis variant
+            cache_key: The cache key identifying this analysis variant. Should match
+                the format used in analysis_cache table, e.g.,
+                'assess=False,context_level=minimal,detail_level=brief'.
         """
         try:
             from ohtv.db import get_connection, migrate

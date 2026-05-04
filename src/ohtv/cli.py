@@ -437,6 +437,20 @@ def _show_config() -> None:
     console.print()
     console.print(table)
     
+    # Show embedding configuration
+    console.print()
+    console.print("[bold]Embedding Configuration[/bold]")
+    try:
+        from ohtv.analysis.embeddings.config import get_current_config
+        embed_cfg = get_current_config()
+        if embed_cfg.is_configured:
+            console.print(f"  embedding_model: [cyan]{embed_cfg.model}[/cyan] ({_source_style(embed_cfg.source)})")
+        else:
+            console.print("  embedding_model: [dim]not configured[/dim]")
+            console.print("  [dim]Run 'ohtv config-embed' to set up embedding support[/dim]")
+    except Exception:
+        console.print("  embedding_model: [dim]not configured[/dim]")
+    
     # Show data directories
     console.print()
     console.print("[bold]Data Directories[/bold]")
@@ -450,6 +464,321 @@ def _show_config() -> None:
         console.print(f"  [green]✓[/green] manifest exists")
     else:
         console.print(f"  [yellow]![/yellow] manifest not found")
+
+
+@main.command("config-embed")
+@click.option("--test", is_flag=True, help="Test current configuration without changing it")
+@click.option("--reset", is_flag=True, help="Clear saved embedding configuration")
+def config_embed(test: bool, reset: bool) -> None:
+    """Configure embedding model for semantic search.
+    
+    \b
+    Runs a wizard to help configure embedding support. Automatically detects:
+    - Cloud embedding via LLM_API_KEY (OpenAI, etc.)
+    - Local Ollama server for free/offline embeddings
+    
+    \b
+    Usage:
+      ohtv config-embed           Run configuration wizard
+      ohtv config-embed --test    Test current configuration
+      ohtv config-embed --reset   Clear saved configuration
+    
+    \b
+    Supported providers:
+      Cloud (requires LLM_API_KEY):
+        - openai/text-embedding-3-small (default, recommended)
+        - openai/text-embedding-3-large
+        - mistral/mistral-embed
+      
+      Local (free, no API key):
+        - ollama/nomic-embed-text (recommended)
+        - ollama/mxbai-embed-large
+        - ollama/all-minilm
+    """
+    from ohtv.analysis.embeddings.config import (
+        get_current_config, test_current_config, detect_ollama,
+        test_ollama_embedding, save_embedding_config,
+        RECOMMENDED_OLLAMA_MODELS, get_effective_embedding_model,
+    )
+    from ohtv.config import get_config_file_path
+    from rich.prompt import Prompt, Confirm
+    from rich.panel import Panel
+    
+    if reset:
+        _reset_embedding_config()
+        return
+    
+    if test:
+        _test_embedding_config()
+        return
+    
+    # Run the wizard
+    _run_embedding_wizard()
+
+
+def _reset_embedding_config() -> None:
+    """Clear saved embedding configuration."""
+    from ohtv.config import get_config_file_path
+    
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+    
+    config_path = get_config_file_path()
+    
+    if not config_path.exists():
+        console.print("[dim]No configuration file found.[/dim]")
+        return
+    
+    # Load and remove embedding keys
+    try:
+        with open(config_path, "rb") as f:
+            existing = tomllib.load(f)
+    except Exception:
+        existing = {}
+    
+    removed = []
+    if "embedding_model" in existing:
+        del existing["embedding_model"]
+        removed.append("embedding_model")
+    if "ollama_host" in existing:
+        del existing["ollama_host"]
+        removed.append("ollama_host")
+    
+    if not removed:
+        console.print("[dim]No embedding configuration to clear.[/dim]")
+        return
+    
+    # Write back
+    lines = ["# ohtv configuration", "# See 'ohtv config --help' for available settings", ""]
+    for key, value in sorted(existing.items()):
+        if isinstance(value, str):
+            lines.append(f'{key} = "{value}"')
+        else:
+            lines.append(f"{key} = {value}")
+    lines.append("")
+    config_path.write_text("\n".join(lines))
+    
+    console.print(f"[green]✓[/green] Cleared: {', '.join(removed)}")
+    console.print("[dim]Embedding will now use environment variables or defaults.[/dim]")
+
+
+def _test_embedding_config() -> None:
+    """Test the current embedding configuration."""
+    from ohtv.analysis.embeddings.config import test_current_config, get_current_config
+    
+    console.print("\n[bold]Testing Embedding Configuration[/bold]\n")
+    
+    # Show current config
+    config = get_current_config()
+    
+    if not config.is_configured:
+        console.print("[yellow]No embedding model configured.[/yellow]")
+        console.print("\nRun [cyan]ohtv config-embed[/cyan] to set up embedding support.")
+        return
+    
+    console.print(f"  Model:    [cyan]{config.model}[/cyan]")
+    console.print(f"  Provider: {config.provider.value}")
+    console.print(f"  Source:   {config.source}")
+    console.print()
+    
+    # Test it
+    console.print("Testing connection...", end=" ")
+    config = test_current_config()
+    
+    if config.is_working:
+        console.print("[green]✓ Working![/green]")
+    else:
+        console.print("[red]✗ Failed[/red]")
+        console.print(f"\n[red]Error:[/red] {config.error}")
+        console.print("\nRun [cyan]ohtv config-embed[/cyan] to reconfigure.")
+
+
+def _wizard_print_header() -> None:
+    """Print the wizard header panel."""
+    from rich.panel import Panel
+    console.print()
+    console.print(Panel.fit(
+        "[bold]Embedding Configuration Wizard[/bold]\n\n"
+        "This wizard will help you configure embedding support for\n"
+        "semantic search ([cyan]ohtv search[/cyan]) and RAG ([cyan]ohtv ask[/cyan]).",
+        border_style="blue",
+    ))
+    console.print()
+
+
+def _wizard_show_ollama_status(ollama_status) -> None:
+    """Display Ollama detection status."""
+    if not ollama_status.is_running:
+        console.print(f"  [dim]-[/dim] Ollama not detected at {ollama_status.host}")
+        return
+    if ollama_status.available_models:
+        models_str = ", ".join(ollama_status.available_models[:3])
+        if len(ollama_status.available_models) > 3:
+            models_str += f" (+{len(ollama_status.available_models) - 3} more)"
+        console.print(f"  [green]✓[/green] Ollama is running with embedding models: {models_str}")
+    else:
+        console.print(f"  [green]✓[/green] Ollama is running (no embedding models installed)")
+
+
+def _wizard_check_current_config(current, test_current_config) -> bool:
+    """Check and display current config. Returns False if user wants to keep it."""
+    from rich.prompt import Confirm
+    console.print()
+    if not current.is_configured:
+        console.print("  [yellow]![/yellow] No embedding model configured")
+        return True
+    
+    console.print(f"  [green]✓[/green] Found configured model: [cyan]{current.model}[/cyan] (from {current.source})")
+    console.print("  Testing...", end=" ")
+    tested = test_current_config()
+    if tested.is_working:
+        console.print("[green]working![/green]")
+        console.print()
+        if not Confirm.ask("Current configuration is working. Reconfigure anyway?", default=False):
+            console.print("\n[dim]Keeping current configuration.[/dim]")
+            return False
+    else:
+        console.print(f"[red]not working[/red] - {tested.error}")
+    return True
+
+
+def _wizard_build_options(ollama_status, has_llm_key: bool) -> tuple[list[str], dict]:
+    """Build provider selection options based on availability."""
+    options, option_map = [], {}
+    
+    if ollama_status.is_running and ollama_status.available_models:
+        best = ollama_status.available_models[0]
+        options.append(f"1. [green]Ollama[/green] - Local, free ({best} ready)")
+        option_map["1"] = ("ollama", best)
+    elif ollama_status.is_running:
+        options.append("1. [yellow]Ollama[/yellow] - Local, free (needs model download)")
+        option_map["1"] = ("ollama_setup", None)
+    else:
+        options.append("1. [dim]Ollama[/dim] - Not running (start with: ollama serve)")
+        option_map["1"] = ("ollama_unavailable", None)
+    
+    if has_llm_key:
+        options.append("2. [green]OpenAI[/green] - Cloud, uses LLM_API_KEY (~$0.02/1M tokens)")
+        option_map["2"] = ("openai", "openai/text-embedding-3-small")
+    else:
+        options.append("2. [dim]OpenAI[/dim] - Requires LLM_API_KEY")
+        option_map["2"] = ("openai_unavailable", None)
+    
+    options.append("3. Cancel")
+    option_map["3"] = ("cancel", None)
+    return options, option_map
+
+
+def _wizard_show_setup_instructions(provider: str) -> None:
+    """Show setup instructions for unavailable providers."""
+    if provider == "ollama_unavailable":
+        console.print("\n[yellow]Ollama is not running.[/yellow]")
+        console.print("\nTo use Ollama for free local embeddings:")
+        console.print("  1. Install Ollama: https://ollama.ai")
+        console.print("  2. Start the server: [cyan]ollama serve[/cyan]")
+        console.print("  3. Pull a model: [cyan]ollama pull nomic-embed-text[/cyan]")
+        console.print("  4. Run this wizard again: [cyan]ohtv config-embed[/cyan]")
+    elif provider == "openai_unavailable":
+        console.print("\n[yellow]LLM_API_KEY is not set.[/yellow]")
+        console.print("\nTo use OpenAI embeddings:")
+        console.print("  1. Get an API key from https://platform.openai.com")
+        console.print("  2. Set the environment variable: [cyan]export LLM_API_KEY=sk-...[/cyan]")
+        console.print("  3. Run this wizard again: [cyan]ohtv config-embed[/cyan]")
+        console.print("\n[dim]Or use Ollama for free local embeddings.[/dim]")
+    elif provider == "ollama_setup":
+        console.print("\n[bold]Ollama Setup[/bold]")
+        console.print("\nNo embedding models found. Recommended: [cyan]nomic-embed-text[/cyan]")
+        console.print("\nDownload it with: [cyan]ollama pull nomic-embed-text[/cyan]")
+        console.print("\nThen run this wizard again.")
+
+
+def _wizard_test_and_save(provider: str, model: str) -> None:
+    """Test the selected provider and save if successful."""
+    from ohtv.analysis.embeddings.config import (
+        test_ollama_embedding, test_litellm_embedding, save_embedding_config
+    )
+    from ohtv.config import get_config_file_path
+    from rich.prompt import Confirm
+    
+    console.print()
+    console.print("[bold]Step 3:[/bold] Testing configuration...")
+    
+    if provider == "ollama":
+        full_model = f"ollama/{model}"
+        console.print(f"\n  Testing {full_model}...", end=" ")
+        success, error = test_ollama_embedding(model)
+    else:
+        full_model = model
+        console.print(f"\n  Testing {full_model}...", end=" ")
+        success, error = test_litellm_embedding(model)
+    
+    if not success:
+        console.print("[red]failed[/red]")
+        console.print(f"\n[red]Error:[/red] {error}")
+        return
+    
+    console.print("[green]success![/green]")
+    console.print()
+    
+    if Confirm.ask(f"Save [cyan]{full_model}[/cyan] as default embedding model?", default=True):
+        save_embedding_config(full_model)
+        console.print(f"\n[green]✓[/green] Saved to {get_config_file_path()}")
+        console.print("\n[dim]You can now use:[/dim]")
+        console.print("  [cyan]ohtv db embed[/cyan]    - Build embeddings for search")
+        console.print("  [cyan]ohtv search[/cyan]      - Semantic search")
+        console.print("  [cyan]ohtv ask[/cyan]         - Ask questions about conversations")
+    else:
+        console.print("\n[dim]Not saved. To use this model temporarily:[/dim]")
+        console.print(f"  [cyan]export EMBEDDING_MODEL={full_model}[/cyan]")
+
+
+def _run_embedding_wizard() -> None:
+    """Run the interactive embedding configuration wizard."""
+    from ohtv.analysis.embeddings.config import (
+        get_current_config, test_current_config, detect_ollama,
+    )
+    from rich.prompt import Prompt
+    import os
+    
+    _wizard_print_header()
+    
+    # Step 1: Detect providers
+    console.print("[bold]Step 1:[/bold] Checking current configuration...")
+    current = get_current_config()
+    has_llm_key = bool(os.environ.get("LLM_API_KEY"))
+    ollama_status = detect_ollama()
+    
+    if not _wizard_check_current_config(current, test_current_config):
+        return
+    
+    if has_llm_key:
+        console.print("  [green]✓[/green] LLM_API_KEY is set (cloud embeddings available)")
+    else:
+        console.print("  [dim]-[/dim] LLM_API_KEY not set")
+    _wizard_show_ollama_status(ollama_status)
+    console.print()
+    
+    # Step 2: Choose provider
+    console.print("[bold]Step 2:[/bold] Choose embedding provider\n")
+    options, option_map = _wizard_build_options(ollama_status, has_llm_key)
+    for opt in options:
+        console.print(f"  {opt}")
+    console.print()
+    
+    default = "1" if ollama_status.is_running else "2" if has_llm_key else "3"
+    choice = Prompt.ask("Select option", choices=["1", "2", "3"], default=default)
+    provider, model = option_map[choice]
+    
+    if provider == "cancel":
+        console.print("\n[dim]Cancelled.[/dim]")
+        return
+    if provider in ("ollama_unavailable", "openai_unavailable", "ollama_setup"):
+        _wizard_show_setup_instructions(provider)
+        return
+    
+    _wizard_test_and_save(provider, model)
 
 
 def _run_post_sync_processing(quiet: bool, verbose: bool, no_llm: bool = False, no_embed: bool = False) -> None:
@@ -595,11 +924,21 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
     from ohtv.db import get_connection
     from pathlib import Path
     from ohtv.db.stores import ConversationStore, EmbeddingStore
+    from ohtv.filters import normalize_conversation_id
+    from ohtv.analysis.embeddings.config import is_embedding_configured, get_current_config
     
-    # Check if embedding is configured
-    if not os.environ.get("LLM_API_KEY"):
+    # Check if embedding is configured (env var, config file, or Ollama)
+    if not is_embedding_configured():
+        # Check if Ollama might be available as a fallback
+        from ohtv.analysis.embeddings.config import detect_ollama
+        ollama_status = detect_ollama()
+        
         if not quiet:
-            console.print("\n[dim]Skipping embeddings (LLM_API_KEY not set)[/dim]")
+            console.print("\n[dim]Skipping embeddings (not configured)[/dim]")
+            if ollama_status.is_running:
+                console.print("[dim]Tip: Ollama detected! Run 'ohtv config-embed' to set up free local embeddings.[/dim]")
+            else:
+                console.print("[dim]Run 'ohtv config-embed' to configure embedding support.[/dim]")
         return
     
     if not quiet:
@@ -609,18 +948,22 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
         conv_store = ConversationStore(conn)
         embed_store = EmbeddingStore(conn)
         
+        # Build set of already-embedded conversation IDs (normalized for comparison)
+        existing_ids = set(normalize_conversation_id(cid) for cid in embed_store.list_conversation_ids())
+        
         all_convs = conv_store.list_all()
         
         # Filter to conversations with local content
         convs_with_content = []
         no_local_content = 0
         for conv in all_convs:
+            # Skip if no local directory or no events directory
             if not conv.location:
                 no_local_content += 1
                 continue
             conv_dir = Path(conv.location)
-            events_file = conv_dir / "events.json"
-            if not events_file.exists():
+            events_dir = conv_dir / "events"
+            if not events_dir.exists() or not events_dir.is_dir():
                 no_local_content += 1
                 continue
             convs_with_content.append(conv)
@@ -1453,7 +1796,9 @@ def _populate_error_info(
 @click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
 @click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
 @click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
-@click.option("--refs", "-R", "show_refs", is_flag=True, help="Show git refs (repos, PRs, issues) from database")
+@click.option("--no-refs", "hide_refs", is_flag=True, help="Hide git refs (shown by default)")
+@click.option("--idle", "idle_minutes", type=int, default=None, is_flag=False, flag_value=7,
+              help="Show Idle column (minutes since last event). Colorized: red if < MINS (default: 7), green if >= MINS")
 @click.option("--with-errors", "-E", "with_errors", is_flag=True, help="Include error info column (agent/LLM errors)")
 @click.option("--errors-only", "errors_only", is_flag=True, help="Show only conversations with agent/LLM errors")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
@@ -1472,7 +1817,8 @@ def list_conversations(
     pr_filter: str | None,
     repo_filter: str | None,
     action_filter: str | None,
-    show_refs: bool,
+    hide_refs: bool,
+    idle_minutes: int | None,
     with_errors: bool,
     errors_only: bool,
     verbose: bool,
@@ -1526,9 +1872,9 @@ def list_conversations(
     # Track if we're using default limit (for hint message)
     using_default_limit = not show_all and limit is None
 
-    # Load refs from database if requested
+    # Load refs from database by default (unless --no-refs)
     refs_map: dict[str, list[str]] | None = None
-    if show_refs:
+    if not hide_refs:
         refs_map = _load_refs_for_conversations(conversations)
 
     # Populate error info if requested (and not already populated by errors_only filter)
@@ -1556,6 +1902,7 @@ def list_conversations(
                 refs_map=refs_map,
                 show_errors=show_errors,
                 hide_title=errors_only,
+                idle_minutes=idle_minutes,
             )
         else:
             # For JSON and CSV, use plain print to avoid rich styling
@@ -2303,19 +2650,40 @@ def _print_list_table(
     refs_map: dict[str, list[str]] | None = None,
     show_errors: bool = False,
     hide_title: bool = False,
+    idle_minutes: int | None = None,
 ) -> None:
     """Print conversations as a rich table."""
+    from datetime import datetime, timezone
     from ohtv.errors import format_error_type_counts
     from ohtv.filters import normalize_conversation_id
     
     if possible_match_ids is None:
         possible_match_ids = set()
+
+    # Calculate idle times if requested
+    # Uses updated_at as the last activity timestamp (this is set when events are added)
+    idle_map: dict[str, int | None] = {}
+    if idle_minutes is not None:
+        now = datetime.now(timezone.utc)
+        for conv in conversations:
+            if conv.updated_at:
+                updated = conv.updated_at
+                # Handle naive datetimes by assuming UTC
+                if updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=timezone.utc)
+                delta = now - updated
+                idle_map[conv.id] = int(delta.total_seconds() / 60)
+            else:
+                idle_map[conv.id] = None
     
     table = Table(show_header=True, header_style="bold")
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Source", no_wrap=True)
     table.add_column("Started", no_wrap=True)
-    table.add_column("Duration", justify="right", no_wrap=True)
+    if idle_minutes is not None:
+        table.add_column("Idle", justify="right", no_wrap=True)
+    else:
+        table.add_column("Duration", justify="right", no_wrap=True)
     table.add_column("Events", justify="right", no_wrap=True)
     if show_errors:
         table.add_column("Errors", no_wrap=True)
@@ -2359,11 +2727,34 @@ def _print_list_table(
             else:
                 error_text = "[dim]-[/dim]"
         
+        # Build time column (idle or duration)
+        if idle_minutes is not None:
+            idle_mins = idle_map.get(conv.id)
+            if idle_mins is not None:
+                # Format as human-readable (e.g., "3m", "2h", "1d", "4w")
+                if idle_mins < 60:
+                    idle_str = f"{idle_mins}m"
+                elif idle_mins < 1440:  # Less than a day
+                    idle_str = f"{idle_mins // 60}h"
+                elif idle_mins < 10080:  # Less than a week
+                    idle_str = f"{idle_mins // 1440}d"
+                else:
+                    idle_str = f"{idle_mins // 10080}w"
+                # Colorize based on threshold: red if active, green if quiet
+                if idle_mins < idle_minutes:
+                    time_col = f"[red]{idle_str}[/red]"
+                else:
+                    time_col = f"[green]{idle_str}[/green]"
+            else:
+                time_col = "[dim]-[/dim]"
+        else:
+            time_col = _format_duration(conv.duration) if conv.duration else ""
+
         row = [
             id_display,
             f"[{source_style}]{conv.source}[/{source_style}]",
             started,
-            _format_duration(conv.duration) if conv.duration else "",
+            time_col,
             str(conv.event_count),
         ]
         if show_errors:

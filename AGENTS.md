@@ -170,7 +170,10 @@ uv run python -m pytest tests/unit/test_filters.py -v
 uv run python -m pytest tests/unit/test_errors.py -v
 
 # Manual testing - see README.md for full command reference
-uv run ohtv list -A                    # All conversations
+uv run ohtv list -A                    # All conversations (refs shown by default)
+uv run ohtv list -A --idle             # Show idle time (red < 7m, green >= 7m)
+uv run ohtv list -A --idle 15          # Custom idle threshold (15 min)
+uv run ohtv list -A --no-refs          # Hide refs from title column
 uv run ohtv show <id> -m               # Messages
 uv run ohtv show <id> -s -d -o         # Actions with details + outputs
 uv run ohtv refs <id>                  # Git references (rich display)
