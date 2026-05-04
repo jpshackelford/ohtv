@@ -18,6 +18,8 @@ from dataclasses import dataclass
 
 import litellm
 
+from ohtv.analysis.embeddings.config import get_effective_embedding_model
+
 # Suppress LiteLLM info messages that spam output during batch operations
 litellm.suppress_debug_info = True
 
@@ -162,8 +164,14 @@ class EmbeddingResult:
 
 
 def get_embedding_model() -> str:
-    """Get the configured embedding model."""
-    return os.environ.get("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
+    """Get the configured embedding model.
+    
+    Priority:
+    1. EMBEDDING_MODEL environment variable
+    2. embedding_model in config file (~/.ohtv/config.toml)
+    3. Default (openai/text-embedding-3-small)
+    """
+    return get_effective_embedding_model() or DEFAULT_EMBEDDING_MODEL
 
 
 def get_embedding_dimension(model: str | None = None) -> int:
