@@ -192,8 +192,11 @@ def _get_extra_conversation_paths(file_config: dict) -> tuple[list[Path], str]:
 
 
 def _get_api_key(home: Path) -> str | None:
-    """Get API key from env or file."""
-    api_key = os.environ.get("OH_API_KEY")
+    """Get API key from env or file.
+    
+    Checks in order: OPENHANDS_API_KEY, OH_API_KEY, then ~/.openhands/cloud/api_key.txt
+    """
+    api_key = os.environ.get("OPENHANDS_API_KEY") or os.environ.get("OH_API_KEY")
     if api_key:
         return api_key
     key_file = home / ".openhands" / "cloud" / "api_key.txt"
