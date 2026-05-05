@@ -19,9 +19,11 @@ Cache location:
 - The migrate_cache() function moves files from legacy to new location
 """
 
+import filecmp
 import hashlib
 import json
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TypeVar
@@ -83,6 +85,31 @@ def _get_legacy_cache_file_path(conv_dir: Path) -> Path:
     return conv_dir / "objective_analysis.json"
 
 
+def _find_cache_file(conv_dir: Path, filename: str = "objective_analysis.json") -> Path | None:
+    """Find existing cache file, checking new location first then legacy.
+
+    Args:
+        conv_dir: Path to conversation directory
+        filename: Cache filename to look for
+
+    Returns:
+        Path to existing cache file, or None if no cache exists.
+        Prefers new location (~/.ohtv/cache/) over legacy (conversation dir).
+    """
+    # Try new location first
+    conv_id = conv_dir.name
+    new_file = get_analysis_cache_dir() / conv_id / filename
+    if new_file.exists():
+        return new_file
+
+    # Fall back to legacy location
+    legacy_file = conv_dir / filename
+    if legacy_file.exists():
+        return legacy_file
+
+    return None
+
+
 def has_legacy_cache_files(conv_dirs: list[Path]) -> list[Path]:
     """Check if any conversation directories have legacy cache files.
 
@@ -112,13 +139,9 @@ def load_analysis(conv_dir: Path) -> dict | None:
         Analysis dict with keys like 'goal', 'primary_outcomes', etc.
         Returns None if no cache exists or no analysis found.
     """
-    # Try new location first
-    cache_file = _get_cache_file_path(conv_dir)
-    if not cache_file.exists():
-        # Fall back to legacy location
-        cache_file = _get_legacy_cache_file_path(conv_dir)
-        if not cache_file.exists():
-            return None
+    cache_file = _find_cache_file(conv_dir)
+    if cache_file is None:
+        return None
 
     try:
         data = json.loads(cache_file.read_text())
@@ -143,13 +166,9 @@ def load_all_analyses(conv_dir: Path) -> dict[str, dict]:
         Dict mapping cache_key to analysis dict.
         Returns empty dict if no cache exists.
     """
-    # Try new location first
-    cache_file = _get_cache_file_path(conv_dir)
-    if not cache_file.exists():
-        # Fall back to legacy location
-        cache_file = _get_legacy_cache_file_path(conv_dir)
-        if not cache_file.exists():
-            return {}
+    cache_file = _find_cache_file(conv_dir)
+    if cache_file is None:
+        return {}
 
     try:
         data = json.loads(cache_file.read_text())
@@ -279,6 +298,23 @@ class AnalysisCacheManager:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(json.dumps(data, indent=2, default=str))
 
+    def _find_cache_data(self, conv_dir: Path) -> dict | None:
+        """Find and load cache data, checking new location first then legacy.
+
+        Args:
+            conv_dir: Conversation directory
+
+        Returns:
+            Cache data dict, or None if no valid cache exists.
+        """
+        # Try new location first
+        cache_data = self._load_cache_data(self.get_cache_file(conv_dir))
+        if cache_data is not None:
+            return cache_data
+
+        # Fall back to legacy location
+        return self._load_cache_data(self.get_legacy_cache_file(conv_dir))
+
     def load_cached(
         self,
         conv_dir: Path,
@@ -303,15 +339,7 @@ class AnalysisCacheManager:
         Returns:
             Validated analysis or None if cache is invalid/missing.
         """
-        # Try new location first
-        cache_file = self.get_cache_file(conv_dir)
-        cache_data = self._load_cache_data(cache_file)
-
-        # Fall back to legacy location
-        if cache_data is None:
-            legacy_file = self.get_legacy_cache_file(conv_dir)
-            cache_data = self._load_cache_data(legacy_file)
-
+        cache_data = self._find_cache_data(conv_dir)
         if cache_data is None:
             return None
 
@@ -539,15 +567,7 @@ class AnalysisCacheManager:
         Returns:
             Skip reason if skipped and still valid, None otherwise.
         """
-        # Try new location first
-        cache_file = self.get_cache_file(conv_dir)
-        cache_data = self._load_cache_data(cache_file)
-
-        # Fall back to legacy location
-        if cache_data is None:
-            legacy_file = self.get_legacy_cache_file(conv_dir)
-            cache_data = self._load_cache_data(legacy_file)
-
+        cache_data = self._find_cache_data(conv_dir)
         if cache_data is None:
             return None
 
@@ -618,9 +638,16 @@ class AnalysisCacheManager:
             log.debug("Failed to sync skip to DB (non-fatal): %s", e)
 
 
+class MigrationError(Exception):
+    """Raised when cache file migration fails verification."""
+
+    pass
+
+
 def migrate_cache_file(
     conv_dir: Path,
     cache_filename: str = "objective_analysis.json",
+    verify: bool = True,
 ) -> bool:
     """Migrate a single cache file from legacy to new location.
 
@@ -631,12 +658,15 @@ def migrate_cache_file(
     Args:
         conv_dir: Path to conversation directory
         cache_filename: Name of the cache file
+        verify: If True, verify the copy succeeded before returning
 
     Returns:
         True if migration was performed, False if no legacy file exists
-    """
-    import shutil
 
+    Raises:
+        MigrationError: If verification fails (copy incomplete or unreadable)
+        OSError: If there's insufficient disk space or permission issues
+    """
     legacy_file = conv_dir / cache_filename
     if not legacy_file.exists():
         return False
@@ -645,13 +675,54 @@ def migrate_cache_file(
     conv_id = conv_dir.name
     new_file = get_analysis_cache_dir() / conv_id / cache_filename
 
-    # Create parent directory
-    new_file.parent.mkdir(parents=True, exist_ok=True)
+    # Check disk space before copying (rough estimate: need at least 2x file size)
+    source_size = legacy_file.stat().st_size
+    try:
+        target_dir = new_file.parent
+        target_dir.mkdir(parents=True, exist_ok=True)
+        free_space = shutil.disk_usage(target_dir).free
+        if free_space < source_size * 2:
+            raise MigrationError(
+                f"Insufficient disk space: {free_space} bytes free, "
+                f"need at least {source_size * 2} bytes"
+            )
+    except (OSError, AttributeError):
+        # disk_usage might not be available on all platforms
+        pass
 
     # Copy file (don't delete original for safety)
     shutil.copy2(legacy_file, new_file)
-    log.debug("Migrated cache file: %s -> %s", legacy_file, new_file)
 
+    if verify:
+        # Verify the copy succeeded
+        if not new_file.exists():
+            raise MigrationError(f"Target file not created: {new_file}")
+
+        # Verify file contents match
+        if not filecmp.cmp(legacy_file, new_file, shallow=False):
+            # Clean up failed copy
+            try:
+                new_file.unlink()
+            except OSError:
+                pass
+            raise MigrationError(
+                f"File content mismatch after copy: {legacy_file} -> {new_file}"
+            )
+
+        # Verify the new file is readable and valid JSON
+        try:
+            data = json.loads(new_file.read_text())
+            if "analyses" not in data and "skipped" not in data:
+                log.warning("Migrated file has unexpected format: %s", new_file)
+        except (json.JSONDecodeError, OSError) as e:
+            # Clean up corrupted file
+            try:
+                new_file.unlink()
+            except OSError:
+                pass
+            raise MigrationError(f"Migrated file is not readable: {e}")
+
+    log.debug("Migrated cache file: %s -> %s", legacy_file, new_file)
     return True
 
 
