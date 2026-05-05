@@ -788,6 +788,10 @@ ohtv sync --dry-run
 # Check sync status
 ohtv sync --status
 
+# Check and repair sync state consistency
+ohtv sync --repair --dry-run  # Check only
+ohtv sync --repair            # Fix inconsistencies
+
 # Quiet mode (for cron jobs)
 ohtv sync --quiet
 ```
@@ -799,6 +803,7 @@ ohtv sync --quiet
 | `--since DATE` | Only sync conversations updated after date |
 | `--dry-run` | Show what would sync without downloading |
 | `-s, --status` | Show sync status |
+| `--repair` | Check and fix sync state (manifest vs disk vs cloud) |
 | `-p, --process` | Run all processing stages after sync |
 | `-q, --quiet` | Minimal output for cron jobs |
 

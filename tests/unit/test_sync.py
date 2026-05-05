@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ohtv.sync import SyncManager, SyncManifest, SyncResult
+from ohtv.sync import RepairResult, SyncManager, SyncManifest, SyncResult
 
 
 class TestSyncResult:
@@ -470,3 +470,219 @@ def _create_minimal_zip() -> bytes:
             "kind": "MessageEvent",
         }))
     return buffer.getvalue()
+
+
+class TestRepairResult:
+    """Tests for RepairResult dataclass."""
+
+    def test_is_consistent_when_no_discrepancies(self):
+        result = RepairResult(
+            manifest_count=10,
+            disk_count=10,
+            ghost_entries=[],
+            orphaned_files=[],
+        )
+        assert result.is_consistent is True
+
+    def test_is_consistent_false_when_ghosts(self):
+        result = RepairResult(
+            ghost_entries=["abc123"],
+            orphaned_files=[],
+        )
+        assert result.is_consistent is False
+
+    def test_is_consistent_false_when_orphaned(self):
+        result = RepairResult(
+            ghost_entries=[],
+            orphaned_files=["xyz789"],
+        )
+        assert result.is_consistent is False
+
+    def test_cloud_disk_match_when_equal(self):
+        result = RepairResult(cloud_count=100, disk_count=100)
+        assert result.cloud_disk_match is True
+
+    def test_cloud_disk_match_false_when_different(self):
+        result = RepairResult(cloud_count=100, disk_count=50)
+        assert result.cloud_disk_match is False
+
+
+class TestSyncManagerRepair:
+    """Tests for SyncManager.repair method."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a SyncManager with mocked config."""
+        config = MagicMock()
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.synced_conversations_dir.mkdir(parents=True)
+        config.api_key = None  # No API key - skip cloud check
+        config.cloud_api_url = "https://example.com"
+        
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_detects_consistent_state(self, manager):
+        """Test that repair detects when manifest and disk are consistent."""
+        # Add conversation to manifest
+        manager.manifest.conversations = {
+            "abc123": {"title": "Test", "event_count": 5},
+        }
+        
+        # Create matching directory on disk
+        conv_dir = manager.config.synced_conversations_dir / "abc123"
+        conv_dir.mkdir()
+        
+        result = manager.repair(fix=False, check_cloud=False)
+        
+        assert result.manifest_count == 1
+        assert result.disk_count == 1
+        assert result.is_consistent is True
+        assert len(result.ghost_entries) == 0
+        assert len(result.orphaned_files) == 0
+
+    def test_detects_ghost_entries(self, manager):
+        """Test that repair detects entries in manifest but not on disk."""
+        # Add conversation to manifest but NOT on disk
+        manager.manifest.conversations = {
+            "ghost123": {"title": "Ghost", "event_count": 5},
+        }
+        
+        result = manager.repair(fix=False, check_cloud=False)
+        
+        assert result.manifest_count == 1
+        assert result.disk_count == 0
+        assert result.is_consistent is False
+        assert "ghost123" in result.ghost_entries
+
+    def test_detects_orphaned_files(self, manager):
+        """Test that repair detects files on disk but not in manifest."""
+        # Create directory on disk but NOT in manifest
+        conv_dir = manager.config.synced_conversations_dir / "orphan456"
+        conv_dir.mkdir()
+        
+        result = manager.repair(fix=False, check_cloud=False)
+        
+        assert result.manifest_count == 0
+        assert result.disk_count == 1
+        assert result.is_consistent is False
+        assert "orphan456" in result.orphaned_files
+
+    def test_normalizes_uuid_format(self, manager):
+        """Test that repair handles UUID format with dashes."""
+        # Add conversation to manifest without dashes (32 chars)
+        manager.manifest.conversations = {
+            "abc12345678901234567890123456abc": {"title": "Test"},
+        }
+        
+        # Create directory on disk WITH dashes (UUID format: 8-4-4-4-12)
+        uuid_format = "abc12345-6789-0123-4567-890123456abc"
+        conv_dir = manager.config.synced_conversations_dir / uuid_format
+        conv_dir.mkdir()
+        
+        result = manager.repair(fix=False, check_cloud=False)
+        
+        # Should detect the match despite format difference
+        assert result.is_consistent is True
+
+    def test_fix_removes_ghost_entries(self, manager):
+        """Test that repair with fix=True removes ghost entries."""
+        # Add ghost entry
+        manager.manifest.conversations = {
+            "ghost123": {"title": "Ghost"},
+            "real456": {"title": "Real"},
+        }
+        
+        # Only create real456 on disk
+        (manager.config.synced_conversations_dir / "real456").mkdir()
+        
+        result = manager.repair(fix=True, check_cloud=False)
+        
+        assert result.removed_from_manifest == 1
+        assert "ghost123" not in manager.manifest.conversations
+        assert "real456" in manager.manifest.conversations
+
+    def test_fix_adds_orphaned_files(self, manager):
+        """Test that repair with fix=True adds orphaned files to manifest."""
+        # Create orphaned directory with events subdirectory
+        conv_dir = manager.config.synced_conversations_dir / "orphan789"
+        events_dir = conv_dir / "events"
+        events_dir.mkdir(parents=True)
+        # Add an event file (count_events looks for files starting with "event_")
+        (events_dir / "event_000001_abc.json").write_text('{"id": "abc"}')
+        
+        result = manager.repair(fix=True, check_cloud=False)
+        
+        assert result.added_to_manifest == 1
+        assert "orphan789" in manager.manifest.conversations
+        # event_count may be 0 or 1 depending on count_events implementation
+        assert "event_count" in manager.manifest.conversations["orphan789"]
+
+    def test_fix_saves_manifest(self, manager):
+        """Test that repair with fix=True saves the updated manifest."""
+        # Create orphaned directory
+        conv_dir = manager.config.synced_conversations_dir / "orphan000"
+        conv_dir.mkdir()
+        
+        result = manager.repair(fix=True, check_cloud=False)
+        
+        # Verify manifest was saved by reloading
+        reloaded = SyncManifest.load(manager.manifest_path)
+        assert "orphan000" in reloaded.conversations
+
+    def test_no_changes_when_fix_false(self, manager):
+        """Test that repair with fix=False doesn't modify anything."""
+        # Create orphaned directory
+        conv_dir = manager.config.synced_conversations_dir / "orphan111"
+        conv_dir.mkdir()
+        
+        result = manager.repair(fix=False, check_cloud=False)
+        
+        assert result.added_to_manifest == 0
+        assert result.removed_from_manifest == 0
+        assert "orphan111" not in manager.manifest.conversations
+
+
+class TestSyncManagerFindConversationDir:
+    """Tests for SyncManager._find_conversation_dir method."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """Create a SyncManager with mocked config."""
+        config = MagicMock()
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.synced_conversations_dir.mkdir(parents=True)
+        config.api_key = "test-key"
+        
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_finds_dir_without_dashes(self, manager):
+        """Test finding directory when ID has no dashes."""
+        conv_id = "abc12345678901234567890123456"
+        conv_dir = manager.config.synced_conversations_dir / conv_id
+        conv_dir.mkdir()
+        
+        result = manager._find_conversation_dir(conv_id)
+        
+        assert result == conv_dir
+
+    def test_finds_dir_with_uuid_format(self, manager):
+        """Test finding directory when stored with UUID dashes."""
+        # 32 hex chars (standard UUID without dashes)
+        conv_id = "abc12345678901234567890123456abc"
+        # Standard UUID format with dashes (8-4-4-4-12)
+        uuid_format = "abc12345-6789-0123-4567-890123456abc"
+        
+        conv_dir = manager.config.synced_conversations_dir / uuid_format
+        conv_dir.mkdir()
+        
+        result = manager._find_conversation_dir(conv_id)
+        
+        assert result == conv_dir
+
+    def test_returns_none_for_nonexistent(self, manager):
+        """Test that None is returned for nonexistent directory."""
+        result = manager._find_conversation_dir("nonexistent123")
+        
+        assert result is None

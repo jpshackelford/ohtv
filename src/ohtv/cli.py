@@ -76,7 +76,7 @@ class SectionedGroup(click.Group):
 
 from ohtv.logging import setup_logging
 from ohtv.sources import ConversationInfo, LocalSource
-from ohtv.sync import SyncAbortedError, SyncAuthError, SyncManager, SyncResult
+from ohtv.sync import RepairResult, SyncAbortedError, SyncAuthError, SyncManager, SyncResult
 
 console = Console()
 
@@ -242,6 +242,7 @@ def main() -> None:
 @click.option("--dry-run", is_flag=True, help="Show what would sync without downloading")
 @click.option("--max-new", "-n", type=int, help="Maximum number of NEW conversations to sync")
 @click.option("--status", "-s", is_flag=True, help="Show sync status")
+@click.option("--repair", is_flag=True, help="Check and repair sync state consistency")
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output for cron jobs")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 @click.option("--no-llm", is_flag=True, help="Skip LLM-powered analysis (summaries won't be generated)")
@@ -252,6 +253,7 @@ def sync(
     dry_run: bool,
     max_new: int | None,
     status: bool,
+    repair: bool,
     quiet: bool,
     verbose: bool,
     no_llm: bool,
@@ -269,6 +271,8 @@ def sync(
     
     Combining --force with -n resets local storage to only the N most
     recent conversations (destructive operation, requires confirmation).
+    
+    Use --repair to check and fix sync state consistency (manifest vs disk vs cloud).
     """
     _init_logging(verbose=verbose)
 
@@ -277,6 +281,10 @@ def sync(
 
     if status:
         _show_status(manager)
+        return
+
+    if repair:
+        _run_repair(manager, fix=not dry_run, quiet=quiet)
         return
 
     if not config.api_key:
@@ -1060,6 +1068,70 @@ def _show_status(manager: SyncManager) -> None:
         table.add_row("Pending retries", f"[red]{pending} failed[/red]")
 
     console.print(table)
+
+
+def _run_repair(manager: SyncManager, fix: bool, quiet: bool) -> None:
+    """Check and optionally repair sync state consistency."""
+    try:
+        result = manager.repair(fix=fix, check_cloud=True)
+    except SyncAuthError as e:
+        console.print(f"[red]Authentication error:[/red] {e}")
+        raise SystemExit(1)
+    
+    if quiet:
+        # Quiet mode: just exit with status code
+        if result.is_consistent and result.cloud_disk_match:
+            raise SystemExit(0)
+        raise SystemExit(1)
+    
+    # Display results
+    table = Table(title="Sync State Consistency Check", show_header=False)
+    table.add_column("Field", style="bold")
+    table.add_column("Value")
+    
+    table.add_row("Cloud conversations", str(result.cloud_count) if result.cloud_count else "[dim]unavailable[/dim]")
+    table.add_row("Manifest entries", str(result.manifest_count))
+    table.add_row("Conversations on disk", str(result.disk_count))
+    
+    console.print(table)
+    console.print()
+    
+    # Cloud vs disk comparison
+    if result.cloud_count:
+        if result.cloud_disk_match:
+            console.print("[green]✓[/green] Cloud and disk counts match")
+        else:
+            diff = result.cloud_count - result.disk_count
+            if diff > 0:
+                console.print(f"[yellow]⚠[/yellow] Missing {diff} conversation(s) from cloud")
+            else:
+                console.print(f"[yellow]⚠[/yellow] {-diff} more conversation(s) on disk than in cloud")
+    
+    # Ghost entries (in manifest but not on disk)
+    if result.ghost_entries:
+        console.print(f"\n[red]✗[/red] Ghost entries (in manifest but not on disk): {len(result.ghost_entries)}")
+        for conv_id in result.ghost_entries[:10]:
+            console.print(f"  [dim]{conv_id}[/dim]")
+        if len(result.ghost_entries) > 10:
+            console.print(f"  [dim]... and {len(result.ghost_entries) - 10} more[/dim]")
+    
+    # Orphaned files (on disk but not in manifest)
+    if result.orphaned_files:
+        console.print(f"\n[yellow]⚠[/yellow] Orphaned files (on disk but not in manifest): {len(result.orphaned_files)}")
+        for conv_id in result.orphaned_files[:10]:
+            console.print(f"  [dim]{conv_id}[/dim]")
+        if len(result.orphaned_files) > 10:
+            console.print(f"  [dim]... and {len(result.orphaned_files) - 10} more[/dim]")
+    
+    # Summary
+    console.print()
+    if result.is_consistent:
+        console.print("[green]✓[/green] Manifest and disk are consistent")
+    elif fix:
+        console.print(f"[green]✓[/green] Repaired: removed {result.removed_from_manifest} ghost entries, "
+                      f"added {result.added_to_manifest} orphaned files to manifest")
+    else:
+        console.print("[yellow]Run with --repair (without --dry-run) to fix inconsistencies[/yellow]")
 
 
 def _error_no_api_key() -> None:
