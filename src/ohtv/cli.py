@@ -7152,7 +7152,11 @@ def _run_batch_objectives_analysis(
 
     # Check for legacy cache files and warn user
     from ohtv.analysis.cache import count_legacy_cache_files
-    conv_dirs = [Path(c.location) for c in conversations if c.location]
+    conv_dirs = []
+    for c in conversations:
+        result = _find_conversation_dir(config, c.lookup_id)
+        if result:
+            conv_dirs.append(result[0])
     legacy_count = count_legacy_cache_files(conv_dirs)
     if legacy_count > 0:
         console.print(f"[yellow]Warning:[/yellow] {legacy_count} cache file(s) in unsupported location.")
