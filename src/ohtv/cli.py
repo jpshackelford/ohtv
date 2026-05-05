@@ -1134,7 +1134,7 @@ def _run_repair(manager: SyncManager, fix: bool, quiet: bool) -> None:
 
 def _error_no_api_key() -> None:
     """Show error for missing API key."""
-    console.print("[red]Error:[/red] API key required. Set OH_API_KEY environment variable.")
+    console.print("[red]Error:[/red] API key required. Set OPENHANDS_API_KEY or OH_API_KEY environment variable.")
     raise SystemExit(1)
 
 
