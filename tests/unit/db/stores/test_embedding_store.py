@@ -536,3 +536,259 @@ class TestFTSSearch:
         """Test FTS search on empty database."""
         results = embedding_store.search_fts("anything")
         assert results == []
+
+
+class TestListConversationsNeedingEmbeddings:
+    """Tests for list_conversations_needing_embeddings method."""
+    
+    def test_returns_conversations_with_no_embeddings(
+        self, db_conn, embedding_store, conversation_store, sample_embedding_small
+    ):
+        """Conversations with no embeddings at all should be returned."""
+        # Create conversations
+        _create_conversation(conversation_store, "conv1")
+        _create_conversation(conversation_store, "conv2")
+        _create_conversation(conversation_store, "conv3")
+        db_conn.commit()
+        
+        # Only embed conv2
+        embedding_store.upsert("conv2", sample_embedding_small, "test-model")
+        db_conn.commit()
+        
+        # conv1 and conv3 should be returned (no embeddings at all)
+        result = embedding_store.list_conversations_needing_embeddings(
+            ["conv1", "conv2", "conv3"]
+        )
+        assert set(result) == {"conv1", "conv3"}
+    
+    def test_returns_empty_when_all_embedded(
+        self, db_conn, embedding_store, conversation_store, sample_embedding_small
+    ):
+        """If all conversations have embeddings and no missing cache_keys, return empty."""
+        _create_conversation(conversation_store, "conv1")
+        _create_conversation(conversation_store, "conv2")
+        db_conn.commit()
+        
+        embedding_store.upsert("conv1", sample_embedding_small, "test-model")
+        embedding_store.upsert("conv2", sample_embedding_small, "test-model")
+        db_conn.commit()
+        
+        result = embedding_store.list_conversations_needing_embeddings(
+            ["conv1", "conv2"]
+        )
+        assert result == []
+    
+    def test_handles_dash_normalization(
+        self, db_conn, embedding_store, conversation_store, sample_embedding_small
+    ):
+        """IDs with dashes should match embedded IDs without dashes."""
+        # Embed without dashes (as stored in DB)
+        _create_conversation(conversation_store, "abc123def456")
+        embedding_store.upsert("abc123def456", sample_embedding_small, "test-model")
+        db_conn.commit()
+        
+        # Query with dashes (as returned by some sources)
+        result = embedding_store.list_conversations_needing_embeddings(
+            ["abc-123-def-456"]  # With dashes
+        )
+        # Should not need work since it's already embedded
+        assert result == []
+    
+    def test_returns_all_when_none_embedded(self, embedding_store):
+        """If nothing is embedded, return all conversations."""
+        result = embedding_store.list_conversations_needing_embeddings(
+            ["conv1", "conv2", "conv3"]
+        )
+        assert set(result) == {"conv1", "conv2", "conv3"}
+    
+    def test_includes_conversations_missing_cache_key_embeddings(
+        self, db_conn, embedding_store, conversation_store, sample_embedding_small
+    ):
+        """Conversations with cached analyses missing embeddings should be included."""
+        from ohtv.db.stores import AnalysisCacheStore
+        from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
+        from datetime import datetime, timezone
+        
+        _create_conversation(conversation_store, "conv1")
+        _create_conversation(conversation_store, "conv2")
+        db_conn.commit()
+        
+        # conv1 has an embedding (legacy, no cache_key)
+        embedding_store.upsert("conv1", sample_embedding_small, "test-model", 
+                               embed_type="analysis", cache_key="")
+        # conv2 has an embedding for one cache_key
+        embedding_store.upsert("conv2", sample_embedding_small, "test-model",
+                               embed_type="analysis", cache_key="assess=False")
+        db_conn.commit()
+        
+        # Add analysis_cache entries - conv1 now has a new cache_key variant
+        cache_store = AnalysisCacheStore(db_conn)
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv1",
+            cache_key="assess=True",  # New variant, not embedded
+            event_count=10,
+            content_hash="abc123",
+            analyzed_at=datetime.now(timezone.utc),
+        ))
+        # conv2's cached analysis IS embedded
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv2",
+            cache_key="assess=False",  # Already embedded
+            event_count=10,
+            content_hash="def456",
+            analyzed_at=datetime.now(timezone.utc),
+        ))
+        db_conn.commit()
+        
+        # conv1 should be returned (has missing cache_key embedding)
+        # conv2 should NOT be returned (cache_key is already embedded)
+        result = embedding_store.list_conversations_needing_embeddings(
+            ["conv1", "conv2"]
+        )
+        assert result == ["conv1"]
+
+
+class TestCacheKeyValidation:
+    """Tests for cache_key validation and multiple cache_key handling."""
+
+    def test_cache_key_validation_rejects_non_analysis_type(
+        self, db_conn, embedding_store, conversation_store, sample_embedding_small
+    ):
+        """cache_key should only be used with embed_type='analysis'."""
+        _create_conversation(conversation_store, "conv1")
+        db_conn.commit()
+
+        # Should raise ValueError for non-analysis embed_type with cache_key
+        with pytest.raises(ValueError, match="cache_key should only be used with embed_type='analysis'"):
+            embedding_store.upsert(
+                "conv1", sample_embedding_small, "test-model",
+                embed_type="summary", cache_key="some_key"
+            )
+
+        with pytest.raises(ValueError, match="cache_key should only be used with embed_type='analysis'"):
+            embedding_store.upsert(
+                "conv1", sample_embedding_small, "test-model",
+                embed_type="content", cache_key="some_key"
+            )
+
+    def test_cache_key_allowed_for_analysis_type(
+        self, db_conn, embedding_store, conversation_store, sample_embedding_small
+    ):
+        """cache_key should work fine with embed_type='analysis'."""
+        _create_conversation(conversation_store, "conv1")
+        db_conn.commit()
+
+        # Should not raise for analysis type
+        embedding_store.upsert(
+            "conv1", sample_embedding_small, "test-model",
+            embed_type="analysis", cache_key="assess=True,context_level=full"
+        )
+        db_conn.commit()
+
+        # Verify it was stored
+        result = embedding_store.get("conv1", embed_type="analysis", cache_key="assess=True,context_level=full")
+        assert result is not None
+
+    def test_multiple_cache_keys_per_conversation(
+        self, db_conn, embedding_store, conversation_store, sample_embedding_small
+    ):
+        """Multiple analysis embeddings can coexist with different cache_keys."""
+        _create_conversation(conversation_store, "conv1")
+        db_conn.commit()
+
+        # Insert three different cache_key variants
+        key1 = "assess=False,context_level=minimal"
+        key2 = "assess=True,context_level=full"
+        key3 = "assess=True,context_level=3"
+
+        embedding1 = [0.1, 0.2, 0.3, 0.4, 0.5]
+        embedding2 = [0.5, 0.4, 0.3, 0.2, 0.1]
+        embedding3 = [0.9, 0.8, 0.7, 0.6, 0.5]
+
+        embedding_store.upsert("conv1", embedding1, "test-model", embed_type="analysis", cache_key=key1)
+        embedding_store.upsert("conv1", embedding2, "test-model", embed_type="analysis", cache_key=key2)
+        embedding_store.upsert("conv1", embedding3, "test-model", embed_type="analysis", cache_key=key3)
+        db_conn.commit()
+
+        # Each can be retrieved independently
+        result1 = embedding_store.get("conv1", embed_type="analysis", cache_key=key1)
+        result2 = embedding_store.get("conv1", embed_type="analysis", cache_key=key2)
+        result3 = embedding_store.get("conv1", embed_type="analysis", cache_key=key3)
+
+        assert result1 is not None
+        assert result2 is not None
+        assert result3 is not None
+
+        # Embeddings should be different
+        vec1, _ = result1
+        vec2, _ = result2
+        vec3, _ = result3
+        assert vec1 != vec2 != vec3
+
+    def test_legacy_embeddings_accessible_with_empty_cache_key(
+        self, db_conn, embedding_store, conversation_store, sample_embedding_small
+    ):
+        """Embeddings with empty cache_key (legacy) should be accessible."""
+        _create_conversation(conversation_store, "conv1")
+        db_conn.commit()
+
+        # Insert legacy embedding (empty cache_key)
+        embedding_store.upsert(
+            "conv1", sample_embedding_small, "test-model",
+            embed_type="analysis", cache_key=""
+        )
+        db_conn.commit()
+
+        # Should be retrievable with empty cache_key
+        result = embedding_store.get("conv1", embed_type="analysis", cache_key="")
+        assert result is not None
+        vec, record = result
+        assert record.cache_key == ""
+
+    def test_count_cached_missing_embeddings_joins_on_cache_key(
+        self, db_conn, embedding_store, conversation_store, sample_embedding_small
+    ):
+        """count_cached_missing_embeddings should properly join on cache_key."""
+        from ohtv.db.stores import AnalysisCacheStore
+        from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
+
+        _create_conversation(conversation_store, "conv1")
+        _create_conversation(conversation_store, "conv2")
+        db_conn.commit()
+
+        # conv1: has embedding for key1, cached analysis for key1 and key2
+        embedding_store.upsert(
+            "conv1", sample_embedding_small, "test-model",
+            embed_type="analysis", cache_key="key1"
+        )
+
+        # conv2: has embedding for key3, cached analysis for key4
+        embedding_store.upsert(
+            "conv2", sample_embedding_small, "test-model",
+            embed_type="analysis", cache_key="key3"
+        )
+        db_conn.commit()
+
+        # Add cached analyses
+        cache_store = AnalysisCacheStore(db_conn)
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv1", cache_key="key1",  # Has embedding
+            event_count=10, content_hash="hash1", analyzed_at=datetime.now(timezone.utc)
+        ))
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv1", cache_key="key2",  # Missing embedding
+            event_count=10, content_hash="hash2", analyzed_at=datetime.now(timezone.utc)
+        ))
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv2", cache_key="key4",  # Missing embedding (key3 exists but not key4)
+            event_count=10, content_hash="hash3", analyzed_at=datetime.now(timezone.utc)
+        ))
+        db_conn.commit()
+
+        # Should report 2 missing: (conv1, key2) and (conv2, key4)
+        missing_count = embedding_store.count_cached_missing_embeddings()
+        assert missing_count == 2
+
+        # Verify list returns the correct pairs
+        missing_list = embedding_store.list_cached_missing_embeddings()
+        assert set(missing_list) == {("conv1", "key2"), ("conv2", "key4")}

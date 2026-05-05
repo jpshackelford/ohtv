@@ -215,6 +215,20 @@ class AnalysisCacheStore:
             cursor = self.conn.execute("SELECT COUNT(*) FROM analysis_cache")
         return cursor.fetchone()[0]
     
+    def count_by_cache_key(self) -> dict[str, int]:
+        """Count cached analyses grouped by cache key."""
+        cursor = self.conn.execute(
+            "SELECT cache_key, COUNT(*) FROM analysis_cache GROUP BY cache_key ORDER BY cache_key"
+        )
+        return {row[0]: row[1] for row in cursor.fetchall()}
+    
+    def count_conversations_cached(self) -> int:
+        """Count unique conversations with any cached analysis."""
+        cursor = self.conn.execute(
+            "SELECT COUNT(DISTINCT conversation_id) FROM analysis_cache"
+        )
+        return cursor.fetchone()[0]
+    
     def count_skipped(self) -> int:
         """Count skipped conversations."""
         cursor = self.conn.execute("SELECT COUNT(*) FROM analysis_skips")

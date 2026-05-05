@@ -32,6 +32,7 @@ class PendingEmbedding:
     chunk_index: int
     token_count: int
     source_text: str
+    cache_key: str = ""  # Only used for embed_type='analysis'
 
 
 @dataclass
@@ -87,7 +88,7 @@ def embed_conversation_full(
     """Generate all embedding types for a conversation.
 
     Creates up to 3 embedding types:
-    - analysis: From cached LLM analysis (if available)
+    - analysis: From cached LLM analysis (if available) - embeds ALL variants
     - summary: User messages + refs + file paths
     - content: File contents, chunked if large
     
@@ -98,17 +99,19 @@ def embed_conversation_full(
         conv_dir: Path to conversation directory
         conn: Database connection
         model: Model name (uses EMBEDDING_MODEL env var if None)
-        analysis: Cached analysis dict (if not provided, tries to load from cache)
+        analysis: Cached analysis dict (if not provided, tries to load from cache).
+            Note: This is for backwards compatibility. If provided, it's embedded
+            with empty cache_key. To embed all variants, don't pass this parameter.
         refs: Git refs (if not provided, tries to load from database)
         skip_existing: Skip embedding types that already exist
 
     Returns:
         EmbeddingStats with counts and totals
     """
-    from ohtv.analysis.cache import load_events, load_analysis
+    from ohtv.analysis.cache import load_events, load_analysis, load_all_analyses
     from ohtv.db.stores import EmbeddingStore, LinkStore, ReferenceStore, ConversationStore
     from .client import get_embedding, get_embedding_model
-    from .text_builders import build_conversation_texts, ConversationMetadata
+    from .text_builders import build_conversation_texts, build_analysis_text, ConversationMetadata
 
     conv_id = conv_dir.name
     store = EmbeddingStore(conn)
@@ -119,8 +122,16 @@ def embed_conversation_full(
         log.debug("No events in conversation %s", conv_id)
         return stats
 
-    if analysis is None:
-        analysis = load_analysis(conv_dir)
+    # Load all analysis variants for proper cache_key tracking
+    all_analyses: dict[str, dict] = {}
+    if analysis is not None:
+        # Backwards compatibility: single analysis passed in, use empty cache_key
+        all_analyses[""] = analysis
+    else:
+        all_analyses = load_all_analyses(conv_dir)
+    
+    # Use first analysis for summary/metadata (they're mostly the same)
+    first_analysis = next(iter(all_analyses.values()), None) if all_analyses else None
     
     # Build ref FQNs list for contextual enrichment
     ref_fqns: list[str] = []
@@ -153,8 +164,8 @@ def embed_conversation_full(
         if conv:
             # Use analysis goal as summary if summary not set
             summary = conv.summary
-            if not summary and analysis:
-                summary = analysis.get("goal")
+            if not summary and first_analysis:
+                summary = first_analysis.get("goal")
             
             metadata = ConversationMetadata(
                 conversation_id=conv_id,
@@ -165,24 +176,31 @@ def embed_conversation_full(
     except Exception:
         log.debug("Could not load conversation metadata for %s", conv_id)
 
-    texts = build_conversation_texts(events, analysis, refs, metadata)
+    # Build texts for summary/content (using first analysis for context)
+    texts = build_conversation_texts(events, first_analysis, refs, metadata)
 
     if model is None:
         model = get_embedding_model()
 
-    # Process analysis chunks
-    for chunk in texts.analysis_chunks:
-        if skip_existing and store.has_embedding(conv_id, "analysis", chunk.chunk_index):
+    # Process analysis embeddings for EACH cached analysis variant
+    for cache_key, analysis_data in all_analyses.items():
+        if skip_existing and store.has_embedding(conv_id, "analysis", 0, cache_key):
             continue
-        result = get_embedding(chunk.text, model=model)
+        
+        analysis_text = build_analysis_text(analysis_data)
+        if not analysis_text:
+            continue
+            
+        result = get_embedding(analysis_text, model=model)
         store.upsert(
             conversation_id=conv_id,
             embedding=result.embedding,
             model=result.model,
             embed_type="analysis",
-            chunk_index=chunk.chunk_index,
+            chunk_index=0,
+            cache_key=cache_key,
             token_count=result.token_count,
-            source_text=chunk.text,
+            source_text=analysis_text,
         )
         stats.analysis_tokens += result.token_count
         stats.embeddings_created += 1
@@ -337,21 +355,29 @@ def generate_embeddings_only(
     this function to generate embeddings, then a single writer thread
     collects the results and writes them to the database.
     
+    For analysis embeddings, this embeds ALL cached analysis variants
+    (different cache_keys), not just one.
+    
     Args:
         conv_dir: Path to conversation directory
         conn: Database connection (only used to check existing embeddings)
         model: Model name (uses EMBEDDING_MODEL env var if None)
-        analysis: Cached analysis dict (if not provided, tries to load from cache)
+        analysis: Cached analysis dict (if not provided, tries to load from cache).
+            Note: This is for backwards compatibility. If provided, it's embedded
+            with empty cache_key. To embed all variants, don't pass this parameter.
         refs: Git refs (if not provided, tries to load from database)
         skip_existing: Skip embedding types that already exist
     
     Returns:
         EmbeddingBatch containing all generated embeddings ready for DB write
     """
-    from ohtv.analysis.cache import load_events, load_analysis
+    from ohtv.analysis.cache import load_events, load_analysis, load_all_analyses
     from ohtv.db.stores import EmbeddingStore, LinkStore, ReferenceStore, ConversationStore
     from .client import get_embedding, get_embedding_model
-    from .text_builders import build_conversation_texts, build_summary_text, ConversationMetadata
+    from .text_builders import (
+        build_conversation_texts, build_summary_text, build_analysis_text,
+        ConversationMetadata,
+    )
 
     conv_id = conv_dir.name
     batch = EmbeddingBatch(conversation_id=conv_id)
@@ -366,8 +392,16 @@ def generate_embeddings_only(
             batch.stats = stats
             return batch
 
-        if analysis is None:
-            analysis = load_analysis(conv_dir)
+        # Load all analysis variants for proper cache_key tracking
+        all_analyses: dict[str, dict] = {}
+        if analysis is not None:
+            # Backwards compatibility: single analysis passed in, use empty cache_key
+            all_analyses[""] = analysis
+        else:
+            all_analyses = load_all_analyses(conv_dir)
+        
+        # Use first analysis for summary/metadata (they're mostly the same)
+        first_analysis = next(iter(all_analyses.values()), None) if all_analyses else None
         
         # Build ref FQNs list for contextual enrichment
         ref_fqns: list[str] = []
@@ -398,8 +432,8 @@ def generate_embeddings_only(
             conv = conv_store.get(conv_id)
             if conv:
                 summary = conv.summary
-                if not summary and analysis:
-                    summary = analysis.get("goal")
+                if not summary and first_analysis:
+                    summary = first_analysis.get("goal")
                 
                 metadata = ConversationMetadata(
                     conversation_id=conv_id,
@@ -410,24 +444,32 @@ def generate_embeddings_only(
         except Exception:
             log.debug("Could not load conversation metadata for %s", conv_id)
 
-        texts = build_conversation_texts(events, analysis, refs, metadata)
+        # Build texts for summary/content (using first analysis for context)
+        texts = build_conversation_texts(events, first_analysis, refs, metadata)
 
         if model is None:
             model = get_embedding_model()
 
-        # Generate analysis embeddings
-        for chunk in texts.analysis_chunks:
-            if skip_existing and store.has_embedding(conv_id, "analysis", chunk.chunk_index):
+        # Generate analysis embeddings for EACH cached analysis variant
+        for cache_key, analysis_data in all_analyses.items():
+            # Check if this specific cache_key already has an embedding
+            if skip_existing and store.has_embedding(conv_id, "analysis", 0, cache_key):
                 continue
-            result = get_embedding(chunk.text, model=model)
+            
+            analysis_text = build_analysis_text(analysis_data)
+            if not analysis_text:
+                continue
+                
+            result = get_embedding(analysis_text, model=model)
             batch.embeddings.append(PendingEmbedding(
                 conversation_id=conv_id,
                 embedding=result.embedding,
                 model=result.model,
                 embed_type="analysis",
-                chunk_index=chunk.chunk_index,
+                chunk_index=0,
                 token_count=result.token_count,
-                source_text=chunk.text,
+                source_text=analysis_text,
+                cache_key=cache_key,
             ))
             stats.analysis_tokens += result.token_count
             stats.embeddings_created += 1
@@ -609,6 +651,7 @@ class EmbeddingWriter:
                         model=emb.model,
                         embed_type=emb.embed_type,
                         chunk_index=emb.chunk_index,
+                        cache_key=emb.cache_key,
                         token_count=emb.token_count,
                         source_text=emb.source_text,
                     )

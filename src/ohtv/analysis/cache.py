@@ -87,6 +87,27 @@ def load_analysis(conv_dir: Path) -> dict | None:
         return None
 
 
+def load_all_analyses(conv_dir: Path) -> dict[str, dict]:
+    """Load all cached analyses from a conversation directory.
+
+    Args:
+        conv_dir: Path to conversation directory
+
+    Returns:
+        Dict mapping cache_key to analysis dict.
+        Returns empty dict if no cache exists.
+    """
+    cache_file = conv_dir / "objective_analysis.json"
+    if not cache_file.exists():
+        return {}
+
+    try:
+        data = json.loads(cache_file.read_text())
+        return data.get("analyses", {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def compute_content_hash(content: str | list | dict) -> str:
     """Compute a hash of content for cache invalidation.
 
@@ -334,7 +355,7 @@ class AnalysisCacheManager:
         
         # Update analysis embedding only if explicitly requested
         if update_embeddings:
-            self._update_analysis_embedding(conv_dir, analysis)
+            self._update_analysis_embedding(conv_dir, analysis, cache_key)
 
     def _sync_cache_to_db(self, conversation_id: str, cache_key: str, analysis: T) -> None:
         """Sync cache entry to database for fast lookup.
@@ -373,11 +394,18 @@ class AnalysisCacheManager:
             # DB sync is optional, don't fail if it doesn't work
             log.debug("Failed to sync cache to DB (non-fatal): %s", e)
     
-    def _update_analysis_embedding(self, conv_dir: Path, analysis: T) -> None:
+    def _update_analysis_embedding(self, conv_dir: Path, analysis: T, cache_key: str) -> None:
         """Update the analysis embedding after new analysis is cached.
-        
+
         This ensures the embedding store stays in sync with analysis changes.
         Only updates the 'analysis' embedding type, not summary/content.
+
+        Args:
+            conv_dir: Conversation directory
+            analysis: The analysis result
+            cache_key: The cache key identifying this analysis variant. Should match
+                the format used in analysis_cache table, e.g.,
+                'assess=False,context_level=minimal,detail_level=brief'.
         """
         try:
             from ohtv.db import get_connection, migrate
@@ -414,11 +442,12 @@ class AnalysisCacheManager:
                     model=result.model,
                     embed_type="analysis",
                     chunk_index=0,
+                    cache_key=cache_key,
                     token_count=result.token_count,
                     source_text=analysis_text,
                 )
                 conn.commit()
-                log.debug("Updated analysis embedding for %s", conv_dir.name)
+                log.debug("Updated analysis embedding for %s (cache_key: %s)", conv_dir.name, cache_key)
                 
         except (ImportError, RuntimeError, OSError) as e:
             # Embedding update is optional, don't fail analysis

@@ -961,11 +961,9 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
         
         all_convs = conv_store.list_all()
         
-        # Find conversations without embeddings that have local content
-        needs_embedding = []
+        # Filter to conversations with local content
+        convs_with_content = []
         no_local_content = 0
-        already_embedded = 0
-        
         for conv in all_convs:
             # Skip if no local directory or no events directory
             if not conv.location:
@@ -976,13 +974,13 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
             if not events_dir.exists() or not events_dir.is_dir():
                 no_local_content += 1
                 continue
-            
-            # Check using normalized ID (handles dash variations)
-            if normalize_conversation_id(conv.id) in existing_ids:
-                already_embedded += 1
-                continue
-                
-            needs_embedding.append(conv)
+            convs_with_content.append(conv)
+        
+        # Use centralized logic to find which need embedding work
+        all_ids = [c.id for c in convs_with_content]
+        needs_work_ids = set(embed_store.list_conversations_needing_embeddings(all_ids))
+        needs_embedding = [c for c in convs_with_content if c.id in needs_work_ids]
+        already_embedded = len(convs_with_content) - len(needs_embedding)
         
         log.info(
             "Embedding check: total=%d, already_embedded=%d, no_content=%d, needs_embedding=%d",
@@ -5948,7 +5946,7 @@ def db_scan(force: bool, remove_missing: bool, verbose: bool) -> None:
 def db_status() -> None:
     """Show database status and statistics."""
     from ohtv.db import get_connection, get_db_path
-    from ohtv.db.stores import ActionStore
+    from ohtv.db.stores import ActionStore, AnalysisCacheStore, EmbeddingStore
     
     db_path = get_db_path()
     
@@ -6003,6 +6001,58 @@ def db_status() -> None:
             console.print("\n[bold]Actions by type:[/bold]")
             for action_type, count in action_counts.items():
                 console.print(f"  {action_type}: {count}")
+        
+        # Analysis cache statistics
+        cache_store = AnalysisCacheStore(conn)
+        cache_by_key = cache_store.count_by_cache_key()
+        convs_cached = cache_store.count_conversations_cached()
+        skipped = cache_store.count_skipped()
+        
+        console.print("\n[bold]Analysis cache:[/bold]")
+        console.print(f"  Conversations with analysis: {convs_cached}")
+        if cache_by_key:
+            console.print("  By cache key:")
+            for cache_key, count in cache_by_key.items():
+                console.print(f"    {cache_key}: {count}")
+        if skipped:
+            console.print(f"  Skipped (cannot analyze): {skipped}")
+        
+        # Embeddings statistics
+        embed_store = EmbeddingStore(conn)
+        total_embeddings = embed_store.count()
+        convs_with_embeddings = embed_store.count_conversations()
+        embed_by_type = embed_store.count_by_type()
+        convs_by_type = embed_store.count_conversations_by_type()
+        analysis_by_cache_key = embed_store.count_analysis_embeddings_by_cache_key()
+        
+        console.print("\n[bold]Embeddings:[/bold]")
+        console.print(f"  Total embeddings: {total_embeddings}")
+        console.print(f"  Conversations with embeddings: {convs_with_embeddings}")
+        if embed_by_type:
+            console.print("  By type (embedding count / conversations):")
+            for embed_type, count in embed_by_type.items():
+                conv_count = convs_by_type.get(embed_type, 0)
+                console.print(f"    {embed_type}: {count} / {conv_count} convs")
+        
+        # Show analysis embeddings by cache key
+        if analysis_by_cache_key:
+            console.print("  Analysis embeddings by cache key:")
+            for cache_key, count in analysis_by_cache_key.items():
+                if cache_key:
+                    console.print(f"    {cache_key}: {count}")
+                else:
+                    console.print(f"    [dim](legacy, no cache key)[/dim]: {count}")
+        
+        # Missing embeddings check - now properly joins on cache_key
+        missing_count = embed_store.count_cached_missing_embeddings()
+        total_cached = cache_store.count_cached()
+        
+        if missing_count > 0:
+            console.print(f"\n[yellow]⚠ Missing embeddings:[/yellow]")
+            console.print(f"  Cached analyses without embedding: {missing_count} / {total_cached}")
+            console.print("  [dim]Run 'ohtv db embed' to generate missing embeddings[/dim]")
+        elif total_cached > 0:
+            console.print(f"\n[green]✓ All {total_cached} cached analyses have embeddings[/green]")
 
 
 @db.command("index-cache")
@@ -6224,14 +6274,13 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
             return
         
         # Determine which need embedding
-        # Note: conversation IDs may or may not have dashes depending on source.
-        # Normalize both sides for comparison.
-        from ohtv.filters import normalize_conversation_id
         if force:
             to_embed = all_convs
         else:
-            existing = set(normalize_conversation_id(cid) for cid in embed_store.list_conversation_ids())
-            to_embed = [c for c in all_convs if normalize_conversation_id(c.id) not in existing]
+            # Use centralized logic to find conversations needing embedding
+            all_ids = [c.id for c in all_convs]
+            needs_work = set(embed_store.list_conversations_needing_embeddings(all_ids))
+            to_embed = [c for c in all_convs if c.id in needs_work]
         
         if not to_embed:
             count = embed_store.count_conversations()
