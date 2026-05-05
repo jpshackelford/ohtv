@@ -148,7 +148,7 @@ class SyncManager:
             shutdown_check: Optional function that returns True to request graceful shutdown
         """
         if not self.config.api_key:
-            raise ValueError("API key required. Set OH_API_KEY environment variable.")
+            raise ValueError("API key required. Set OPENHANDS_API_KEY or OH_API_KEY environment variable.")
 
         cutoff = self._determine_cutoff(force, since)
         log.info("Starting sync (force=%s, cutoff=%s, dry_run=%s, max_new=%s, parallel=%s)", 
@@ -695,7 +695,7 @@ class SyncManager:
             shutdown_check: Optional function that returns True to request graceful shutdown
         """
         if not self.config.api_key:
-            raise ValueError("API key required. Set OH_API_KEY environment variable.")
+            raise ValueError("API key required. Set OPENHANDS_API_KEY or OH_API_KEY environment variable.")
 
         log.info("Resetting to %d newest conversations (dry_run=%s, parallel=%s)", n, dry_run, parallel)
 

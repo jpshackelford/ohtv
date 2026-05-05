@@ -32,7 +32,7 @@ ohtv gen run reports.weekly --last 4
 # See what GitHub repos/PRs/issues were referenced
 ohtv refs <conversation_id>
 
-# Sync cloud conversations (requires OH_API_KEY)
+# Sync cloud conversations (requires OPENHANDS_API_KEY or OH_API_KEY)
 ohtv sync
 
 # Build embeddings for search (requires LLM_API_KEY)
@@ -767,7 +767,7 @@ Respond with JSON:
 
 ### `ohtv sync` - Sync Cloud Conversations
 
-Downloads conversations from OpenHands Cloud. Requires `OH_API_KEY` environment variable.
+Downloads conversations from OpenHands Cloud. Requires `OPENHANDS_API_KEY` or `OH_API_KEY` environment variable.
 
 ```bash
 # Sync incrementally (only downloads changes)
@@ -1063,7 +1063,8 @@ Search: 0.15s | Generation: 2.34s | Model: openai/gpt-4o-mini
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OH_API_KEY` | OpenHands Cloud API key | Required for `sync` |
+| `OPENHANDS_API_KEY` | OpenHands Cloud API key (preferred, matches OpenHands CLI) | Required for `sync` |
+| `OH_API_KEY` | OpenHands Cloud API key (legacy, fallback if `OPENHANDS_API_KEY` not set) | — |
 | `OHTV_CLOUD_URL` | Cloud base URL | `https://app.all-hands.dev` |
 | `OHTV_DIR` | ohtv data directory (database, logs, cache) | `~/.ohtv` |
 | `OHTV_DB_PATH` | Direct path to database file | `~/.ohtv/index.db` |
