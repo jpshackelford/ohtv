@@ -273,3 +273,28 @@ All 2 open PRs are in draft state. Orchestrator is waiting for:
 No worker conversations needed at this time.
 
 ---
+### 2026-05-05 18:46 UTC - Orchestrator
+
+✅ **All quiet** - No PRs ready for automated action
+
+**Current State:**
+- [PR #37](https://github.com/jpshackelford/ohtv/pull/37): `o conflict draft`
+  - Title: Fix embedding check in sync flow: use events/ directory not events.json
+  - Status: Draft
+  - CI: conflict
+  - Age: 8 days (last activity 8 days ago)
+  - Action: Waiting for author to resolve conflict and mark ready
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): `o green draft`
+  - Title: Add --explain flag to ask command for RAG retrieval debugging
+  - Status: Draft
+  - CI: Green
+  - Age: 12 days (last activity 12 days ago)
+  - Action: Waiting for author to mark ready for review
+
+**Summary:**
+Both open PRs are in **draft** state. Per workflow rules:
+> Priority 2: PR exists, draft → Wait (implementation in progress)
+
+No worker conversations needed at this time. Next check in ~30 minutes.
+
+---
