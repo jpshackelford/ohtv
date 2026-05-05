@@ -401,3 +401,26 @@ Only one open PR exists (#36) and it is in **draft** state. Per workflow rules:
 No automated action can be taken until the author marks PR #36 ready for review.
 
 ---
+### 2026-05-05 21:32 UTC - Orchestrator
+
+📝 **Launched: Documentation Worker**
+
+Updating README for [PR #43](https://github.com/jpshackelford/ohtv/pull/43): Move LLM analysis cache from conversation directories to ~/.ohtv
+- CI: ✅ Green
+- Mergeable: ✅ Clean
+- User-facing changes need documentation:
+  - New CLI command: `ohtv db migrate-cache`
+  - New flags: `--delete-legacy`, `--dry-run`
+  - New warning in `ohtv gen objs` when legacy cache files detected
+- Conversation: https://app.all-hands.dev/conversations/56f334e8d3a347aba2208884a7367b48
+
+**Current State:**
+- [PR #43](https://github.com/jpshackelford/ohtv/pull/43): `ocR green ready` - Spawned docs worker
+  - ✅ CI: Green
+  - ✅ Mergeable: Clean
+  - ⏳ Docs: Pending (new command not yet in README)
+  - ⏳ Testing: Waiting for docs
+  - 💬 2 unresolved code review threads (code improvements, not blockers for docs)
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author to mark ready
+
+---
