@@ -522,3 +522,10 @@ Addressing review feedback on [PR #43](https://github.com/jpshackelford/ohtv/pul
 - [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author to mark ready
 
 ---
+### 2026-05-05 23:32 UTC - Instructions for Agent
+
+- Review feedback on [PR #43](https://github.com/jpshackelford/ohtv/pull/43) needs to be addressed
+- Once feedback is addressed and CI is green, move PR back to ready for a new round of reviews
+- Address any additional feedback in the next cycle
+
+---
