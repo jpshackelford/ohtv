@@ -934,6 +934,33 @@ Actions by type:
   ...
 ```
 
+#### `ohtv db migrate-cache` - Migrate Cache Files
+
+Migrates LLM analysis cache files from legacy locations (inside conversation directories) to the centralized location (`~/.ohtv/cache/analysis/`). This is needed if you have cache files from older versions of ohtv.
+
+**Note:** If legacy cache files are detected, `ohtv gen objs` will display a warning prompting you to run this migration.
+
+```bash
+# Preview what would be migrated (no changes made)
+ohtv db migrate-cache --dry-run
+
+# Migrate cache files (copies to new location, keeps originals)
+ohtv db migrate-cache
+
+# Migrate and delete original files after successful copy
+ohtv db migrate-cache --delete-legacy
+
+# Show detailed progress
+ohtv db migrate-cache -v
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Show what would be migrated without making changes |
+| `--delete-legacy` | Delete legacy cache files after successful migration |
+| `-v, --verbose` | Show detailed output |
+
 #### `ohtv db embed` - Build Embeddings for Search
 
 Generates vector embeddings for semantic search and RAG (Retrieval-Augmented Generation). Creates multiple embedding types per conversation:
