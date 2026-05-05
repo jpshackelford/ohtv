@@ -298,3 +298,8 @@ Both open PRs are in **draft** state. Per workflow rules:
 No worker conversations needed at this time. Next check in ~30 minutes.
 
 ---
+### 2026-05-05 2:56 PM ET - Instructions for Agent
+
+- PR #37 appears to be a bug fix. Attempt to reproduce the bug. If we can confirm the bug, attempt to bring the PR to completion and get it ready for review and merge using our normal process.
+
+---
