@@ -12,6 +12,11 @@ Cache design:
 Cache invalidation strategy:
 1. Quick check: Compare event count (fast, catches trajectory growth)
 2. Full check: Compare content hash per analysis (catches content changes)
+
+Cache location:
+- New location: ~/.ohtv/cache/analysis/<conversation_id>/objective_analysis.json
+- Legacy location: <conv_dir>/objective_analysis.json (in conversation directory)
+- The migrate_cache() function moves files from legacy to new location
 """
 
 import hashlib
@@ -22,6 +27,8 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
+
+from ohtv.config import get_analysis_cache_dir
 
 log = logging.getLogger("ohtv")
 
@@ -62,8 +69,41 @@ def load_events(conv_dir: Path) -> list[dict]:
     return events
 
 
+def _get_cache_file_path(conv_dir: Path) -> Path:
+    """Get the cache file path for a conversation.
+
+    Uses the new location (~/.ohtv/cache/analysis/<conv_id>/objective_analysis.json).
+    """
+    conv_id = conv_dir.name
+    return get_analysis_cache_dir() / conv_id / "objective_analysis.json"
+
+
+def _get_legacy_cache_file_path(conv_dir: Path) -> Path:
+    """Get the legacy cache file path (inside conversation directory)."""
+    return conv_dir / "objective_analysis.json"
+
+
+def has_legacy_cache_files(conv_dirs: list[Path]) -> list[Path]:
+    """Check if any conversation directories have legacy cache files.
+
+    Args:
+        conv_dirs: List of conversation directories to check
+
+    Returns:
+        List of conversation directories that have legacy cache files
+    """
+    legacy_dirs = []
+    for conv_dir in conv_dirs:
+        legacy_file = _get_legacy_cache_file_path(conv_dir)
+        if legacy_file.exists():
+            legacy_dirs.append(conv_dir)
+    return legacy_dirs
+
+
 def load_analysis(conv_dir: Path) -> dict | None:
-    """Load cached analysis from a conversation directory.
+    """Load cached analysis from a conversation.
+
+    Checks the new location first, then falls back to legacy location.
 
     Args:
         conv_dir: Path to conversation directory
@@ -72,9 +112,13 @@ def load_analysis(conv_dir: Path) -> dict | None:
         Analysis dict with keys like 'goal', 'primary_outcomes', etc.
         Returns None if no cache exists or no analysis found.
     """
-    cache_file = conv_dir / "objective_analysis.json"
+    # Try new location first
+    cache_file = _get_cache_file_path(conv_dir)
     if not cache_file.exists():
-        return None
+        # Fall back to legacy location
+        cache_file = _get_legacy_cache_file_path(conv_dir)
+        if not cache_file.exists():
+            return None
 
     try:
         data = json.loads(cache_file.read_text())
@@ -88,7 +132,9 @@ def load_analysis(conv_dir: Path) -> dict | None:
 
 
 def load_all_analyses(conv_dir: Path) -> dict[str, dict]:
-    """Load all cached analyses from a conversation directory.
+    """Load all cached analyses from a conversation.
+
+    Checks the new location first, then falls back to legacy location.
 
     Args:
         conv_dir: Path to conversation directory
@@ -97,9 +143,13 @@ def load_all_analyses(conv_dir: Path) -> dict[str, dict]:
         Dict mapping cache_key to analysis dict.
         Returns empty dict if no cache exists.
     """
-    cache_file = conv_dir / "objective_analysis.json"
+    # Try new location first
+    cache_file = _get_cache_file_path(conv_dir)
     if not cache_file.exists():
-        return {}
+        # Fall back to legacy location
+        cache_file = _get_legacy_cache_file_path(conv_dir)
+        if not cache_file.exists():
+            return {}
 
     try:
         data = json.loads(cache_file.read_text())
@@ -192,8 +242,20 @@ class AnalysisCacheManager:
         self.model_class = model_class
 
     def get_cache_file(self, conv_dir: Path) -> Path:
-        """Get the cache file path for a conversation."""
+        """Get the cache file path for a conversation.
+
+        Uses the new location (~/.ohtv/cache/analysis/<conv_id>/<filename>).
+        """
+        conv_id = conv_dir.name
+        return get_analysis_cache_dir() / conv_id / self.cache_filename
+
+    def get_legacy_cache_file(self, conv_dir: Path) -> Path:
+        """Get the legacy cache file path (inside conversation directory)."""
         return conv_dir / self.cache_filename
+
+    def has_legacy_cache(self, conv_dir: Path) -> bool:
+        """Check if a legacy cache file exists for a conversation."""
+        return self.get_legacy_cache_file(conv_dir).exists()
 
     def _load_cache_data(self, cache_file: Path) -> dict | None:
         """Load raw cache data from file."""
@@ -214,6 +276,7 @@ class AnalysisCacheManager:
 
     def _save_cache_data(self, cache_file: Path, data: dict) -> None:
         """Save raw cache data to file."""
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(json.dumps(data, indent=2, default=str))
 
     def load_cached(
@@ -225,6 +288,8 @@ class AnalysisCacheManager:
         **validation_kwargs,
     ) -> T | None:
         """Load cached analysis if valid.
+
+        Checks the new location first, then falls back to legacy location.
 
         Args:
             conv_dir: Conversation directory
@@ -238,8 +303,14 @@ class AnalysisCacheManager:
         Returns:
             Validated analysis or None if cache is invalid/missing.
         """
+        # Try new location first
         cache_file = self.get_cache_file(conv_dir)
         cache_data = self._load_cache_data(cache_file)
+
+        # Fall back to legacy location
+        if cache_data is None:
+            legacy_file = self.get_legacy_cache_file(conv_dir)
+            cache_data = self._load_cache_data(legacy_file)
 
         if cache_data is None:
             return None
@@ -459,6 +530,8 @@ class AnalysisCacheManager:
     def is_skipped(self, conv_dir: Path, event_count: int) -> str | None:
         """Check if conversation is marked as skipped.
 
+        Checks the new location first, then falls back to legacy location.
+
         Args:
             conv_dir: Conversation directory
             event_count: Current event count (for invalidation check)
@@ -466,8 +539,14 @@ class AnalysisCacheManager:
         Returns:
             Skip reason if skipped and still valid, None otherwise.
         """
+        # Try new location first
         cache_file = self.get_cache_file(conv_dir)
         cache_data = self._load_cache_data(cache_file)
+
+        # Fall back to legacy location
+        if cache_data is None:
+            legacy_file = self.get_legacy_cache_file(conv_dir)
+            cache_data = self._load_cache_data(legacy_file)
 
         if cache_data is None:
             return None
@@ -537,3 +616,80 @@ class AnalysisCacheManager:
         except Exception as e:
             # DB sync is optional, don't fail if it doesn't work
             log.debug("Failed to sync skip to DB (non-fatal): %s", e)
+
+
+def migrate_cache_file(
+    conv_dir: Path,
+    cache_filename: str = "objective_analysis.json",
+) -> bool:
+    """Migrate a single cache file from legacy to new location.
+
+    Copies the cache file from the conversation directory to the new
+    centralized cache location. Does not delete the original file
+    (to avoid data loss during migration).
+
+    Args:
+        conv_dir: Path to conversation directory
+        cache_filename: Name of the cache file
+
+    Returns:
+        True if migration was performed, False if no legacy file exists
+    """
+    import shutil
+
+    legacy_file = conv_dir / cache_filename
+    if not legacy_file.exists():
+        return False
+
+    # Get new location
+    conv_id = conv_dir.name
+    new_file = get_analysis_cache_dir() / conv_id / cache_filename
+
+    # Create parent directory
+    new_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Copy file (don't delete original for safety)
+    shutil.copy2(legacy_file, new_file)
+    log.debug("Migrated cache file: %s -> %s", legacy_file, new_file)
+
+    return True
+
+
+def delete_legacy_cache_file(
+    conv_dir: Path,
+    cache_filename: str = "objective_analysis.json",
+) -> bool:
+    """Delete a legacy cache file after migration.
+
+    Only call this after verifying the cache has been migrated successfully.
+
+    Args:
+        conv_dir: Path to conversation directory
+        cache_filename: Name of the cache file
+
+    Returns:
+        True if file was deleted, False if it didn't exist
+    """
+    legacy_file = conv_dir / cache_filename
+    if not legacy_file.exists():
+        return False
+
+    legacy_file.unlink()
+    log.debug("Deleted legacy cache file: %s", legacy_file)
+    return True
+
+
+def count_legacy_cache_files(conv_dirs: list[Path]) -> int:
+    """Count how many conversation directories have legacy cache files.
+
+    Args:
+        conv_dirs: List of conversation directories to check
+
+    Returns:
+        Number of directories with legacy cache files
+    """
+    count = 0
+    for conv_dir in conv_dirs:
+        if (conv_dir / "objective_analysis.json").exists():
+            count += 1
+    return count

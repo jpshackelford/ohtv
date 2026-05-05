@@ -235,6 +235,15 @@ def get_ohtv_dir() -> Path:
     return Path.home() / ".ohtv"
 
 
+def get_analysis_cache_dir() -> Path:
+    """Get the analysis cache directory (~/.ohtv/cache/analysis).
+
+    LLM analysis cache files are stored here, organized by conversation ID.
+    This keeps caches separate from source conversation data in ~/.openhands/.
+    """
+    return get_ohtv_dir() / "cache" / "analysis"
+
+
 def save_config_value(key: str, value: str) -> None:
     """Save a configuration value to the config file.
     

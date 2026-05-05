@@ -153,7 +153,7 @@ def _check_cache_index_needed(conn: sqlite3.Connection) -> bool:
     Returns True if:
     - Task hasn't been completed AND
     - analysis_cache table is empty AND
-    - Cache files exist on disk
+    - Cache files exist on disk (in new <conv_id>/objective_analysis.json format)
     """
     if is_task_completed(conn, "cache_index_backfill_005"):
         return False
@@ -165,14 +165,14 @@ def _check_cache_index_needed(conn: sqlite3.Connection) -> bool:
         # Already has data, mark as done
         return False
     
-    # Check if cache files exist
-    from ohtv.config import get_ohtv_dir
-    cache_dir = get_ohtv_dir() / "cache" / "analysis"
+    # Check if cache files exist (new structure: <conv_id>/objective_analysis.json)
+    from ohtv.config import get_analysis_cache_dir
+    cache_dir = get_analysis_cache_dir()
     if not cache_dir.exists():
         return False
     
-    # Check if there are any cache files
-    cache_files = list(cache_dir.glob("*.json"))
+    # Check for subdirectories containing objective_analysis.json
+    cache_files = list(cache_dir.glob("*/objective_analysis.json"))
     return len(cache_files) > 0
 
 
@@ -182,21 +182,23 @@ def _execute_cache_index_backfill(
 ) -> dict:
     """Index existing cache files into the database.
     
-    This reads all JSON cache files and creates corresponding entries
+    This reads all JSON cache files from the new structure
+    (<conv_id>/objective_analysis.json) and creates corresponding entries
     in the analysis_cache and analysis_skips tables.
     """
     import json as json_module
-    from ohtv.config import get_ohtv_dir
+    from ohtv.config import get_analysis_cache_dir
     from ohtv.db.stores import AnalysisCacheStore
     from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry, AnalysisSkipEntry
     from ohtv.analysis.cache import make_cache_key
     
-    cache_dir = get_ohtv_dir() / "cache" / "analysis"
+    cache_dir = get_analysis_cache_dir()
     if not cache_dir.exists():
         return {"cached": 0, "skipped": 0}
     
     store = AnalysisCacheStore(conn)
-    cache_files = list(cache_dir.glob("*.json"))
+    # New structure: <conv_id>/objective_analysis.json
+    cache_files = list(cache_dir.glob("*/objective_analysis.json"))
     
     total = len(cache_files)
     cached_count = 0
@@ -208,7 +210,8 @@ def _execute_cache_index_backfill(
         
         try:
             data = json_module.loads(cache_file.read_text())
-            conv_id = cache_file.stem  # Filename without .json
+            # New structure: parent directory name is the conversation ID
+            conv_id = cache_file.parent.name
             
             # Check if this is a skip marker
             if data.get("skipped"):
