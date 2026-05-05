@@ -302,4 +302,35 @@ No worker conversations needed at this time. Next check in ~30 minutes.
 
 - PR #37 appears to be a bug fix. Attempt to reproduce the bug. If we can confirm the bug, attempt to bring the PR to completion and get it ready for review and merge using our normal process.
 
+**[ACKNOWLEDGED - 2026-05-05 19:16 UTC]**
+
+---
+### 2026-05-05 19:16 UTC - Orchestrator
+
+📋 **Responded to Human Instructions**
+
+**Investigation: PR #37 Bug Fix Analysis**
+
+Investigated [PR #37](https://github.com/jpshackelford/ohtv/pull/37): Fix embedding check in sync flow: use events/ directory not events.json
+
+**Findings:**
+1. **Bug description in PR**: The `_run_post_sync_embeddings()` function was checking for `events.json` file instead of `events/` directory, causing all conversations to be incorrectly classified as "without content"
+
+2. **Current main branch status**: The bug has **already been fixed**. The current code on main (line ~969-976 of cli.py) correctly uses:
+   ```python
+   events_dir = conv_dir / "events"
+   if not events_dir.exists() or not events_dir.is_dir():
+   ```
+
+3. **Root cause of duplicate fix**: PR #37 was created on 2026-04-27 12:45 UTC. PR #38 (embedding config wizard) was created 14 minutes later (12:59 UTC) and **also included this same fix**. PR #38 was merged on 2026-05-04, leaving PR #37 with a merge conflict because its changes overlap with the merged PR #38.
+
+**Conclusion:** PR #37 is now **obsolete** - the bug it addressed was already fixed via PR #38. Closing as duplicate.
+
+**Action Taken:**
+🗑️ Closing PR #37 as obsolete (duplicate fix, already merged in PR #38)
+
+**Current State:**
+- [PR #37](https://github.com/jpshackelford/ohtv/pull/37): 🗑️ Closed as obsolete
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft, CI green - waiting for author to mark ready
+
 ---
