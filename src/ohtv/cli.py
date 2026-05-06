@@ -4742,8 +4742,11 @@ def _find_conversation_dir(config: Config, conv_id: str) -> tuple[Path, bool] | 
 
 
 def _get_conversation_info(conv_dir: Path) -> tuple[str, str]:
-    """Get conversation ID and title from metadata or first user message."""
-    conv_id = conv_dir.name
+    """Get conversation ID and title from metadata or first user message.
+    
+    Always returns normalized conversation ID (without dashes).
+    """
+    conv_id = conv_dir.name.replace("-", "")  # Normalize to no dashes
     title = ""
 
     # Try to get title from base_state.json
@@ -4753,7 +4756,8 @@ def _get_conversation_info(conv_dir: Path) -> tuple[str, str]:
             data = json.loads(base_state.read_text())
             title = data.get("title", "")
             if data.get("id"):
-                conv_id = data["id"]
+                # Normalize ID from base_state.json (remove dashes)
+                conv_id = data["id"].replace("-", "")
         except (json.JSONDecodeError, OSError):
             pass
 

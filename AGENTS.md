@@ -409,3 +409,27 @@ ohtv gen run themes.discover --week
 5. `estimate_conversation_tokens()`: Now uses `load_all_analyses()` instead of `load_analysis()` to count all analysis variants for accurate embedding estimates
 
 **Testing**: Run `ohtv db status` - the "Missing embeddings" count should now reflect only genuinely missing embeddings, not false positives from ID format mismatches.
+
+## Bugfix: Duplicate Conversations from Dashed IDs (Migration 012)
+
+**Problem**: Database showed ~2450 conversations when only ~1280 existed on disk. The `db status` showed nearly double the expected conversation count.
+
+**Root cause**: Two code paths created conversation records with different ID formats:
+1. Scanner uses directory name (no dashes): e.g., `005915fd6ca64291b7a8b3adb446392a`
+2. `_get_conversation_info()` read `id` from `base_state.json` which sometimes has dashes: `005915fd-6ca6-4291-b7a8-b3adb446392a`
+
+This happened with LXA (OpenHands desktop) conversations where `base_state.json` contains dashed IDs but directories are named without dashes. When `_ensure_refs_indexed` was called, it created a second (ghost) entry with the dashed ID.
+
+**Fix**:
+1. `_get_conversation_info()`: Now normalizes IDs (removes dashes) from both directory name and `base_state.json`
+2. Migration 012 (`012_normalize_conversation_ids.py`):
+   - Temporarily disables FK constraints
+   - For each dashed conversation ID that has a normalized counterpart:
+     - Deletes all child records referencing the dashed ID
+     - Deletes the dashed conversation entry
+   - For dashed IDs without counterparts: updates them and their child records to normalized format
+   - Re-enables FK constraints
+
+**Child tables affected**: `conversation_repos`, `conversation_refs`, `actions`, `conversation_stages`, `analysis_cache`, `analysis_skips`, `embeddings`
+
+**Testing**: Run `ohtv db status` - conversation count should match actual conversations on disk.
