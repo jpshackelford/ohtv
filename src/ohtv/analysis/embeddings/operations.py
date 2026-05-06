@@ -256,35 +256,44 @@ def estimate_conversation_tokens(
 
     Args:
         conv_dir: Path to conversation directory
-        analysis: Cached analysis dict (optional)
+        analysis: Cached analysis dict (optional, for backwards compatibility)
         refs: Git refs (optional)
 
     Returns:
         Tuple of (estimated_tokens, estimated_embeddings)
     """
-    from ohtv.analysis.cache import load_events, load_analysis
+    from ohtv.analysis.cache import load_events, load_all_analyses
     from .chunking import estimate_tokens
-    from .text_builders import build_conversation_texts
+    from .text_builders import build_conversation_texts, build_analysis_text
 
     events = load_events(conv_dir)
     if not events:
         return 0, 0
 
-    if analysis is None:
-        analysis = load_analysis(conv_dir)
-
-    texts = build_conversation_texts(events, analysis, refs)
+    # Load ALL analysis variants to get accurate estimate
+    all_analyses: dict[str, dict] = {}
+    if analysis is not None:
+        all_analyses[""] = analysis
+    else:
+        all_analyses = load_all_analyses(conv_dir)
+    
+    # Use first analysis for summary/content estimation
+    first_analysis = next(iter(all_analyses.values()), None) if all_analyses else None
+    texts = build_conversation_texts(events, first_analysis, refs)
 
     # Check if there's any embeddable content
-    if not texts.analysis_chunks and not texts.summary_chunks and not texts.content_chunks:
+    if not all_analyses and not texts.summary_chunks and not texts.content_chunks:
         return 0, 0
 
     total_tokens = 0
     total_embeddings = 0
 
-    for chunk in texts.analysis_chunks:
-        total_tokens += chunk.estimated_tokens
-        total_embeddings += 1
+    # Count analysis embeddings for ALL variants
+    for analysis_data in all_analyses.values():
+        analysis_text = build_analysis_text(analysis_data)
+        if analysis_text:
+            total_tokens += estimate_tokens(analysis_text)
+            total_embeddings += 1
 
     for chunk in texts.summary_chunks:
         total_tokens += chunk.estimated_tokens

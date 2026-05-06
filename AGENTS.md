@@ -391,3 +391,21 @@ ohtv gen run themes.discover --week
 ```
 
 **Tests**: 64 new tests for periods and input parsing (601 total tests passing)
+
+## Bugfix: Conversation ID Normalization in analysis_cache (Migration 011)
+
+**Problem**: The `ohtv db status` command reported false "missing embeddings" (e.g., "3060 / 5195 cached analyses need embeddings") when embeddings actually existed. Running `ohtv db embed` would skip all conversations saying they were already embedded, but the missing count never decreased.
+
+**Root cause**: Conversation IDs were stored inconsistently:
+- `embeddings` table: Always stored without dashes (normalized)
+- `analysis_cache` table: Some entries stored with dashes, some without
+- The JOIN query in `count_cached_missing_embeddings()` required exact match, so dashed IDs couldn't find their non-dashed embeddings
+
+**Fix**:
+1. Migration 011 (`011_normalize_cache_ids.py`): Removes duplicate dashed entries that have matching non-dashed versions, and normalizes any remaining dashed entries
+2. `AnalysisCacheStore.upsert_cache()`: Now normalizes conversation IDs (removes dashes) before storing
+3. `AnalysisCacheStore.upsert_skip()`: Same normalization
+4. `AnalysisCacheStore.delete_for_conversation()`: Same normalization
+5. `estimate_conversation_tokens()`: Now uses `load_all_analyses()` instead of `load_analysis()` to count all analysis variants for accurate embedding estimates
+
+**Testing**: Run `ohtv db status` - the "Missing embeddings" count should now reflect only genuinely missing embeddings, not false positives from ID format mismatches.
