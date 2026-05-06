@@ -759,3 +759,19 @@ Testing [PR #47](https://github.com/jpshackelford/ohtv/pull/47): Database cleanu
 - [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author to mark ready
 
 ---
+### 2026-05-06 16:18 UTC - Orchestrator
+
+🚀 **Launched: Merge Worker**
+
+Merging [PR #47](https://github.com/jpshackelford/ohtv/pull/47): feat: Database cleanup - orphaned embeddings and duplicate conversations
+- CI: ✅ No CI checks configured (treated as passing)
+- Manual testing: ✅ Complete (comprehensive test report with 919 unit tests passing)
+- Review verdict: ✅ Worth merging (LOW risk)
+- All merge criteria met
+- Conversation: https://app.all-hands.dev/conversations/254e9187eaca479b85ffaf3668b572d1
+
+**Current State:**
+- [PR #47](https://github.com/jpshackelford/ohtv/pull/47): Ready for merge → spawned merge worker
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft status (--explain flag for RAG)
+
+---
