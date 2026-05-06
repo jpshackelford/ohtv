@@ -591,3 +591,30 @@ Addressing review feedback on [PR #43](https://github.com/jpshackelford/ohtv/pul
 - [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author to mark ready
 
 ---
+### 2026-05-06 00:50 UTC - Orchestrator
+
+🔧 **Launched: Resolve & Merge Prep Worker**
+
+[PR #43](https://github.com/jpshackelford/ohtv/pull/43): Move LLM analysis cache from conversation directories to ~/.ohtv
+- Conversation: https://app.all-hands.dev/conversations/58d1eefc064b4becac13ee33421db4ea
+
+**Current State:**
+- CI: ✅ Green (all checks passing)
+- Manual testing: ✅ Passed (re-test 22:52 UTC)
+- Review verdict: ✅ "Worth merging" (LOW risk)
+- Status: `ocRCFcFcFRCFR green ready` - 4 unresolved threads
+
+**Review Threads Status:**
+- 3 threads addressed with commits (need formal resolution)
+- 1 optional suggestion (will acknowledge and resolve)
+
+**Worker Tasks:**
+1. Resolve the 3 addressed review threads via GraphQL API
+2. Acknowledge and resolve the optional suggestion
+3. Post summary comment confirming ready-for-merge state
+4. Exit (merge worker will be spawned next cycle)
+
+**Previous Worker:**
+- 99998f1 (00:19 UTC) pushed fixes but didn't resolve threads - now idle 30+ min
+
+---
