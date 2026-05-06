@@ -646,3 +646,22 @@ These commits modify source files (cache.py, maintenance.py, cli.py) - re-testin
 4. Post NEW test report to PR
 
 ---
+### 2026-05-06 01:49 UTC - Orchestrator
+
+🚀 **Launched: Merge Worker**
+
+Merging [PR #43](https://github.com/jpshackelford/ohtv/pull/43): Move LLM analysis cache from conversation directories to ~/.ohtv
+- Conversation: https://app.all-hands.dev/conversations/64c07687f99f4ae6b9bf50b655e49f2c
+
+**Pre-merge checklist:**
+- ✅ CI: Green (all checks passing)
+- ✅ Docs: README.md updated with `db migrate-cache` command documentation
+- ✅ Manual testing: Complete (Re-test Round 2 at 01:24 UTC - all tests pass)
+- ✅ Review: All threads resolved, verdict: "Worth merging" (LOW risk)
+- ✅ Mergeable: CLEAN
+
+**Current State:**
+- [PR #43](https://github.com/jpshackelford/ohtv/pull/43): `ocRCFcFcFRCFRc green ready` → Merge in progress
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author to mark ready
+
+---
