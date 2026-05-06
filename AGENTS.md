@@ -192,6 +192,9 @@ uv run ohtv db embed                   # Build embeddings for semantic search
 uv run ohtv db embed --estimate        # Show cost estimate for embedding
 uv run ohtv search "fix auth bugs"     # Semantic search across conversations
 uv run ohtv search "error 404" --exact # Keyword search (FTS5)
+uv run ohtv ask "how did we fix auth?" # RAG question answering
+uv run ohtv ask "fix auth" --explain   # Show retrieval breakdown + answer
+uv run ohtv ask "fix auth" --explain-only  # Retrieval debug only, no LLM
 uv run ohtv prompts                    # List prompt status
 uv run ohtv prompts init               # Copy prompts for customization
 uv run ohtv prompts show brief         # Show specific prompt content
