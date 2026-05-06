@@ -110,8 +110,8 @@ def _find_cache_file(conv_dir: Path, filename: str = "objective_analysis.json") 
     return None
 
 
-def has_legacy_cache_files(conv_dirs: list[Path]) -> list[Path]:
-    """Check if any conversation directories have legacy cache files.
+def find_legacy_cache_files(conv_dirs: list[Path]) -> list[Path]:
+    """Find conversation directories that have legacy cache files.
 
     Args:
         conv_dirs: List of conversation directories to check
@@ -675,7 +675,9 @@ def migrate_cache_file(
     conv_id = conv_dir.name
     new_file = get_analysis_cache_dir() / conv_id / cache_filename
 
-    # Check disk space before copying (rough estimate: need at least 2x file size)
+    # Check disk space before copying. We require 2x file size as a safety margin:
+    # 1x for the actual copy, plus 1x buffer for filesystem overhead (block allocation,
+    # journaling, metadata) and to avoid filling the disk completely.
     source_size = legacy_file.stat().st_size
     try:
         target_dir = new_file.parent
@@ -759,8 +761,4 @@ def count_legacy_cache_files(conv_dirs: list[Path]) -> int:
     Returns:
         Number of directories with legacy cache files
     """
-    count = 0
-    for conv_dir in conv_dirs:
-        if (conv_dir / "objective_analysis.json").exists():
-            count += 1
-    return count
+    return len(find_legacy_cache_files(conv_dirs))
