@@ -818,3 +818,28 @@ Merging [PR #47](https://github.com/jpshackelford/ohtv/pull/47): feat: Database 
 **Note:** This is consecutive quiet entry #2. If next check also finds no actionable work, automation will auto-disable.
 
 ---
+### 2026-05-06 17:46 UTC - Orchestrator
+
+🔒 **Auto-disabled due to inactivity**
+
+Three consecutive quiet periods detected - no new work to pick up.
+Automation has been disabled to prevent unnecessary runs.
+
+**Final State:**
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): `o green draft`
+  - Title: Add --explain flag to ask command for RAG retrieval debugging
+  - Status: **Draft** (waiting for author to mark ready)
+  - This PR has been in draft mode for 13+ days
+
+**To re-enable the orchestrator:**
+1. Mark PR #36 as ready for review (or open a new PR)
+2. Re-enable automation via OpenHands UI: https://app.all-hands.dev/automations → Find "OHTV Workflow Orchestrator" → Toggle enable
+3. Or via API:
+   ```bash
+   curl -X PATCH "https://app.all-hands.dev/api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b" \
+     -H "Authorization: Bearer ${OPENHANDS_API_KEY}" \
+     -H "Content-Type: application/json" \
+     -d '{"enabled": true}'
+   ```
+
+---
