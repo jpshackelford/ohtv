@@ -391,3 +391,45 @@ ohtv gen run themes.discover --week
 ```
 
 **Tests**: 64 new tests for periods and input parsing (601 total tests passing)
+
+## Bugfix: Conversation ID Normalization in analysis_cache (Migration 011)
+
+**Problem**: The `ohtv db status` command reported false "missing embeddings" (e.g., "3060 / 5195 cached analyses need embeddings") when embeddings actually existed. Running `ohtv db embed` would skip all conversations saying they were already embedded, but the missing count never decreased.
+
+**Root cause**: Conversation IDs were stored inconsistently:
+- `embeddings` table: Always stored without dashes (normalized)
+- `analysis_cache` table: Some entries stored with dashes, some without
+- The JOIN query in `count_cached_missing_embeddings()` required exact match, so dashed IDs couldn't find their non-dashed embeddings
+
+**Fix**:
+1. Migration 011 (`011_normalize_cache_ids.py`): Removes duplicate dashed entries that have matching non-dashed versions, and normalizes any remaining dashed entries
+2. `AnalysisCacheStore.upsert_cache()`: Now normalizes conversation IDs (removes dashes) before storing
+3. `AnalysisCacheStore.upsert_skip()`: Same normalization
+4. `AnalysisCacheStore.delete_for_conversation()`: Same normalization
+5. `estimate_conversation_tokens()`: Now uses `load_all_analyses()` instead of `load_analysis()` to count all analysis variants for accurate embedding estimates
+
+**Testing**: Run `ohtv db status` - the "Missing embeddings" count should now reflect only genuinely missing embeddings, not false positives from ID format mismatches.
+
+## Bugfix: Duplicate Conversations from Dashed IDs (Migration 012)
+
+**Problem**: Database showed ~2450 conversations when only ~1280 existed on disk. The `db status` showed nearly double the expected conversation count.
+
+**Root cause**: Two code paths created conversation records with different ID formats:
+1. Scanner uses directory name (no dashes): e.g., `005915fd6ca64291b7a8b3adb446392a`
+2. `_get_conversation_info()` read `id` from `base_state.json` which sometimes has dashes: `005915fd-6ca6-4291-b7a8-b3adb446392a`
+
+This happened with LXA (OpenHands desktop) conversations where `base_state.json` contains dashed IDs but directories are named without dashes. When `_ensure_refs_indexed` was called, it created a second (ghost) entry with the dashed ID.
+
+**Fix**:
+1. `_get_conversation_info()`: Now normalizes IDs (removes dashes) from both directory name and `base_state.json`
+2. Migration 012 (`012_normalize_conversation_ids.py`):
+   - Temporarily disables FK constraints
+   - For each dashed conversation ID that has a normalized counterpart:
+     - Deletes all child records referencing the dashed ID
+     - Deletes the dashed conversation entry
+   - For dashed IDs without counterparts: updates them and their child records to normalized format
+   - Re-enables FK constraints
+
+**Child tables affected**: `conversation_repos`, `conversation_refs`, `actions`, `conversation_stages`, `analysis_cache`, `analysis_skips`, `embeddings`
+
+**Testing**: Run `ohtv db status` - conversation count should match actual conversations on disk.

@@ -76,6 +76,9 @@ class AnalysisCacheStore:
         """Insert or update a cache entry."""
         analyzed_at_str = entry.analyzed_at.isoformat()
         
+        # Normalize conversation ID (remove dashes) to match embeddings table
+        normalized_id = entry.conversation_id.replace("-", "")
+        
         self.conn.execute(
             """
             INSERT INTO analysis_cache (conversation_id, cache_key, event_count, content_hash, analyzed_at)
@@ -86,7 +89,7 @@ class AnalysisCacheStore:
                 analyzed_at = excluded.analyzed_at
             """,
             (
-                entry.conversation_id,
+                normalized_id,
                 entry.cache_key,
                 entry.event_count,
                 entry.content_hash,
@@ -97,12 +100,15 @@ class AnalysisCacheStore:
         # Clear any skip marker when we successfully cache
         self.conn.execute(
             "DELETE FROM analysis_skips WHERE conversation_id = ?",
-            (entry.conversation_id,),
+            (normalized_id,),
         )
     
     def upsert_skip(self, entry: AnalysisSkipEntry) -> None:
         """Insert or update a skip entry."""
         skipped_at_str = entry.skipped_at.isoformat()
+        
+        # Normalize conversation ID (remove dashes) for consistency
+        normalized_id = entry.conversation_id.replace("-", "")
         
         self.conn.execute(
             """
@@ -114,7 +120,7 @@ class AnalysisCacheStore:
                 skipped_at = excluded.skipped_at
             """,
             (
-                entry.conversation_id,
+                normalized_id,
                 entry.event_count,
                 entry.reason,
                 skipped_at_str,
@@ -236,11 +242,14 @@ class AnalysisCacheStore:
     
     def delete_for_conversation(self, conversation_id: str) -> None:
         """Delete all cache and skip entries for a conversation."""
+        # Normalize conversation ID (remove dashes) for consistency
+        normalized_id = conversation_id.replace("-", "")
+        
         self.conn.execute(
             "DELETE FROM analysis_cache WHERE conversation_id = ?",
-            (conversation_id,),
+            (normalized_id,),
         )
         self.conn.execute(
             "DELETE FROM analysis_skips WHERE conversation_id = ?",
-            (conversation_id,),
+            (normalized_id,),
         )

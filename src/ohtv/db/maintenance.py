@@ -374,6 +374,55 @@ def _execute_prompt_hash_backfill(
 
 
 # =============================================================================
+# Task: Orphaned Embedding Cleanup (after migration 010)
+# =============================================================================
+
+def _check_orphaned_embeddings_cleanup_needed(conn: sqlite3.Connection) -> bool:
+    """Check if orphaned embedding cleanup is needed.
+    
+    Returns True if:
+    - Task hasn't been completed AND
+    - There are orphaned analysis embeddings (legacy NULL cache_key or
+      cache_key not in analysis_cache)
+    """
+    if is_task_completed(conn, "orphaned_embeddings_cleanup_010"):
+        return False
+    
+    from ohtv.db.stores import EmbeddingStore
+    embed_store = EmbeddingStore(conn)
+    orphaned_count = embed_store.count_orphaned_analysis_embeddings()
+    return orphaned_count > 0
+
+
+def _execute_orphaned_embeddings_cleanup(
+    conn: sqlite3.Connection,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> dict:
+    """Delete orphaned analysis embeddings.
+    
+    Removes analysis embeddings that have NULL cache_key (legacy) or
+    have a cache_key that doesn't exist in analysis_cache.
+    """
+    from ohtv.db.stores import EmbeddingStore
+    
+    embed_store = EmbeddingStore(conn)
+    
+    # Get count for progress reporting
+    orphaned_count = embed_store.count_orphaned_analysis_embeddings()
+    
+    if on_progress:
+        on_progress(0, orphaned_count)
+    
+    # Delete orphaned embeddings
+    deleted = embed_store.delete_orphaned_analysis_embeddings()
+    
+    if on_progress:
+        on_progress(deleted, deleted)
+    
+    return {"orphaned_found": orphaned_count, "deleted": deleted}
+
+
+# =============================================================================
 # Task Registry
 # =============================================================================
 
@@ -398,6 +447,13 @@ MAINTENANCE_TASKS: list[MaintenanceTask] = [
         triggered_by="feature_prompt_customization",
         check_needed=_check_prompt_hash_backfill_needed,
         execute=_execute_prompt_hash_backfill,
+    ),
+    MaintenanceTask(
+        name="orphaned_embeddings_cleanup_010",
+        description="Cleaning up orphaned analysis embeddings",
+        triggered_by="migration_010",
+        check_needed=_check_orphaned_embeddings_cleanup_needed,
+        execute=_execute_orphaned_embeddings_cleanup,
     ),
 ]
 
