@@ -734,3 +734,28 @@ Automation has been disabled to prevent unnecessary runs.
    ```
 
 ---
+### 2026-05-06 16:01 UTC - Orchestrator
+
+🧪 **Launched: Testing Worker**
+
+Testing [PR #47](https://github.com/jpshackelford/ohtv/pull/47): Database cleanup - orphaned embeddings and duplicate conversations
+- CI: No checks configured (MERGEABLE)
+- Docs: No README update needed (internal maintenance changes only)
+- Code review: Passed (github-actions: "Good taste", "Worth merging", LOW risk)
+- Manual testing: In progress
+- Conversation: https://app.all-hands.dev/conversations/7d540285a041468098d6fbd6343d9e75
+
+**What this PR does:**
+- Part 1: Orphaned analysis embeddings cleanup from migration 010
+- Part 2: Duplicate conversation cleanup from dashed IDs in base_state.json
+- Updates `db status` to show orphaned embedding count
+
+**Current State:**
+- [PR #47](https://github.com/jpshackelford/ohtv/pull/47): `oCf -- ready` - Spawned testing worker
+  - ✅ CI: Mergeable
+  - ✅ Docs: Not needed (internal maintenance)
+  - ✅ Code review: Positive verdict
+  - ⏳ Manual testing: In progress
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author to mark ready
+
+---
