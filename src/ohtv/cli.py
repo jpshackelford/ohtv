@@ -6111,11 +6111,17 @@ def db_index_cache(verbose: bool) -> None:
             for conv in conversations:
                 progress.update(task, current=conv.id[:12] + "...")
                 
-                # Find cache file
+                # Find cache file - check new location first, then legacy
                 conv_dir = Path(conv.location)
-                cache_file = conv_dir / "objective_analysis.json"
+                from ohtv.config import get_analysis_cache_dir
+                new_cache_file = get_analysis_cache_dir() / conv.id / "objective_analysis.json"
+                legacy_cache_file = conv_dir / "objective_analysis.json"
                 
-                if not cache_file.exists():
+                if new_cache_file.exists():
+                    cache_file = new_cache_file
+                elif legacy_cache_file.exists():
+                    cache_file = legacy_cache_file
+                else:
                     progress.advance(task)
                     continue
                 
@@ -6175,6 +6181,109 @@ def db_index_cache(verbose: bool) -> None:
         console.print(f"[yellow]![/yellow] {errors} error(s) reading cache files")
     if indexed == 0 and skipped == 0 and summaries_updated == 0 and errors == 0:
         console.print("[dim]No cache files found to index.[/dim]")
+
+
+@db.command("migrate-cache")
+@click.option("--delete-legacy", is_flag=True, help="Delete legacy cache files after migration")
+@click.option("--dry-run", is_flag=True, help="Show what would be migrated without doing it")
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+def db_migrate_cache(delete_legacy: bool, dry_run: bool, verbose: bool) -> None:
+    """Migrate analysis cache files from conversation directories to ~/.ohtv.
+
+    Cache files were previously stored inside each conversation directory
+    (~/.openhands/cloud/conversations/<id>/objective_analysis.json).
+    This command moves them to the centralized location
+    (~/.ohtv/cache/analysis/<id>/objective_analysis.json).
+
+    By default, files are copied (not moved) to avoid data loss. Use
+    --delete-legacy to remove the original files after successful migration.
+    """
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from ohtv.analysis.cache import (
+        migrate_cache_file,
+        delete_legacy_cache_file,
+        count_legacy_cache_files,
+    )
+    from ohtv.config import get_analysis_cache_dir
+
+    config = Config.from_env()
+
+    # Collect all conversation directories
+    conv_dirs = []
+    for base_dir in [config.local_conversations_dir, config.synced_conversations_dir]:
+        if base_dir.exists():
+            for conv_dir in base_dir.iterdir():
+                if conv_dir.is_dir():
+                    conv_dirs.append(conv_dir)
+
+    # Add extra conversation paths
+    for extra_path in config.extra_conversation_paths:
+        if extra_path.exists():
+            for conv_dir in extra_path.iterdir():
+                if conv_dir.is_dir():
+                    conv_dirs.append(conv_dir)
+
+    # Count legacy cache files
+    legacy_count = count_legacy_cache_files(conv_dirs)
+
+    if legacy_count == 0:
+        console.print("[dim]No legacy cache files found to migrate.[/dim]")
+        return
+
+    console.print(f"Found [bold]{legacy_count}[/bold] legacy cache file(s) to migrate")
+    console.print(f"Target: {get_analysis_cache_dir()}")
+
+    if dry_run:
+        console.print("\n[dim]Dry run - no files will be modified.[/dim]")
+        return
+
+    migrated = 0
+    deleted = 0
+    errors = 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]Migrating cache files"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TextColumn("[dim]{task.fields[current]}[/dim]"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task(
+            "Migrating",
+            total=len(conv_dirs),
+            current="",
+        )
+
+        for conv_dir in conv_dirs:
+            progress.update(task, current=conv_dir.name[:12] + "...")
+
+            try:
+                if migrate_cache_file(conv_dir):
+                    migrated += 1
+                    if verbose:
+                        console.print(f"  [green]✓[/green] {conv_dir.name}")
+
+                    if delete_legacy:
+                        if delete_legacy_cache_file(conv_dir):
+                            deleted += 1
+            except (OSError, IOError) as e:
+                errors += 1
+                if verbose:
+                    console.print(f"  [red]✗[/red] {conv_dir.name}: {e}")
+
+            progress.advance(task)
+
+    # Display results
+    if migrated > 0:
+        console.print(f"[green]✓[/green] Migrated {migrated} cache file(s)")
+    if deleted > 0:
+        console.print(f"[green]✓[/green] Deleted {deleted} legacy file(s)")
+    if errors > 0:
+        console.print(f"[yellow]![/yellow] {errors} error(s) during migration")
+    if migrated == 0 and errors == 0:
+        console.print("[dim]No cache files needed migration.[/dim]")
 
 
 @db.command("reset")
@@ -7040,6 +7149,19 @@ def _run_batch_objectives_analysis(
     if not conversations:
         console.print("[dim]No conversations found matching the criteria.[/dim]")
         return
+
+    # Check for legacy cache files and warn user
+    from ohtv.analysis.cache import count_legacy_cache_files
+    conv_dirs = []
+    for c in conversations:
+        result = _find_conversation_dir(config, c.lookup_id)
+        if result:
+            conv_dirs.append(result[0])
+    legacy_count = count_legacy_cache_files(conv_dirs)
+    if legacy_count > 0:
+        console.print(f"[yellow]Warning:[/yellow] {legacy_count} cache file(s) in unsupported location.")
+        console.print("[dim]Run 'ohtv db migrate-cache' to relocate them to ~/.ohtv/cache/analysis/[/dim]")
+        console.print()
 
     # Import analysis module
     try:
