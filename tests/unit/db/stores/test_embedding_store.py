@@ -792,3 +792,208 @@ class TestCacheKeyValidation:
         # Verify list returns the correct pairs
         missing_list = embedding_store.list_cached_missing_embeddings()
         assert set(missing_list) == {("conv1", "key2"), ("conv2", "key4")}
+
+
+class TestOrphanedEmbeddingCleanup:
+    """Tests for orphaned analysis embedding cleanup."""
+    
+    def test_count_orphaned_no_orphans(self, embedding_store, conversation_store, db_conn):
+        """Test counting when there are no orphaned embeddings."""
+        from ohtv.db.stores import AnalysisCacheStore
+        from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
+        
+        cache_store = AnalysisCacheStore(db_conn)
+        
+        # Create conversation
+        _create_conversation(conversation_store, "conv1")
+        
+        # Create cache entry with key1
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv1", cache_key="key1",
+            event_count=10, content_hash="hash1", analyzed_at=datetime.now(timezone.utc)
+        ))
+        
+        # Create matching embedding with same key
+        embedding_store.upsert(
+            "conv1", [0.1, 0.2], "model",
+            embed_type="analysis", cache_key="key1"
+        )
+        db_conn.commit()
+        
+        # No orphans - the embedding matches the cache entry
+        assert embedding_store.count_orphaned_analysis_embeddings() == 0
+    
+    def test_count_orphaned_with_empty_cache_key(self, embedding_store, conversation_store, db_conn):
+        """Test counting legacy embeddings with empty cache_key (pre-migration 010)."""
+        # Create conversation
+        _create_conversation(conversation_store, "conv1")
+        
+        # Create embedding with empty cache_key (legacy - default after migration 010)
+        embedding_store.upsert(
+            "conv1", [0.1, 0.2], "model",
+            embed_type="analysis", cache_key=""
+        )
+        db_conn.commit()
+        
+        # Should count as orphaned (empty cache_key can't match any cache entry)
+        assert embedding_store.count_orphaned_analysis_embeddings() == 1
+    
+    def test_count_orphaned_with_unmatched_cache_key(self, embedding_store, conversation_store, db_conn):
+        """Test counting embeddings whose cache_key doesn't exist in analysis_cache."""
+        from ohtv.db.stores import AnalysisCacheStore
+        from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
+        
+        cache_store = AnalysisCacheStore(db_conn)
+        
+        # Create conversation
+        _create_conversation(conversation_store, "conv1")
+        
+        # Create cache entry with key1
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv1", cache_key="key1",
+            event_count=10, content_hash="hash1", analyzed_at=datetime.now(timezone.utc)
+        ))
+        
+        # Create embedding with key2 (doesn't match any cache entry)
+        embedding_store.upsert(
+            "conv1", [0.1, 0.2], "model",
+            embed_type="analysis", cache_key="key2"
+        )
+        db_conn.commit()
+        
+        # Should count as orphaned (key2 doesn't exist in analysis_cache)
+        assert embedding_store.count_orphaned_analysis_embeddings() == 1
+    
+    def test_count_orphaned_mixed_scenarios(self, embedding_store, conversation_store, db_conn):
+        """Test counting with mix of valid, empty, and unmatched embeddings."""
+        from ohtv.db.stores import AnalysisCacheStore
+        from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
+        
+        cache_store = AnalysisCacheStore(db_conn)
+        
+        # Create conversations
+        _create_conversation(conversation_store, "conv1")
+        _create_conversation(conversation_store, "conv2")
+        
+        # Create cache entries
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv1", cache_key="key1",
+            event_count=10, content_hash="hash1", analyzed_at=datetime.now(timezone.utc)
+        ))
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv2", cache_key="key2",
+            event_count=10, content_hash="hash2", analyzed_at=datetime.now(timezone.utc)
+        ))
+        
+        # Valid embedding (matches cache)
+        embedding_store.upsert(
+            "conv1", [0.1, 0.2], "model",
+            embed_type="analysis", cache_key="key1"
+        )
+        # Orphaned: empty cache_key (legacy)
+        embedding_store.upsert(
+            "conv1", [0.3, 0.4], "model",
+            embed_type="analysis", cache_key="", chunk_index=1
+        )
+        # Orphaned: unmatched cache_key
+        embedding_store.upsert(
+            "conv2", [0.5, 0.6], "model",
+            embed_type="analysis", cache_key="key_nonexistent"
+        )
+        # Non-analysis embedding (should not be counted)
+        embedding_store.upsert(
+            "conv2", [0.7, 0.8], "model",
+            embed_type="summary"
+        )
+        db_conn.commit()
+        
+        # Should count 2 orphaned analysis embeddings
+        assert embedding_store.count_orphaned_analysis_embeddings() == 2
+    
+    def test_delete_orphaned_embeddings(self, embedding_store, conversation_store, db_conn):
+        """Test deleting orphaned analysis embeddings."""
+        from ohtv.db.stores import AnalysisCacheStore
+        from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
+        
+        cache_store = AnalysisCacheStore(db_conn)
+        
+        # Create conversation
+        _create_conversation(conversation_store, "conv1")
+        
+        # Create cache entry
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv1", cache_key="key1",
+            event_count=10, content_hash="hash1", analyzed_at=datetime.now(timezone.utc)
+        ))
+        
+        # Valid embedding
+        embedding_store.upsert(
+            "conv1", [0.1, 0.2], "model",
+            embed_type="analysis", cache_key="key1"
+        )
+        # Orphaned: empty cache_key (legacy)
+        embedding_store.upsert(
+            "conv1", [0.3, 0.4], "model",
+            embed_type="analysis", cache_key="", chunk_index=1
+        )
+        # Orphaned: unmatched cache_key
+        embedding_store.upsert(
+            "conv1", [0.5, 0.6], "model",
+            embed_type="analysis", cache_key="orphan_key", chunk_index=2
+        )
+        # Non-analysis (should not be deleted)
+        embedding_store.upsert(
+            "conv1", [0.7, 0.8], "model",
+            embed_type="summary"
+        )
+        db_conn.commit()
+        
+        # Should have 4 total embeddings
+        assert embedding_store.count() == 4
+        
+        # Delete orphaned
+        deleted = embedding_store.delete_orphaned_analysis_embeddings()
+        assert deleted == 2
+        
+        # Should have 2 remaining (valid analysis + summary)
+        assert embedding_store.count() == 2
+        
+        # Valid analysis embedding should still exist
+        assert embedding_store.has_embedding("conv1", embed_type="analysis", cache_key="key1")
+        
+        # Summary embedding should still exist
+        assert embedding_store.has_embedding("conv1", embed_type="summary")
+        
+        # Orphaned embeddings should be gone
+        assert not embedding_store.has_embedding("conv1", embed_type="analysis", chunk_index=1)
+        assert not embedding_store.has_embedding("conv1", embed_type="analysis", cache_key="orphan_key")
+    
+    def test_delete_orphaned_returns_zero_when_none(self, embedding_store, conversation_store, db_conn):
+        """Test delete returns 0 when there are no orphaned embeddings."""
+        from ohtv.db.stores import AnalysisCacheStore
+        from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
+        
+        cache_store = AnalysisCacheStore(db_conn)
+        
+        # Create conversation
+        _create_conversation(conversation_store, "conv1")
+        
+        # Create cache entry
+        cache_store.upsert_cache(AnalysisCacheEntry(
+            conversation_id="conv1", cache_key="key1",
+            event_count=10, content_hash="hash1", analyzed_at=datetime.now(timezone.utc)
+        ))
+        
+        # Valid embedding only
+        embedding_store.upsert(
+            "conv1", [0.1, 0.2], "model",
+            embed_type="analysis", cache_key="key1"
+        )
+        db_conn.commit()
+        
+        # No orphans to delete
+        deleted = embedding_store.delete_orphaned_analysis_embeddings()
+        assert deleted == 0
+        
+        # Embedding should still exist
+        assert embedding_store.count() == 1

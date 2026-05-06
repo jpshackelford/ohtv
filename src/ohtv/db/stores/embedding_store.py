@@ -649,3 +649,60 @@ class EmbeddingStore:
         """Return count of FTS indexed conversations."""
         cursor = self.conn.execute("SELECT COUNT(*) FROM conversation_fts")
         return cursor.fetchone()[0]
+
+    # =========================================================================
+    # Orphaned embedding cleanup
+    # =========================================================================
+
+    def count_orphaned_analysis_embeddings(self) -> int:
+        """Count analysis embeddings without matching analysis_cache entries.
+
+        Orphaned embeddings are:
+        1. Analysis embeddings with empty cache_key (legacy, pre-cache_key era)
+        2. Analysis embeddings with a cache_key that doesn't exist in analysis_cache
+
+        Returns:
+            Number of orphaned analysis embeddings
+        """
+        cursor = self.conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM embeddings e
+            WHERE e.embed_type = 'analysis'
+              AND (
+                e.cache_key = ''
+                OR NOT EXISTS (
+                  SELECT 1 FROM analysis_cache ac
+                  WHERE ac.conversation_id = e.conversation_id
+                    AND ac.cache_key = e.cache_key
+                )
+              )
+            """
+        )
+        return cursor.fetchone()[0]
+
+    def delete_orphaned_analysis_embeddings(self) -> int:
+        """Delete analysis embeddings without matching analysis_cache entries.
+
+        Removes:
+        1. Analysis embeddings with empty cache_key (legacy, pre-cache_key era)
+        2. Analysis embeddings with a cache_key that doesn't exist in analysis_cache
+
+        Returns:
+            Number of embeddings deleted
+        """
+        cursor = self.conn.execute(
+            """
+            DELETE FROM embeddings
+            WHERE embed_type = 'analysis'
+              AND (
+                cache_key = ''
+                OR NOT EXISTS (
+                  SELECT 1 FROM analysis_cache ac
+                  WHERE ac.conversation_id = embeddings.conversation_id
+                    AND ac.cache_key = embeddings.cache_key
+                )
+              )
+            """
+        )
+        return cursor.rowcount

@@ -6046,11 +6046,16 @@ def db_status() -> None:
         # Missing embeddings check - now properly joins on cache_key
         missing_count = embed_store.count_cached_missing_embeddings()
         total_cached = cache_store.count_cached()
+        orphaned_count = embed_store.count_orphaned_analysis_embeddings()
         
-        if missing_count > 0:
-            console.print(f"\n[yellow]⚠ Missing embeddings:[/yellow]")
-            console.print(f"  Cached analyses without embedding: {missing_count} / {total_cached}")
-            console.print("  [dim]Run 'ohtv db embed' to generate missing embeddings[/dim]")
+        if missing_count > 0 or orphaned_count > 0:
+            console.print(f"\n[yellow]⚠ Embedding issues:[/yellow]")
+            if missing_count > 0:
+                console.print(f"  Missing: {missing_count} / {total_cached} cached analyses need embeddings")
+                console.print("  [dim]Run 'ohtv db embed' to generate missing embeddings[/dim]")
+            if orphaned_count > 0:
+                console.print(f"  Orphaned: {orphaned_count} analysis embeddings without matching cache")
+                console.print("  [dim]Will be cleaned up automatically on next db operation[/dim]")
         elif total_cached > 0:
             console.print(f"\n[green]✓ All {total_cached} cached analyses have embeddings[/green]")
 
