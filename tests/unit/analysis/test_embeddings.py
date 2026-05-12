@@ -192,6 +192,161 @@ class TestBuildAnalysisText:
         assert "Goal: Fix the bug" in result
         assert "Outcomes" not in result
 
+    def test_detailed_format_with_primary_objectives(self):
+        """Test detailed format with nested primary_objectives structure."""
+        from ohtv.analysis.embeddings import build_analysis_text
+        analysis = {
+            "primary_objectives": [
+                {
+                    "description": "Fix authentication bug",
+                    "subordinates": [
+                        {"description": "Add input validation", "subordinates": []},
+                        {"description": "Update error handling", "subordinates": []},
+                    ],
+                },
+                {
+                    "description": "Improve test coverage",
+                    "subordinates": [],
+                },
+            ],
+            "summary": "User fixed auth bugs and added tests",
+        }
+        result = build_analysis_text(analysis)
+        assert "Objectives:" in result
+        assert "Fix authentication bug" in result
+        assert "Add input validation" in result
+        assert "Update error handling" in result
+        assert "Improve test coverage" in result
+        assert "Summary: User fixed auth bugs and added tests" in result
+
+    def test_detailed_format_summary_only(self):
+        """Test detailed format with just summary field."""
+        from ohtv.analysis.embeddings import build_analysis_text
+        analysis = {"summary": "User worked on improving the API"}
+        result = build_analysis_text(analysis)
+        assert "Summary: User worked on improving the API" in result
+
+    def test_detailed_format_respects_max_depth(self):
+        """Test that nested objectives beyond max_depth are not extracted."""
+        from ohtv.analysis.embeddings import build_analysis_text
+        # Create deeply nested structure (3 levels deep)
+        analysis = {
+            "primary_objectives": [
+                {
+                    "description": "Level 1",
+                    "subordinates": [
+                        {
+                            "description": "Level 2",
+                            "subordinates": [
+                                {
+                                    "description": "Level 3 - should not appear",
+                                    "subordinates": [],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        result = build_analysis_text(analysis)
+        assert "Level 1" in result
+        assert "Level 2" in result
+        # max_depth=2 means only 2 levels are extracted
+        assert "Level 3" not in result
+
+    def test_combined_standard_and_detailed_format(self):
+        """Test analysis with both standard and detailed fields populated."""
+        from ohtv.analysis.embeddings import build_analysis_text
+        # Real detailed analyses often have goal=None but primary_objectives populated
+        analysis = {
+            "goal": None,  # Explicitly None
+            "primary_outcomes": [],  # Empty
+            "primary_objectives": [
+                {"description": "Main task", "subordinates": []},
+            ],
+            "summary": "Did the main task",
+        }
+        result = build_analysis_text(analysis)
+        assert "Objectives: Main task" in result
+        assert "Summary: Did the main task" in result
+        assert "Goal" not in result  # goal=None should be skipped
+
+
+class TestExtractObjectiveDescriptions:
+    """Tests for _extract_objective_descriptions() recursive function."""
+
+    def test_extracts_from_flat_list(self):
+        from ohtv.analysis.embeddings.text_builders import _extract_objective_descriptions
+        objectives = [
+            {"description": "First task", "subordinates": []},
+            {"description": "Second task", "subordinates": []},
+        ]
+        result = _extract_objective_descriptions(objectives)
+        assert result == ["First task", "Second task"]
+
+    def test_extracts_from_nested_structure(self):
+        from ohtv.analysis.embeddings.text_builders import _extract_objective_descriptions
+        objectives = [
+            {
+                "description": "Parent",
+                "subordinates": [
+                    {"description": "Child 1", "subordinates": []},
+                    {"description": "Child 2", "subordinates": []},
+                ],
+            },
+        ]
+        result = _extract_objective_descriptions(objectives)
+        assert "Parent" in result
+        assert "Child 1" in result
+        assert "Child 2" in result
+        assert len(result) == 3
+
+    def test_respects_max_depth(self):
+        from ohtv.analysis.embeddings.text_builders import _extract_objective_descriptions
+        objectives = [
+            {
+                "description": "Level 1",
+                "subordinates": [
+                    {
+                        "description": "Level 2",
+                        "subordinates": [
+                            {"description": "Level 3", "subordinates": []},
+                        ],
+                    },
+                ],
+            },
+        ]
+        # max_depth=1 should only get Level 1
+        result = _extract_objective_descriptions(objectives, max_depth=1)
+        assert result == ["Level 1"]
+        
+        # max_depth=2 (default) should get Level 1 and Level 2
+        result = _extract_objective_descriptions(objectives, max_depth=2)
+        assert "Level 1" in result
+        assert "Level 2" in result
+        assert "Level 3" not in result
+
+    def test_handles_empty_list(self):
+        from ohtv.analysis.embeddings.text_builders import _extract_objective_descriptions
+        assert _extract_objective_descriptions([]) == []
+
+    def test_handles_missing_description(self):
+        from ohtv.analysis.embeddings.text_builders import _extract_objective_descriptions
+        objectives = [
+            {"subordinates": []},  # No description field
+            {"description": "Has description", "subordinates": []},
+        ]
+        result = _extract_objective_descriptions(objectives)
+        assert result == ["Has description"]
+
+    def test_handles_missing_subordinates(self):
+        from ohtv.analysis.embeddings.text_builders import _extract_objective_descriptions
+        objectives = [
+            {"description": "No subordinates field"},
+        ]
+        result = _extract_objective_descriptions(objectives)
+        assert result == ["No subordinates field"]
+
 
 class TestBuildSummaryText:
     """Tests for build_summary_text()."""
