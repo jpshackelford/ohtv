@@ -155,6 +155,10 @@ def build_analysis_text(analysis: dict) -> str | None:
 
     This is the highest-signal embedding - what was the conversation about?
 
+    Handles both formats:
+    - Standard/brief: goal, primary_outcomes, secondary_outcomes
+    - Detailed: primary_objectives (nested structure), summary
+
     Args:
         analysis: Cached analysis dict (from gen objs)
 
@@ -166,6 +170,7 @@ def build_analysis_text(analysis: dict) -> str | None:
 
     parts = []
 
+    # Standard/brief format fields
     goal = analysis.get("goal", "")
     if goal:
         parts.append(f"Goal: {goal}")
@@ -178,6 +183,18 @@ def build_analysis_text(analysis: dict) -> str | None:
     if secondary:
         parts.append("Additional: " + "; ".join(secondary))
 
+    # Detailed format fields
+    primary_objectives = analysis.get("primary_objectives", [])
+    if primary_objectives:
+        objective_texts = _extract_objective_descriptions(primary_objectives)
+        if objective_texts:
+            parts.append("Objectives: " + "; ".join(objective_texts))
+
+    # Summary field (used in detailed format, but may also appear in other formats)
+    summary = analysis.get("summary", "")
+    if summary:
+        parts.append(f"Summary: {summary}")
+
     tags = analysis.get("tags", [])
     if tags:
         parts.append("Tags: " + ", ".join(tags))
@@ -186,6 +203,32 @@ def build_analysis_text(analysis: dict) -> str | None:
         return None
 
     return "\n".join(parts)
+
+
+def _extract_objective_descriptions(objectives: list[dict], max_depth: int = 2) -> list[str]:
+    """Recursively extract description fields from nested objectives.
+    
+    Args:
+        objectives: List of objective dicts with 'description' and optional 'subordinates'
+        max_depth: Maximum nesting depth to traverse (default 2 to avoid over-embedding)
+        
+    Returns:
+        List of description strings
+    """
+    if max_depth <= 0:
+        return []
+    
+    descriptions = []
+    for obj in objectives:
+        desc = obj.get("description")
+        if desc:
+            descriptions.append(desc)
+        
+        subordinates = obj.get("subordinates", [])
+        if subordinates:
+            descriptions.extend(_extract_objective_descriptions(subordinates, max_depth - 1))
+    
+    return descriptions
 
 
 def build_summary_text(
