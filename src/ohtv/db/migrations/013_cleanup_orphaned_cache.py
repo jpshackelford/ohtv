@@ -46,6 +46,15 @@ def upgrade(conn) -> None:
         if not cache_file.exists():
             orphaned_skips.append(conv_id)
     
+    # Warn if orphan rate is suspiciously high (may indicate misconfiguration)
+    if cache_conv_ids:
+        orphan_rate = len(orphaned_cache) / len(cache_conv_ids)
+        if orphan_rate > 0.5:
+            log.warning(
+                "High orphan rate: %d/%d (%.1f%%) - verify cache_dir is accessible: %s",
+                len(orphaned_cache), len(cache_conv_ids), orphan_rate * 100, cache_dir
+            )
+    
     # Delete orphaned entries
     if orphaned_cache:
         placeholders = ",".join("?" * len(orphaned_cache))
