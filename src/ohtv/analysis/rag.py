@@ -35,12 +35,14 @@ DEFAULT_SYSTEM_PROMPT = """You are a helpful assistant that answers questions ab
 
 You have been provided with context from relevant conversation history. Each source includes:
 - Title and date
+- Conversation ID and URL (when available)
 - Summary (when available)
 - Related refs (PRs, issues, repos) - use these to disambiguate references like "#42"
 
 Guidelines:
 - Base your answer on the provided context
 - When citing information, reference the specific conversation by title (e.g., "In the conversation 'Configure MCP secrets' from 3 days ago...")
+- When citing specific conversations, include the conversation ID and/or URL when available
 - Use the provided refs to accurately cite PRs/issues (e.g., "jpshackelford/ohtv#42" not just "#42")
 - If multiple conversations are relevant, mention them
 - If the context doesn't contain enough information, say so clearly
@@ -479,6 +481,9 @@ class RAGAnswerer:
         if chunk.created_at:
             header += f" ({self._format_age(chunk.created_at)})"
         header += f" - relevance: {chunk.score:.0%}]"
+        header += f"\nConversation ID: {chunk.conversation_id}"
+        if chunk.display_url:
+            header += f"\nURL: {chunk.cloud_url}"
         return header
     
     def _format_chunk_refs(self, chunk: ContextChunk) -> str | None:
