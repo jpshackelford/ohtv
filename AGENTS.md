@@ -433,3 +433,23 @@ This happened with LXA (OpenHands desktop) conversations where `base_state.json`
 **Child tables affected**: `conversation_repos`, `conversation_refs`, `actions`, `conversation_stages`, `analysis_cache`, `analysis_skips`, `embeddings`
 
 **Testing**: Run `ohtv db status` - conversation count should match actual conversations on disk.
+
+## Bugfix: Orphaned analysis_cache Entries and Detailed Analysis Format (Migration 013)
+
+**Problem**: `ohtv sync` reported ~1100 conversations "skipped (no content)" during embedding generation when most of them actually had content.
+
+**Root causes** (two separate issues):
+
+1. **Orphaned analysis_cache entries**: The `analysis_cache` table contained entries for cache files that no longer exist on disk. This caused `list_cached_missing_embeddings()` to return false positives - conversations that "needed" analysis embeddings but had no actual cache files to embed.
+
+2. **Detailed analysis format not handled**: The "detailed" analysis format (from `gen objs --detail detailed`) stores objectives in `primary_objectives` (a nested structure with `description` and `subordinates` fields) instead of `goal`/`primary_outcomes`. The `build_analysis_text()` function didn't extract text from this format, so detailed analyses produced empty text and were skipped.
+
+**Fix**:
+
+1. **Migration 013** (`013_cleanup_orphaned_cache.py`): Removes entries from `analysis_cache` and `analysis_skips` where the corresponding cache file doesn't exist in `~/.ohtv/cache/analysis/`
+
+2. **`build_analysis_text()` in `text_builders.py`**: Added `_extract_objective_descriptions()` to recursively extract text from nested objectives (max depth 2 to avoid over-embedding). The function now handles both formats:
+   - Standard/brief: `goal`, `primary_outcomes`, `secondary_outcomes`
+   - Detailed: `primary_objectives` (nested structure)
+
+**Testing**: Run `ohtv sync` - the "skipped (no content)" count should be much smaller, representing only conversations that genuinely have no embeddable content (very short conversations with 0-4 events).
