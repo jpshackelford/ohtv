@@ -887,3 +887,25 @@ Resolving review threads on [PR #48](https://github.com/jpshackelford/ohtv/pull/
 - [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author
 
 ---
+### 2026-05-14 14:21 UTC - Orchestrator
+
+🚀 **Launched: Merge Worker**
+
+Merging [PR #48](https://github.com/jpshackelford/ohtv/pull/48): Fix embedding generation for detailed analyses and orphaned cache
+- CI: No checks configured (merge state CLEAN)
+- Manual testing: ✅ Complete (929 unit tests pass, 6 manual tests pass)
+- Code review: ✅ Worth merging (MEDIUM risk)
+- All review threads: ✅ Resolved
+- Documentation: N/A (internal changes only)
+- Conversation: https://app.all-hands.dev/conversations/67ba8a85f22f403f95e1e6749605fc7f
+
+**Current State:**
+- [PR #48](https://github.com/jpshackelford/ohtv/pull/48): `oRfcfc -- ready` → Spawned merge worker
+  - Ready for merge: all criteria met
+- [PR #50](https://github.com/jpshackelford/ohtv/pull/50): `ocR green ready` 💬1
+  - Manual testing: ✅ Complete
+  - Review: 1 unresolved thread (display_url vs cloud_url consistency)
+  - Next action: After PR #48 merges
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author to mark ready
+
+---
