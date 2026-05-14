@@ -928,3 +928,22 @@ Addressing review thread on [PR #50](https://github.com/jpshackelford/ohtv/pull/
 - [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author to mark ready
 
 ---
+### 2026-05-14 15:51 UTC - Orchestrator
+
+🚀 **Launched: Merge Worker**
+
+Merging [PR #50](https://github.com/jpshackelford/ohtv/pull/50): Include conversation ID and URL in RAG context
+- CI: ✅ CLEAN (no checks configured, merge state clean)
+- Manual testing: ✅ Complete (comprehensive test report posted)
+- Code review: ✅ All threads resolved (display_url consistency fix implemented)
+- Documentation: N/A (internal enhancement, no user-facing CLI changes)
+- Conversation: https://app.all-hands.dev/conversations/881adc5805374352b9a88d0aad2cf440
+
+**Current State:**
+- [PR #50](https://github.com/jpshackelford/ohtv/pull/50): `ocRF green ready` → Spawned merge worker
+  - Review thread resolved: Used `display_url` consistently (1-line change)
+  - Post-test change: Trivial refactor, no re-test required
+  - Ready for merge: all criteria met
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author to mark ready
+
+---
