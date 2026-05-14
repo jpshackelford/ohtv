@@ -483,7 +483,7 @@ class RAGAnswerer:
         header += f" - relevance: {chunk.score:.0%}]"
         header += f"\nConversation ID: {chunk.conversation_id}"
         if chunk.display_url:
-            header += f"\nURL: {chunk.cloud_url}"
+            header += f"\nURL: {chunk.display_url}"
         return header
     
     def _format_chunk_refs(self, chunk: ContextChunk) -> str | None:
