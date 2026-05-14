@@ -843,3 +843,25 @@ Automation has been disabled to prevent unnecessary runs.
    ```
 
 ---
+### 2026-05-14 13:38 UTC - Orchestrator
+
+🧪 **Launched: Testing Worker**
+
+Testing [PR #48](https://github.com/jpshackelford/ohtv/pull/48): Fix embedding generation for detailed analyses and orphaned cache
+- CI: No checks configured (treated as passing)
+- Docs: README not needed (internal changes only - embeddings code + migration)
+- Code review: ✅ Addressed all 3 review threads (tests added, warning log added)
+- Manual testing: ⏳ In progress
+- Conversation: https://app.all-hands.dev/conversations/913834c21fdc4b1d8b6551e72d4e5b1b
+
+**Current State:**
+- [PR #50](https://github.com/jpshackelford/ohtv/pull/50): `ocR green ready` 💬1
+  - "Include conversation ID and URL in RAG context"
+  - Has manual test results ✅
+  - 1 unresolved thread (owner asked clarifying question about cloud_url vs display_url)
+  - Next action: After PR #48 testing completes
+- [PR #48](https://github.com/jpshackelford/ohtv/pull/48): `oRfcf -- ready` → Spawned testing worker
+  - "Fix embedding generation for detailed analyses and orphaned cache"
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft - waiting for author to mark ready
+
+---
