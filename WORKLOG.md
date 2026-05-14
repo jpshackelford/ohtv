@@ -987,3 +987,27 @@ Merging [PR #50](https://github.com/jpshackelford/ohtv/pull/50): Include convers
 **Note:** This is consecutive quiet entry #2. If next check also finds no actionable work, automation will auto-disable.
 
 ---
+### 2026-05-14 17:16 UTC - Orchestrator
+
+🔒 **Auto-disabled due to inactivity**
+
+Two consecutive quiet periods detected - no new work to pick up.
+Automation has been disabled to prevent unnecessary runs.
+
+**Current State:**
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): `o green draft`
+  - Title: Add --explain flag to ask command for RAG retrieval debugging
+  - Status: **Draft** (waiting for author to mark ready)
+  - No automated action possible on draft PRs
+
+**To re-enable:**
+- OpenHands UI: https://app.all-hands.dev/automations → Find "OHTV Workflow Orchestrator" → Toggle enable
+- Or via API:
+  ```bash
+  curl -X PATCH "https://app.all-hands.dev/api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{"enabled": true}'
+  ```
+
+---
