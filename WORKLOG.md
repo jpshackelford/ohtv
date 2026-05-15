@@ -1,3 +1,28 @@
+### 2026-05-15 16:21 UTC - Merge Worker
+
+✅ **Merged PR #56 - Add start time, duration, and step count to gen objs display**
+
+- PR: [#56](https://github.com/jpshackelford/ohtv/pull/56)
+- Merge commit: `dfc2d8f`
+- Fixes: Issue #52
+
+**Summary:** Enhanced `gen objs` batch mode with additional metadata columns.
+
+**Changes merged:**
+- New formatters: `format_time` (HH:MM AM/PM), `format_duration_minutes` (N mins / Nh Mm), `format_step_count` (N steps)
+- Updated display schema with 4 columns: ID+source, Date+time, Duration+steps, Summary
+- JSON output now includes `start_time`, `duration_seconds`, `event_count`
+- Markdown output uses centralized formatters (refactored per review feedback)
+
+**Test coverage:**
+- 42 new unit tests covering all formatters with edge cases
+- 1008 total tests passing
+- Manual tests verified: table display, JSON output, markdown output
+
+**Review status:** 3 review threads resolved (code duplication fixed in commit 729d412)
+
+---
+
 ### 2026-05-15 15:50 UTC - Expansion Worker
 
 ✅ **Expanded Issue #59 - gen objs marks conversations as no_analyzable_content incorrectly**
