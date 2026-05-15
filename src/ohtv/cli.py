@@ -6523,7 +6523,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
       ohtv db embed --force        # Rebuild all embeddings
       ohtv db embed --estimate     # Show cost estimate without embedding
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
     from rich.prompt import Confirm
     from ohtv.db import get_connection, get_db_path, migrate
     from ohtv.db.stores import ConversationStore, EmbeddingStore
@@ -6687,21 +6687,23 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         _last_rate_str = [""]  # mutable container for closure
         _last_rate_update = [0.0]  # last update time
         
-        def _format_rate(processed: int, new_embeds: int, elapsed: float) -> str:
+        def _format_remaining(total: int, processed: int, errors: int) -> str:
+            """Format remaining count (counting down)."""
+            remaining = total - processed
+            if errors > 0:
+                return f"[dim]{remaining}[/dim] left [red]{errors}[/red] err"
+            return f"[dim]{remaining}[/dim] left"
+        
+        def _format_rate(processed: int, elapsed: float) -> str:
             """Format processing rate. Updates at most every 0.5s to avoid jitter."""
-            if elapsed < 0.1 or processed == 0:
+            if elapsed < 0.5 or processed < 2:
                 return ""
             # Only recalculate every 0.5s to smooth out parallel completion jitter
             if elapsed - _last_rate_update[0] < 0.5 and _last_rate_str[0]:
                 return _last_rate_str[0]
             _last_rate_update[0] = elapsed
-            
             rate = processed / (elapsed / 60.0)
-            if new_embeds > 0:
-                new_rate = new_embeds / (elapsed / 60.0)
-                _last_rate_str[0] = f"{rate:.0f}/min ({new_rate:.0f} new)"
-            else:
-                _last_rate_str[0] = f"{rate:.0f}/min"
+            _last_rate_str[0] = f"{rate:.0f}/min"
             return _last_rate_str[0]
         
         # Import the new batched embedding function
@@ -6748,19 +6750,26 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         interrupted = False
         
         try:
+            # Layout: Embedding ━━━━━━━━━ 62% 190 left │ ETA 0:02:15 119/min
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[bold blue]Embedding"),
                 BarColumn(),
                 TaskProgressColumn(),
+                TextColumn("{task.fields[remaining]}"),
+                TextColumn("[dim]│[/dim]"),
+                TextColumn("[dim]ETA[/dim]"),
+                TimeRemainingColumn(),
                 TextColumn("[dim]{task.fields[rate]}[/dim]"),
                 console=console,
                 transient=True,
             ) as progress:
+                total_to_embed = len(valid_convs)
                 task = progress.add_task(
                     "Embedding",
-                    total=len(valid_convs),
-                    rate="starting..."
+                    total=total_to_embed,
+                    remaining=_format_remaining(total_to_embed, 0, 0),
+                    rate=""
                 )
                 
                 if max_workers == 1:
@@ -6783,7 +6792,12 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                                 actual_embeddings += stats.embeddings_created
                         
                         elapsed = time.perf_counter() - start_time
-                        progress.update(task, advance=1, rate=_format_rate(processed_count, embedded, elapsed))
+                        progress.update(
+                            task, 
+                            advance=1, 
+                            remaining=_format_remaining(total_to_embed, processed_count, errors),
+                            rate=_format_rate(processed_count, elapsed)
+                        )
                 else:
                     # Parallel processing with ThreadPoolExecutor
                     executor = ThreadPoolExecutor(max_workers=max_workers)
@@ -6825,9 +6839,15 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                                     
                                     elapsed = time.perf_counter() - start_time
                                     # Capture values inside lock for consistent display
-                                    rate_str = _format_rate(processed_count, embedded, elapsed)
+                                    remaining_str = _format_remaining(total_to_embed, processed_count, errors)
+                                    rate_str = _format_rate(processed_count, elapsed)
                                 
-                                progress.update(task, advance=1, rate=rate_str)
+                                progress.update(
+                                    task, 
+                                    advance=1, 
+                                    remaining=remaining_str,
+                                    rate=rate_str
+                                )
                     finally:
                         executor.shutdown(wait=False, cancel_futures=True)
         except KeyboardInterrupt:
