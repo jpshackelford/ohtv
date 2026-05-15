@@ -1,3 +1,29 @@
+### 2026-05-15 14:55 UTC - Expansion Worker
+
+✅ **Expanded Issue #58 - Action summaries not used in transcript building**
+
+- Issue: [Action summaries not used in transcript building](https://github.com/jpshackelford/ohtv/issues/58)
+- Type: Enhancement
+- Status: Ready for implementation
+
+**Summary:** The `extract_action_summary()` function ignores agent-provided `summary` fields on ActionEvents, instead extracting truncated raw commands. This results in loss of semantic meaning in transcripts.
+
+**Technical approach:**
+- Modify `extract_action_summary()` to check `event.summary` first (agent-provided)
+- Add `include_command` flag for full context level (summary + command)
+- Fallback to current behavior when no summary exists
+- Update both implementations (transcript.py and objectives.py)
+- Add unit tests for summary extraction behavior
+
+**Files affected:**
+- `src/ohtv/analysis/transcript.py` - Primary implementation
+- `src/ohtv/analysis/objectives.py` - Legacy implementation  
+- `tests/unit/analysis/test_transcript.py` - New tests
+
+**Complexity:** Low - straightforward enhancement with clear behavior.
+
+---
+
 ### 2026-05-15 12:55 UTC - Implementation Worker
 
 ✅ **Implemented Issue #52 - gen objs display should include start time and duration**
