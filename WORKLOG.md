@@ -329,3 +329,35 @@ Expanding [Issue #44](https://github.com/jpshackelford/ohtv/issues/44): Need pro
 - Issues on hold: #26
 
 ---
+### 2026-05-15 03:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `bbc526d` | review | PR #54 - Progress bar for embedding sync | **NEW** |
+| `eae152b` | expansion | Issue #52 - gen objs start time and duration | **NEW** |
+
+**Previous Workers Completed:**
+- `4ae8d46` (review PR #54): finished ✓ - Resolved 3/5 threads, 2 suggestions remain
+- `d928c16` (expansion #51): finished ✓ - Issue ready
+
+**Spawned: 2 Workers (parallel)**
+
+1. **Review Worker**
+   - PR: [#54 - feat: Add progress bar for embedding sync](https://github.com/jpshackelford/ohtv/pull/54)
+   - Conversation: [`bbc526d`](https://app.all-hands.dev/conversations/bbc526d148274f5ca4affcadf5d00a90)
+   - Reason: 2 unresolved suggestion threads remain (RateTracker reuse, function refactoring)
+
+2. **Expansion Worker**
+   - Issue: [#52 - gen objs display should include start time and duration](https://github.com/jpshackelford/ohtv/issues/52)
+   - Conversation: [`eae152b`](https://app.all-hands.dev/conversations/eae152bc2f424b3f9f2f25517ece4cc8)
+   - Reason: Oldest issue without `ready` label
+
+**Current State:**
+- [PR #54](https://github.com/jpshackelford/ohtv/pull/54): Ready, CI green, tested ✓, 2 suggestion threads (review worker addressing)
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
+- Ready issues: #51, #46, #45, #44 (has PR), #35 (priority:medium, has PR)
+- Issues needing expansion: #52 (now being expanded), #53
+- Issues on hold: #26
+
+---
