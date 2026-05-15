@@ -623,35 +623,50 @@
 **Slots:**
 - 🚀 PR slot: Occupied (merge worker for PR #62)
 - ⏳ Expansion slot: Idle (no issues to expand)
-### 2026-05-15 21:49 UTC - Orchestrator
 
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `564970d` | expansion | Issue #64 - gen objs -D sorting | **NEW** |
+---
+### 2026-05-15 21:49 UTC - Expansion Worker
 
-**Previous Workers Completed:**
-- `8e76233` (merge PR #62): finished ✓ - PR #62 merged at 21:21 UTC
+✅ **Expanded Issue #64 - ohtv gen objs -D doesn't sort**
 
-**Spawned: Expansion Worker**
-- Issue: [#64 - ohtv gen objs -D doesn't sort](https://github.com/jpshackelford/ohtv/issues/64)
-- Conversation: [`564970d`](https://app.all-hands.dev/conversations/564970d29dd244ae8f3d6a07aca217f1)
-- Reason: New issue needs technical expansion
+- Issue: [ohtv gen objs -D doesn't sort](https://github.com/jpshackelford/ohtv/issues/64)
+- Type: Bug
+- Status: Ready for implementation
 
-**PR Slot: CI Re-triggered**
-- PR #63 CI failed due to budget exceeded (not code issue)
-- Re-ran failed CI job: [run 25942655313](https://github.com/jpshackelford/ohtv/actions/runs/25942655313)
-- Will evaluate PR #63 on next orchestrator cycle after CI completes
+**Summary:** Results from `gen objs -D` (batch mode) are displayed in completion order rather than sorted by date, making it difficult to see conversations chronologically.
 
-**Current State:**
-- [PR #63](https://github.com/jpshackelford/ohtv/pull/63): ready, CI pending (re-triggered), no review threads
-- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): draft (skipped - waiting for author)
-- Issues needing expansion: #64 (now expanding)
-- Ready issues: #35, #46, #53, #57, #58, #59, #60, #61
-- Issues on hold: #26
+**Root cause:** Parallel processing uses `concurrent.futures.as_completed()` which returns futures in completion order, not input order. The `results` list appends items as they complete, losing the original sorted order.
 
-**Slots:**
-- ✅ Expansion slot: Occupied (expansion worker for #64)
-- ⏳ PR slot: Waiting on CI (PR #63)
+**Location:** `src/ohtv/cli.py` lines 7660-7713 (parallel processing section)
+
+**Proposed fix:** Sort `results` by `created_at` before output (after line 7733), respecting the `reverse` flag. Use existing `_normalize_datetime_for_sort()` helper.
+
+**Files affected:**
+- `src/ohtv/cli.py` - Add 5-line sorting block before output
+
+**Complexity:** Low - Single change using existing helper function.
+
+---
+---
+### 2026-05-15 21:49 UTC - Expansion Worker
+
+✅ **Expanded Issue #64 - ohtv gen objs -D doesn't sort**
+
+- Issue: [ohtv gen objs -D doesn't sort](https://github.com/jpshackelford/ohtv/issues/64)
+- Type: Bug
+- Status: Ready for implementation
+
+**Summary:** Results from `gen objs -D` (batch mode) are displayed in completion order rather than sorted by date, making it difficult to see conversations chronologically.
+
+**Root cause:** Parallel processing uses `concurrent.futures.as_completed()` which returns futures in completion order, not input order. The `results` list appends items as they complete, losing the original sorted order.
+
+**Location:** `src/ohtv/cli.py` lines 7660-7713 (parallel processing section)
+
+**Proposed fix:** Sort `results` by `created_at` before output (after line 7733), respecting the `reverse` flag. Use existing `_normalize_datetime_for_sort()` helper.
+
+**Files affected:**
+- `src/ohtv/cli.py` - Add 5-line sorting block before output
+
+**Complexity:** Low - Single change using existing helper function.
 
 ---
