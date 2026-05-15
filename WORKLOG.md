@@ -24,539 +24,8 @@
 
 **Test results:** All 989 tests pass (28 new tests added)
 
----
-
-### 2026-05-15 16:50 UTC - Expansion Worker
-
-✅ **Expanded Issue #61 - CLI context level -c 3 not converted to 'full'**
-
-- Issue: [CLI context level -c 3 not converted to 'full' - actions not captured](https://github.com/jpshackelford/ohtv/issues/61)
-- Type: Bug
-- Status: Ready for implementation
-
-**Summary:** The `gen objs` batch mode passes numeric context levels (`-c 3`) as raw strings to `_legacy_build_transcript()`, which only recognizes string names (`"full"`). This causes actions to never be captured when using numeric context.
-
-**Root cause:** In `_run_batch_objectives_analysis()` line 7392, `context_value = context if context else "minimal"` passes the CLI string directly. Unlike single-conversation mode (which uses `resolve_context()`), batch mode has no numeric-to-name conversion.
-
-**Proposed fix:** Add `normalize_context()` helper to convert numeric strings to canonical names (`{"1": "minimal", "2": "default", "3": "full"}`), apply at line 7392.
-
-**Files affected:**
-- `src/ohtv/cli.py` - Add normalize_context() helper, update line 7392 
-- `tests/unit/test_cli.py` - Add tests for numeric context normalization
-
-**Complexity:** Low - Single function addition + one line change.
 
 ---
-
-### 2026-05-15 16:22 UTC - Expansion Worker
-
-✅ **Expanded Issue #60 - Skip cache not keyed by context level**
-
-- Issue: [Skip cache not keyed by context level - changing context doesn't retry analysis](https://github.com/jpshackelford/ohtv/issues/60)
-- Type: Bug
-- Status: Ready for implementation
-
-**Summary:** The skip cache (`analysis_skips`) only uses `conversation_id` as key, not context level. Once marked as "no_analyzable_content" at minimal context, retrying with full context still returns the cached skip.
-
-**Root cause:** `mark_skipped()` and `is_skipped()` in cache.py don't include context level. Database `analysis_skips` table uses `conversation_id` as single primary key, unlike `analysis_cache` which uses composite `(conversation_id, cache_key)`.
-
-**Technical approach:**
-- Add `context_level` field to skip cache (file and database)
-- `is_skipped()` returns None if current context > cached context (allow retry at higher levels)
-- Migration 014 adds `context_level` column with default "minimal" for existing entries
-- Backward compatible: old entries default to "minimal"
-
-**Files affected:**
-- `src/ohtv/analysis/cache.py` - Add context_level to is_skipped/mark_skipped
-- `src/ohtv/analysis/objectives.py` - Pass context_level to skip methods
-- `src/ohtv/db/stores/analysis_cache_store.py` - Update AnalysisSkipEntry dataclass and upsert_skip
-- `src/ohtv/db/migrations/014_skip_cache_context_level.py` - New migration
-- `tests/unit/db/stores/test_analysis_cache_store.py` - Context-aware skip tests
-
-**Complexity:** Medium - Multiple files, schema migration, backward compatibility.
-
----
-
-### 2026-05-15 16:21 UTC - Merge Worker
-
-✅ **Merged PR #56 - Add start time, duration, and step count to gen objs display**
-
-- PR: [#56](https://github.com/jpshackelford/ohtv/pull/56)
-- Merge commit: `dfc2d8f`
-- Fixes: Issue #52
-
-**Summary:** Enhanced `gen objs` batch mode with additional metadata columns.
-
-**Changes merged:**
-- New formatters: `format_time` (HH:MM AM/PM), `format_duration_minutes` (N mins / Nh Mm), `format_step_count` (N steps)
-- Updated display schema with 4 columns: ID+source, Date+time, Duration+steps, Summary
-- JSON output now includes `start_time`, `duration_seconds`, `event_count`
-- Markdown output uses centralized formatters (refactored per review feedback)
-
-**Test coverage:**
-- 42 new unit tests covering all formatters with edge cases
-- 1008 total tests passing
-- Manual tests verified: table display, JSON output, markdown output
-
-**Review status:** 3 review threads resolved (code duplication fixed in commit 729d412)
-
----
-
-### 2026-05-15 15:50 UTC - Expansion Worker
-
-✅ **Expanded Issue #59 - gen objs marks conversations as no_analyzable_content incorrectly**
-
-- Issue: [gen objs marks conversations as 'no_analyzable_content' when actions exist](https://github.com/jpshackelford/ohtv/issues/59)
-- Type: Bug
-- Status: Ready for implementation
-
-**Summary:** Worker conversations (spawned by orchestrators) are incorrectly marked as "no_analyzable_content" because batch mode uses "minimal" context (user messages only), but worker conversations have no user messages.
-
-**Root cause:** `analyze_objectives()` marks conversations as skipped when transcript is empty, without trying higher context levels that would capture ActionEvents.
-
-**Technical approach:**
-- Add auto-promotion logic in `analyze_objectives()` to retry with higher context levels
-- Progression: minimal → default → full (only if events exist and transcript is empty)
-- Only mark as "no_analyzable_content" if "full" context also yields nothing
-
-**Files affected:**
-- `src/ohtv/analysis/objectives.py` - Add context auto-promotion logic
-- `tests/unit/analysis/test_objectives.py` - Add tests for auto-promotion
-
-**Complexity:** Low - isolated change to one function.
-
----
-
-### 2026-05-15 15:20 UTC - Expansion Worker
-
-✅ **Expanded Issue #57 - Numeric argument to -D and -W commands**
-
-- Issue: [Numeric argument to gen objs -D and list -D commands allow look back n days](https://github.com/jpshackelford/ohtv/issues/57)
-- Type: Enhancement
-- Status: Ready for implementation
-
-**Summary:** Allow `-D N` and `-W N` syntax to show the last N days or weeks of conversations.
-
-**Technical approach:**
-- Add `_parse_numeric_lookback()` to detect integer values
-- Add `_get_day_lookback_bounds(n)` and `_get_week_lookback_bounds(n)` helpers
-- Modify `_parse_date_filters()` to check for numeric values before parsing as dates
-- Update help text for 3 commands (list, refs, gen objs)
-
-**Files affected:**
-- `src/ohtv/cli.py` - Helper functions and date filter parsing
-- `README.md` - Documentation updates
-- `tests/unit/test_date_filters.py` - Unit tests for numeric parsing
-
-**Complexity:** Low - centralized change in existing date parsing logic.
-
----
-
-### 2026-05-15 14:55 UTC - Expansion Worker
-
-✅ **Expanded Issue #58 - Action summaries not used in transcript building**
-
-- Issue: [Action summaries not used in transcript building](https://github.com/jpshackelford/ohtv/issues/58)
-- Type: Enhancement
-- Status: Ready for implementation
-
-**Summary:** The `extract_action_summary()` function ignores agent-provided `summary` fields on ActionEvents, instead extracting truncated raw commands. This results in loss of semantic meaning in transcripts.
-
-**Technical approach:**
-- Modify `extract_action_summary()` to check `event.summary` first (agent-provided)
-- Add `include_command` flag for full context level (summary + command)
-- Fallback to current behavior when no summary exists
-- Update both implementations (transcript.py and objectives.py)
-- Add unit tests for summary extraction behavior
-
-**Files affected:**
-- `src/ohtv/analysis/transcript.py` - Primary implementation
-- `src/ohtv/analysis/objectives.py` - Legacy implementation  
-- `tests/unit/analysis/test_transcript.py` - New tests
-
-**Complexity:** Low - straightforward enhancement with clear behavior.
-
----
-
-### 2026-05-15 12:55 UTC - Implementation Worker
-
-✅ **Implemented Issue #52 - gen objs display should include start time and duration**
-
-- PR: [#56 - Add start time, duration, and step count to gen objs display](https://github.com/jpshackelford/ohtv/pull/56)
-- Status: Ready for review
-
-**Summary:** Enhanced `gen objs` batch mode display with additional metadata.
-
-**Changes:**
-- Added new formatters: `format_time` (HH:MM AM/PM), `format_duration_minutes` (N mins / Nh Mm), `format_step_count` (N steps)
-- Updated default display schema with enhanced columns:
-  - ID: short_id + source on second line
-  - Date: date + time on second line
-  - New Duration column: duration + event count
-  - Summary: unchanged (goal + refs)
-- Updated JSON output to include `start_time`, `duration_seconds`, `event_count`
-- Updated markdown output to include time, duration, and step count
-
-**Before:**
-```
-┃ ID      ┃ Date       ┃ Summary       ┃
-│ 3e1c9f6 │ 2026-05-14 │ Test whether..│
-```
-
-**After:**
-```
-┃ ID      ┃ Date         ┃ Duration    ┃ Summary       ┃
-│ 3e1c9f6 │ 2026-05-14   │ 35 mins     │ Test whether..│
-│ cloud   │ 10:42 AM     │ 46 steps    │               │
-```
-
-**Tests:** 42 new tests, all 816 tests passing.
-
----
-### 2026-05-15 12:18 UTC - Merge Worker
-
-✅ **Merged PR #55 - fix: embedding progress bar displays remaining count and ETA**
-
-- PR: [#55](https://github.com/jpshackelford/ohtv/pull/55)
-- Merge commit: `0215fb0`
-- Fixes: Issue #45
-
-**Summary:** Fixed misleading embedding progress bar display.
-
-**Changes merged:**
-- Added `TimeRemainingColumn` for ETA display (matching sync progress bar)
-- Added `_format_remaining()` function showing countdown: "{remaining} left"
-- Simplified `_format_rate()` by removing misleading "(X new)" suffix
-- Updated both sequential and parallel processing paths
-
-**Test coverage:**
-- 13 new unit tests in `tests/unit/test_embedding_progress.py`
-- Manual tests verified: estimate, embed, force, search, format consistency
-- Full suite: 966 tests passing
-
-**Review status:** Code review approved (LOW risk - display-only change)
-
----
-# WORKLOG
-
-
-### 2026-05-15 11:20 UTC - Implementation Worker
-
-✅ **Implemented Issue #45 - Bug: embedding progress bar display**
-
-- PR: [#55 - fix: embedding progress bar displays remaining count and ETA](https://github.com/jpshackelford/ohtv/pull/55)
-- Status: Ready for review
-
-**Summary:** Fixed misleading embedding progress bar to show clear remaining count and ETA.
-
-**Changes:**
-- Added `TimeRemainingColumn` for ETA display matching sync progress bar
-- Added `_format_remaining()` to show countdown: "{remaining} left"
-- Simplified `_format_rate()` by removing misleading "(X new)" suffix
-- Updated Progress bar layout: remaining | ETA | rate
-
-**Before:** `⠸ Embedding ━━━━╺━━━━━━━━━ 10% 124/min (124 new)`
-**After:** `⠸ Embedding ━━━━╺━━━━━━━━━ 10% 190 left │ ETA 0:02:15 119/min`
-
-**Tests:** 13 new tests, all 919 tests passing.
-
----
-### 2026-05-15 03:50 UTC - Expansion Worker
-
-✅ **Expanded Issue #52**
-
-- Issue: [gen objs display should include start time and duration](https://github.com/jpshackelford/ohtv/issues/52)
-- Type: Enhancement
-- Status: Ready for implementation
-
-**Summary:** The `gen objs` batch output currently shows only ID, Date, and Summary. Users need additional context to understand workflow patterns: start time, duration, event count, and source (cloud/local).
-
-**Technical approach:**
-- Add new formatters (`format_time`, `format_duration_minutes`, `format_step_count`) to `formatters.py`
-- Update `get_default_display_schema()` in `renderer.py` to include source under ID, time under date, and new Duration column
-- Update `_analyze_one()` result dict to include `duration`, `event_count`, `updated_at`
-- Update JSON/markdown outputs to include new fields
-
-**Files affected:**
-- `src/ohtv/prompts/formatters.py` - Add new formatters
-- `src/ohtv/prompts/renderer.py` - Update default display schema  
-- `src/ohtv/cli.py` - Update result dict and output formats
-
-**Complexity:** Low-Medium - additive changes to existing schema-driven display infrastructure
-
----
-### 2026-05-15 03:50 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `bbc526d` | review | PR #54 - Progress bar for embedding sync | **NEW** |
-| `eae152b` | expansion | Issue #52 - gen objs start time and duration | **NEW** |
-
-**Previous Workers Completed:**
-- `4ae8d46` (review PR #54): finished ✓ - Resolved 3/5 threads, 2 suggestions remain
-- `d928c16` (expansion #51): finished ✓ - Issue ready
-
-**Spawned: 2 Workers (parallel)**
-
-1. **Review Worker**
-   - PR: [#54 - feat: Add progress bar for embedding sync](https://github.com/jpshackelford/ohtv/pull/54)
-   - Conversation: [`bbc526d`](https://app.all-hands.dev/conversations/bbc526d148274f5ca4affcadf5d00a90)
-   - Reason: 2 unresolved suggestion threads remain (RateTracker reuse, function refactoring)
-
-2. **Expansion Worker**
-   - Issue: [#52 - gen objs display should include start time and duration](https://github.com/jpshackelford/ohtv/issues/52)
-   - Conversation: [`eae152b`](https://app.all-hands.dev/conversations/eae152bc2f424b3f9f2f25517ece4cc8)
-   - Reason: Oldest issue without `ready` label
-
-**Current State:**
-- [PR #54](https://github.com/jpshackelford/ohtv/pull/54): Ready, CI green, tested ✓, 2 suggestion threads (review worker addressing)
-- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
-- Ready issues: #51, #46, #45, #44 (has PR), #35 (priority:medium, has PR)
-- Issues needing expansion: #52 (now being expanded), #53
-- Issues on hold: #26
-
----
-### 2026-05-15 09:17 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `07d8948` | review | PR #54 - Progress bar for embedding sync | **NEW** |
-| `13e344a` | expansion | Issue #53 - Add conversation labels to gen objs display | **NEW** |
-
-**Previous Workers Completed:**
-- `bbc526d` (review PR #54): finished ✓
-- `eae152b` (expansion #52): finished ✓
-
-**Spawned: 2 Workers (parallel)**
-
-1. **Review Worker**
-   - PR: [#54 - feat: Add progress bar for embedding sync](https://github.com/jpshackelford/ohtv/pull/54)
-   - Conversation: [`07d8948`](https://app.all-hands.dev/conversations/07d8948...)
-   - Reason: 2 unresolved suggestion threads remain (RateTracker reuse, function refactoring)
-
-2. **Expansion Worker**
-   - Issue: [#53 - Add conversation labels to gen objs display](https://github.com/jpshackelford/ohtv/issues/53)
-   - Conversation: [`13e344a`](https://app.all-hands.dev/conversations/13e344a...)
-   - Reason: Last issue without `ready` label
-
-**Current State:**
-- [PR #54](https://github.com/jpshackelford/ohtv/pull/54): Ready, CI green, tested ✓, 2 suggestion threads (review worker addressing)
-- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
-- Ready issues: #52, #51, #46, #45, #44 (has PR), #35 (priority:medium)
-- Issues needing expansion: #53 (now being expanded)
-- Issues on hold: #26
-
----
-### 2026-05-15 09:50 UTC - Expansion Worker
-
-✅ **Expanded Issue #53**
-
-- Issue: [Add conversation labels to gen objs display](https://github.com/jpshackelford/ohtv/issues/53)
-- Type: Enhancement
-- Status: Ready for implementation
-
-**Summary:** Add conversation labels/tags from OpenHands Cloud API to the `gen objs` display. Labels provide categorization by project, team, status, etc. and should be displayed similarly to refs, with support for filtering by label.
-
-**Technical approach:**
-- Add `labels TEXT` column to `conversations` table via migration 014
-- Parse `tags` field from cloud API response in `sources/cloud.py`
-- Store labels in database during sync and scan operations
-- Add `_format_labels_for_summary()` function in `cli.py`
-- Add `labels_display` field to result dict in `_analyze_one()`
-- Update `get_default_display_schema()` to include `labels_display` in Summary column
-- Add `--label key=value` filter option to `list` command with JSON query support
-
-**Files affected:**
-- `src/ohtv/db/migrations/014_conversation_labels.py` (new) - Add labels column
-- `src/ohtv/db/models/conversation.py` - Add `labels` field to dataclass
-- `src/ohtv/db/stores/conversation_store.py` - Handle labels JSON serialization
-- `src/ohtv/sources/base.py` - Add `labels` to ConversationInfo
-- `src/ohtv/sources/cloud.py` - Parse tags from API
-- `src/ohtv/sync.py` - Store labels during sync
-- `src/ohtv/db/scanner.py` - Include labels in registration
-- `src/ohtv/cli.py` - Label formatting, display, filtering
-- `src/ohtv/prompts/renderer.py` - Update default schema
-
-**Complexity:** Medium - follows established refs pattern but adds new column and filter
-
----
-### 2026-05-15 09:50 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `7f545e8` | re-testing | PR #54 - Progress bar for embedding sync | **NEW** |
-| `cfcf5ba` | expansion | Issue #53 - Add conversation labels | **NEW** |
-
-**Previous Workers Completed:**
-- `07d8948` (review PR #54): finished ✓
-- `13e344a` (expansion #53): finished ✓
-
-**Spawned: 2 Workers (parallel)**
-
-1. **Re-Testing Worker**
-   - PR: [#54 - feat: Add progress bar for embedding sync](https://github.com/jpshackelford/ohtv/pull/54)
-   - Conversation: [`7f545e8`](https://app.all-hands.dev/conversations/7f545e8786d2401696db91d6bfb43a8e)
-   - Reason: Source files changed after last manual test (cli.py commits: fix for task cleanup, RateTracker refactor)
-
-2. **Expansion Worker**
-   - Issue: [#53 - Add conversation labels to gen objs display](https://github.com/jpshackelford/ohtv/issues/53)
-   - Conversation: [`cfcf5ba`](https://app.all-hands.dev/conversations/cfcf5ba0ce5b46008195bf0de6d8aefd)
-   - Reason: Only issue without `ready` label
-
-**Current State:**
-- [PR #54](https://github.com/jpshackelford/ohtv/pull/54): Ready, CI green, bot says "✅ Worth merging", 2 unresolved suggestion threads (non-blocking), test results outdated (re-testing now)
-- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
-- Ready issues: #52, #51, #46, #45, #44 (has PR), #35 (has draft PR)
-- Issues needing expansion: #53 (now being expanded)
-- Issues on hold: #26
-
----
-### 2026-05-15 10:16 UTC - Orchestrator
-
-📦 **Housekeeping:** Archived 14 old worklog entries (kept 5 recent entries spanning 6+ hours of productive work)
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `6a781cf` | merge | PR #54 - Progress bar for embedding sync | **NEW** |
-
-**Previous Workers Completed:**
-- `7f545e8` (re-testing PR #54): finished ✓ - Re-test results posted (all pass)
-- `cfcf5ba` (expansion #53): finished ✓ - Issue #53 now ready
-
-**Spawned: Merge Worker**
-- PR: [#54 - feat: Add progress bar for embedding sync](https://github.com/jpshackelford/ohtv/pull/54)
-- Conversation: [`6a781cf`](https://app.all-hands.dev/conversations/6a781cf2d336481ea7406e0b2acd79d0)
-- Reason: Merge criteria met (CI green, tests pass, bot verdict "✅ Worth merging")
-
-**Merge Criteria Assessment:**
-- ✅ CI: SUCCESS
-- ✅ Re-test: Passed (9/9 tests)
-- ✅ Bot verdict: "✅ Worth merging"
-- ⚠️ 2 unresolved suggestion threads (🟡 non-blocking improvements)
-  - RateTracker reuse suggestion
-  - Function refactoring suggestion (~300 lines)
-- → Proceeding with merge; suggestions noted as valid future work
-
-**Current State:**
-- [PR #54](https://github.com/jpshackelford/ohtv/pull/54): **READY TO MERGE** (merge worker spawned)
-- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
-- Ready issues: #53, #52, #51, #46, #45, #44 (has PR), #35 (has draft PR)
-- Issues needing expansion: None 🎉
-- Issues on hold: #26
-
-**Slots:**
-- 🔒 Expansion slot: Empty (no issues need expansion)
-- ✅ PR slot: Occupied (merge worker)
-
-### 2026-05-15 10:48 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `1e5684e` | merge | PR #54 - Progress bar for embedding sync | **NEW** |
-
-**Previous Workers:**
-- `6a781cf` (merge PR #54): Not found in recent conversations (may not have spawned correctly)
-
-**Spawned: Merge Worker**
-- PR: [#54 - feat: Add progress bar for embedding generation during sync](https://github.com/jpshackelford/ohtv/pull/54)
-- Conversation: [`1e5684e`](https://app.all-hands.dev/conversations/1e5684e6434a43758a01c8f542515e80)
-- Reason: Merge criteria met (CI green, tests pass, bot verdict "✅ Worth merging")
-
-**Merge Criteria Assessment:**
-- ✅ CI: SUCCESS (1/1 checks passed)
-- ✅ Mergeable: CLEAN
-- ✅ Re-test: Passed
-- ✅ Bot verdict: "✅ Worth merging"
-- ⚠️ 2 unresolved 🟡 suggestion threads (non-blocking)
-
-**Current State:**
-- [PR #54](https://github.com/jpshackelford/ohtv/pull/54): **MERGING** (merge worker spawned)
-- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
-- Ready issues: #53, #52, #51, #46, #45, #44, #35
-  - #44 has `priority:high`, #35 has `priority:medium`
-- Issues needing expansion: None 🎉
-- Issues on hold: #26
-
-**Slots:**
-- 🔒 Expansion slot: Empty (no issues need expansion)
-- ✅ PR slot: Occupied (merge worker)
-
----
-### 2026-05-15 11:20 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `be27b59` | implementation | Issue #45 - Bug: embedding progress bar display | **NEW** |
-
-**Previous Workers Completed:**
-- `1e5684e` (merge PR #54): finished ✓ - PR #54 merged successfully
-
-**Priority Assessment Completed:**
-- Issue #45: `priority:high` (bug fix, low complexity, quick win)
-- Issue #51: `priority:medium` (high impact but complex)
-- Issue #46: `priority:low` (nice-to-have improvement)
-- Issue #52: `priority:low` (display enhancement)
-- Issue #53: `priority:low` (display enhancement)
-
-**Spawned: Implementation Worker**
-- Issue: [#45 - Bug: embedding progress bar display](https://github.com/jpshackelford/ohtv/issues/45)
-- Conversation: [`be27b59`](https://app.all-hands.dev/conversations/be27b591b4ea4ef7b95475d71d0a906f)
-- Reason: Highest priority ready issue (bug fix, quick win)
-
-**Current State:**
-- PR #54: MERGED ✓ (closed issue #44)
-- PR #36: Draft (waiting for author)
-- Ready issues: #45 (priority:high, being implemented), #51 (priority:medium), #35 (priority:medium), #46, #52, #53 (priority:low)
-- Issues needing expansion: None 🎉
-- Issues on hold: #26
-
-**Slots:**
-- 🔒 Expansion slot: Empty (no issues need expansion)
-- ✅ PR slot: Occupied (implementation worker)
-
----
-
-### 2026-05-15 11:49 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `d39da49` | testing | PR #55 - fix: embedding progress bar | **NEW** |
-
-**Previous Workers Completed:**
-- `be27b59` (implementation #45): finished ✓ - Created PR #55
-
-**Spawned: Testing Worker**
-- PR: [#55 - fix: embedding progress bar displays remaining count and ETA](https://github.com/jpshackelford/ohtv/pull/55)
-- Conversation: [`d39da49`](https://app.all-hands.dev/conversations/d39da49f6820429b99a9fad52e39be96)
-- Reason: PR ready, CI green, docs not needed (bug fix), no manual test results yet
-
-**PR #55 Status:**
-- ✅ CI: SUCCESS
-- ✅ Mergeable: CLEAN
-- ✅ Bot verdict: "✅ Worth merging"
-- ✅ No review threads
-- ⏳ Manual testing: Required (testing worker spawned)
-
-**Current State:**
-- [PR #55](https://github.com/jpshackelford/ohtv/pull/55): Testing in progress
-- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (waiting for author)
-- Ready issues: #51 (priority:medium), #35 (priority:medium), #46, #52, #53 (priority:low)
-- Issues needing expansion: None 🎉
-- Issues on hold: #26
-
-**Slots:**
-- 🔒 Expansion slot: Empty (no issues need expansion)
-- ✅ PR slot: Occupied (testing worker)
-
----
-
 ### 2026-05-15 12:17 UTC - Orchestrator
 
 **Active Workers:**
@@ -592,7 +61,65 @@
 - ✅ PR slot: Occupied (merge worker)
 
 ---
+### 2026-05-15 12:18 UTC - Merge Worker
 
+✅ **Merged PR #55 - fix: embedding progress bar displays remaining count and ETA**
+
+- PR: [#55](https://github.com/jpshackelford/ohtv/pull/55)
+- Merge commit: `0215fb0`
+- Fixes: Issue #45
+
+**Summary:** Fixed misleading embedding progress bar display.
+
+**Changes merged:**
+- Added `TimeRemainingColumn` for ETA display (matching sync progress bar)
+- Added `_format_remaining()` function showing countdown: "{remaining} left"
+- Simplified `_format_rate()` by removing misleading "(X new)" suffix
+- Updated both sequential and parallel processing paths
+
+**Test coverage:**
+- 13 new unit tests in `tests/unit/test_embedding_progress.py`
+- Manual tests verified: estimate, embed, force, search, format consistency
+- Full suite: 966 tests passing
+
+**Review status:** Code review approved (LOW risk - display-only change)
+
+---
+### 2026-05-15 12:55 UTC - Implementation Worker
+
+✅ **Implemented Issue #52 - gen objs display should include start time and duration**
+
+- PR: [#56 - Add start time, duration, and step count to gen objs display](https://github.com/jpshackelford/ohtv/pull/56)
+- Status: Ready for review
+
+**Summary:** Enhanced `gen objs` batch mode display with additional metadata.
+
+**Changes:**
+- Added new formatters: `format_time` (HH:MM AM/PM), `format_duration_minutes` (N mins / Nh Mm), `format_step_count` (N steps)
+- Updated default display schema with enhanced columns:
+  - ID: short_id + source on second line
+  - Date: date + time on second line
+  - New Duration column: duration + event count
+  - Summary: unchanged (goal + refs)
+- Updated JSON output to include `start_time`, `duration_seconds`, `event_count`
+- Updated markdown output to include time, duration, and step count
+
+**Before:**
+```
+┃ ID      ┃ Date       ┃ Summary       ┃
+│ 3e1c9f6 │ 2026-05-14 │ Test whether..│
+```
+
+**After:**
+```
+┃ ID      ┃ Date         ┃ Duration    ┃ Summary       ┃
+│ 3e1c9f6 │ 2026-05-14   │ 35 mins     │ Test whether..│
+│ cloud   │ 10:42 AM     │ 46 steps    │               │
+```
+
+**Tests:** 42 new tests, all 816 tests passing.
+
+---
 ### 2026-05-15 13:22 UTC - Orchestrator
 
 **Active Workers:**
@@ -657,6 +184,31 @@
 - Ready issues: #35, #46, #51, #52, #53 (all have priority labels)
 
 ---
+### 2026-05-15 14:55 UTC - Expansion Worker
+
+✅ **Expanded Issue #58 - Action summaries not used in transcript building**
+
+- Issue: [Action summaries not used in transcript building](https://github.com/jpshackelford/ohtv/issues/58)
+- Type: Enhancement
+- Status: Ready for implementation
+
+**Summary:** The `extract_action_summary()` function ignores agent-provided `summary` fields on ActionEvents, instead extracting truncated raw commands. This results in loss of semantic meaning in transcripts.
+
+**Technical approach:**
+- Modify `extract_action_summary()` to check `event.summary` first (agent-provided)
+- Add `include_command` flag for full context level (summary + command)
+- Fallback to current behavior when no summary exists
+- Update both implementations (transcript.py and objectives.py)
+- Add unit tests for summary extraction behavior
+
+**Files affected:**
+- `src/ohtv/analysis/transcript.py` - Primary implementation
+- `src/ohtv/analysis/objectives.py` - Legacy implementation  
+- `tests/unit/analysis/test_transcript.py` - New tests
+
+**Complexity:** Low - straightforward enhancement with clear behavior.
+
+---
 ### 2026-05-15 15:19 UTC - Orchestrator
 
 **Active Workers:**
@@ -691,6 +243,30 @@
 **Slots:**
 - ✅ PR slot: Occupied (review worker)
 - ✅ Expansion slot: Occupied (expansion worker)
+
+---
+### 2026-05-15 15:20 UTC - Expansion Worker
+
+✅ **Expanded Issue #57 - Numeric argument to -D and -W commands**
+
+- Issue: [Numeric argument to gen objs -D and list -D commands allow look back n days](https://github.com/jpshackelford/ohtv/issues/57)
+- Type: Enhancement
+- Status: Ready for implementation
+
+**Summary:** Allow `-D N` and `-W N` syntax to show the last N days or weeks of conversations.
+
+**Technical approach:**
+- Add `_parse_numeric_lookback()` to detect integer values
+- Add `_get_day_lookback_bounds(n)` and `_get_week_lookback_bounds(n)` helpers
+- Modify `_parse_date_filters()` to check for numeric values before parsing as dates
+- Update help text for 3 commands (list, refs, gen objs)
+
+**Files affected:**
+- `src/ohtv/cli.py` - Helper functions and date filter parsing
+- `README.md` - Documentation updates
+- `tests/unit/test_date_filters.py` - Unit tests for numeric parsing
+
+**Complexity:** Low - centralized change in existing date parsing logic.
 
 ---
 ### 2026-05-15 15:47 UTC - Orchestrator
@@ -729,6 +305,30 @@
 - ✅ PR slot: Occupied (re-testing worker for PR #56)
 
 ---
+### 2026-05-15 15:50 UTC - Expansion Worker
+
+✅ **Expanded Issue #59 - gen objs marks conversations as no_analyzable_content incorrectly**
+
+- Issue: [gen objs marks conversations as 'no_analyzable_content' when actions exist](https://github.com/jpshackelford/ohtv/issues/59)
+- Type: Bug
+- Status: Ready for implementation
+
+**Summary:** Worker conversations (spawned by orchestrators) are incorrectly marked as "no_analyzable_content" because batch mode uses "minimal" context (user messages only), but worker conversations have no user messages.
+
+**Root cause:** `analyze_objectives()` marks conversations as skipped when transcript is empty, without trying higher context levels that would capture ActionEvents.
+
+**Technical approach:**
+- Add auto-promotion logic in `analyze_objectives()` to retry with higher context levels
+- Progression: minimal → default → full (only if events exist and transcript is empty)
+- Only mark as "no_analyzable_content" if "full" context also yields nothing
+
+**Files affected:**
+- `src/ohtv/analysis/objectives.py` - Add context auto-promotion logic
+- `tests/unit/analysis/test_objectives.py` - Add tests for auto-promotion
+
+**Complexity:** Low - isolated change to one function.
+
+---
 ### 2026-05-15 16:19 UTC - Orchestrator
 
 **Active Workers:**
@@ -759,7 +359,79 @@
 - Ready issues: #35, #46, #51, #52, #53, #57, #58, #59
 
 ---
+### 2026-05-15 16:21 UTC - Merge Worker
 
+✅ **Merged PR #56 - Add start time, duration, and step count to gen objs display**
+
+- PR: [#56](https://github.com/jpshackelford/ohtv/pull/56)
+- Merge commit: `dfc2d8f`
+- Fixes: Issue #52
+
+**Summary:** Enhanced `gen objs` batch mode with additional metadata columns.
+
+**Changes merged:**
+- New formatters: `format_time` (HH:MM AM/PM), `format_duration_minutes` (N mins / Nh Mm), `format_step_count` (N steps)
+- Updated display schema with 4 columns: ID+source, Date+time, Duration+steps, Summary
+- JSON output now includes `start_time`, `duration_seconds`, `event_count`
+- Markdown output uses centralized formatters (refactored per review feedback)
+
+**Test coverage:**
+- 42 new unit tests covering all formatters with edge cases
+- 1008 total tests passing
+- Manual tests verified: table display, JSON output, markdown output
+
+**Review status:** 3 review threads resolved (code duplication fixed in commit 729d412)
+
+---
+### 2026-05-15 16:22 UTC - Expansion Worker
+
+✅ **Expanded Issue #60 - Skip cache not keyed by context level**
+
+- Issue: [Skip cache not keyed by context level - changing context doesn't retry analysis](https://github.com/jpshackelford/ohtv/issues/60)
+- Type: Bug
+- Status: Ready for implementation
+
+**Summary:** The skip cache (`analysis_skips`) only uses `conversation_id` as key, not context level. Once marked as "no_analyzable_content" at minimal context, retrying with full context still returns the cached skip.
+
+**Root cause:** `mark_skipped()` and `is_skipped()` in cache.py don't include context level. Database `analysis_skips` table uses `conversation_id` as single primary key, unlike `analysis_cache` which uses composite `(conversation_id, cache_key)`.
+
+**Technical approach:**
+- Add `context_level` field to skip cache (file and database)
+- `is_skipped()` returns None if current context > cached context (allow retry at higher levels)
+- Migration 014 adds `context_level` column with default "minimal" for existing entries
+- Backward compatible: old entries default to "minimal"
+
+**Files affected:**
+- `src/ohtv/analysis/cache.py` - Add context_level to is_skipped/mark_skipped
+- `src/ohtv/analysis/objectives.py` - Pass context_level to skip methods
+- `src/ohtv/db/stores/analysis_cache_store.py` - Update AnalysisSkipEntry dataclass and upsert_skip
+- `src/ohtv/db/migrations/014_skip_cache_context_level.py` - New migration
+- `tests/unit/db/stores/test_analysis_cache_store.py` - Context-aware skip tests
+
+**Complexity:** Medium - Multiple files, schema migration, backward compatibility.
+
+---
+### 2026-05-15 16:50 UTC - Expansion Worker
+
+✅ **Expanded Issue #61 - CLI context level -c 3 not converted to 'full'**
+
+- Issue: [CLI context level -c 3 not converted to 'full' - actions not captured](https://github.com/jpshackelford/ohtv/issues/61)
+- Type: Bug
+- Status: Ready for implementation
+
+**Summary:** The `gen objs` batch mode passes numeric context levels (`-c 3`) as raw strings to `_legacy_build_transcript()`, which only recognizes string names (`"full"`). This causes actions to never be captured when using numeric context.
+
+**Root cause:** In `_run_batch_objectives_analysis()` line 7392, `context_value = context if context else "minimal"` passes the CLI string directly. Unlike single-conversation mode (which uses `resolve_context()`), batch mode has no numeric-to-name conversion.
+
+**Proposed fix:** Add `normalize_context()` helper to convert numeric strings to canonical names (`{"1": "minimal", "2": "default", "3": "full"}`), apply at line 7392.
+
+**Files affected:**
+- `src/ohtv/cli.py` - Add normalize_context() helper, update line 7392 
+- `tests/unit/test_cli.py` - Add tests for numeric context normalization
+
+**Complexity:** Low - Single function addition + one line change.
+
+---
 ### 2026-05-15 16:50 UTC - Orchestrator
 
 **Active Workers:**
@@ -795,6 +467,33 @@
 - ✅ PR slot: Occupied (implementation worker for #51)
 
 ---
+### 2026-05-15 17:03 UTC - Implementation Worker
+
+✅ **Implemented Issue #51 - ohtv ask --agent flag for multi-turn investigation**
+
+- Issue: [ohtv ask - add --agent flag for multi turn investigation](https://github.com/jpshackelford/ohtv/issues/51)
+- PR: [#62](https://github.com/jpshackelford/ohtv/pull/62)
+- Type: Feature
+- Status: Ready for review
+
+**Summary:** Added multi-turn investigation mode to `ohtv ask` command using OpenHands SDK agent to perform deeper investigation of questions.
+
+**New features:**
+- `--agent` flag enables investigation mode
+- `--max-steps` controls max iterations (default: 5)
+- Three custom tools: show_conversation, search_conversations, get_refs
+- Progress display, cost/token tracking, graceful error fallback
+
+**New files:**
+- `src/ohtv/analysis/agent_tools.py` - Custom investigation tools
+- `src/ohtv/analysis/investigator.py` - InvestigationAgent class
+- `src/ohtv/prompts/investigation/system.md` - Agent system prompt
+- `tests/unit/analysis/test_agent_tools.py` - 20 tests
+- `tests/unit/analysis/test_investigator.py` - 8 tests
+
+**Test results:** All 989 tests pass (28 new tests added)
+
+---
 ### 2026-05-15 17:20 UTC - Orchestrator
 
 **Active Workers:**
@@ -824,7 +523,6 @@
 - ⏳ Expansion slot: Idle (no issues to expand)
 
 ---
-
 ### 2026-05-15 17:49 UTC - Orchestrator
 
 **Active Workers:**
@@ -846,7 +544,6 @@
 - Expansion slot: Idle (nothing to expand)
 
 ---
-
 ### 2026-05-15 18:21 UTC - Orchestrator
 
 **Active Workers:**
@@ -875,7 +572,6 @@
 - ⏳ Expansion slot: Idle (no issues to expand)
 
 ---
-
 ### 2026-05-15 18:47 UTC - Orchestrator
 
 **Active Workers:**
@@ -901,6 +597,38 @@
 
 **Slots:**
 - 🚀 PR slot: Occupied (review worker for PR #62)
+- ⏳ Expansion slot: Idle (no issues to expand)
+
+---
+
+### 2026-05-15 19:22 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `1a3446b` | re-testing | PR #62 - --agent flag | **NEW** |
+
+**Previous Workers Completed:**
+- `f719d75` (review PR #62): finished ✓ - Pushed 4 commits fixing review feedback
+
+**Spawned: Re-Testing Worker**
+
+- PR: [#62 - feat: add --agent flag for multi-turn investigation mode](https://github.com/jpshackelford/ohtv/pull/62)
+- Conversation: [`1a3446b`](https://app.all-hands.dev/conversations/1a3446b9ac6943efbe1ecdee257a693f)
+- Reason: 4 commits pushed after last test (bug fixes + refactors at 18:23-18:57 UTC, test at 17:56 UTC)
+
+**Current State:**
+- [PR #62](https://github.com/jpshackelford/ohtv/pull/62): `oRCFcFcRCFR` ready, CI green, 5 unresolved threads, test results outdated → re-testing
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): draft (skipped - waiting for author)
+- Issues needing expansion: None 🎉
+- Ready issues: #35, #46, #51, #53, #57, #58, #59, #60, #61
+- Issues on hold: #26
+
+**Housekeeping:**
+- Truncated worklog: archived 9 old entries to WORKLOG_ARCHIVE_2026-05-15.md
+
+**Slots:**
+- 🚀 PR slot: Occupied (re-testing worker for PR #62)
 - ⏳ Expansion slot: Idle (no issues to expand)
 
 ---
