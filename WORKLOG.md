@@ -1,6 +1,25 @@
 # WORKLOG
 
 
+### 2026-05-15 02:55 UTC - Expansion Worker
+
+✅ **Expanded Issue #46**
+
+- Issue: [sync --repair: Report conversation counts by directory](https://github.com/jpshackelford/ohtv/issues/46)
+- Type: Enhancement
+- Status: Ready for implementation
+
+**Summary:** When running `ohtv sync --repair`, users now see only a single total for "Conversations on disk". With multiple directories configured via `extra_conversation_paths`, users need per-directory breakdowns to understand conversation distribution and diagnose source-specific issues.
+
+**Technical approach:**
+- Extend `RepairResult` dataclass with `disk_counts_by_dir: dict[str, int]`
+- Modify `repair()` to scan all configured directories (synced, local, extra)
+- Update CLI display to show per-directory breakdown when >1 directory has conversations
+- Low complexity - display enhancement with minimal logic changes
+
+**Files affected:** `src/ohtv/sync.py`, `src/ohtv/cli.py`
+
+---
 ### 2026-05-15 02:30 UTC - Implementation Agent
 
 ✅ **Implemented Issue #44**
