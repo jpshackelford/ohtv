@@ -373,11 +373,8 @@ class InvestigationAgent:
                 if tool_name == "show_conversation" and hasattr(observation, "conversation_id"):
                     conversations_examined.add(observation.conversation_id)
 
-                # Format observation using to_text() method
-                if hasattr(observation, "to_text"):
-                    result_text = observation.to_text()
-                else:
-                    result_text = str(observation)
+                # Format observation using to_text() method (guaranteed on all observations)
+                result_text = observation.to_text()
 
                 # Truncate if too long
                 if len(result_text) > 4000:
@@ -410,6 +407,23 @@ class InvestigationAgent:
             content=result_text,
             tool_call_id=tool_call.id,
         ))
+
+    def _extract_final_answer_from_message(self, message) -> str | None:
+        """Extract final answer from message content.
+
+        Args:
+            message: The LLM response message
+
+        Returns:
+            Extracted text content or None if no text found
+        """
+        if not message.content:
+            return None
+        text_parts = []
+        for part in message.content:
+            if hasattr(part, 'text') and part.text:
+                text_parts.append(part.text)
+        return "".join(text_parts) if text_parts else None
 
     def _run_investigation_loop(
         self,
@@ -460,15 +474,10 @@ class InvestigationAgent:
 
                 if not tool_calls:
                     # No tool calls - extract text response as final answer
-                    if message.content:
-                        text_parts = []
-                        for part in message.content:
-                            if hasattr(part, 'text') and part.text:
-                                text_parts.append(part.text)
-                        if text_parts:
-                            final_answer = "".join(text_parts)
-                            finished = True
-                            investigation_steps.append("Finished with direct response")
+                    final_answer = self._extract_final_answer_from_message(message)
+                    if final_answer:
+                        finished = True
+                        investigation_steps.append("Finished with direct response")
                     break
 
                 # Process each tool call
