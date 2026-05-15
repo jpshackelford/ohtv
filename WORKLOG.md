@@ -795,3 +795,32 @@
 - ✅ PR slot: Occupied (implementation worker for #51)
 
 ---
+### 2026-05-15 17:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0c1ccd7` | docs | PR #62 - Add --agent flag | **NEW** |
+
+**Previous Workers Completed:**
+- `0d9825a` (expansion #61): finished ✓ - Issue ready
+- `d6c6775` (implementation #51): finished ✓ - PR #62 created
+
+**Spawned: Docs Worker**
+
+- PR: [#62 - feat: add --agent flag for multi-turn investigation mode](https://github.com/jpshackelford/ohtv/pull/62)
+- Conversation: [`0c1ccd7`](https://app.all-hands.dev/conversations/0c1ccd7ced9140afa661b932faf80224)
+- Reason: README needs update for new `--agent` and `--max-steps` options (must happen before testing)
+
+**Current State:**
+- [PR #62](https://github.com/jpshackelford/ohtv/pull/62): ready, CI green, 3 review threads, NO docs update yet
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): draft (skipped - waiting for author)
+- Issues needing expansion: None 🎉
+- Ready issues: #35, #46, #53, #57, #58, #59, #60, #61
+- Issues on hold: #26
+
+**Slots:**
+- 🚀 PR slot: Occupied (docs worker for PR #62)
+- ⏳ Expansion slot: Idle (no issues to expand)
+
+---
