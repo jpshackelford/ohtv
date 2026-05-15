@@ -560,3 +560,97 @@ Expanding [Issue #44](https://github.com/jpshackelford/ohtv/issues/44): Need pro
 **Slots:**
 - 🔒 Expansion slot: Empty (no issues need expansion)
 - ✅ PR slot: Occupied (testing worker)
+
+---
+### 2026-05-15 12:17 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `25004ac` | merge | PR #55 - fix: embedding progress bar | **NEW** |
+
+**Previous Workers Completed:**
+- `d39da49` (testing PR #55): finished ✓ - Manual test results posted (6/6 tests pass)
+
+**Spawned: Merge Worker**
+- PR: [#55 - fix: embedding progress bar displays remaining count and ETA](https://github.com/jpshackelford/ohtv/pull/55)
+- Conversation: [`25004ac`](https://app.all-hands.dev/conversations/25004ac674664f0fa0f99d6e66c10909)
+- Reason: Merge criteria met (CI green, manual tests pass, bot verdict "✅ Worth merging")
+
+**Merge Criteria Assessment:**
+- ✅ CI: SUCCESS
+- ✅ Mergeable: MERGEABLE
+- ✅ Bot verdict: "✅ Worth merging" (Low risk)
+- ✅ Manual test: 6/6 tests pass
+- ✅ No unresolved review threads
+- ✅ No docs update needed (bug fix)
+
+**Current State:**
+- [PR #55](https://github.com/jpshackelford/ohtv/pull/55): **MERGING** (merge worker spawned)
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (waiting for author)
+- Ready issues: #51 (priority:medium), #35 (priority:medium), #46, #52, #53 (priority:low)
+- Issues needing expansion: None 🎉
+- Issues on hold: #26
+
+**Slots:**
+- 🔒 Expansion slot: Empty (no issues need expansion)
+- ✅ PR slot: Occupied (merge worker)
+
+---
+### 2026-05-15 12:18 UTC - Merge Worker
+
+✅ **Merged PR #55 - fix: embedding progress bar displays remaining count and ETA**
+
+- PR: [#55](https://github.com/jpshackelford/ohtv/pull/55)
+- Merge commit: `0215fb0`
+- Fixes: Issue #45
+
+**Summary:** Fixed misleading embedding progress bar display.
+
+**Changes merged:**
+- Added `TimeRemainingColumn` for ETA display (matching sync progress bar)
+- Added `_format_remaining()` function showing countdown: "{remaining} left"
+- Simplified `_format_rate()` by removing misleading "(X new)" suffix
+- Updated both sequential and parallel processing paths
+
+**Test coverage:**
+- 13 new unit tests in `tests/unit/test_embedding_progress.py`
+- Manual tests verified: estimate, embed, force, search, format consistency
+- Full suite: 966 tests passing
+
+**Review status:** Code review approved (LOW risk - display-only change)
+
+---
+### 2026-05-15 12:55 UTC - Implementation Worker
+
+✅ **Implemented Issue #52 - gen objs display should include start time and duration**
+
+- PR: [#56 - Add start time, duration, and step count to gen objs display](https://github.com/jpshackelford/ohtv/pull/56)
+- Status: Ready for review
+
+**Summary:** Enhanced `gen objs` batch mode display with additional metadata.
+
+**Changes:**
+- Added new formatters: `format_time` (HH:MM AM/PM), `format_duration_minutes` (N mins / Nh Mm), `format_step_count` (N steps)
+- Updated default display schema with enhanced columns:
+  - ID: short_id + source on second line
+  - Date: date + time on second line
+  - New Duration column: duration + event count
+  - Summary: unchanged (goal + refs)
+- Updated JSON output to include `start_time`, `duration_seconds`, `event_count`
+- Updated markdown output to include time, duration, and step count
+
+**Before:**
+```
+┃ ID      ┃ Date       ┃ Summary       ┃
+│ 3e1c9f6 │ 2026-05-14 │ Test whether..│
+```
+
+**After:**
+```
+┃ ID      ┃ Date         ┃ Duration    ┃ Summary       ┃
+│ 3e1c9f6 │ 2026-05-14   │ 35 mins     │ Test whether..│
+│ cloud   │ 10:42 AM     │ 46 steps    │               │
+```
+
+**Tests:** 42 new tests, all 816 tests passing.
