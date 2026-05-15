@@ -1,6 +1,30 @@
 # WORKLOG
 
 
+### 2026-05-15 03:50 UTC - Expansion Worker
+
+✅ **Expanded Issue #52**
+
+- Issue: [gen objs display should include start time and duration](https://github.com/jpshackelford/ohtv/issues/52)
+- Type: Enhancement
+- Status: Ready for implementation
+
+**Summary:** The `gen objs` batch output currently shows only ID, Date, and Summary. Users need additional context to understand workflow patterns: start time, duration, event count, and source (cloud/local).
+
+**Technical approach:**
+- Add new formatters (`format_time`, `format_duration_minutes`, `format_step_count`) to `formatters.py`
+- Update `get_default_display_schema()` in `renderer.py` to include source under ID, time under date, and new Duration column
+- Update `_analyze_one()` result dict to include `duration`, `event_count`, `updated_at`
+- Update JSON/markdown outputs to include new fields
+
+**Files affected:**
+- `src/ohtv/prompts/formatters.py` - Add new formatters
+- `src/ohtv/prompts/renderer.py` - Update default display schema  
+- `src/ohtv/cli.py` - Update result dict and output formats
+
+**Complexity:** Low-Medium - additive changes to existing schema-driven display infrastructure
+
+---
 ### 2026-05-15 03:22 UTC - Expansion Worker
 
 ✅ **Expanded Issue #51**
