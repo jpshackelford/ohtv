@@ -1,3 +1,14 @@
+### 2026-05-15 23:20 UTC - Issue #61 Fix
+
+**PR Created:** [#65 - Fix CLI context level -c 3 not converted to 'full'](https://github.com/jpshackelford/ohtv/pull/65)
+
+**Summary:** Fixed batch mode not converting numeric context levels (-c 1/2/3) to canonical names (minimal/default/full). Added `_normalize_context_level()` helper and applied in `_run_batch_objectives_analysis()`.
+
+**Tests:** 13 new tests (12 for helper, 1 regression test). All 1004 tests pass.
+
+**Status:** Ready for review (CI passed)
+
+---
 ### 2026-05-15 13:22 UTC - Orchestrator
 
 **Active Workers:**
