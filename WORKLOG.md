@@ -221,3 +221,30 @@ Expanding [Issue #44](https://github.com/jpshackelford/ohtv/issues/44): Need pro
 - Issues on hold: #26
 
 ---
+### 2026-05-15 02:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `78c007f` | testing | PR #54 - Progress bar for embedding sync | **NEW** |
+| `2cf0cdc` | expansion | Issue #46 - sync --repair counts | **NEW** |
+
+**Spawned: 2 Workers (parallel)**
+
+1. **Testing Worker**
+   - PR: [#54 - feat: Add progress bar for embedding generation during sync](https://github.com/jpshackelford/ohtv/pull/54)
+   - Conversation: [`78c007f`](https://app.all-hands.dev/conversations/78c007f158974a62aab3a891e5ee1ff9)
+   - Reason: PR is ready, CI green, but no manual test results yet
+
+2. **Expansion Worker**
+   - Issue: [#46 - sync --repair: Report conversation counts by directory](https://github.com/jpshackelford/ohtv/issues/46)
+   - Conversation: [`2cf0cdc`](https://app.all-hands.dev/conversations/2cf0cdcd7b7a4aaeb55bdb64439decf2)
+   - Reason: Oldest issue without `ready` label
+
+**Current State:**
+- [PR #54](https://github.com/jpshackelford/ohtv/pull/54): Ready, CI green, 3 review threads (from bot), NO manual test results
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
+- Issues needing expansion: #51, #52, #53 (after #46 completes)
+- Ready issues: #44 (has PR #54), #45, #35
+
+---
