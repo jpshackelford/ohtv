@@ -1,6 +1,27 @@
 # WORKLOG
 
 
+### 2026-05-15 02:30 UTC - Implementation Agent
+
+✅ **Implemented Issue #44**
+
+- Issue: [Need progress bar for long embedding runs on sync](https://github.com/jpshackelford/ohtv/issues/44)
+- PR: [#54](https://github.com/jpshackelford/ohtv/pull/54) - feat: Add progress bar for embedding generation during sync
+- Status: Ready for review
+
+**Implementation:**
+- Added Rich progress bar for large batches (>20 conversations) during `ohtv sync`
+- Parallel processing with ThreadPoolExecutor (20 workers for cloud APIs, 4 for Ollama)
+- Rate tracking with 0.5s smoothing to avoid jitter
+- Graceful shutdown on Ctrl+C (in-flight requests complete)
+- Quiet mode suppresses progress bar, verbose mode shows per-conversation output
+- 16 unit tests added
+
+**Files changed:**
+- `src/ohtv/cli.py` - `_run_post_sync_embeddings()` function
+- `tests/unit/test_sync_embeddings.py` (new file)
+
+---
 ### 2026-05-15 02:23 UTC - Expansion Worker
 
 ✅ **Expanded Issue #45**
