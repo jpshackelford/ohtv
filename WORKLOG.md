@@ -1,6 +1,34 @@
 # WORKLOG
 
 
+### 2026-05-15 03:22 UTC - Expansion Worker
+
+✅ **Expanded Issue #51**
+
+- Issue: [ohtv ask - add --agent flag for multi turn investigation](https://github.com/jpshackelford/ohtv/issues/51)
+- Type: Enhancement
+- Status: Ready for implementation
+
+**Summary:** The `ohtv ask` command currently provides single-turn RAG answers. Users need multi-turn investigation capability where an agent can automatically follow up on the initial answer by loading specific conversations, searching for more context, and synthesizing a comprehensive final answer.
+
+**Technical approach:**
+- Create agent tools module (`agent_tools.py`) with `ShowConversationTool`, `SearchConversationsTool`, `GetRefsTool`
+- Create investigation agent module (`investigator.py`) using OpenHands SDK Agent class
+- Add `--agent` and `--max-steps` flags to `ask` command
+- Add investigation prompt template in `prompts/investigation/`
+- Agent iterates until satisfied or hits max iterations, then produces final answer with full citations
+
+**Files affected:**
+- `src/ohtv/analysis/agent_tools.py` (new)
+- `src/ohtv/analysis/investigator.py` (new)
+- `src/ohtv/prompts/investigation/system.md` (new)
+- `src/ohtv/cli.py`
+- `src/ohtv/analysis/rag.py`
+- `tests/unit/analysis/test_investigator.py` (new)
+
+**Complexity:** Medium-High - requires OpenHands SDK Agent/Tool integration
+
+---
 ### 2026-05-15 02:55 UTC - Expansion Worker
 
 ✅ **Expanded Issue #46**
