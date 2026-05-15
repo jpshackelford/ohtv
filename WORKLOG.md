@@ -564,3 +564,39 @@
 - ✅ Expansion slot: Occupied (expansion worker)
 
 ---
+### 2026-05-15 15:47 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `4a7602f` | re-testing | PR #56 - Add start time, duration, step count | **NEW** |
+| `9165d06` | expansion | Issue #59 - gen objs no_analyzable_content | **NEW** |
+
+**Previous Workers Completed:**
+- `ca23d4e` (review PR #56): finished ✓ - Pushed refactor commit to reuse formatters
+- `f9a54df` (expansion #57): finished ✓ - Issue ready with priority:medium
+
+**Spawned: 2 Workers (parallel)**
+
+1. **Re-Testing Worker**
+   - PR: [#56 - Add start time, duration, and step count to gen objs display](https://github.com/jpshackelford/ohtv/pull/56)
+   - Conversation: [`4a7602f`](https://app.all-hands.dev/conversations/4a7602fcf3d747e085eddb35733741f5)
+   - Reason: Code changed after last test (refactor commit at 15:21 UTC, test at 14:55 UTC)
+
+2. **Expansion Worker**
+   - Issue: [#59 - gen objs marks conversations as no_analyzable_content incorrectly](https://github.com/jpshackelford/ohtv/issues/59)
+   - Conversation: [`9165d06`](https://app.all-hands.dev/conversations/9165d06a20124af08d654cdca3ae70f1)
+   - Reason: Oldest issue without `ready` label
+
+**Current State:**
+- [PR #56](https://github.com/jpshackelford/ohtv/pull/56): Ready, CI green, 3 unresolved threads (addressed by refactor), re-testing
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
+- Ready issues: #35, #46, #51, #52 (has PR), #53, #57, #58
+- Issues needing expansion: #59 (now expanding), #60, #61
+- Issues on hold: #26
+
+**Slots:**
+- ✅ Expansion slot: Occupied (expansion worker for #59)
+- ✅ PR slot: Occupied (re-testing worker for PR #56)
+
+---
