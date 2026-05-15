@@ -1,3 +1,28 @@
+### 2026-05-15 15:50 UTC - Expansion Worker
+
+✅ **Expanded Issue #59 - gen objs marks conversations as no_analyzable_content incorrectly**
+
+- Issue: [gen objs marks conversations as 'no_analyzable_content' when actions exist](https://github.com/jpshackelford/ohtv/issues/59)
+- Type: Bug
+- Status: Ready for implementation
+
+**Summary:** Worker conversations (spawned by orchestrators) are incorrectly marked as "no_analyzable_content" because batch mode uses "minimal" context (user messages only), but worker conversations have no user messages.
+
+**Root cause:** `analyze_objectives()` marks conversations as skipped when transcript is empty, without trying higher context levels that would capture ActionEvents.
+
+**Technical approach:**
+- Add auto-promotion logic in `analyze_objectives()` to retry with higher context levels
+- Progression: minimal → default → full (only if events exist and transcript is empty)
+- Only mark as "no_analyzable_content" if "full" context also yields nothing
+
+**Files affected:**
+- `src/ohtv/analysis/objectives.py` - Add context auto-promotion logic
+- `tests/unit/analysis/test_objectives.py` - Add tests for auto-promotion
+
+**Complexity:** Low - isolated change to one function.
+
+---
+
 ### 2026-05-15 15:20 UTC - Expansion Worker
 
 ✅ **Expanded Issue #57 - Numeric argument to -D and -W commands**
