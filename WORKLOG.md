@@ -1112,3 +1112,24 @@ Expanding [Issue #35](https://github.com/jpshackelford/ohtv/issues/35): Add --ex
 **Note:** This corresponds to existing draft [PR #36](https://github.com/jpshackelford/ohtv/pull/36) - issue is now fully specified.
 
 ---
+### 2026-05-15 01:50 UTC - Orchestrator
+
+🚀 **Launched: Expansion Worker**
+
+Expanding [Issue #44](https://github.com/jpshackelford/ohtv/issues/44): Need progress bar for long embedding runs on sync
+- Conversation: https://app.all-hands.dev/conversations/69866b9b814e4432a2957a02c496e462 (`69866b9`)
+- Worker type: expansion
+
+**Related:** Issue #45 (Bug: embedding progress bar display) may be related and should be coordinated.
+
+**Current State:**
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): `o green draft` - Waiting for author to mark ready
+- [Issue #35](https://github.com/jpshackelford/ohtv/issues/35): `ready` - Expanded (corresponds to PR #36)
+- Issues needing expansion: #44 (**now being expanded**), #45, #46, #51, #52, #53
+- Issues on hold: #26
+
+**Slots:**
+- ✅ Expansion slot: Occupied (Issue #44)
+- 🔓 PR slot: Available (PR #36 is draft, cannot take automated action)
+
+---
