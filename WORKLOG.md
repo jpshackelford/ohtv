@@ -1094,3 +1094,21 @@ Expanding [Issue #35](https://github.com/jpshackelford/ohtv/issues/35): Add --ex
 - 🔓 PR slot: Available (PR #36 is draft, cannot take automated action)
 
 ---
+### 2026-05-15 01:50 UTC - Expansion Worker (`5b83c2b`)
+
+✅ **Expanded Issue #35**
+
+- Issue: [Add --explain flag to ask command for RAG retrieval debugging](https://github.com/jpshackelford/ohtv/issues/35)
+- Type: Enhancement
+- Status: Ready for implementation
+- Complexity: Low - all data already available in existing RAG infrastructure
+
+**Summary:**
+- Problem: Hard to diagnose RAG retrieval quality with existing `--show-context` flag
+- Solution: Add `--explain` and `--explain-only` flags showing per-conversation breakdown by embed_type
+- Implementation: Add display layer on top of existing `ContextChunk` data in `cli.py`
+- Files: `src/ohtv/cli.py` (main), possibly `src/ohtv/analysis/rag.py`
+
+**Note:** This corresponds to existing draft [PR #36](https://github.com/jpshackelford/ohtv/pull/36) - issue is now fully specified.
+
+---
