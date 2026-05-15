@@ -1,3 +1,25 @@
+### 2026-05-15 16:50 UTC - Expansion Worker
+
+✅ **Expanded Issue #61 - CLI context level -c 3 not converted to 'full'**
+
+- Issue: [CLI context level -c 3 not converted to 'full' - actions not captured](https://github.com/jpshackelford/ohtv/issues/61)
+- Type: Bug
+- Status: Ready for implementation
+
+**Summary:** The `gen objs` batch mode passes numeric context levels (`-c 3`) as raw strings to `_legacy_build_transcript()`, which only recognizes string names (`"full"`). This causes actions to never be captured when using numeric context.
+
+**Root cause:** In `_run_batch_objectives_analysis()` line 7392, `context_value = context if context else "minimal"` passes the CLI string directly. Unlike single-conversation mode (which uses `resolve_context()`), batch mode has no numeric-to-name conversion.
+
+**Proposed fix:** Add `normalize_context()` helper to convert numeric strings to canonical names (`{"1": "minimal", "2": "default", "3": "full"}`), apply at line 7392.
+
+**Files affected:**
+- `src/ohtv/cli.py` - Add normalize_context() helper, update line 7392 
+- `tests/unit/test_cli.py` - Add tests for numeric context normalization
+
+**Complexity:** Low - Single function addition + one line change.
+
+---
+
 ### 2026-05-15 16:22 UTC - Expansion Worker
 
 ✅ **Expanded Issue #60 - Skip cache not keyed by context level**
