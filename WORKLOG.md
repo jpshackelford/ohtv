@@ -1,3 +1,32 @@
+### 2026-05-15 16:22 UTC - Expansion Worker
+
+✅ **Expanded Issue #60 - Skip cache not keyed by context level**
+
+- Issue: [Skip cache not keyed by context level - changing context doesn't retry analysis](https://github.com/jpshackelford/ohtv/issues/60)
+- Type: Bug
+- Status: Ready for implementation
+
+**Summary:** The skip cache (`analysis_skips`) only uses `conversation_id` as key, not context level. Once marked as "no_analyzable_content" at minimal context, retrying with full context still returns the cached skip.
+
+**Root cause:** `mark_skipped()` and `is_skipped()` in cache.py don't include context level. Database `analysis_skips` table uses `conversation_id` as single primary key, unlike `analysis_cache` which uses composite `(conversation_id, cache_key)`.
+
+**Technical approach:**
+- Add `context_level` field to skip cache (file and database)
+- `is_skipped()` returns None if current context > cached context (allow retry at higher levels)
+- Migration 014 adds `context_level` column with default "minimal" for existing entries
+- Backward compatible: old entries default to "minimal"
+
+**Files affected:**
+- `src/ohtv/analysis/cache.py` - Add context_level to is_skipped/mark_skipped
+- `src/ohtv/analysis/objectives.py` - Pass context_level to skip methods
+- `src/ohtv/db/stores/analysis_cache_store.py` - Update AnalysisSkipEntry dataclass and upsert_skip
+- `src/ohtv/db/migrations/014_skip_cache_context_level.py` - New migration
+- `tests/unit/db/stores/test_analysis_cache_store.py` - Context-aware skip tests
+
+**Complexity:** Medium - Multiple files, schema migration, backward compatibility.
+
+---
+
 ### 2026-05-15 16:21 UTC - Merge Worker
 
 ✅ **Merged PR #56 - Add start time, duration, and step count to gen objs display**
