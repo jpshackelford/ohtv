@@ -4837,32 +4837,22 @@ def _format_refs_for_markdown(outputs: dict | None) -> list[str]:
 
 def _format_summary_markdown(results: list[dict], *, include_outputs: bool = True) -> str:
     """Format summary results as markdown."""
+    from ohtv.prompts.formatters import (
+        format_date,
+        format_duration_minutes,
+        format_step_count,
+        format_time,
+    )
+
     lines = []
 
     for r in results:
-        date_str = ""
-        time_str = ""
-        if r["created_at"]:
-            local_time = r["created_at"].astimezone()
-            date_str = local_time.strftime("%Y-%m-%d")
-            time_str = local_time.strftime("%I:%M %p").lstrip("0")
-        
-        # Format duration
-        duration_str = ""
-        duration = r.get("duration")
-        if duration:
-            total_minutes = int(duration.total_seconds()) // 60
-            if total_minutes < 60:
-                duration_str = f"{total_minutes} mins"
-            else:
-                hours = total_minutes // 60
-                minutes = total_minutes % 60
-                duration_str = f"{hours}h {minutes}m" if minutes else f"{hours}h"
-        
-        # Format step count
-        event_count = r.get("event_count")
-        steps_str = f"{event_count} steps" if event_count else ""
-        
+        # Use formatters from formatters.py for consistent formatting
+        date_str = format_date(r.get("created_at"))
+        time_str = format_time(r.get("created_at"))
+        duration_str = format_duration_minutes(r.get("duration"))
+        steps_str = format_step_count(r.get("event_count"))
+
         # Build metadata parts
         meta_parts = [date_str]
         if time_str:
