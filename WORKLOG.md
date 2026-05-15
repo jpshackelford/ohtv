@@ -1,6 +1,23 @@
 # WORKLOG
 
 
+### 2026-05-15 02:23 UTC - Expansion Worker
+
+✅ **Expanded Issue #45**
+
+- Issue: [Bug: embedding progress bar display](https://github.com/jpshackelford/ohtv/issues/45)
+- Type: Bug
+- Status: Ready for implementation
+
+**Root cause:** The `_format_rate()` function in `cli.py` displays `(124 new)` but this is actually showing the **rate of new embeddings per minute**, not a count. The label makes it appear to be a count which is confusing.
+
+**Proposed fix:** Align the embedding progress bar with the sync progress bar format:
+- Add `TimeRemainingColumn()` to show ETA
+- Add remaining count (`{remaining} left`)
+- Remove the misleading `(X new)` display
+- Files to modify: `src/ohtv/cli.py`
+
+---
 ### 2026-05-14 17:16 UTC - Orchestrator
 
 🔒 **Auto-disabled due to inactivity**
