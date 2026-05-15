@@ -385,3 +385,35 @@ Expanding [Issue #44](https://github.com/jpshackelford/ohtv/issues/44): Need pro
 - Issues on hold: #26
 
 ---
+### 2026-05-15 09:17 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `07d8948` | review | PR #54 - Progress bar for embedding sync | **NEW** |
+| `13e344a` | expansion | Issue #53 - Add conversation labels to gen objs display | **NEW** |
+
+**Previous Workers Completed:**
+- `bbc526d` (review PR #54): finished ✓
+- `eae152b` (expansion #52): finished ✓
+
+**Spawned: 2 Workers (parallel)**
+
+1. **Review Worker**
+   - PR: [#54 - feat: Add progress bar for embedding sync](https://github.com/jpshackelford/ohtv/pull/54)
+   - Conversation: [`07d8948`](https://app.all-hands.dev/conversations/07d8948...)
+   - Reason: 2 unresolved suggestion threads remain (RateTracker reuse, function refactoring)
+
+2. **Expansion Worker**
+   - Issue: [#53 - Add conversation labels to gen objs display](https://github.com/jpshackelford/ohtv/issues/53)
+   - Conversation: [`13e344a`](https://app.all-hands.dev/conversations/13e344a...)
+   - Reason: Last issue without `ready` label
+
+**Current State:**
+- [PR #54](https://github.com/jpshackelford/ohtv/pull/54): Ready, CI green, tested ✓, 2 suggestion threads (review worker addressing)
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
+- Ready issues: #52, #51, #46, #45, #44 (has PR), #35 (priority:medium)
+- Issues needing expansion: #53 (now being expanded)
+- Issues on hold: #26
+
+---
