@@ -448,3 +448,32 @@
 - ✅ PR slot: Occupied (docs worker)
 
 ---
+### 2026-05-15 14:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `ed8e181` | testing | PR #56 - Add start time, duration, step count | **NEW** |
+| `a371dfd` | expansion | Issue #58 - Action summaries not used | **NEW** |
+
+**Previous Workers Completed:**
+- `56b10cc` (docs PR #56): finished ✓ - README updated
+
+**Spawned: 2 Workers (parallel)**
+
+1. **Testing Worker**
+   - PR: [#56 - Add start time, duration, and step count to gen objs display](https://github.com/jpshackelford/ohtv/pull/56)
+   - Conversation: [`ed8e181`](https://app.all-hands.dev/conversations/ed8e181602da43c796bc7e027dc52204)
+   - Reason: PR ready with CI green, docs updated, needs manual testing
+
+2. **Expansion Worker**
+   - Issue: [#58 - Action summaries not used in transcript building](https://github.com/jpshackelford/ohtv/issues/58)
+   - Conversation: [`a371dfd`](https://app.all-hands.dev/conversations/a371dfd6a4964b7184e7cc9fc8144328)
+   - Reason: Issue needs technical expansion
+
+**Current State:**
+- [PR #56](https://github.com/jpshackelford/ohtv/pull/56): Ready, docs updated, awaiting manual test
+- Issues needing expansion: #57, #58 (now expanding), #59, #60, #61
+- Ready issues: #35, #46, #51, #52, #53 (all have priority labels)
+
+---
