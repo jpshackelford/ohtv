@@ -200,13 +200,15 @@ class TestGracefulShutdownHandling:
 class TestRateTracking:
     """Tests for rate tracking implementation."""
     
-    def test_rate_format_function_exists(self):
-        """Verify rate formatting function exists."""
+    def test_rate_tracker_used(self):
+        """Verify RateTracker class from ohtv.parallel is used."""
         import inspect
         source = inspect.getsource(_run_post_sync_embeddings)
         
-        assert "_format_rate" in source
-        assert "/min" in source  # Rate displayed as X/min
+        # Uses RateTracker class from ohtv.parallel
+        assert "RateTracker" in source
+        assert "rate_tracker" in source
+        assert "get_rate_str()" in source
 
 
 class TestEmbeddingWriterUsage:
@@ -243,23 +245,22 @@ class TestQuietAndVerboseFlags:
 
 
 class TestRateFormatting:
-    """Tests for the rate formatting helper function."""
+    """Tests for the rate formatting (via RateTracker)."""
 
-    def test_format_rate_low_elapsed_returns_empty(self):
-        """Test that format rate returns empty for very short elapsed time."""
-        # The function is defined inside _run_post_sync_embeddings, so we test
-        # the logic via code inspection - the implementation should handle elapsed < 0.1
+    def test_rate_tracker_with_update_interval(self):
+        """Test that RateTracker is configured with update interval for smoothing."""
         import inspect
         source = inspect.getsource(_run_post_sync_embeddings)
-        assert 'elapsed < 0.1' in source
-
-    def test_format_rate_smoothing(self):
-        """Test rate format uses smoothing to avoid jitter."""
-        import inspect
-        source = inspect.getsource(_run_post_sync_embeddings)
-        # Should have rate update interval logic
-        assert '_last_rate_update' in source
+        # RateTracker should be initialized with update_interval for smoothing
+        assert 'update_interval=' in source
         assert '0.5' in source  # 0.5 second update interval
+
+    def test_rate_tracker_increment_on_completion(self):
+        """Test that rate_tracker.increment() is called when processing completes."""
+        import inspect
+        source = inspect.getsource(_run_post_sync_embeddings)
+        # Should increment counter after each conversation
+        assert 'rate_tracker.increment()' in source
 
 
 class TestUpdateCountersHelper:

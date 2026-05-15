@@ -1040,28 +1040,10 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
             
             # Thread-safe lock for counters
             _lock = threading.Lock()
-            start_time = time.perf_counter()
             
-            # Rate tracking with smoothing
-            _last_rate_str = [""]
-            _last_rate_update = [0.0]
-            
-            def _format_rate(processed: int, new_embeds: int, elapsed: float) -> str:
-                """Format processing rate, updates at most every 0.5s to avoid jitter."""
-                if elapsed < 0.1 or processed == 0:
-                    return ""
-                # Only recalculate every 0.5s to smooth out parallel completion jitter
-                if elapsed - _last_rate_update[0] < 0.5 and _last_rate_str[0]:
-                    return _last_rate_str[0]
-                _last_rate_update[0] = elapsed
-                
-                rate = processed / (elapsed / 60.0)
-                if new_embeds > 0:
-                    new_rate = new_embeds / (elapsed / 60.0)
-                    _last_rate_str[0] = f"{rate:.0f}/min ({new_rate:.0f} new)"
-                else:
-                    _last_rate_str[0] = f"{rate:.0f}/min"
-                return _last_rate_str[0]
+            # Rate tracking with smoothing (using shared RateTracker class)
+            from ohtv.parallel import RateTracker
+            rate_tracker = RateTracker(unit="conv", update_interval=0.5)
             
             def _update_counters(stats, err_msg: str | None, conv, prefix: str = "\n") -> tuple[int, int, int]:
                 """Update counters and print status for embedding result.
@@ -1146,14 +1128,14 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                             for conv in needs_embedding:
                                 stats, err_msg = _embed_one(conv)
                                 processed_count += 1
+                                rate_tracker.increment()
                                 
                                 err_d, skip_d, embed_d = _update_counters(stats, err_msg, conv)
                                 error_count += err_d
                                 skipped_no_content += skip_d
                                 embedded_count += embed_d
                                 
-                                elapsed = time.perf_counter() - start_time
-                                progress.update(task, advance=1, rate=_format_rate(processed_count, embedded_count, elapsed))
+                                progress.update(task, advance=1, rate=rate_tracker.get_rate_str())
                         else:
                             # Parallel processing with ThreadPoolExecutor
                             executor = ThreadPoolExecutor(max_workers=max_workers)
@@ -1180,15 +1162,13 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                                         
                                         with _lock:
                                             processed_count += 1
+                                            rate_tracker.increment()
                                             err_d, skip_d, embed_d = _update_counters(stats, err_msg, conv)
                                             error_count += err_d
                                             skipped_no_content += skip_d
                                             embedded_count += embed_d
-                                            
-                                            elapsed = time.perf_counter() - start_time
-                                            rate_str = _format_rate(processed_count, embedded_count, elapsed)
                                         
-                                        progress.update(task, advance=1, rate=rate_str)
+                                        progress.update(task, advance=1, rate=rate_tracker.get_rate_str())
                             finally:
                                 executor.shutdown(wait=True, cancel_futures=True)
                 else:
