@@ -625,3 +625,33 @@
 - ✅ PR slot: Occupied (re-testing worker for PR #56)
 
 ---
+### 2026-05-15 16:19 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `8c26275` | expansion | Issue #60 - Skip cache not keyed by context level | **NEW** |
+| `e1b6ed7` | merge | PR #56 - Add start time, duration, step count | **NEW** |
+
+**Previous Workers Completed:**
+- `4a7602f` (re-testing PR #56): finished ✓ - Test results verified fix commit
+- `9165d06` (expansion #59): finished ✓ - Issue ready with technical approach
+
+**Spawned: 2 Workers (parallel)**
+
+1. **Expansion Worker**
+   - Issue: [#60 - Skip cache not keyed by context level](https://github.com/jpshackelford/ohtv/issues/60)
+   - Conversation: [`8c26275`](https://app.all-hands.dev/conversations/8c262752905144d889ff2fd9c1399429)
+
+2. **Merge Worker**
+   - PR: [#56 - Add start time, duration, step count](https://github.com/jpshackelford/ohtv/pull/56)
+   - Conversation: [`e1b6ed7`](https://app.all-hands.dev/conversations/e1b6ed7b831c464bba8f09e60824f6b8)
+   - Reason: CI green, docs updated, re-test verified, 3 review threads to resolve then merge
+
+**Current State:**
+- [PR #56](https://github.com/jpshackelford/ohtv/pull/56): ready, CI green, test results valid, 3 unresolved threads (fix committed) → merge
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): draft, old, skipped
+- Issues needing expansion: #60 (now being expanded), #61
+- Ready issues: #35, #46, #51, #52, #53, #57, #58, #59
+
+---
