@@ -291,6 +291,127 @@ class InvestigationAgent:
             error=error,
         )
 
+    def _build_tool_map(
+        self,
+        custom_tools: list[ToolDefinition],
+    ) -> tuple[list[ToolDefinition], dict[str, ToolDefinition]]:
+        """Build tool definitions list and name-to-tool mapping.
+
+        Args:
+            custom_tools: Custom tools to include
+
+        Returns:
+            Tuple of (tool_definitions list, tool_map dict)
+        """
+        tool_definitions: list[ToolDefinition] = []
+        tool_map: dict[str, ToolDefinition] = {}
+
+        # Add custom tools
+        for tool in custom_tools:
+            tool_definitions.append(tool)
+            tool_map[tool.name] = tool
+
+        # Add finish tool
+        for ft in FinishTool.create():
+            tool_definitions.append(ft)
+            tool_map[ft.name] = ft
+
+        # Add think tool
+        for tt in ThinkTool.create():
+            tool_definitions.append(tt)
+            tool_map[tt.name] = tt
+
+        return tool_definitions, tool_map
+
+    def _process_tool_call(
+        self,
+        tool_call,
+        tool_map: dict[str, ToolDefinition],
+        conversations_examined: set[str],
+    ) -> tuple[str | None, str | None, bool]:
+        """Process a single tool call and return the result.
+
+        Args:
+            tool_call: The tool call to process
+            tool_map: Mapping from tool names to ToolDefinition
+            conversations_examined: Set to track examined conversations
+
+        Returns:
+            Tuple of (result_text, final_answer, is_finished)
+            - result_text: Text to add as tool response (None for finish)
+            - final_answer: The final answer if finish was called
+            - is_finished: Whether the investigation is complete
+        """
+        import json
+
+        tool_name = tool_call.function.name
+        arguments = tool_call.function.arguments
+
+        # Parse arguments (might be string or dict)
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                arguments = {}
+
+        # Handle finish tool
+        if tool_name == "finish":
+            return None, arguments.get("message", ""), True
+
+        # Handle think tool
+        if tool_name == "think":
+            thought = arguments.get("thought", "")
+            return f"Thought recorded: {thought}", None, False
+
+        # Handle custom tools
+        tool = tool_map.get(tool_name)
+        if tool and tool.executor:
+            try:
+                action = tool.action_from_arguments(arguments)
+                observation = tool(action)
+
+                # Track conversations examined
+                if tool_name == "show_conversation" and hasattr(observation, "conversation_id"):
+                    conversations_examined.add(observation.conversation_id)
+
+                # Format observation using to_text() method
+                if hasattr(observation, "to_text"):
+                    result_text = observation.to_text()
+                else:
+                    result_text = str(observation)
+
+                # Truncate if too long
+                if len(result_text) > 4000:
+                    result_text = result_text[:4000] + "\n... [truncated]"
+
+                return result_text, None, False
+
+            except Exception as e:
+                return f"Error executing tool: {e}", None, False
+
+        return f"Unknown tool: {tool_name}", None, False
+
+    def _add_tool_response(self, messages: list, tool_call, result_text: str) -> None:
+        """Add assistant tool call and tool response messages.
+
+        Args:
+            messages: Message list to append to
+            tool_call: The tool call being responded to
+            result_text: The text result of the tool execution
+        """
+        from openhands.sdk.llm.message import Message
+
+        messages.append(Message(
+            role="assistant",
+            content=None,
+            tool_calls=[tool_call],
+        ))
+        messages.append(Message(
+            role="tool",
+            content=result_text,
+            tool_call_id=tool_call.id,
+        ))
+
     def _run_investigation_loop(
         self,
         llm: LLM,
@@ -306,27 +427,8 @@ class InvestigationAgent:
         """
         from openhands.sdk.llm.message import Message
 
-        # Build tool definitions for the LLM
-        # llm.completion() expects ToolDefinition objects, not dicts
-        tool_definitions: list[ToolDefinition] = []
-        tool_map: dict[str, ToolDefinition] = {}
-
-        # Add custom tools
-        for tool in custom_tools:
-            tool_definitions.append(tool)
-            tool_map[tool.name] = tool
-
-        # Add finish tool
-        finish_tools = FinishTool.create()
-        for ft in finish_tools:
-            tool_definitions.append(ft)
-            tool_map[ft.name] = ft
-
-        # Add think tool
-        think_tools = ThinkTool.create()
-        for tt in think_tools:
-            tool_definitions.append(tt)
-            tool_map[tt.name] = tt
+        # Build tool definitions and mapping
+        tool_definitions, tool_map = self._build_tool_map(custom_tools)
 
         # Initialize conversation
         messages = [
@@ -345,7 +447,6 @@ class InvestigationAgent:
             self.console.print(f"[dim]Investigation step {iteration}...[/dim]")
 
             try:
-                # Call LLM with tools
                 response = llm.completion(messages, tools=tool_definitions)
 
                 # Track metrics
@@ -355,7 +456,6 @@ class InvestigationAgent:
                         total_tokens += usage.prompt_tokens + usage.completion_tokens
                     total_cost += response.metrics.accumulated_cost or 0.0
 
-                # Process response
                 message = response.message
                 tool_calls = message.tool_calls or []
 
@@ -369,83 +469,28 @@ class InvestigationAgent:
                         if text_parts:
                             final_answer = "".join(text_parts)
                             finished = True
-                            investigation_steps.append(f"Finished with direct response")
+                            investigation_steps.append("Finished with direct response")
                     break
 
-                # Process tool calls
+                # Process each tool call
                 for tool_call in tool_calls:
                     tool_name = tool_call.function.name
-                    arguments = tool_call.function.arguments
+                    investigation_steps.append(f"Called {tool_name}: {tool_call.function.arguments}")
 
-                    # Parse arguments (might be string or dict)
-                    if isinstance(arguments, str):
-                        import json
-                        try:
-                            arguments = json.loads(arguments)
-                        except json.JSONDecodeError:
-                            arguments = {}
+                    result_text, answer, is_finished = self._process_tool_call(
+                        tool_call, tool_map, conversations_examined
+                    )
 
-                    investigation_steps.append(f"Called {tool_name}: {arguments}")
-
-                    # Handle finish tool
-                    if tool_name == "finish":
-                        final_answer = arguments.get("message", "")
+                    if is_finished:
+                        final_answer = answer or ""
                         finished = True
                         break
 
-                    # Handle think tool
-                    if tool_name == "think":
-                        thought = arguments.get("thought", "")
-                        investigation_steps.append(f"Thinking: {thought[:100]}...")
-                        # Add tool result to messages
-                        messages.append(Message(
-                            role="assistant",
-                            content=None,
-                            tool_calls=[tool_call],
-                        ))
-                        messages.append(Message(
-                            role="tool",
-                            content=f"Thought recorded: {thought}",
-                            tool_call_id=tool_call.id,
-                        ))
-                        continue
-
-                    # Handle custom tools
-                    tool = tool_map.get(tool_name)
-                    if tool and tool.executor:
-                        try:
-                            # Create action from arguments
-                            action = tool.action_from_arguments(arguments)
-                            observation = tool(action)
-
-                            # Track conversations examined
-                            if tool_name == "show_conversation" and hasattr(observation, "conversation_id"):
-                                conversations_examined.add(observation.conversation_id)
-
-                            # Format observation for message using to_text() method
-                            if hasattr(observation, "to_text"):
-                                result_text = observation.to_text()
-                            else:
-                                result_text = str(observation)
-
-                            # Truncate if too long
-                            if len(result_text) > 4000:
-                                result_text = result_text[:4000] + "\n... [truncated]"
-
-                        except Exception as e:
-                            result_text = f"Error executing tool: {e}"
-
-                        # Add tool result to messages
-                        messages.append(Message(
-                            role="assistant",
-                            content=None,
-                            tool_calls=[tool_call],
-                        ))
-                        messages.append(Message(
-                            role="tool",
-                            content=result_text,
-                            tool_call_id=tool_call.id,
-                        ))
+                    if result_text:
+                        if tool_name == "think":
+                            thought = result_text.replace("Thought recorded: ", "")
+                            investigation_steps.append(f"Thinking: {thought[:100]}...")
+                        self._add_tool_response(messages, tool_call, result_text)
 
                 if finished:
                     break
@@ -456,7 +501,6 @@ class InvestigationAgent:
                 break
 
         if not final_answer and not finished:
-            # If we didn't finish normally, provide a summary
             final_answer = (
                 "Investigation reached iteration limit without a final answer. "
                 "Please review the investigation steps for partial findings."
