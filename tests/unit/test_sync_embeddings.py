@@ -260,3 +260,98 @@ class TestRateFormatting:
         # Should have rate update interval logic
         assert '_last_rate_update' in source
         assert '0.5' in source  # 0.5 second update interval
+
+
+class TestUpdateCountersHelper:
+    """Tests for the _update_counters helper function logic."""
+    
+    def test_update_counters_helper_exists(self):
+        """Verify _update_counters helper function exists in code."""
+        import inspect
+        source = inspect.getsource(_run_post_sync_embeddings)
+        assert 'def _update_counters(' in source
+        
+    def test_update_counters_returns_tuple(self):
+        """Verify _update_counters returns tuple for counter updates."""
+        import inspect
+        source = inspect.getsource(_run_post_sync_embeddings)
+        # Should return a tuple like (error_delta, skipped_delta, embedded_delta)
+        assert 'return (1, 0, 0)' in source  # error case
+        assert 'return (0, 1, 0)' in source  # skipped case
+        assert 'return (0, 0, 1)' in source  # embedded case
+        assert 'return (0, 0, 0)' in source  # no-op case
+    
+    def test_update_counters_handles_all_cases(self):
+        """Verify _update_counters handles error, skip, and embed cases."""
+        import inspect
+        source = inspect.getsource(_run_post_sync_embeddings)
+        # Should check for err_msg, stats, and stats.embeddings_created
+        assert 'if err_msg:' in source
+        assert 'elif stats:' in source
+        assert 'embeddings_created == 0' in source
+
+
+class TestModuleLevelRateFormat:
+    """Tests for the module-level rate formatting in parallel module."""
+    
+    def test_format_rate_basic(self):
+        """Test basic rate formatting from parallel module."""
+        from ohtv.parallel import format_rate
+        
+        # 60 items in 60 seconds = 60/min
+        result = format_rate(60, 60.0, "conv")
+        assert "60.0 conv/min" in result
+        
+    def test_format_rate_zero_elapsed(self):
+        """Test rate format with zero elapsed time."""
+        from ohtv.parallel import format_rate
+        
+        result = format_rate(10, 0.05, "items")
+        assert "-- items/min" in result
+        
+    def test_format_rate_zero_count(self):
+        """Test rate format with zero count."""
+        from ohtv.parallel import format_rate
+        
+        result = format_rate(0, 10.0, "items")
+        assert "-- items/min" in result
+
+
+class TestRateTracker:
+    """Tests for the RateTracker class from parallel module."""
+    
+    def test_rate_tracker_basic(self):
+        """Test basic RateTracker functionality."""
+        from ohtv.parallel import RateTracker
+        import time
+        
+        tracker = RateTracker(unit="conv")
+        tracker.increment(5)
+        
+        # Give it a moment to have elapsed time
+        time.sleep(0.15)
+        
+        result = tracker.get_rate_str()
+        assert "conv/min" in result
+        
+    def test_rate_tracker_thread_safe_increment(self):
+        """Test that RateTracker.increment is thread-safe."""
+        from ohtv.parallel import RateTracker
+        import threading
+        
+        tracker = RateTracker()
+        threads = []
+        
+        def increment_many():
+            for _ in range(100):
+                tracker.increment()
+        
+        for _ in range(4):
+            t = threading.Thread(target=increment_many)
+            threads.append(t)
+            t.start()
+        
+        for t in threads:
+            t.join()
+        
+        assert tracker.count == 400
