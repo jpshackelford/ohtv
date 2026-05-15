@@ -1,3 +1,31 @@
+### 2026-05-15 17:03 UTC - Implementation Worker
+
+✅ **Implemented Issue #51 - ohtv ask --agent flag for multi-turn investigation**
+
+- Issue: [ohtv ask - add --agent flag for multi turn investigation](https://github.com/jpshackelford/ohtv/issues/51)
+- PR: [#62](https://github.com/jpshackelford/ohtv/pull/62)
+- Type: Feature
+- Status: Ready for review
+
+**Summary:** Added multi-turn investigation mode to `ohtv ask` command using OpenHands SDK agent to perform deeper investigation of questions.
+
+**New features:**
+- `--agent` flag enables investigation mode
+- `--max-steps` controls max iterations (default: 5)
+- Three custom tools: show_conversation, search_conversations, get_refs
+- Progress display, cost/token tracking, graceful error fallback
+
+**New files:**
+- `src/ohtv/analysis/agent_tools.py` - Custom investigation tools
+- `src/ohtv/analysis/investigator.py` - InvestigationAgent class
+- `src/ohtv/prompts/investigation/system.md` - Agent system prompt
+- `tests/unit/analysis/test_agent_tools.py` - 20 tests
+- `tests/unit/analysis/test_investigator.py` - 8 tests
+
+**Test results:** All 989 tests pass (28 new tests added)
+
+---
+
 ### 2026-05-15 16:50 UTC - Expansion Worker
 
 ✅ **Expanded Issue #61 - CLI context level -c 3 not converted to 'full'**
