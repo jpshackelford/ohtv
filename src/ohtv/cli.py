@@ -927,13 +927,22 @@ def _run_post_sync_llm_analysis(quiet: bool, verbose: bool) -> None:
 
 
 def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
-    """Generate embeddings for conversations that need them."""
-    import os
-    from ohtv.db import get_connection
+    """Generate embeddings for conversations that need them.
+    
+    For large batches (>20 conversations), uses parallel processing with
+    a progress bar showing processing rate. For smaller batches, uses
+    sequential processing with simpler output.
+    """
     from pathlib import Path
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from ohtv.db import get_connection
     from ohtv.db.stores import ConversationStore, EmbeddingStore
     from ohtv.filters import normalize_conversation_id
-    from ohtv.analysis.embeddings.config import is_embedding_configured, get_current_config
+    from ohtv.analysis.embeddings.config import is_embedding_configured
+    
+    # Threshold for showing progress bar and using parallel processing
+    PROGRESS_THRESHOLD = 20
     
     # Check if embedding is configured (env var, config file, or Ollama)
     if not is_embedding_configured():
@@ -1002,36 +1011,218 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
             console.print(msg)
         
         try:
-            from ohtv.analysis.embeddings import embed_conversation_full
+            from ohtv.analysis.embeddings import (
+                generate_embeddings_only,
+                EmbeddingWriter,
+                get_embedding_model,
+                reset_rate_limiter,
+            )
+            
+            # Reset rate limiter state from any previous operations
+            reset_rate_limiter()
             
             embedded_count = 0
             skipped_no_content = 0
             error_count = 0
+            processed_count = 0
             
-            for conv in needs_embedding:
-                conv_dir = Path(conv.location)  # Already verified exists above
+            # Determine worker count based on model type
+            model = get_embedding_model()
+            if model.startswith("ollama/"):
+                max_workers = min(4, len(needs_embedding)) if len(needs_embedding) > 1 else 1
+            else:
+                max_workers = min(20, len(needs_embedding)) if len(needs_embedding) > 1 else 1
+            
+            log.info("Sync embedding: model=%s, max_workers=%d, conversations=%d",
+                     model, max_workers, len(needs_embedding))
+            
+            use_progress_bar = len(needs_embedding) > PROGRESS_THRESHOLD and not quiet
+            
+            # Thread-safe lock for counters
+            _lock = threading.Lock()
+            start_time = time.perf_counter()
+            
+            # Rate tracking with smoothing
+            _last_rate_str = [""]
+            _last_rate_update = [0.0]
+            
+            def _format_rate(processed: int, new_embeds: int, elapsed: float) -> str:
+                """Format processing rate, updates at most every 0.5s to avoid jitter."""
+                if elapsed < 0.1 or processed == 0:
+                    return ""
+                # Only recalculate every 0.5s to smooth out parallel completion jitter
+                if elapsed - _last_rate_update[0] < 0.5 and _last_rate_str[0]:
+                    return _last_rate_str[0]
+                _last_rate_update[0] = elapsed
                 
-                try:
-                    stats = embed_conversation_full(conv_dir, conn)
-                    if stats.embeddings_created > 0:
-                        embedded_count += 1
-                        if verbose:
-                            console.print(f"    [dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
-                    else:
-                        skipped_no_content += 1
-                        if verbose:
-                            console.print(f"    [dim]Skipped {conv.id[:8]} (no content)[/dim]")
-                except Exception as e:
-                    error_count += 1
-                    # Always log errors, not just in verbose mode
-                    log.warning("Error embedding %s: %s", conv.id[:8], e)
-                    if verbose:
-                        console.print(f"    [red]Error embedding {conv.id}:[/red] {e}")
+                rate = processed / (elapsed / 60.0)
+                if new_embeds > 0:
+                    new_rate = new_embeds / (elapsed / 60.0)
+                    _last_rate_str[0] = f"{rate:.0f}/min ({new_rate:.0f} new)"
+                else:
+                    _last_rate_str[0] = f"{rate:.0f}/min"
+                return _last_rate_str[0]
             
-            conn.commit()
+            def _embed_one(conv) -> tuple[object, str | None]:
+                """Generate embeddings for a single conversation.
+                
+                Returns (stats, error_msg). The batch is submitted to the writer queue.
+                """
+                conv_dir = Path(conv.location)
+                
+                # Use a read-only connection for checking existing embeddings
+                with get_connection() as read_conn:
+                    try:
+                        batch = generate_embeddings_only(
+                            conv_dir,
+                            read_conn,
+                            model=model,
+                            skip_existing=True,
+                        )
+                        
+                        if batch.error:
+                            return None, batch.error
+                        
+                        # Submit batch to writer (non-blocking)
+                        writer.submit(batch)
+                        
+                        log.debug("Generated %d embeddings for %s",
+                                  batch.stats.embeddings_created if batch.stats else 0,
+                                  conv.id[:12])
+                        
+                        return batch.stats, None
+                        
+                    except Exception as e:
+                        log.debug("Error on %s: %s", conv.id[:12], e)
+                        return None, str(e)
             
-            # Always show summary if there were issues
-            if skipped_no_content > 0 or error_count > 0:
+            # Start the writer thread (it creates its own DB connection)
+            writer = EmbeddingWriter(batch_size=20)
+            writer.start()
+            
+            interrupted = False
+            
+            try:
+                if use_progress_bar:
+                    # Large batch: Use progress bar with parallel processing
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[bold blue]Embedding"),
+                        BarColumn(),
+                        TaskProgressColumn(),
+                        TextColumn("[dim]{task.fields[rate]}[/dim]"),
+                        console=console,
+                        transient=True,
+                    ) as progress:
+                        task = progress.add_task(
+                            "Embedding",
+                            total=len(needs_embedding),
+                            rate="starting..."
+                        )
+                        
+                        if max_workers == 1:
+                            # Sequential processing with progress bar
+                            for conv in needs_embedding:
+                                stats, err_msg = _embed_one(conv)
+                                processed_count += 1
+                                
+                                if err_msg:
+                                    error_count += 1
+                                    log.warning("Error embedding %s: %s", conv.id[:8], err_msg)
+                                    if verbose:
+                                        console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
+                                elif stats:
+                                    if stats.embeddings_created == 0:
+                                        skipped_no_content += 1
+                                        if verbose:
+                                            console.print(f"\n[dim]Skipped {conv.id[:8]} (no content)[/dim]")
+                                    else:
+                                        embedded_count += 1
+                                        if verbose:
+                                            console.print(f"\n[dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
+                                
+                                elapsed = time.perf_counter() - start_time
+                                progress.update(task, advance=1, rate=_format_rate(processed_count, embedded_count, elapsed))
+                        else:
+                            # Parallel processing with ThreadPoolExecutor
+                            executor = ThreadPoolExecutor(max_workers=max_workers)
+                            try:
+                                future_to_conv = {
+                                    executor.submit(_embed_one, conv): conv
+                                    for conv in needs_embedding
+                                }
+                                
+                                # Use timeout to allow Ctrl+C to be detected
+                                pending = set(future_to_conv.keys())
+                                while pending:
+                                    # Wait with timeout so KeyboardInterrupt can be caught
+                                    done, pending = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
+                                    
+                                    for future in done:
+                                        conv = future_to_conv[future]
+                                        
+                                        try:
+                                            stats, err_msg = future.result()
+                                        except Exception as e:
+                                            err_msg = str(e)
+                                            stats = None
+                                        
+                                        with _lock:
+                                            processed_count += 1
+                                            if err_msg:
+                                                error_count += 1
+                                                log.warning("Error embedding %s: %s", conv.id[:8], err_msg)
+                                                if verbose:
+                                                    console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
+                                            elif stats:
+                                                if stats.embeddings_created == 0:
+                                                    skipped_no_content += 1
+                                                    if verbose:
+                                                        console.print(f"\n[dim]Skipped {conv.id[:8]} (no content)[/dim]")
+                                                else:
+                                                    embedded_count += 1
+                                                    if verbose:
+                                                        console.print(f"\n[dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
+                                            
+                                            elapsed = time.perf_counter() - start_time
+                                            rate_str = _format_rate(processed_count, embedded_count, elapsed)
+                                        
+                                        progress.update(task, advance=1, rate=rate_str)
+                            finally:
+                                executor.shutdown(wait=False, cancel_futures=True)
+                else:
+                    # Small batch or quiet mode: Simple processing without progress bar
+                    for conv in needs_embedding:
+                        stats, err_msg = _embed_one(conv)
+                        processed_count += 1
+                        
+                        if err_msg:
+                            error_count += 1
+                            log.warning("Error embedding %s: %s", conv.id[:8], err_msg)
+                            if verbose:
+                                console.print(f"    [red]Error embedding {conv.id}:[/red] {err_msg}")
+                        elif stats:
+                            if stats.embeddings_created == 0:
+                                skipped_no_content += 1
+                                if verbose:
+                                    console.print(f"    [dim]Skipped {conv.id[:8]} (no content)[/dim]")
+                            else:
+                                embedded_count += 1
+                                if verbose:
+                                    console.print(f"    [dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
+            
+            except KeyboardInterrupt:
+                interrupted = True
+                console.print("\n[yellow]Interrupted! Partial results saved.[/yellow]")
+                console.print("[dim]  Some embeddings may be incomplete. Re-run to complete remaining.[/dim]")
+            finally:
+                # Stop the writer thread and flush any pending batches
+                writer.stop(timeout=30.0)
+                writer_stats = writer.get_stats()
+                log.info("Writer stats: %s", writer_stats)
+            
+            # Show summary if there were issues or in verbose mode
+            if not quiet and (skipped_no_content > 0 or error_count > 0 or verbose):
                 parts = [f"{embedded_count} embedded"]
                 if skipped_no_content > 0:
                     parts.append(f"{skipped_no_content} skipped (no content)")
