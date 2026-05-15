@@ -7,7 +7,6 @@ single-turn RAG.
 
 import logging
 import os
-import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -253,23 +252,22 @@ class InvestigationAgent:
         error = None
 
         try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                # Build the initial message
-                initial_context = format_initial_context(question, initial_answer)
+            # Build the initial message
+            initial_context = format_initial_context(question, initial_answer)
 
-                # Create a simpler approach using direct LLM calls with tools
-                result = self._run_investigation_loop(
-                    llm=llm,
-                    initial_context=initial_context,
-                    custom_tools=custom_tools,
-                    investigation_steps=investigation_steps,
-                    conversations_examined=conversations_examined,
-                )
+            # Create a simpler approach using direct LLM calls with tools
+            result = self._run_investigation_loop(
+                llm=llm,
+                initial_context=initial_context,
+                custom_tools=custom_tools,
+                investigation_steps=investigation_steps,
+                conversations_examined=conversations_examined,
+            )
 
-                final_answer = result["answer"]
-                total_tokens = result["total_tokens"]
-                total_cost = result["total_cost"]
-                finished_normally = result["finished"]
+            final_answer = result["answer"]
+            total_tokens = result["total_tokens"]
+            total_cost = result["total_cost"]
+            finished_normally = result["finished"]
 
         except Exception as e:
             log.exception("Investigation failed")
