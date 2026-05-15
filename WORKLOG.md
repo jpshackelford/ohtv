@@ -1,6 +1,27 @@
 # WORKLOG
 
 
+### 2026-05-15 11:20 UTC - Implementation Worker
+
+✅ **Implemented Issue #45 - Bug: embedding progress bar display**
+
+- PR: [#55 - fix: embedding progress bar displays remaining count and ETA](https://github.com/jpshackelford/ohtv/pull/55)
+- Status: Ready for review
+
+**Summary:** Fixed misleading embedding progress bar to show clear remaining count and ETA.
+
+**Changes:**
+- Added `TimeRemainingColumn` for ETA display matching sync progress bar
+- Added `_format_remaining()` to show countdown: "{remaining} left"
+- Simplified `_format_rate()` by removing misleading "(X new)" suffix
+- Updated Progress bar layout: remaining | ETA | rate
+
+**Before:** `⠸ Embedding ━━━━╺━━━━━━━━━ 10% 124/min (124 new)`
+**After:** `⠸ Embedding ━━━━╺━━━━━━━━━ 10% 190 left │ ETA 0:02:15 119/min`
+
+**Tests:** 13 new tests, all 919 tests passing.
+
+---
 ### 2026-05-15 03:50 UTC - Expansion Worker
 
 ✅ **Expanded Issue #52**
