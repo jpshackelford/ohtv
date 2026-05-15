@@ -7,7 +7,6 @@ single-turn RAG.
 
 import logging
 import os
-import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -19,7 +18,6 @@ from rich.console import Console
 # Suppress openhands-sdk banner before import
 os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
 
-from openhands.sdk import Agent, LocalConversation
 from openhands.sdk.llm import LLM
 from openhands.sdk.tool import FinishTool, ThinkTool, ToolDefinition
 
@@ -241,42 +239,8 @@ class InvestigationAgent:
             base_url=os.environ.get("LLM_BASE_URL"),
         )
 
-        # Create agent with custom tools
+        # Create custom tools for the investigation
         custom_tools = self._create_tools()
-        agent = Agent(
-            llm=llm,
-            tools=[],  # We'll pass tools differently
-            include_default_tools=["think", "finish"],  # Include built-in tools
-        )
-
-        # Create a temporary workspace for the conversation
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create conversation with custom tools
-            conversation = LocalConversation(
-                agent=agent,
-                workspace=temp_dir,
-                max_iteration_per_run=self.max_iterations,
-                visualizer=None,  # Disable visualizer for non-interactive mode
-            )
-
-            # Register custom tools with the conversation's tool registry
-            for tool in custom_tools:
-                # Tools need to be added to the agent's tool list
-                pass  # Tools are already in the agent
-
-            # Actually, we need to pass tools to the Agent constructor
-            # Let me refactor this
-
-        # Re-create with proper tool setup
-        agent = Agent(
-            llm=llm,
-            tools=[],
-            include_default_tools=["think", "finish"],
-        )
-
-        # Add custom tools to the agent's tools list
-        # The Agent expects Tool specs, not ToolDefinition instances
-        # We need to use a different approach - use the ToolDefinition directly
 
         # Track investigation state
         investigation_steps = []
@@ -343,24 +307,25 @@ class InvestigationAgent:
         from openhands.sdk.llm.message import Message
 
         # Build tool definitions for the LLM
-        tool_definitions = []
-        tool_map = {}
+        # llm.completion() expects ToolDefinition objects, not dicts
+        tool_definitions: list[ToolDefinition] = []
+        tool_map: dict[str, ToolDefinition] = {}
 
         # Add custom tools
         for tool in custom_tools:
-            tool_definitions.append(tool.to_openai_tool())
+            tool_definitions.append(tool)
             tool_map[tool.name] = tool
 
-        # Add finish tool manually
+        # Add finish tool
         finish_tools = FinishTool.create()
         for ft in finish_tools:
-            tool_definitions.append(ft.to_openai_tool())
+            tool_definitions.append(ft)
             tool_map[ft.name] = ft
 
-        # Add think tool manually
+        # Add think tool
         think_tools = ThinkTool.create()
         for tt in think_tools:
-            tool_definitions.append(tt.to_openai_tool())
+            tool_definitions.append(tt)
             tool_map[tt.name] = tt
 
         # Initialize conversation
