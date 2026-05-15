@@ -1189,7 +1189,7 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                                         
                                         progress.update(task, advance=1, rate=rate_str)
                             finally:
-                                executor.shutdown(wait=False, cancel_futures=True)
+                                executor.shutdown(wait=True, cancel_futures=True)
                 else:
                     # Small batch or quiet mode: Simple processing without progress bar
                     for conv in needs_embedding:
