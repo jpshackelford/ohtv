@@ -1,3 +1,27 @@
+### 2026-05-15 12:18 UTC - Merge Worker
+
+✅ **Merged PR #55 - fix: embedding progress bar displays remaining count and ETA**
+
+- PR: [#55](https://github.com/jpshackelford/ohtv/pull/55)
+- Merge commit: `0215fb0`
+- Fixes: Issue #45
+
+**Summary:** Fixed misleading embedding progress bar display.
+
+**Changes merged:**
+- Added `TimeRemainingColumn` for ETA display (matching sync progress bar)
+- Added `_format_remaining()` function showing countdown: "{remaining} left"
+- Simplified `_format_rate()` by removing misleading "(X new)" suffix
+- Updated both sequential and parallel processing paths
+
+**Test coverage:**
+- 13 new unit tests in `tests/unit/test_embedding_progress.py`
+- Manual tests verified: estimate, embed, force, search, format consistency
+- Full suite: 966 tests passing
+
+**Review status:** Code review approved (LOW risk - display-only change)
+
+---
 # WORKLOG
 
 
