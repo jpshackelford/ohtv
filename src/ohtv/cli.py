@@ -2372,6 +2372,8 @@ def _print_search_json(
 @click.option("--since", type=str, help="Only search conversations from this date (YYYY-MM-DD or relative: 7d, 2w, 1m)")
 @click.option("--until", type=str, help="Only search conversations until this date (YYYY-MM-DD)")
 @click.option("--no-temporal", is_flag=True, help="Disable automatic temporal filtering from question")
+@click.option("--agent", is_flag=True, help="Enable multi-turn investigation mode")
+@click.option("--max-steps", type=int, default=5, help="Max investigation steps (with --agent)")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 def ask(
     question: str,
@@ -2382,6 +2384,8 @@ def ask(
     since: str | None,
     until: str | None,
     no_temporal: bool,
+    agent: bool,
+    max_steps: int,
     verbose: bool,
 ) -> None:
     """Ask a question about your conversations (RAG).
@@ -2392,6 +2396,10 @@ def ask(
     
     Temporal filtering is automatic - questions like "what did we work on
     yesterday?" will only search conversations from that time period.
+    
+    With --agent, enables multi-turn investigation mode where an agent can
+    examine specific conversations and search for additional context to
+    provide a more thorough answer.
     
     \b
     Before asking, build embeddings with:
@@ -2405,6 +2413,8 @@ def ask(
       ohtv ask "summarize deployment work" --since 7d    # Last 7 days
       ohtv ask "show me API changes" --since 2026-04-01 --until 2026-04-15
       ohtv ask "recent issues" --no-temporal             # Disable auto-filter
+      ohtv ask "explain the auth fix in detail" --agent  # Multi-turn investigation
+      ohtv ask "what PRs were created?" --agent --max-steps 10  # More investigation steps
     """
     from ohtv.db import get_connection, get_db_path, migrate
     from ohtv.db.stores import ConversationStore, EmbeddingStore, LinkStore, ReferenceStore, RepoStore
@@ -2496,6 +2506,49 @@ def ask(
             console.print("[dim]Make sure LLM_API_KEY is set.[/dim]")
             raise SystemExit(1)
         
+        # Agent mode: run multi-turn investigation
+        investigation_result = None
+        if agent:
+            from ohtv.analysis.investigator import InvestigationAgent
+            
+            console.print(f"\n[bold cyan]🔍 Starting investigation mode...[/bold cyan]")
+            
+            # Build list of conversation directories
+            conversation_dirs = [
+                str(config.local_conversations_dir),
+                str(config.synced_conversations_dir),
+            ]
+            for extra_path in config.extra_conversation_paths:
+                conversation_dirs.append(str(extra_path))
+            
+            try:
+                investigator = InvestigationAgent(
+                    model=model or answerer.model,
+                    embed_store=embed_store,
+                    conv_store=conv_store,
+                    link_store=link_store,
+                    ref_store=ref_store,
+                    repo_store=repo_store,
+                    conversation_dirs=conversation_dirs,
+                    max_iterations=max_steps,
+                    console=console,
+                )
+                
+                investigation_result = investigator.investigate(question, result)
+                
+                if investigation_result.error:
+                    console.print(f"[yellow]Investigation error: {investigation_result.error}[/yellow]")
+                    console.print("[dim]Falling back to initial answer.[/dim]")
+                else:
+                    # Show investigation summary
+                    console.print(f"\n[dim]Investigation complete: {investigation_result.total_iterations} steps, "
+                                  f"{len(investigation_result.conversations_examined)} conversations examined[/dim]")
+                    
+            except Exception as e:
+                console.print(f"[yellow]Investigation failed: {e}[/yellow]")
+                console.print("[dim]Falling back to initial answer.[/dim]")
+                investigation_result = None
+        
         # Show temporal filter info if applied
         if result.temporal_filter_applied and result.date_range:
             start, end = result.date_range
@@ -2526,8 +2579,13 @@ def ask(
             console.print("-" * 60)
         
         # Display answer
-        console.print(f"\n[bold]Answer:[/bold]\n")
-        console.print(result.answer)
+        if investigation_result and not investigation_result.error:
+            # Show investigation result
+            console.print(f"\n[bold]Answer (after investigation):[/bold]\n")
+            console.print(investigation_result.final_answer)
+        else:
+            console.print(f"\n[bold]Answer:[/bold]\n")
+            console.print(result.answer)
         
         # Show sources with enhanced citations
         console.print(f"\n[dim]─────────────────────────────────────────────────[/dim]")
@@ -2664,10 +2722,21 @@ def ask(
             f"Generation: {result.generation_time_seconds:.2f}s",
             f"Model: {result.model}",
         ]
-        if result.total_tokens > 0:
-            timing_parts.append(f"Tokens: {result.total_tokens:,} (${result.cost:.4f})")
+        
+        # Calculate total tokens and cost (including investigation if applicable)
+        total_tokens = result.total_tokens
+        total_cost = result.cost
+        if investigation_result and not investigation_result.error:
+            total_tokens += investigation_result.total_tokens
+            total_cost += investigation_result.total_cost
+            timing_parts.append(f"Investigation: {investigation_result.elapsed_seconds:.2f}s")
+        
+        if total_tokens > 0:
+            timing_parts.append(f"Tokens: {total_tokens:,} (${total_cost:.4f})")
         if result.temporal_filter_applied:
             timing_parts.append("📅 auto-filtered")
+        if investigation_result and not investigation_result.error:
+            timing_parts.append("🔍 agent")
         console.print(f"\n[dim]{' | '.join(timing_parts)}[/dim]")
 
 
