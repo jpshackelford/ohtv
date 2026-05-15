@@ -65,6 +65,10 @@ class ShowConversationObservation(Observation):
     transcript: str = Field(description="The conversation transcript")
     error: str | None = Field(default=None, description="Error message if any")
 
+    def to_text(self) -> str:
+        """Return the observation content as plain text for LLM context."""
+        return self.transcript or self.error or "No result"
+
     @property
     def visualize(self) -> Text:
         content = Text()
@@ -282,6 +286,10 @@ class SearchConversationsObservation(Observation):
     results: str = Field(description="Formatted search results")
     error: str | None = Field(default=None, description="Error message if any")
 
+    def to_text(self) -> str:
+        """Return the observation content as plain text for LLM context."""
+        return self.results or self.error or "No result"
+
     @property
     def visualize(self) -> Text:
         content = Text()
@@ -415,6 +423,10 @@ class GetRefsObservation(Observation):
     conversation_id: str = Field(description="The conversation ID")
     refs_summary: str = Field(description="Summary of git references (PRs, issues, repos)")
     error: str | None = Field(default=None, description="Error message if any")
+
+    def to_text(self) -> str:
+        """Return the observation content as plain text for LLM context."""
+        return self.refs_summary or self.error or "No result"
 
     @property
     def visualize(self) -> Text:

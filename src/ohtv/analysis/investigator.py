@@ -422,13 +422,9 @@ class InvestigationAgent:
                             if tool_name == "show_conversation" and hasattr(observation, "conversation_id"):
                                 conversations_examined.add(observation.conversation_id)
 
-                            # Format observation for message
-                            if hasattr(observation, "transcript"):
-                                result_text = observation.transcript or observation.error or "No result"
-                            elif hasattr(observation, "results"):
-                                result_text = observation.results or observation.error or "No result"
-                            elif hasattr(observation, "refs_summary"):
-                                result_text = observation.refs_summary or observation.error or "No result"
+                            # Format observation for message using to_text() method
+                            if hasattr(observation, "to_text"):
+                                result_text = observation.to_text()
                             else:
                                 result_text = str(observation)
 
