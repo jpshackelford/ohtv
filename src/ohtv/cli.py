@@ -1063,6 +1063,27 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                     _last_rate_str[0] = f"{rate:.0f}/min"
                 return _last_rate_str[0]
             
+            def _update_counters(stats, err_msg: str | None, conv, prefix: str = "\n") -> tuple[int, int, int]:
+                """Update counters and print status for embedding result.
+                
+                Returns (error_delta, skipped_delta, embedded_delta).
+                """
+                if err_msg:
+                    log.warning("Error embedding %s: %s", conv.id[:8], err_msg)
+                    if verbose:
+                        console.print(f"{prefix}[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
+                    return (1, 0, 0)
+                elif stats:
+                    if stats.embeddings_created == 0:
+                        if verbose:
+                            console.print(f"{prefix}[dim]Skipped {conv.id[:8]} (no content)[/dim]")
+                        return (0, 1, 0)
+                    else:
+                        if verbose:
+                            console.print(f"{prefix}[dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
+                        return (0, 0, 1)
+                return (0, 0, 0)
+            
             def _embed_one(conv) -> tuple[object, str | None]:
                 """Generate embeddings for a single conversation.
                 
@@ -1126,20 +1147,10 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                                 stats, err_msg = _embed_one(conv)
                                 processed_count += 1
                                 
-                                if err_msg:
-                                    error_count += 1
-                                    log.warning("Error embedding %s: %s", conv.id[:8], err_msg)
-                                    if verbose:
-                                        console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
-                                elif stats:
-                                    if stats.embeddings_created == 0:
-                                        skipped_no_content += 1
-                                        if verbose:
-                                            console.print(f"\n[dim]Skipped {conv.id[:8]} (no content)[/dim]")
-                                    else:
-                                        embedded_count += 1
-                                        if verbose:
-                                            console.print(f"\n[dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
+                                err_d, skip_d, embed_d = _update_counters(stats, err_msg, conv)
+                                error_count += err_d
+                                skipped_no_content += skip_d
+                                embedded_count += embed_d
                                 
                                 elapsed = time.perf_counter() - start_time
                                 progress.update(task, advance=1, rate=_format_rate(processed_count, embedded_count, elapsed))
@@ -1169,20 +1180,10 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                                         
                                         with _lock:
                                             processed_count += 1
-                                            if err_msg:
-                                                error_count += 1
-                                                log.warning("Error embedding %s: %s", conv.id[:8], err_msg)
-                                                if verbose:
-                                                    console.print(f"\n[red]Error embedding {conv.id[:12]}:[/red] {err_msg}")
-                                            elif stats:
-                                                if stats.embeddings_created == 0:
-                                                    skipped_no_content += 1
-                                                    if verbose:
-                                                        console.print(f"\n[dim]Skipped {conv.id[:8]} (no content)[/dim]")
-                                                else:
-                                                    embedded_count += 1
-                                                    if verbose:
-                                                        console.print(f"\n[dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
+                                            err_d, skip_d, embed_d = _update_counters(stats, err_msg, conv)
+                                            error_count += err_d
+                                            skipped_no_content += skip_d
+                                            embedded_count += embed_d
                                             
                                             elapsed = time.perf_counter() - start_time
                                             rate_str = _format_rate(processed_count, embedded_count, elapsed)
@@ -1196,20 +1197,10 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                         stats, err_msg = _embed_one(conv)
                         processed_count += 1
                         
-                        if err_msg:
-                            error_count += 1
-                            log.warning("Error embedding %s: %s", conv.id[:8], err_msg)
-                            if verbose:
-                                console.print(f"    [red]Error embedding {conv.id}:[/red] {err_msg}")
-                        elif stats:
-                            if stats.embeddings_created == 0:
-                                skipped_no_content += 1
-                                if verbose:
-                                    console.print(f"    [dim]Skipped {conv.id[:8]} (no content)[/dim]")
-                            else:
-                                embedded_count += 1
-                                if verbose:
-                                    console.print(f"    [dim]Embedded {conv.id[:8]} ({stats.embeddings_created} embeddings)[/dim]")
+                        err_d, skip_d, embed_d = _update_counters(stats, err_msg, conv, prefix="    ")
+                        error_count += err_d
+                        skipped_no_content += skip_d
+                        embedded_count += embed_d
             
             except KeyboardInterrupt:
                 interrupted = True
