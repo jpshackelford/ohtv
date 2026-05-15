@@ -4841,12 +4841,40 @@ def _format_summary_markdown(results: list[dict], *, include_outputs: bool = Tru
 
     for r in results:
         date_str = ""
+        time_str = ""
         if r["created_at"]:
             local_time = r["created_at"].astimezone()
             date_str = local_time.strftime("%Y-%m-%d")
+            time_str = local_time.strftime("%I:%M %p").lstrip("0")
+        
+        # Format duration
+        duration_str = ""
+        duration = r.get("duration")
+        if duration:
+            total_minutes = int(duration.total_seconds()) // 60
+            if total_minutes < 60:
+                duration_str = f"{total_minutes} mins"
+            else:
+                hours = total_minutes // 60
+                minutes = total_minutes % 60
+                duration_str = f"{hours}h {minutes}m" if minutes else f"{hours}h"
+        
+        # Format step count
+        event_count = r.get("event_count")
+        steps_str = f"{event_count} steps" if event_count else ""
+        
+        # Build metadata parts
+        meta_parts = [date_str]
+        if time_str:
+            meta_parts.append(time_str)
+        if duration_str:
+            meta_parts.append(duration_str)
+        if steps_str:
+            meta_parts.append(steps_str)
+        meta = ", ".join(meta_parts)
 
-        # Format as a list item with date and goal
-        lines.append(f"- **{r['short_id']}** ({date_str}): {r['goal']}")
+        # Format as a list item with metadata and goal
+        lines.append(f"- **{r['short_id']}** ({meta}): {r['goal']}")
 
         # Add refs/outputs as sub-items if present
         if include_outputs and r.get("outputs"):
@@ -7491,6 +7519,9 @@ def _run_batch_objectives_analysis(
                 "short_id": conv.short_id,
                 "source": conv.source,
                 "created_at": conv.created_at,
+                "updated_at": conv.updated_at,
+                "duration": conv.duration,  # timedelta for display formatting
+                "event_count": conv.event_count,
                 "goal": display_goal or "(no goal identified)",
                 "cached": analysis_result.from_cache,
                 "conv_dir": conv_dir,
@@ -7651,10 +7682,17 @@ def _run_batch_objectives_analysis(
     if fmt == "json":
         json_results = []
         for r in results:
+            # Calculate duration_seconds from timedelta
+            duration = r.get("duration")
+            duration_seconds = int(duration.total_seconds()) if duration else None
+            
             item = {
                 "id": r["id"],
                 "source": r["source"],
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "start_time": r["created_at"].astimezone().strftime("%H:%M") if r.get("created_at") else None,
+                "duration_seconds": duration_seconds,
+                "event_count": r.get("event_count"),
                 "goal": r["goal"],
             }
             if not no_outputs and r.get("outputs"):
