@@ -1,3 +1,28 @@
+### 2026-05-15 15:20 UTC - Expansion Worker
+
+✅ **Expanded Issue #57 - Numeric argument to -D and -W commands**
+
+- Issue: [Numeric argument to gen objs -D and list -D commands allow look back n days](https://github.com/jpshackelford/ohtv/issues/57)
+- Type: Enhancement
+- Status: Ready for implementation
+
+**Summary:** Allow `-D N` and `-W N` syntax to show the last N days or weeks of conversations.
+
+**Technical approach:**
+- Add `_parse_numeric_lookback()` to detect integer values
+- Add `_get_day_lookback_bounds(n)` and `_get_week_lookback_bounds(n)` helpers
+- Modify `_parse_date_filters()` to check for numeric values before parsing as dates
+- Update help text for 3 commands (list, refs, gen objs)
+
+**Files affected:**
+- `src/ohtv/cli.py` - Helper functions and date filter parsing
+- `README.md` - Documentation updates
+- `tests/unit/test_date_filters.py` - Unit tests for numeric parsing
+
+**Complexity:** Low - centralized change in existing date parsing logic.
+
+---
+
 ### 2026-05-15 14:55 UTC - Expansion Worker
 
 ✅ **Expanded Issue #58 - Action summaries not used in transcript building**
