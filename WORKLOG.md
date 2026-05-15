@@ -1,6 +1,40 @@
 # WORKLOG
 
 
+### 2026-05-15 09:50 UTC - Expansion Worker
+
+✅ **Expanded Issue #53**
+
+- Issue: [Add conversation labels to gen objs display](https://github.com/jpshackelford/ohtv/issues/53)
+- Type: Enhancement
+- Status: Ready for implementation
+
+**Summary:** Add conversation labels/tags from OpenHands Cloud API to the `gen objs` display. Labels provide categorization by project, team, status, etc. and should be displayed similarly to refs, with support for filtering by label.
+
+**Technical approach:**
+- Add `labels TEXT` column to `conversations` table via migration 014
+- Parse `tags` field from cloud API response in `sources/cloud.py`
+- Store labels in database during sync and scan operations
+- Add `_format_labels_for_summary()` function in `cli.py`
+- Add `labels_display` field to result dict in `_analyze_one()`
+- Update `get_default_display_schema()` to include `labels_display` in Summary column
+- Add `--label key=value` filter option to `list` command with JSON query support
+
+**Files affected:**
+- `src/ohtv/db/migrations/014_conversation_labels.py` (new) - Add labels column
+- `src/ohtv/db/models/conversation.py` - Add `labels` field to dataclass
+- `src/ohtv/db/stores/conversation_store.py` - Handle labels JSON serialization
+- `src/ohtv/sources/base.py` - Add `labels` to ConversationInfo
+- `src/ohtv/sources/cloud.py` - Parse tags from API
+- `src/ohtv/sync.py` - Store labels during sync
+- `src/ohtv/db/scanner.py` - Include labels in registration
+- `src/ohtv/cli.py` - Label formatting, display, filtering
+- `src/ohtv/prompts/renderer.py` - Update default schema
+
+**Complexity:** Medium - follows established refs pattern but adds new column and filter
+
+---
+
 ### 2026-05-15 03:50 UTC - Expansion Worker
 
 ✅ **Expanded Issue #52**
