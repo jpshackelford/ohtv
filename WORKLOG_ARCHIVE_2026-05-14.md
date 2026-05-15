@@ -146,3 +146,91 @@ Merging [PR #50](https://github.com/jpshackelford/ohtv/pull/50): Include convers
 - Recent activity: PRs #48 and #50 merged earlier today (14:22 UTC and 15:53 UTC)
 
 **Note:** This is consecutive quiet entry #2. If next check also finds no actionable work, automation will auto-disable.
+
+---
+### 2026-05-14 17:16 UTC - Orchestrator
+
+🔒 **Auto-disabled due to inactivity**
+
+Two consecutive quiet periods detected - no new work to pick up.
+Automation has been disabled to prevent unnecessary runs.
+
+**Current State:**
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): `o green draft`
+  - Title: Add --explain flag to ask command for RAG retrieval debugging
+  - Status: **Draft** (waiting for author to mark ready)
+  - No automated action possible on draft PRs
+
+**To re-enable:**
+- OpenHands UI: https://app.all-hands.dev/automations → Find "OHTV Workflow Orchestrator" → Toggle enable
+- Or via API:
+  ```bash
+  curl -X PATCH "https://app.all-hands.dev/api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{"enabled": true}'
+  ```
+
+---
+### 2026-05-14 22:28 UTC - Orchestrator
+
+✅ **All quiet** - No PRs ready for automated action
+
+**Current State:**
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): `o green draft`
+  - Title: Add --explain flag to ask command for RAG retrieval debugging
+  - Status: **Draft** (waiting for author to mark ready)
+  - CI: Checks skipped (draft)
+  - Age: 21 days since creation (2026-04-23)
+  - Author: jpshackelford
+
+**Summary:**
+- Only remaining open PR (#36) is in draft mode
+- Per workflow rules: draft PRs = wait for author to mark ready
+- No automated action can be taken this cycle
+
+**Note:** This is consecutive quiet entry #1 (after automation was re-enabled at ~22:28 UTC). If next check also finds no actionable work, will log #2 before potential auto-disable.
+
+---
+### 2026-05-14 22:47 UTC - Orchestrator
+
+✅ **All quiet** - No PRs ready for automated action
+
+**Current State:**
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): `o green draft`
+  - Title: Add --explain flag to ask command for RAG retrieval debugging
+  - Status: **Draft** (waiting for author to mark ready)
+  - CI: Checks skipped (draft)
+  - Age: 21 days since creation
+
+**Summary:**
+- Only remaining open PR (#36) is in draft mode
+- Per workflow rules: draft PRs = wait for author to mark ready
+- No automated action can be taken this cycle
+
+**Note:** This is consecutive quiet entry #2. If next check also finds no actionable work, automation will auto-disable.
+
+---
+### 2026-05-14 23:21 UTC - Orchestrator
+
+🔒 **Auto-disabled due to inactivity**
+
+Two consecutive quiet periods detected - no new work to pick up.
+Automation has been disabled to prevent unnecessary runs.
+
+**Current State:**
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): `o green draft`
+  - Title: Add --explain flag to ask command for RAG retrieval debugging
+  - Status: **Draft** (waiting for author to mark ready)
+  - Age: 21 days since creation
+  - No automated action possible on draft PRs
+
+**To re-enable:**
+- OpenHands UI: https://app.all-hands.dev/automations → Find "OHTV Workflow Orchestrator" → Toggle enable
+- Or via API:
+  ```bash
+  curl -X PATCH "https://app.all-hands.dev/api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{"enabled": true}'
+  ```
