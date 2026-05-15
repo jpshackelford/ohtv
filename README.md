@@ -510,17 +510,57 @@ LLM cost: $0.0089
 
 **Multi-Conversation Example Output (table):**
 ```
-┏━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ ID      ┃ Date       ┃ Summary                                             ┃
-┡━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ abc1234 │ 2024-03-15 │ Refactor authentication module to use OAuth2 with   │
-│         │            │ refresh token support for improved security.        │
-│         │            │ → created user/repo/pull/42, pushed user/repo       │
-├─────────┼────────────┼─────────────────────────────────────────────────────┤
-│ def5678 │ 2024-03-14 │ Fix pagination bug in search results component that │
-│         │            │ caused duplicate entries on page boundaries.        │
-└─────────┴────────────┴─────────────────────────────────────────────────────┘
+┏━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ ID      ┃ Date         ┃ Duration    ┃ Summary                               ┃
+┡━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ abc1234 │ 2024-03-15   │ 35 mins     │ Refactor authentication module to use │
+│ cloud   │ 10:42 AM     │ 46 steps    │ OAuth2 with refresh token support.    │
+│         │              │             │ → created user/repo/pull/42           │
+├─────────┼──────────────┼─────────────┼───────────────────────────────────────┤
+│ def5678 │ 2024-03-14   │ 1h 20m      │ Fix pagination bug in search results  │
+│ local   │ 2:15 PM      │ 128 steps   │ component that caused duplicate...    │
+└─────────┴──────────────┴─────────────┴───────────────────────────────────────┘
 Showing 2 of 150 (2/2 cached)
+```
+
+**Column Descriptions:**
+| Column | First Line | Second Line |
+|--------|------------|-------------|
+| ID | Short conversation ID | Source (`cloud` or `local`) |
+| Date | Date (YYYY-MM-DD) | Start time (HH:MM AM/PM) |
+| Duration | Duration (e.g., "35 mins", "1h 20m") | Event/step count (e.g., "46 steps") |
+| Summary | Goal description | Git refs (PRs, repos modified) |
+
+**JSON Output Fields (`-F json`):**
+```json
+[
+  {
+    "id": "abc12345def67890",
+    "source": "cloud",
+    "created_at": "2024-03-15T10:42:00+00:00",
+    "start_time": "10:42",
+    "duration_seconds": 2100,
+    "event_count": 46,
+    "goal": "Refactor authentication module..."
+  }
+]
+```
+
+| Field | Description |
+|-------|-------------|
+| `id` | Full conversation ID |
+| `source` | Source location (`cloud` or `local`) |
+| `created_at` | ISO 8601 timestamp |
+| `start_time` | Start time in HH:MM format |
+| `duration_seconds` | Duration in seconds (or `null` if unknown) |
+| `event_count` | Number of events/steps in the conversation |
+| `goal` | Extracted goal description |
+
+**Markdown Output (`-F markdown`):**
+```markdown
+- **abc1234** (2024-03-15, 10:42 AM, 35 mins, 46 steps): Refactor authentication...
+  - created user/repo/pull/42
+  - pushed user/repo
 ```
 
 **Options (Single-Conversation Mode):**

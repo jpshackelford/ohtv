@@ -192,18 +192,32 @@ class TableRenderer:
 def get_default_display_schema() -> DisplaySchema:
     """Get the default display schema for backward compatibility.
     
-    This matches the original hardcoded table format.
+    This matches the original hardcoded table format with enhanced columns for:
+    - ID + source on second line
+    - Date + time on second line  
+    - Duration + step count
+    - Summary + refs
     
     Returns:
-        DisplaySchema with ID, Date, and Summary columns
+        DisplaySchema with ID, Date, Duration, and Summary columns
     """
     # Import here to avoid circular dependency - cli.py imports from prompts/__init__.py
     # which re-exports this function, and metadata.py is part of the same package
     from ohtv.prompts.metadata import ColumnDef, FieldRef
     
     return DisplaySchema(columns=[
-        ColumnDef(name="ID", field="short_id", width=7),
-        ColumnDef(name="Date", field="created_at", format="date", width=10),
+        ColumnDef(name="ID", fields=[
+            FieldRef(field_name="short_id"),
+            FieldRef(field_name="source"),
+        ], combine="newline", width=9),
+        ColumnDef(name="Date", fields=[
+            FieldRef(field_name="created_at", format="date"),
+            FieldRef(field_name="created_at", format="time"),
+        ], combine="newline", width=12),
+        ColumnDef(name="Duration", fields=[
+            FieldRef(field_name="duration", format="duration_minutes"),
+            FieldRef(field_name="event_count", format="step_count"),
+        ], combine="newline", width=10),
         ColumnDef(name="Summary", fields=[
             FieldRef(field_name="goal"),
             FieldRef(field_name="refs_display"),

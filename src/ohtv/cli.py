@@ -4837,16 +4837,34 @@ def _format_refs_for_markdown(outputs: dict | None) -> list[str]:
 
 def _format_summary_markdown(results: list[dict], *, include_outputs: bool = True) -> str:
     """Format summary results as markdown."""
+    from ohtv.prompts.formatters import (
+        format_date,
+        format_duration_minutes,
+        format_step_count,
+        format_time,
+    )
+
     lines = []
 
     for r in results:
-        date_str = ""
-        if r["created_at"]:
-            local_time = r["created_at"].astimezone()
-            date_str = local_time.strftime("%Y-%m-%d")
+        # Use formatters from formatters.py for consistent formatting
+        date_str = format_date(r.get("created_at"))
+        time_str = format_time(r.get("created_at"))
+        duration_str = format_duration_minutes(r.get("duration"))
+        steps_str = format_step_count(r.get("event_count"))
 
-        # Format as a list item with date and goal
-        lines.append(f"- **{r['short_id']}** ({date_str}): {r['goal']}")
+        # Build metadata parts
+        meta_parts = [date_str]
+        if time_str:
+            meta_parts.append(time_str)
+        if duration_str:
+            meta_parts.append(duration_str)
+        if steps_str:
+            meta_parts.append(steps_str)
+        meta = ", ".join(meta_parts)
+
+        # Format as a list item with metadata and goal
+        lines.append(f"- **{r['short_id']}** ({meta}): {r['goal']}")
 
         # Add refs/outputs as sub-items if present
         if include_outputs and r.get("outputs"):
@@ -7491,6 +7509,9 @@ def _run_batch_objectives_analysis(
                 "short_id": conv.short_id,
                 "source": conv.source,
                 "created_at": conv.created_at,
+                "updated_at": conv.updated_at,
+                "duration": conv.duration,  # timedelta for display formatting
+                "event_count": conv.event_count,
                 "goal": display_goal or "(no goal identified)",
                 "cached": analysis_result.from_cache,
                 "conv_dir": conv_dir,
@@ -7651,10 +7672,17 @@ def _run_batch_objectives_analysis(
     if fmt == "json":
         json_results = []
         for r in results:
+            # Calculate duration_seconds from timedelta
+            duration = r.get("duration")
+            duration_seconds = int(duration.total_seconds()) if duration else None
+            
             item = {
                 "id": r["id"],
                 "source": r["source"],
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "start_time": r["created_at"].astimezone().strftime("%H:%M") if r.get("created_at") else None,
+                "duration_seconds": duration_seconds,
+                "event_count": r.get("event_count"),
                 "goal": r["goal"],
             }
             if not no_outputs and r.get("outputs"):
