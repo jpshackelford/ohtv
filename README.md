@@ -44,6 +44,9 @@ ohtv search "fix authentication bugs"
 # Ask questions about your conversations (RAG)
 ohtv ask "how did we fix the auth bug?"
 
+# Deep investigation with agent mode
+ohtv ask "explain the auth fix in detail" --agent
+
 # Customize prompts
 ohtv prompts init              # Copy prompts to ~/.ohtv/prompts/
 ohtv prompts show brief        # View a prompt
@@ -1088,6 +1091,12 @@ ohtv ask "what PRs did we create?" --model openai/gpt-4
 
 # Lower minimum score to get more context
 ohtv ask "testing strategies" --min-score 0.2
+
+# Enable multi-turn investigation mode for deeper analysis
+ohtv ask "explain the auth fix in detail" --agent
+
+# Investigation with more steps for complex questions
+ohtv ask "what went wrong with the deployment?" --agent --max-steps 10
 ```
 
 **Example Output:**
@@ -1120,9 +1129,56 @@ Search: 0.15s | Generation: 2.34s | Model: openai/gpt-4o-mini
 | `-s, --min-score N` | Minimum similarity score 0-1 (default: 0.3) |
 | `-m, --model MODEL` | LLM model for answer generation |
 | `--show-context` | Show retrieved context chunks |
+| `--agent` | Enable multi-turn investigation mode (see below) |
+| `--max-steps N` | Maximum investigation steps with `--agent` (default: 5) |
 | `-v, --verbose` | Show debug output |
 
 **Note:** Requires embeddings. Run `ohtv db embed` first.
+
+#### Investigation Mode (`--agent`)
+
+When `--agent` is enabled, the answer is enhanced through multi-turn investigation. An AI agent can use tools to examine specific conversations in detail, search for related context, and retrieve git references (PRs, issues, repos).
+
+**Available tools in investigation mode:**
+- `show_conversation` - Load and examine a specific conversation transcript
+- `search_conversations` - Search for related conversations by query
+- `get_refs` - Get git references (repos, PRs, issues) for a conversation
+
+**Example with investigation:**
+```bash
+$ ohtv ask "what specific changes were made to fix the auth bug?" --agent
+
+Searching for relevant context...
+Generating answer...
+
+🔍 Starting investigation mode...
+[Agent examines conversation abc123...]
+[Agent searches for "JWT token validation"...]
+
+Investigation complete: 3 steps, 2 conversations examined
+
+Answer (after investigation):
+
+The auth bug was fixed in conversation abc123 with these specific changes:
+
+1. In `src/auth/jwt.py` line 45: Added `if token.exp < time.time()` check
+2. Changed the exception handler to return 401 instead of re-raising as 500
+3. Added tests in `tests/auth/test_jwt.py` covering expired token scenarios
+
+The fix was pushed in PR owner/repo#42.
+
+─────────────────────────────────────────────────
+Sources (2 conversations):
+  • [abc12345] Fix JWT token validation
+  • [def56789] Debug login flow
+
+Search: 0.15s | Generation: 2.34s | Investigation: 8.52s | 🔍 agent
+```
+
+Investigation mode is useful for:
+- Questions requiring specific code details from conversations
+- Understanding the relationship between multiple conversations
+- Finding which PRs or repos were involved in a fix
 
 ---
 
