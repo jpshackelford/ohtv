@@ -207,3 +207,111 @@ class TestInvestigationAgentCreateTools:
         assert "show_conversation" in tool_names
         assert "search_conversations" in tool_names
         assert "get_refs" in tool_names
+
+
+class TestInvestigationAgentInvestigate:
+    """Integration tests for InvestigationAgent.investigate() method."""
+
+    @patch.dict('os.environ', {'LLM_API_KEY': 'test-key'})
+    @patch('ohtv.analysis.investigator.LLM')
+    def test_investigate_basic_flow_finishes_immediately(self, mock_llm_class):
+        """Test that investigate() completes successfully when LLM calls finish immediately."""
+        from ohtv.analysis.investigator import InvestigationAgent
+        
+        # Set up mock stores
+        mock_embed_store = MagicMock()
+        mock_conv_store = MagicMock()
+        
+        # Create mock LLM response with finish tool call
+        mock_tool_call = MagicMock()
+        mock_tool_call.function.name = "finish"
+        mock_tool_call.function.arguments = '{"message": "The auth bug was fixed by updating token validation."}'
+        mock_tool_call.id = "call_123"
+        
+        mock_response = MagicMock()
+        mock_response.message.tool_calls = [mock_tool_call]
+        mock_response.message.content = None
+        mock_response.metrics = MagicMock()
+        mock_response.metrics.accumulated_token_usage = MagicMock()
+        mock_response.metrics.accumulated_token_usage.prompt_tokens = 100
+        mock_response.metrics.accumulated_token_usage.completion_tokens = 50
+        mock_response.metrics.accumulated_cost = 0.002
+        
+        # Configure mock LLM instance
+        mock_llm_instance = MagicMock()
+        mock_llm_instance.completion.return_value = mock_response
+        mock_llm_class.return_value = mock_llm_instance
+        
+        # Create mock RAG answer
+        mock_rag_answer = MagicMock()
+        mock_rag_answer.answer = "Initial answer about auth bug"
+        mock_rag_answer.source_conversation_ids = set()
+        mock_rag_answer.context_chunks = []
+        
+        # Create agent and run investigation
+        agent = InvestigationAgent(
+            model="gpt-4o-mini",
+            embed_store=mock_embed_store,
+            conv_store=mock_conv_store,
+        )
+        
+        result = agent.investigate(
+            question="How did we fix the auth bug?",
+            initial_answer=mock_rag_answer,
+        )
+        
+        # Verify result
+        assert result.finished_normally is True
+        assert result.total_iterations == 1  # finish tool call counts as 1 step
+        assert "token validation" in result.final_answer
+        assert result.total_tokens == 150  # 100 + 50
+        assert result.total_cost == 0.002
+        assert result.error is None
+        assert result.initial_answer == "Initial answer about auth bug"
+        
+        # Verify LLM was called
+        mock_llm_instance.completion.assert_called_once()
+
+    @patch.dict('os.environ', {'LLM_API_KEY': 'test-key'})
+    @patch('ohtv.analysis.investigator.LLM')
+    def test_investigate_handles_loop_error_gracefully(self, mock_llm_class):
+        """Test that investigate() handles LLM errors within the loop gracefully.
+        
+        Errors within the investigation loop are logged and break the loop,
+        but don't bubble up to the outer try/except.
+        """
+        from ohtv.analysis.investigator import InvestigationAgent
+        
+        # Set up mock stores
+        mock_embed_store = MagicMock()
+        mock_conv_store = MagicMock()
+        
+        # Configure mock LLM to raise an exception
+        mock_llm_instance = MagicMock()
+        mock_llm_instance.completion.side_effect = RuntimeError("LLM API error")
+        mock_llm_class.return_value = mock_llm_instance
+        
+        # Create mock RAG answer
+        mock_rag_answer = MagicMock()
+        mock_rag_answer.answer = "Initial answer about auth bug"
+        mock_rag_answer.source_conversation_ids = set()
+        mock_rag_answer.context_chunks = []
+        
+        # Create agent and run investigation
+        agent = InvestigationAgent(
+            model="gpt-4o-mini",
+            embed_store=mock_embed_store,
+            conv_store=mock_conv_store,
+        )
+        
+        result = agent.investigate(
+            question="How did we fix the auth bug?",
+            initial_answer=mock_rag_answer,
+        )
+        
+        # Verify the investigation didn't finish normally
+        assert result.finished_normally is False
+        # Error is logged in investigation_steps, not in error field
+        assert any("Error: LLM API error" in step for step in result.investigation_steps)
+        # Investigation returned the fallback message (not a real answer)
+        assert "iteration limit" in result.final_answer.lower() or "partial findings" in result.final_answer.lower()
