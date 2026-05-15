@@ -52,11 +52,26 @@ display:
   table:
     columns:
       - name: ID
-        field: short_id
-        width: 7
+        fields:
+          - short_id
+          - source
+        combine: newline
+        width: 9
       - name: Date
-        field: created_at
-        format: date
+        fields:
+          - field: created_at
+            format: date
+          - field: created_at
+            format: time
+        combine: newline
+        width: 12
+      - name: Duration
+        fields:
+          - field: duration
+            format: duration_minutes
+          - field: event_count
+            format: step_count
+        combine: newline
         width: 10
       - name: Status
         field: status
