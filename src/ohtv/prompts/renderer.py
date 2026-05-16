@@ -196,7 +196,7 @@ def get_default_display_schema() -> DisplaySchema:
     - ID + source on second line
     - Date + time on second line  
     - Duration + step count
-    - Summary + refs
+    - Summary + refs + labels
     
     Returns:
         DisplaySchema with ID, Date, Duration, and Summary columns
@@ -221,5 +221,6 @@ def get_default_display_schema() -> DisplaySchema:
         ColumnDef(name="Summary", fields=[
             FieldRef(field_name="goal"),
             FieldRef(field_name="refs_display"),
+            FieldRef(field_name="labels_display"),
         ], combine="newline"),
     ])

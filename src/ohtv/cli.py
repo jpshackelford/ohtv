@@ -1774,6 +1774,7 @@ def _apply_conversation_filters(
     pr_filter: str | None = None,
     repo_filter: str | None = None,
     action_filter: str | None = None,
+    label_filter: str | None = None,
     include_empty: bool = False,
     initial_show_all: bool = False,
     errors_only: bool = False,
@@ -1789,6 +1790,7 @@ def _apply_conversation_filters(
         pr_filter: PR reference filter (URL, FQN, or short name)
         repo_filter: Repository filter (URL, FQN, or name)
         action_filter: Action type filter (e.g., "git-push", "pushed")
+        label_filter: Label filter in key=value format
         include_empty: Include conversations with 0 events
         initial_show_all: Initial value for show_all flag
         errors_only: Only include conversations with agent/LLM errors
@@ -1799,7 +1801,7 @@ def _apply_conversation_filters(
     show_all = initial_show_all
     
     # Any filter implies --all (show all matching records)
-    if any([since, until, pr_filter, repo_filter, action_filter, errors_only]):
+    if any([since, until, pr_filter, repo_filter, action_filter, label_filter, errors_only]):
         show_all = True
     
     # Load conversations from both sources, with date filtering pushed to DB
@@ -1828,6 +1830,10 @@ def _apply_conversation_filters(
     # Apply repo filtering (requires database) - only if not already combined with action
     if repo_filter is not None:
         conversations = _filter_by_repo(conversations, repo_filter)
+    
+    # Apply label filtering (requires database)
+    if label_filter is not None:
+        conversations = _filter_by_label(config, conversations, label_filter)
     
     # Apply error filtering
     if errors_only:
@@ -1945,6 +1951,63 @@ def _filter_by_action(
         
         console.print(f"[dim]Filtering by action '{action_type}': {len(conversation_ids)} matches[/dim]")
         return filter_conversations_by_ids(conversations, conversation_ids), set()
+
+
+def _filter_by_label(
+    config: Config,
+    conversations: list[ConversationInfo],
+    label_filter: str,
+) -> list[ConversationInfo]:
+    """Filter conversations by label (key=value format).
+    
+    Args:
+        config: Application configuration
+        conversations: List of conversations to filter
+        label_filter: Filter string in "key=value" format
+        
+    Returns:
+        Filtered list of conversations matching the label
+    """
+    from ohtv.db import get_connection, get_db_path, migrate
+    from ohtv.db.stores import ConversationStore
+    from ohtv.filters import filter_conversations_by_ids
+    
+    # Parse label filter
+    if "=" not in label_filter:
+        console.print(f"[red]Error:[/red] Label filter must be in 'key=value' format, got: {label_filter}")
+        return []
+    
+    key, value = label_filter.split("=", 1)
+    key = key.strip()
+    value = value.strip()
+    
+    if not key or not value:
+        console.print(f"[red]Error:[/red] Label filter must have non-empty key and value: {label_filter}")
+        return []
+    
+    db_path = get_db_path()
+    if not db_path.exists():
+        console.print("[yellow]Warning:[/yellow] Database not initialized. Run 'ohtv db scan' first.")
+        console.print("[dim]Label filtering requires indexed conversations.[/dim]")
+        return []
+    
+    try:
+        with get_connection(config) as conn:
+            migrate(conn)
+            store = ConversationStore(conn)
+            matching = store.list_by_label(key, value)
+            
+            if not matching:
+                console.print(f"[dim]No conversations found with label {key}={value}[/dim]")
+                return []
+            
+            matching_ids = {c.id for c in matching}
+            console.print(f"[dim]Filtering by label {key}={value}: {len(matching_ids)} matches[/dim]")
+            
+            return filter_conversations_by_ids(conversations, matching_ids)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] Failed to filter by label: {e}")
+        return []
 
 
 def _count_uncached_conversations_fast(
@@ -2142,6 +2205,7 @@ def _populate_error_info(
 @click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
 @click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
 @click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
+@click.option("--label", "-L", "label_filter", help="Filter by label (key=value)")
 @click.option("--no-refs", "hide_refs", is_flag=True, help="Hide git refs (shown by default)")
 @click.option("--idle", "idle_minutes", type=int, default=None, is_flag=False, flag_value=7,
               help="Show Idle column (minutes since last event). Colorized: red if < MINS (default: 7), green if >= MINS")
@@ -2163,6 +2227,7 @@ def list_conversations(
     pr_filter: str | None,
     repo_filter: str | None,
     action_filter: str | None,
+    label_filter: str | None,
     hide_refs: bool,
     idle_minutes: int | None,
     with_errors: bool,
@@ -2184,6 +2249,7 @@ def list_conversations(
         pr_filter=pr_filter,
         repo_filter=repo_filter,
         action_filter=action_filter,
+        label_filter=label_filter,
         include_empty=include_empty,
         initial_show_all=show_all,
         errors_only=errors_only,
@@ -4930,6 +4996,36 @@ def _format_refs_for_summary(outputs: dict | None) -> list[str]:
     return lines
 
 
+def _format_labels_for_summary(labels: dict[str, str] | None) -> str:
+    """Format labels for display in summary table.
+
+    Returns a formatted string like: "project=SDK, status=WIP"
+    Returns empty string if no labels.
+    """
+    if not labels:
+        return ""
+
+    parts = [f"{k}={v}" for k, v in sorted(labels.items())]
+    return "[magenta]Labels:[/magenta] " + ", ".join(parts)
+
+
+def _get_conversation_labels(config: "Config", conv_id: str) -> dict[str, str] | None:
+    """Fetch labels for a conversation from the database."""
+    from ohtv.db import get_connection
+    from ohtv.db.stores import ConversationStore
+
+    # Normalize ID (remove dashes)
+    normalized_id = conv_id.replace("-", "")
+
+    try:
+        with get_connection(config) as conn:
+            store = ConversationStore(conn)
+            conv = store.get(normalized_id)
+            return conv.labels if conv else None
+    except Exception:
+        return None
+
+
 def _print_summary_table(
     results: list[dict],
     total_count: int,
@@ -4954,13 +5050,17 @@ def _print_summary_table(
     # Use display schema if provided, otherwise fall back to default
     schema = display_schema if display_schema and display_schema.columns else get_default_display_schema()
     
-    # Add refs/outputs to results if needed (for default schema with Summary column)
+    # Add refs/outputs and labels to results if needed (for default schema with Summary column)
     if include_outputs:
         for r in results:
             if r.get("outputs"):
                 # Store formatted refs in result for display schema access
                 ref_lines = _format_refs_for_summary(r["outputs"])
                 r["refs_display"] = "\n".join(ref_lines) if ref_lines else ""
+            
+            # Format labels if present
+            if r.get("labels"):
+                r["labels_display"] = _format_labels_for_summary(r.get("labels"))
     
     # Use TableRenderer for schema-based rendering
     renderer = TableRenderer(schema, console=console)
@@ -5058,6 +5158,11 @@ def _format_summary_markdown(results: list[dict], *, include_outputs: bool = Tru
         if include_outputs and r.get("outputs"):
             ref_lines = _format_refs_for_markdown(r["outputs"])
             lines.extend(ref_lines)
+        
+        # Add labels as sub-item if present
+        if r.get("labels"):
+            labels_str = ", ".join(f"{k}={v}" for k, v in sorted(r["labels"].items()))
+            lines.append(f"  - Labels: {labels_str}")
 
     return "\n".join(lines)
 
@@ -7692,6 +7797,9 @@ def _run_batch_objectives_analysis(
                 elif analysis.primary_objectives:
                     display_goal = analysis.primary_objectives[0].description
             
+            # Fetch labels from database
+            labels = _get_conversation_labels(config, conv.id)
+            
             # Build result dict with all analysis fields for display schema rendering
             result_dict = {
                 "id": conv.id,
@@ -7719,6 +7827,8 @@ def _run_batch_objectives_analysis(
                 "summary": analysis.summary,
                 "detail_level": analysis.detail_level,
                 "assess": analysis.assess,
+                # Labels from cloud API
+                "labels": labels,
             }
             return result_dict, None, analysis_result.cost, analysis_result.from_cache
         except (ValueError, RuntimeError) as e:
@@ -7904,6 +8014,9 @@ def _run_batch_objectives_analysis(
                 }
                 if unpushed:
                     item["unpushed_commits"] = sorted(unpushed)
+            # Include labels if present
+            if r.get("labels"):
+                item["labels"] = r["labels"]
             json_results.append(item)
         print(json.dumps(json_results, indent=2))
     elif fmt == "markdown":

@@ -1,5 +1,6 @@
 """Data store for conversations."""
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 
@@ -12,7 +13,7 @@ class ConversationStore:
     # All columns for SELECT queries
     _ALL_COLUMNS = """
         id, location, registered_at, events_mtime, event_count,
-        title, created_at, updated_at, selected_repository, source, summary
+        title, created_at, updated_at, selected_repository, source, summary, labels
     """
     
     def __init__(self, conn: sqlite3.Connection):
@@ -39,6 +40,15 @@ class ConversationStore:
         except (IndexError, KeyError):
             pass
         
+        # Handle labels column gracefully - may not exist in older databases
+        labels = None
+        try:
+            labels_json = row["labels"]
+            if labels_json:
+                labels = json.loads(labels_json)
+        except (IndexError, KeyError, json.JSONDecodeError):
+            pass
+        
         return Conversation(
             id=row["id"],
             location=row["location"],
@@ -51,6 +61,7 @@ class ConversationStore:
             selected_repository=row["selected_repository"],
             source=row["source"],
             summary=summary,
+            labels=labels,
         )
     
     def upsert(self, conversation: Conversation) -> None:
@@ -63,14 +74,15 @@ class ConversationStore:
         registered_at_str = registered_at.isoformat() if registered_at else None
         created_at_str = conversation.created_at.isoformat() if conversation.created_at else None
         updated_at_str = conversation.updated_at.isoformat() if conversation.updated_at else None
+        labels_json = json.dumps(conversation.labels) if conversation.labels else None
         
         self.conn.execute(
             """
             INSERT INTO conversations (
                 id, location, registered_at, events_mtime, event_count,
-                title, created_at, updated_at, selected_repository, source, summary
+                title, created_at, updated_at, selected_repository, source, summary, labels
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 location = excluded.location,
                 events_mtime = excluded.events_mtime,
@@ -80,7 +92,8 @@ class ConversationStore:
                 updated_at = excluded.updated_at,
                 selected_repository = excluded.selected_repository,
                 source = excluded.source,
-                summary = COALESCE(excluded.summary, conversations.summary)
+                summary = COALESCE(excluded.summary, conversations.summary),
+                labels = COALESCE(excluded.labels, conversations.labels)
             """,
             (
                 conversation.id,
@@ -94,6 +107,7 @@ class ConversationStore:
                 conversation.selected_repository,
                 conversation.source,
                 conversation.summary,
+                labels_json,
             ),
         )
     
@@ -216,3 +230,47 @@ class ConversationStore:
             f"SELECT {self._ALL_COLUMNS} FROM conversations WHERE summary IS NULL"
         )
         return [self._row_to_conversation(row) for row in cursor.fetchall()]
+    
+    def list_by_label(self, key: str, value: str) -> list[Conversation]:
+        """List conversations with a specific label key=value.
+        
+        Args:
+            key: Label key to filter by
+            value: Label value to match
+            
+        Returns:
+            List of matching conversations, ordered by created_at descending
+        """
+        cursor = self.conn.execute(
+            f"""
+            SELECT {self._ALL_COLUMNS}
+            FROM conversations
+            WHERE json_extract(labels, ?) = ?
+            ORDER BY created_at DESC
+            """,
+            (f"$.{key}", value),
+        )
+        return [self._row_to_conversation(row) for row in cursor.fetchall()]
+    
+    def list_with_labels(self) -> list[Conversation]:
+        """List conversations that have labels.
+        
+        Returns:
+            List of conversations with labels, ordered by created_at descending
+        """
+        cursor = self.conn.execute(
+            f"""
+            SELECT {self._ALL_COLUMNS}
+            FROM conversations
+            WHERE labels IS NOT NULL AND labels != '{{}}'
+            ORDER BY created_at DESC
+            """
+        )
+        return [self._row_to_conversation(row) for row in cursor.fetchall()]
+    
+    def count_with_labels(self) -> int:
+        """Return count of conversations that have labels populated."""
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM conversations WHERE labels IS NOT NULL AND labels != '{}'"
+        )
+        return cursor.fetchone()[0]
