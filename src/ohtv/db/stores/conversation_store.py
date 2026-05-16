@@ -93,7 +93,7 @@ class ConversationStore:
                 selected_repository = excluded.selected_repository,
                 source = excluded.source,
                 summary = COALESCE(excluded.summary, conversations.summary),
-                labels = COALESCE(excluded.labels, conversations.labels)
+                labels = excluded.labels
             """,
             (
                 conversation.id,

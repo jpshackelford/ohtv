@@ -69,7 +69,8 @@ def load_manifest_labels() -> dict[str, dict[str, str]]:
     
     Returns:
         Dict mapping conversation ID to labels dict.
-        Only includes conversations that have labels.
+        Includes all conversations (empty dict for those without labels)
+        so that label removal can propagate from cloud to database.
     """
     manifest_path = get_manifest_path()
     if not manifest_path.exists():
@@ -81,8 +82,9 @@ def load_manifest_labels() -> dict[str, dict[str, str]]:
         labels_map = {}
         for conv_id, conv_data in conversations.items():
             labels = conv_data.get("labels")
-            if labels and isinstance(labels, dict) and len(labels) > 0:
-                labels_map[conv_id] = labels
+            # Include all conversations, even those with null/empty labels
+            # This ensures label removal propagates from cloud to database
+            labels_map[conv_id] = labels if (labels and isinstance(labels, dict)) else {}
         return labels_map
     except (json.JSONDecodeError, OSError):
         return {}
@@ -138,10 +140,14 @@ def extract_metadata(conv_path: Path, source: str, labels_map: dict[str, dict[st
         title = _get_title_from_first_user_message(conv_path)
     
     # Get labels from manifest (for cloud conversations)
+    # Empty dict {} means labels were explicitly removed; convert to None for storage
     labels = None
     if labels_map:
         conv_id = conv_path.name
-        labels = labels_map.get(conv_id)
+        manifest_labels = labels_map.get(conv_id)
+        # {} from manifest means no labels (explicit removal), store as None
+        # dict with content means real labels
+        labels = manifest_labels if manifest_labels else None
     
     return {
         "title": title,

@@ -277,6 +277,85 @@ class TestConversationInfoModel:
         assert conv.labels is None
 
 
+class TestLabelRemoval:
+    """Tests for label removal synchronization."""
+
+    @pytest.fixture
+    def db_conn(self):
+        """Create an in-memory database with schema."""
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+
+        conn.execute("""
+            CREATE TABLE conversations (
+                id TEXT PRIMARY KEY,
+                location TEXT NOT NULL,
+                registered_at TEXT,
+                events_mtime REAL,
+                event_count INTEGER DEFAULT 0,
+                title TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                selected_repository TEXT,
+                source TEXT,
+                summary TEXT,
+                labels TEXT
+            )
+        """)
+        conn.commit()
+        yield conn
+        conn.close()
+
+    def test_upsert_removes_labels_when_set_to_none(self, db_conn):
+        """Upserting with labels=None should remove existing labels."""
+        store = ConversationStore(db_conn)
+
+        # Insert with labels
+        store.upsert(Conversation(
+            id="conv1",
+            location="/path/1",
+            labels={"project": "SDK"},
+        ))
+
+        # Verify labels exist
+        conv = store.get("conv1")
+        assert conv.labels == {"project": "SDK"}
+
+        # Update with labels=None (simulating removal in cloud)
+        store.upsert(Conversation(
+            id="conv1",
+            location="/path/1",
+            labels=None,
+        ))
+
+        # Labels should be removed
+        conv = store.get("conv1")
+        assert conv.labels is None
+
+    def test_upsert_replaces_labels_completely(self, db_conn):
+        """Upserting should replace labels, not merge them."""
+        store = ConversationStore(db_conn)
+
+        # Insert with multiple labels
+        store.upsert(Conversation(
+            id="conv1",
+            location="/path/1",
+            labels={"project": "SDK", "status": "WIP"},
+        ))
+
+        # Update with different labels
+        store.upsert(Conversation(
+            id="conv1",
+            location="/path/1",
+            labels={"team": "AI"},
+        ))
+
+        # Labels should be completely replaced
+        conv = store.get("conv1")
+        assert conv.labels == {"team": "AI"}
+        assert "project" not in conv.labels
+
+
 class TestLabelFilterParsing:
     """Tests for label filter string parsing."""
 
