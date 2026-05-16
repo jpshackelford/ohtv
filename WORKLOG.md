@@ -940,37 +940,50 @@ Assessed 5 unprioritized ready issues and applied labels:
 
 ---
 
+### 2026-05-16 01:53 UTC - Merge Worker
+
+✅ **Merged PR #66 - fix: auto-promote context level for worker conversations**
+
+- PR: [#66](https://github.com/jpshackelford/ohtv/pull/66)
+- Merge commit: `32498ac`
+- Closes: #59
+
+**Summary:** Fixed worker conversations (orchestrator-spawned) being incorrectly marked as "no_analyzable_content" in batch mode. These conversations have no user messages but do have meaningful actions - the ~85% skip rate is now resolved.
+
+**Changes merged:**
+- Added `_has_action_events()` helper to detect agent ActionEvents
+- Added auto-promotion logic: minimal → default → full when transcript empty
+- 10 new unit tests (5 for helper, 5 for auto-promotion)
+
+**Test coverage:** All 1018 tests passing. Manual testing verified on real worker conversation.
+
+**Review threads resolved:**
+- Cache efficiency suggestion: Declined for this PR (edge case optimization - will address in follow-up if needed)
+- Ruff dependency note: Acknowledged as unrelated cleanup
+
+---
+
 ### 2026-05-16 01:51 UTC - Orchestrator
 
 **Active Workers:**
 | Conv ID | Type | Working On | Status |
 |---------|------|------------|--------|
-| `2cdf216` | merge | PR #66 - Auto-promote context level | **NEW** |
+| `2cdf216` | merge | PR #66 - Auto-promote context level | ✅ DONE |
 
-🚀 **Spawned: Merge Worker**
-- PR: [#66 - fix: auto-promote context level for worker conversations](https://github.com/jpshackelford/ohtv/pull/66)
-- Fixes: #59
-- Conversation: [`2cdf216`](https://app.all-hands.dev/conversations/2cdf216f21db46f1b02048789260db10)
-- Reason: PR meets all merge criteria
-
-**PR #66 Merge Criteria:**
-- ✅ CI: SUCCESS (pr-review passed)
-- ✅ State: Ready (not draft)
-- ✅ Mergeable: CLEAN
-- ✅ Review: "Acceptable" with "✅ Worth merging" verdict
-- ✅ Manual Testing: Results posted (all 6 test categories passed)
-- ⚠️ 2 unresolved review threads (suggestions/notes - not blockers)
+**Previous Workers Completed:**
+- `dc89d02` (testing PR #66): finished ✓ - Manual test results posted
+- `2cdf216` (merge PR #66): finished ✓ - PR #66 merged
 
 **Current State:**
-- [PR #66](https://github.com/jpshackelford/ohtv/pull/66): Merge in progress
+- [PR #66](https://github.com/jpshackelford/ohtv/pull/66): **MERGED** ✅
 - [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
 - Issues needing expansion: None 🎉
 - Ready issues by priority:
-  - MEDIUM: #35, #57, #59 (has PR), #60
+  - MEDIUM: #35, #57, #60
   - LOW: #46, #53, #58, #64
 
 **Slots:**
-- 🚀 PR slot: Occupied (merge worker for PR #66)
+- 🚀 PR slot: Available (PR #66 merged)
 - ⏳ Expansion slot: Idle (no issues to expand)
 
 ---
