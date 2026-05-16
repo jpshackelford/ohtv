@@ -669,3 +669,39 @@
 - 📖 Expansion slot: Idle (no issues to expand)
 
 ---
+### 2026-05-16 13:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `23efa12` | re-testing | PR #73 - Fix conversation labels bugs | **NEW** |
+
+**Previous Workers Completed:**
+- `339ee91` (review PR #73): finished ✓ - Pushed fix commits for get_connection() bugs
+
+**Spawned: Re-Testing Worker**
+- PR: [#73 - feat: Add conversation labels to gen objs display](https://github.com/jpshackelford/ohtv/pull/73)
+- Conversation: [`23efa12`](https://app.all-hands.dev/conversations/23efa12601fe4243a58e85365c6b83d0)
+- Reason: Code changes after previous test - review worker pushed fixes:
+  - `49118ed` - fix: correct get_connection() calls and add --label option
+  - `ee735a8` - fix: enable label removal propagation
+
+**PR #73 State:**
+- CI: ✅ green
+- Docs: ✅ Updated
+- Manual Tests: ❌ Outdated (6/11 failed, but fixes pushed since)
+- Unresolved Threads: 3 (from initial review)
+
+**Current State:**
+- [PR #73](https://github.com/jpshackelford/ohtv/pull/73): Re-testing after fixes
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - human-authored)
+- Issues needing expansion: None 🎉
+- Ready issues by priority:
+  - MEDIUM: #35 (has draft PR #36)
+  - LOW: #53 (has PR #73), #58
+
+**Slots:**
+- 🧪 PR slot: Occupied (re-testing worker for PR #73)
+- 📖 Expansion slot: Idle (no issues to expand)
+
+---
