@@ -7832,6 +7832,14 @@ def _run_batch_objectives_analysis(
     if quiet:
         return
 
+    # Sort results by created_at to restore expected order (newest first by default)
+    # Parallel processing returns results in completion order, not input order
+    results = sorted(
+        results,
+        key=lambda r: _normalize_datetime_for_sort(r.get("created_at")),
+        reverse=not reverse,
+    )
+
     # Extract outputs for each conversation if needed
     if not no_outputs:
         for r in results:
