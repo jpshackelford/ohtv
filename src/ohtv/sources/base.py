@@ -22,6 +22,8 @@ class ConversationInfo:
     error_types: dict[str, int] | None = None  # ErrorType name -> count
     has_terminal_error: bool | None = None
     execution_status: str | None = None  # From base_state.json
+    # Cloud-sourced labels (key=value pairs from API tags field)
+    labels: dict[str, str] | None = None
 
     @property
     def duration(self) -> timedelta | None:

@@ -201,12 +201,17 @@ class RateLimitExceededError(Exception):
 
 def parse_conversation_info(data: dict) -> ConversationInfo:
     """Parse API response into ConversationInfo."""
+    # Parse tags - API returns dict[str, str] or empty dict
+    tags = data.get("tags")
+    labels = tags if tags and isinstance(tags, dict) else None
+    
     return ConversationInfo(
         id=data["id"],
         title=data.get("title"),
         created_at=_parse_datetime(data.get("created_at")),
         updated_at=_parse_datetime(data.get("updated_at")),
         selected_repository=data.get("selected_repository"),
+        labels=labels,
     )
 
 

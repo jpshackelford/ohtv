@@ -20,6 +20,7 @@ class Conversation:
         selected_repository: Repository selected for this conversation
         source: Source identifier ('local', 'cloud', or custom name)
         summary: Brief summary of conversation goal/objective (for RAG)
+        labels: Cloud-sourced labels/tags (key=value pairs from API)
     """
     id: str
     location: str
@@ -32,3 +33,4 @@ class Conversation:
     selected_repository: str | None = None
     source: str | None = None
     summary: str | None = None
+    labels: dict[str, str] | None = None

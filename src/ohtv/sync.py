@@ -515,11 +515,16 @@ class SyncManager:
         conv_dir: Path,
     ) -> None:
         """Update the manifest with new conversation info."""
+        # Extract labels/tags from API response (may be empty dict or None)
+        tags = conv.get("tags")
+        labels = tags if tags and isinstance(tags, dict) and len(tags) > 0 else None
+        
         self.manifest.conversations[conv_id] = {
             "title": conv.get("title"),
             "updated_at": cloud_updated_at,
             "event_count": count_events(conv_dir),
             "downloaded_at": _format_datetime(datetime.now(timezone.utc)),
+            "labels": labels,
         }
 
     def _update_result(self, result: SyncResult, action: str) -> None:

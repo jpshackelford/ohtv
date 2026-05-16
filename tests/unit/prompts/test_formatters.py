@@ -290,8 +290,8 @@ class TestDefaultDisplaySchema:
         assert field_refs[1].format == "step_count"
         assert duration_col.combine == "newline"
     
-    def test_summary_column_has_goal_and_refs(self):
-        """Test Summary column has goal and refs_display fields."""
+    def test_summary_column_has_goal_refs_and_labels(self):
+        """Test Summary column has goal, refs_display, and labels_display fields."""
         from ohtv.prompts.renderer import get_default_display_schema
         
         schema = get_default_display_schema()
@@ -299,9 +299,10 @@ class TestDefaultDisplaySchema:
         
         assert summary_col is not None
         field_refs = summary_col.get_field_refs()
-        assert len(field_refs) == 2
+        assert len(field_refs) == 3
         assert field_refs[0].field_name == "goal"
         assert field_refs[1].field_name == "refs_display"
+        assert field_refs[2].field_name == "labels_display"
     
     def test_table_renderer_with_new_schema(self):
         """Test TableRenderer can render with the new schema."""

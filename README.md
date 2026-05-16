@@ -127,6 +127,11 @@ ohtv list --action open-pr          # Conversations that opened PRs
 # Combine action + repo for precise filtering
 ohtv list --action pushed --repo OpenPaw  # Pushed specifically to OpenPaw
 
+# Filter by label (cloud API tags)
+ohtv list --label project=SDK            # Conversations with label project=SDK
+ohtv list -L status=WIP                  # Short form
+ohtv list --label team=AI --repo OpenPaw # Combine with other filters
+
 # Show idle time instead of duration (for orchestration)
 ohtv list --idle                  # Default: 7 min threshold
 ohtv list --idle 15               # Custom: 15 min threshold
@@ -153,6 +158,7 @@ ohtv list --no-refs               # Refs shown by default
 | `--pr PATTERN` | Filter by PR reference (URL, `owner/repo#N`, or `repo#N`) |
 | `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
 | `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`, `git-commit`) |
+| `-L, --label KEY=VALUE` | Filter by label (cloud API tags in `key=value` format) |
 | `--idle [MINS]` | Show Idle column (time since last event). Colorized: red if < MINS (default: 7), green if >= MINS |
 | `--no-refs` | Hide git refs from title (refs shown by default) |
 | `-E, --with-errors` | Include error info column (agent/LLM errors) |
@@ -169,7 +175,7 @@ ohtv list --no-refs               # Refs shown by default
 | `merged`, `merge` | `merge-pr` |
 | `ci`, `checks` | `check-ci` |
 
-**Note:** PR, repo, and action filters require the database to be indexed. Run `ohtv db scan && ohtv db process all` first.
+**Note:** PR, repo, action, and label filters require the database to be indexed. Run `ohtv db scan && ohtv db process all` first. Labels are stored from the cloud API during `ohtv sync`.
 
 ---
 
@@ -550,7 +556,7 @@ Showing 2 of 150 (2/2 cached)
 | ID | Short conversation ID | Source (`cloud` or `local`) |
 | Date | Date (YYYY-MM-DD) | Start time (HH:MM AM/PM) |
 | Duration | Duration (e.g., "35 mins", "1h 20m") | Event/step count (e.g., "46 steps") |
-| Summary | Goal description | Git refs (PRs, repos modified) |
+| Summary | Goal description | Git refs (PRs, repos modified), labels (if present) |
 
 **JSON Output Fields (`-F json`):**
 ```json
@@ -562,7 +568,8 @@ Showing 2 of 150 (2/2 cached)
     "start_time": "10:42",
     "duration_seconds": 2100,
     "event_count": 46,
-    "goal": "Refactor authentication module..."
+    "goal": "Refactor authentication module...",
+    "labels": {"project": "SDK", "status": "WIP"}
   }
 ]
 ```
@@ -576,12 +583,14 @@ Showing 2 of 150 (2/2 cached)
 | `duration_seconds` | Duration in seconds (or `null` if unknown) |
 | `event_count` | Number of events/steps in the conversation |
 | `goal` | Extracted goal description |
+| `labels` | Cloud-sourced labels/tags as key-value pairs (if present) |
 
 **Markdown Output (`-F markdown`):**
 ```markdown
 - **abc1234** (2024-03-15, 10:42 AM, 35 mins, 46 steps): Refactor authentication...
   - created user/repo/pull/42
   - pushed user/repo
+  - Labels: project=SDK, status=WIP
 ```
 
 **Options (Single-Conversation Mode):**
@@ -610,6 +619,7 @@ Showing 2 of 150 (2/2 cached)
 | `--pr PATTERN` | Filter by PR reference (URL, `owner/repo#N`, or `repo#N`) |
 | `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
 | `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`) |
+| `-L, --label KEY=VALUE` | Filter by label (cloud API tags in `key=value` format) |
 | `--reverse` | Show oldest first |
 | `-r, --refresh` | Force re-analysis (refresh cache) |
 | `-m, --model` | LLM model to use |

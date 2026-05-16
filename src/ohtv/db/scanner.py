@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable
 import logging
 
-from ohtv.config import Config, get_openhands_dir
+from ohtv.config import Config, get_openhands_dir, get_manifest_path
 from ohtv.db.models import Conversation
 from ohtv.db.stores import ConversationStore
 from ohtv.db.utils import generate_unique_source_names
@@ -64,15 +64,42 @@ def discover_conversations(base_dir: Path, source: str) -> list[tuple[str, Path,
     return conversations
 
 
-def extract_metadata(conv_path: Path, source: str) -> dict:
+def load_manifest_labels() -> dict[str, dict[str, str]]:
+    """Load labels from sync manifest.
+    
+    Returns:
+        Dict mapping conversation ID to labels dict.
+        Includes all conversations (empty dict for those without labels)
+        so that label removal can propagate from cloud to database.
+    """
+    manifest_path = get_manifest_path()
+    if not manifest_path.exists():
+        return {}
+    
+    try:
+        data = json.loads(manifest_path.read_text())
+        conversations = data.get("conversations", {})
+        labels_map = {}
+        for conv_id, conv_data in conversations.items():
+            labels = conv_data.get("labels")
+            # Include all conversations, even those with null/empty labels
+            # This ensures label removal propagates from cloud to database
+            labels_map[conv_id] = labels if (labels and isinstance(labels, dict)) else {}
+        return labels_map
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def extract_metadata(conv_path: Path, source: str, labels_map: dict[str, dict[str, str]] | None = None) -> dict:
     """Extract metadata from a conversation directory.
     
     Args:
         conv_path: Path to conversation directory
         source: Source identifier ('local' or 'cloud')
+        labels_map: Optional pre-loaded labels from manifest (keyed by conversation ID)
     
     Returns:
-        Dict with title, created_at, updated_at, selected_repository
+        Dict with title, created_at, updated_at, selected_repository, labels
     """
     timestamps_are_utc = source != "local"
     
@@ -112,11 +139,22 @@ def extract_metadata(conv_path: Path, source: str) -> dict:
     if not title:
         title = _get_title_from_first_user_message(conv_path)
     
+    # Get labels from manifest (for cloud conversations)
+    # Empty dict {} means labels were explicitly removed; convert to None for storage
+    labels = None
+    if labels_map:
+        conv_id = conv_path.name
+        manifest_labels = labels_map.get(conv_id)
+        # {} from manifest means no labels (explicit removal), store as None
+        # dict with content means real labels
+        labels = manifest_labels if manifest_labels else None
+    
     return {
         "title": title,
         "created_at": created_at,
         "updated_at": updated_at,
         "selected_repository": selected_repository,
+        "labels": labels,
     }
 
 
@@ -229,6 +267,9 @@ def scan_conversations(
     store = ConversationStore(conn)
     openhands_dir = get_openhands_dir()
     
+    # Load labels from manifest (for cloud conversations)
+    labels_map = load_manifest_labels()
+    
     # Discover from both local CLI and synced cloud locations
     local_dir = openhands_dir / "conversations"
     cloud_dir = openhands_dir / "cloud" / "conversations"
@@ -270,7 +311,7 @@ def scan_conversations(
         
         if existing is None:
             # New conversation - extract metadata
-            metadata = extract_metadata(conv_path, source)
+            metadata = extract_metadata(conv_path, source, labels_map)
             store.upsert(Conversation(
                 id=conv_id,
                 location=str(conv_path),
@@ -281,11 +322,12 @@ def scan_conversations(
                 updated_at=metadata["updated_at"],
                 selected_repository=metadata["selected_repository"],
                 source=source,
+                labels=metadata.get("labels"),
             ))
             new_count += 1
         elif force or _has_changed(existing, current_mtime, current_count):
             # Changed or forced update - re-extract metadata
-            metadata = extract_metadata(conv_path, source)
+            metadata = extract_metadata(conv_path, source, labels_map)
             store.upsert(Conversation(
                 id=conv_id,
                 location=str(conv_path),
@@ -297,6 +339,7 @@ def scan_conversations(
                 updated_at=metadata["updated_at"],
                 selected_repository=metadata["selected_repository"],
                 source=source,
+                labels=metadata.get("labels"),
             ))
             updated_count += 1
         else:
@@ -350,6 +393,9 @@ def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
     store = ConversationStore(conn)
     openhands_dir = get_openhands_dir()
     
+    # Load labels from manifest (for cloud conversations)
+    labels_map = load_manifest_labels()
+    
     local_dir = openhands_dir / "conversations"
     cloud_dir = openhands_dir / "cloud" / "conversations"
     
@@ -368,7 +414,7 @@ def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
         existing = store.get(conv_id)
         
         if existing is None or _has_changed(existing, current_mtime, current_count):
-            metadata = extract_metadata(conv_path, source)
+            metadata = extract_metadata(conv_path, source, labels_map)
             changed.append(Conversation(
                 id=conv_id,
                 location=str(conv_path),
@@ -379,6 +425,7 @@ def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
                 updated_at=metadata["updated_at"],
                 selected_repository=metadata["selected_repository"],
                 source=source,
+                labels=metadata.get("labels"),
             ))
     
     return changed
