@@ -1570,6 +1570,48 @@ def _parse_date_option(value: str | None) -> datetime | None:
         raise click.BadParameter(f"Invalid date format: {value}")
 
 
+def _parse_numeric_lookback(value: str | None) -> int | None:
+    """Return integer if value is purely numeric and positive, None otherwise."""
+    if value is None:
+        return None
+    try:
+        n = int(value)
+        return n if n > 0 else None
+    except ValueError:
+        return None
+
+
+def _get_day_lookback_bounds(n: int) -> tuple[datetime, datetime]:
+    """Get bounds for last N days (including today).
+    
+    Args:
+        n: Number of days to look back (1 = today only)
+    
+    Returns:
+        Tuple of (start, end) datetime objects
+    """
+    now = datetime.now()
+    end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    start = (now - timedelta(days=n - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start, end
+
+
+def _get_week_lookback_bounds(n: int) -> tuple[datetime, datetime]:
+    """Get bounds for last N weeks (including current week).
+    
+    Args:
+        n: Number of weeks to look back (1 = current week only)
+    
+    Returns:
+        Tuple of (start, end) datetime objects
+    """
+    now = datetime.now()
+    end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    # Go back n-1 weeks to get start of week n weeks ago
+    week_start, _ = _get_week_bounds(now - timedelta(weeks=n - 1))
+    return week_start, end
+
+
 def _get_week_bounds(date: datetime) -> tuple[datetime, datetime]:
     """Get the start (Sunday) and end (Saturday) of the week containing the date."""
     # weekday() returns 0=Monday, 6=Sunday
@@ -1653,27 +1695,45 @@ def _parse_date_filters(
 ) -> tuple[datetime | None, datetime | None]:
     """Parse date filter options and apply shortcuts.
     
+    Supports numeric lookback for --day and --week:
+        -D 3  -> last 3 days (today + 2 days back)
+        -W 2  -> last 2 weeks (this week + last week)
+    
     Returns:
         Tuple of (since, until) datetime objects
     """
     since = _parse_date_option(since_date)
     until = _parse_date_option(until_date)
     
-    # Handle --day shortcut
+    # Handle --day shortcut: check for numeric lookback first
     if day_date is not None:
-        day = _parse_date_option(day_date)
-        if day:
-            day_start, day_end = _get_day_bounds(day)
+        n = _parse_numeric_lookback(day_date)
+        if n is not None:
+            day_start, day_end = _get_day_lookback_bounds(n)
             since = since or day_start
             until = until or day_end
+        else:
+            # Existing behavior: parse as date
+            day = _parse_date_option(day_date)
+            if day:
+                day_start, day_end = _get_day_bounds(day)
+                since = since or day_start
+                until = until or day_end
     
-    # Handle --week shortcut
+    # Handle --week shortcut: check for numeric lookback first
     if week_date is not None:
-        week = _parse_date_option(week_date)
-        if week:
-            week_start, week_end = _get_week_bounds(week)
+        n = _parse_numeric_lookback(week_date)
+        if n is not None:
+            week_start, week_end = _get_week_lookback_bounds(n)
             since = since or week_start
             until = until or week_end
+        else:
+            # Existing behavior: parse as date
+            week = _parse_date_option(week_date)
+            if week:
+                week_start, week_end = _get_week_bounds(week)
+                since = since or week_start
+                until = until or week_end
     
     return since, until
 
@@ -2056,9 +2116,9 @@ def _populate_error_info(
 @click.option("--since", "-S", "since_date", help="Show conversations from DATE onwards")
 @click.option("--until", "-U", "until_date", help="Show conversations up to DATE")
 @click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
-              help="Show conversations from a single day (default: today)")
+              help="Filter by day: -D (today), -D DATE (specific date), or -D N (last N days)")
 @click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
-              help="Show conversations from the week containing DATE (default: today, weeks start Sunday)")
+              help="Filter by week: -W (this week), -W DATE (week of date), or -W N (last N weeks)")
 @click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
 @click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
 @click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
@@ -4137,9 +4197,9 @@ def _print_error_detail(err) -> None:
 @click.option("--since", "-S", "since_date", help="Process conversations from DATE onwards")
 @click.option("--until", "-U", "until_date", help="Process conversations up to DATE")
 @click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
-              help="Process conversations from a single day (default: today)")
+              help="Filter by day: -D (today), -D DATE (specific date), or -D N (last N days)")
 @click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
-              help="Process conversations from the week containing DATE (default: today)")
+              help="Filter by week: -W (this week), -W DATE (week of date), or -W N (last N weeks)")
 @click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
 @click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
 @click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
@@ -7258,9 +7318,9 @@ def gen() -> None:
 @click.option("--since", "-S", "since_date", help="Analyze conversations from DATE onwards")
 @click.option("--until", "-U", "until_date", help="Analyze conversations up to DATE")
 @click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
-              help="Analyze conversations from a single day (default: today)")
+              help="Filter by day: -D (today), -D DATE (specific date), or -D N (last N days)")
 @click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
-              help="Analyze conversations from the week containing DATE (default: today)")
+              help="Filter by week: -W (this week), -W DATE (week of date), or -W N (last N weeks)")
 @click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
 @click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
 @click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
@@ -8005,9 +8065,9 @@ def _run_objectives_analysis(
 @click.option("--since", "-S", "since_date", help="Start date (YYYY-MM-DD)")
 @click.option("--until", "-U", "until_date", help="End date (YYYY-MM-DD)")
 @click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
-              help="Single day (default: today)")
+              help="Filter by day: -D (today), -D DATE (specific date), or -D N (last N days)")
 @click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
-              help="Week containing DATE (default: this week)")
+              help="Filter by week: -W (this week), -W DATE (week of date), or -W N (last N weeks)")
 # Period iteration options (for aggregate jobs)
 @click.option("--per", "period_override", type=click.Choice(["week", "day", "month"]),
               help="Override/specify iteration granularity for aggregate jobs")

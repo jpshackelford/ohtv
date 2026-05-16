@@ -92,11 +92,23 @@ ohtv list --day
 # Show conversations from a specific day
 ohtv list --day 2024-03-15
 
+# Show last 3 days of conversations
+ohtv list -D 3
+
+# Show last 7 days of conversations
+ohtv list -D 7
+
 # Show this week's conversations (weeks start Sunday)
 ohtv list --week
 
 # Show conversations from a specific week
 ohtv list --week 2024-03-15
+
+# Show last 2 weeks of conversations
+ohtv list -W 2
+
+# Show last 4 weeks of conversations
+ohtv list -W 4
 
 # Filter by PR (requires indexed database)
 ohtv list --pr OpenPaw#17           # Short name
@@ -136,8 +148,8 @@ ohtv list --no-refs               # Refs shown by default
 | `-o, --output FILE` | Write output to file |
 | `-S, --since DATE` | Show conversations from DATE onwards |
 | `-U, --until DATE` | Show conversations up to DATE |
-| `-D, --day [DATE]` | Show conversations from a single day (default: today) |
-| `-W, --week [DATE]` | Show conversations from the week containing DATE (default: today, weeks start Sunday) |
+| `-D, --day [VALUE]` | Filter by day: `-D` (today), `-D DATE` (specific date), or `-D N` (last N days) |
+| `-W, --week [VALUE]` | Filter by week: `-W` (this week), `-W DATE` (week of date), or `-W N` (last N weeks) |
 | `--pr PATTERN` | Filter by PR reference (URL, `owner/repo#N`, or `repo#N`) |
 | `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
 | `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`, `git-commit`) |
@@ -308,8 +320,8 @@ ohtv refs -D --format json
 | `-k, --offset N` | Skip first N conversations |
 | `-S, --since DATE` | Process conversations from DATE onwards |
 | `-U, --until DATE` | Process conversations up to DATE |
-| `-D, --day [DATE]` | Process conversations from a single day (default: today) |
-| `-W, --week [DATE]` | Process conversations from the week containing DATE |
+| `-D, --day [VALUE]` | Filter by day: `-D` (today), `-D DATE` (specific date), or `-D N` (last N days) |
+| `-W, --week [VALUE]` | Filter by week: `-W` (this week), `-W DATE` (week of date), or `-W N` (last N weeks) |
 | `--pr PATTERN` | Filter by PR reference |
 | `--repo PATTERN` | Filter by repository |
 | `--action TYPE` | Filter by action type |
@@ -432,8 +444,14 @@ ohtv gen objs
 # Analyze today's conversations
 ohtv gen objs --day
 
+# Analyze last 7 days of conversations
+ohtv gen objs -D 7
+
 # Analyze this week's conversations
 ohtv gen objs --week
+
+# Analyze last 4 weeks of conversations
+ohtv gen objs -W 4
 
 # Analyze with date range
 ohtv gen objs --since 2024-01-01 --until 2024-01-31
@@ -587,8 +605,8 @@ Showing 2 of 150 (2/2 cached)
 | `-k, --offset N` | Skip first N conversations |
 | `-S, --since DATE` | Analyze conversations from DATE onwards |
 | `-U, --until DATE` | Analyze conversations up to DATE |
-| `-D, --day [DATE]` | Analyze conversations from a single day (default: today) |
-| `-W, --week [DATE]` | Analyze conversations from the week containing DATE |
+| `-D, --day [VALUE]` | Filter by day: `-D` (today), `-D DATE` (specific date), or `-D N` (last N days) |
+| `-W, --week [VALUE]` | Filter by week: `-W` (this week), `-W DATE` (week of date), or `-W N` (last N weeks) |
 | `--pr PATTERN` | Filter by PR reference (URL, `owner/repo#N`, or `repo#N`) |
 | `--repo PATTERN` | Filter by repository (URL, `owner/repo`, or name) |
 | `--action TYPE` | Filter by action type (e.g., `pushed`, `open-pr`) |
