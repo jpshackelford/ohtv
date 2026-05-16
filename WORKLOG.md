@@ -750,3 +750,39 @@ Resolved 3 review threads (all addressed in commit 8433862):
 - [x] Backward compatible: conversations without summary field work unchanged
 
 ---
+
+### 2026-05-16 20:22 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `5984feb` | testing | PR #74 - Action summaries | **NEW** |
+
+**Previous Workers Completed:**
+- `432458d` (implementation #58): finished ✓ - PR #74 created
+
+🧪 **Spawned: Testing Worker**
+- PR: [#74 - feat: Use agent-provided summary in action extraction](https://github.com/jpshackelford/ohtv/pull/74)
+- Conversation: [`5984feb`](https://app.all-hands.dev/conversations/5984feb3ace14c41aa64e6327d4b1649)
+- Reason: PR ready, CI green, docs not required (internal change), manual tests missing
+
+**PR #74 State:**
+- CI: ✅ green (pr-review SUCCESS)
+- Docs: ⏭️ Not required (internal improvement, no new CLI options)
+- Manual Tests: ⏳ In progress
+- Bot Rating: 🟢 "Good taste" - "Worth merging: Solid implementation with excellent test coverage"
+- Mergeable: ✅ MERGEABLE
+- Next: Merge (if tests pass)
+
+**Current State:**
+- [PR #74](https://github.com/jpshackelford/ohtv/pull/74): Testing in progress
+- Issues needing expansion: None 🎉
+- Ready issues:
+  - LOW: #58 (has PR #74)
+- Issues on hold: #26
+
+**Slots:**
+- 🧪 PR slot: Occupied (testing worker for PR #74)
+- 📖 Expansion slot: Idle (no issues to expand)
+
+---
