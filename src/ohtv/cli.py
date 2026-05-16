@@ -1992,7 +1992,7 @@ def _filter_by_label(
         return []
     
     try:
-        with get_connection(config) as conn:
+        with get_connection() as conn:
             migrate(conn)
             store = ConversationStore(conn)
             matching = store.list_by_label(key, value)
@@ -5018,7 +5018,7 @@ def _get_conversation_labels(config: "Config", conv_id: str) -> dict[str, str] |
     normalized_id = conv_id.replace("-", "")
 
     try:
-        with get_connection(config) as conn:
+        with get_connection() as conn:
             store = ConversationStore(conn)
             conv = store.get(normalized_id)
             return conv.labels if conv else None
@@ -7456,6 +7456,7 @@ def gen() -> None:
 @click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
 @click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
 @click.option("--action", "action_filter", help="Filter by action type (e.g., git-push, pushed, open-pr)")
+@click.option("--label", "-L", "label_filter", help="Filter by label (key=value)")
 @click.option("--reverse", is_flag=True, help="Show oldest first (default: newest first)")
 @click.option(
     "--format", "-F", "fmt",
@@ -7485,6 +7486,7 @@ def gen_objs_cmd(
     pr_filter: str | None,
     repo_filter: str | None,
     action_filter: str | None,
+    label_filter: str | None,
     reverse: bool,
     fmt: str,
     yes: bool,
@@ -7506,6 +7508,7 @@ def gen_objs_cmd(
       ohtv gen objs --day               # Today's conversations
       ohtv gen objs --week              # This week's conversations
       ohtv gen objs --pr repo#42        # Conversations for a PR
+      ohtv gen objs --label team=AI     # Conversations with specific label
       ohtv gen objs --all               # All conversations (no limit)
     
     \b
@@ -7528,14 +7531,14 @@ def gen_objs_cmd(
     # Check if filters are being used (multi-conversation options)
     has_filters = any([
         limit is not None, show_all, offset > 0, since_date, until_date,
-        day_date, week_date, pr_filter, repo_filter, action_filter, reverse
+        day_date, week_date, pr_filter, repo_filter, action_filter, label_filter, reverse
     ])
     
     # Error if both conversation_id and filters are provided
     if conversation_id is not None and has_filters:
         raise click.UsageError(
             "Cannot use filters (--day, --week, --since, --until, --pr, --repo, "
-            "--action, -n, --all, --offset, --reverse) with a specific conversation_id.\n"
+            "--action, --label, -n, --all, --offset, --reverse) with a specific conversation_id.\n"
             "Either analyze a single conversation: ohtv gen objs <conversation_id>\n"
             "Or analyze multiple conversations: ohtv gen objs --day"
         )
@@ -7559,6 +7562,7 @@ def gen_objs_cmd(
             pr_filter=pr_filter,
             repo_filter=repo_filter,
             action_filter=action_filter,
+            label_filter=label_filter,
             reverse=reverse,
             fmt=fmt,
             yes=yes,
@@ -7596,6 +7600,7 @@ def _run_batch_objectives_analysis(
     pr_filter: str | None = None,
     repo_filter: str | None = None,
     action_filter: str | None = None,
+    label_filter: str | None = None,
     reverse: bool = False,
     fmt: str = "table",
     yes: bool = False,
@@ -7622,6 +7627,7 @@ def _run_batch_objectives_analysis(
         pr_filter=pr_filter,
         repo_filter=repo_filter,
         action_filter=action_filter,
+        label_filter=label_filter,
         include_empty=False,  # Summary always excludes empty
         initial_show_all=show_all,
     )
