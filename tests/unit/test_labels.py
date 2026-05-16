@@ -208,6 +208,29 @@ class TestConversationStoreLabels:
         ids = {c.id for c in matches}
         assert ids == {"conv1", "conv2"}
 
+    def test_list_by_label_with_dots_in_key(self, db_conn):
+        """Label keys with dots should be matched correctly."""
+        store = ConversationStore(db_conn)
+
+        store.upsert(
+            Conversation(
+                id="conv1",
+                location="/path/1",
+                labels={"env.type": "prod", "feature[new]": "enabled"},
+                created_at=datetime(2026, 5, 16, 10, 0, tzinfo=timezone.utc),
+            )
+        )
+
+        # Should find conversation with dotted key
+        matches = store.list_by_label("env.type", "prod")
+        assert len(matches) == 1
+        assert matches[0].id == "conv1"
+
+        # Should find conversation with bracket key
+        matches = store.list_by_label("feature[new]", "enabled")
+        assert len(matches) == 1
+        assert matches[0].id == "conv1"
+
     def test_list_by_label_no_match(self, db_conn):
         """list_by_label should return empty list when no matches."""
         store = ConversationStore(db_conn)

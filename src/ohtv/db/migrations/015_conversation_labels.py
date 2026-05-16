@@ -14,8 +14,10 @@ def upgrade(conn: sqlite3.Connection) -> None:
         ADD COLUMN labels TEXT DEFAULT NULL
     """)
     
-    # Create index for label-based filtering using JSON extraction
-    # This enables queries like: WHERE json_extract(labels, '$.key') = 'value'
+    # Partial index for label presence filtering (labels IS NOT NULL checks).
+    # NOTE: This index does NOT accelerate json_extract() queries because SQLite
+    # cannot use a column index for JSON path extraction. It only helps queries
+    # that filter on labels being non-NULL (e.g., list_with_labels, count_with_labels).
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_conversations_labels
         ON conversations(labels)

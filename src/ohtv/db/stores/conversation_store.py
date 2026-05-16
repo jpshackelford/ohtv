@@ -241,6 +241,8 @@ class ConversationStore:
         Returns:
             List of matching conversations, ordered by created_at descending
         """
+        # Quote the key in JSON path to handle special characters (dots, brackets)
+        # e.g., key "env.type" becomes '$."env.type"' instead of '$.env.type'
         cursor = self.conn.execute(
             f"""
             SELECT {self._ALL_COLUMNS}
@@ -248,7 +250,7 @@ class ConversationStore:
             WHERE json_extract(labels, ?) = ?
             ORDER BY created_at DESC
             """,
-            (f"$.{key}", value),
+            (f'$."{key}"', value),
         )
         return [self._row_to_conversation(row) for row in cursor.fetchall()]
     
