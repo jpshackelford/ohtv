@@ -1,3 +1,28 @@
+### 2026-05-16 04:35 UTC - Implementation Worker
+
+🚀 **Created PR #69 - fix: add context_level to skip cache for proper retry at higher levels**
+
+- PR: [#69](https://github.com/jpshackelford/ohtv/pull/69)
+- Branch: `fix/skip-cache-context-level-60`
+- Fixes: #60
+
+**Problem solved:** The skip cache was keyed only by `conversation_id`, so skipping at 'minimal' context blocked retry at 'full' context, defeating the auto-promotion fix in #59.
+
+**Implementation:**
+- Migration 014: Add `context_level` column to `analysis_skips` table
+- `AnalysisSkipEntry` dataclass: Add `context_level` field
+- `is_skipped()` and `mark_skipped()`: Add context_level parameter
+- `CacheStatus.needs_analysis_for_context()`: Context-aware check
+- Skip at 'minimal' → allows retry at 'default'/'full'
+- Skip at 'full' → blocks all levels (highest encompasses all)
+- Legacy entries (no context_level) treated as 'minimal'
+
+**Test coverage:** 29 new tests (13 file cache + 16 database). All 1067 unit tests pass.
+
+**Status:** Ready for review (CI green)
+
+---
+
 ### 2026-05-16 03:51 UTC - Orchestrator
 
 **Active Workers:**
