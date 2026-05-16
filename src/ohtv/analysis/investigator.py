@@ -406,6 +406,7 @@ class InvestigationAgent:
             role="tool",
             content=result_text,
             tool_call_id=tool_call.id,
+            name=tool_call.name,
         ))
 
     def _extract_final_answer_from_message(self, message) -> str | None:

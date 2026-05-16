@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ohtv.analysis.investigator import (
+    InvestigationAgent,
     InvestigationResult,
     format_initial_context,
     get_investigation_system_prompt,
@@ -217,19 +218,23 @@ class TestInvestigationAgentInvestigate:
     def test_investigate_basic_flow_finishes_immediately(self, mock_llm_class):
         """Test that investigate() completes successfully when LLM calls finish immediately."""
         from ohtv.analysis.investigator import InvestigationAgent
+        from openhands.sdk.llm.message import MessageToolCall
         
         # Set up mock stores
         mock_embed_store = MagicMock()
         mock_conv_store = MagicMock()
         
-        # Create mock LLM response with finish tool call
-        mock_tool_call = MagicMock()
-        mock_tool_call.function.name = "finish"
-        mock_tool_call.function.arguments = '{"message": "The auth bug was fixed by updating token validation."}'
-        mock_tool_call.id = "call_123"
+        # Create real tool call object with finish tool
+        # The tool_call is accessed via .name and .arguments directly (not .function.*)
+        finish_tool_call = MessageToolCall(
+            id="call_123",
+            name="finish",
+            arguments='{"message": "The auth bug was fixed by updating token validation."}',
+            origin="completion"
+        )
         
         mock_response = MagicMock()
-        mock_response.message.tool_calls = [mock_tool_call]
+        mock_response.message.tool_calls = [finish_tool_call]
         mock_response.message.content = None
         mock_response.metrics = MagicMock()
         mock_response.metrics.accumulated_token_usage = MagicMock()
@@ -315,3 +320,52 @@ class TestInvestigationAgentInvestigate:
         assert any("Error: LLM API error" in step for step in result.investigation_steps)
         # Investigation returned the fallback message (not a real answer)
         assert "iteration limit" in result.final_answer.lower() or "partial findings" in result.final_answer.lower()
+
+
+class TestAddToolResponse:
+    """Tests for InvestigationAgent._add_tool_response method."""
+
+    @patch.dict('os.environ', {'LLM_API_KEY': 'test-key'})
+    def test_add_tool_response_includes_name(self):
+        """Test that _add_tool_response includes the tool name in the response message.
+        
+        This is required by the SDK - when tool_call_id is set, name must also be set.
+        Regression test for: AssertionError: name is required when tool_call_id is not None
+        """
+        from openhands.sdk.llm.message import MessageToolCall
+        
+        mock_embed_store = MagicMock()
+        mock_conv_store = MagicMock()
+        
+        agent = InvestigationAgent(
+            model="gpt-4o-mini",
+            embed_store=mock_embed_store,
+            conv_store=mock_conv_store,
+        )
+        
+        # Create a real tool call object (not a mock, since Message validates types)
+        tool_call = MessageToolCall(
+            id="call_abc123",
+            name="search_conversations",
+            arguments='{"query": "test"}',
+            origin="completion"
+        )
+        
+        messages = []
+        agent._add_tool_response(messages, tool_call, "Search results here")
+        
+        # Should have 2 messages: assistant with tool_calls, tool with response
+        assert len(messages) == 2
+        
+        # First message should be assistant with tool_calls
+        assert messages[0].role == "assistant"
+        assert len(messages[0].tool_calls) == 1
+        assert messages[0].tool_calls[0].id == "call_abc123"
+        
+        # Second message should be tool response with both tool_call_id AND name
+        assert messages[1].role == "tool"
+        # Content is a list of TextContent objects
+        assert len(messages[1].content) == 1
+        assert messages[1].content[0].text == "Search results here"
+        assert messages[1].tool_call_id == "call_abc123"
+        assert messages[1].name == "search_conversations"  # This was the missing field!
