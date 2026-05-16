@@ -190,6 +190,38 @@ def _normalize_datetime_for_sort(dt: datetime | None) -> datetime:
         return dt.replace(tzinfo=timezone.utc)
     return dt
 
+
+# Context level mapping: numeric strings and names to canonical names
+# Used to normalize CLI -c/--context values before passing to analysis functions
+CONTEXT_LEVEL_MAP = {
+    "1": "minimal",
+    "2": "default",
+    "3": "full",
+    "minimal": "minimal",
+    "default": "default",
+    "full": "full",
+}
+
+
+def _normalize_context_level(context: str | None, default: str = "minimal") -> str:
+    """Normalize context level from CLI input to canonical name.
+
+    Converts numeric strings ("1", "2", "3") to their canonical names
+    ("minimal", "default", "full"). Returns the default if context is
+    None or not recognized.
+
+    Args:
+        context: Context level from CLI (numeric string or name)
+        default: Default context level if context is None or invalid
+
+    Returns:
+        Canonical context level name
+    """
+    if context is None:
+        return default
+    return CONTEXT_LEVEL_MAP.get(context, default)
+
+
 # URL patterns for git hosting platforms
 GIT_URL_PATTERNS = {
     # GitHub
@@ -7457,8 +7489,9 @@ def _run_batch_objectives_analysis(
         assess = variant.endswith("_assess")
         detail = variant.replace("_assess", "")
     
-    # Default to minimal context for multi-conversation mode (token efficient)
-    context_value = context if context else "minimal"
+    # Normalize context level: convert numeric ("3") to name ("full")
+    # Default to minimal for multi-conversation mode (token efficient)
+    context_value = _normalize_context_level(context, default="minimal")
     
     # Resolve prompt metadata to get display schema (if variant has one)
     from ohtv.prompts import resolve_prompt

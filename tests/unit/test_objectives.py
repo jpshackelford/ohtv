@@ -120,3 +120,37 @@ class TestBuildTranscript:
         assert len(result) == 2
         assert result[0]["role"] == "user"
         assert result[1]["role"] == "action"
+
+    def test_numeric_context_string_not_recognized(self):
+        """Regression test: numeric string "3" was not recognized as "full".
+        
+        This documents the bug where -c 3 was passed through as "3" instead
+        of being converted to "full", causing actions to be silently dropped.
+        The fix is in _normalize_context_level() in cli.py.
+        
+        See: https://github.com/jpshackelford/ohtv/issues/61
+        """
+        events = [
+            {
+                "source": "user",
+                "kind": "MessageEvent",
+                "llm_message": {"content": [{"type": "text", "text": "test"}]},
+            },
+            {
+                "source": "agent",
+                "kind": "ActionEvent",
+                "tool_name": "terminal",
+                "action": {"command": "ls"},
+            },
+        ]
+        # Bug behavior: "3" is NOT recognized, falls through to minimal-like behavior
+        result_numeric = build_transcript(events, context="3")
+        # Expected behavior with "full": actions are captured
+        result_full = build_transcript(events, context="full")
+        
+        # With the bug, "3" would return 0-1 items (only user message)
+        # but "full" correctly returns 2 items (user message + action)
+        assert len(result_numeric) < len(result_full), (
+            "Regression: numeric string '3' should not be recognized by "
+            "_legacy_build_transcript - CLI must normalize before calling"
+        )

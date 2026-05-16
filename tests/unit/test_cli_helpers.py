@@ -4,7 +4,50 @@ from pathlib import Path
 
 import pytest
 
+from ohtv.cli import _normalize_context_level, CONTEXT_LEVEL_MAP
 from ohtv.db.utils import generate_unique_source_names
+
+
+class TestNormalizeContextLevel:
+    """Tests for _normalize_context_level helper."""
+
+    def test_numeric_1_returns_minimal(self):
+        assert _normalize_context_level("1") == "minimal"
+
+    def test_numeric_2_returns_default(self):
+        assert _normalize_context_level("2") == "default"
+
+    def test_numeric_3_returns_full(self):
+        assert _normalize_context_level("3") == "full"
+
+    def test_minimal_returns_minimal(self):
+        assert _normalize_context_level("minimal") == "minimal"
+
+    def test_default_returns_default(self):
+        assert _normalize_context_level("default") == "default"
+
+    def test_full_returns_full(self):
+        assert _normalize_context_level("full") == "full"
+
+    def test_none_returns_default_minimal(self):
+        assert _normalize_context_level(None) == "minimal"
+
+    def test_none_with_custom_default(self):
+        assert _normalize_context_level(None, default="full") == "full"
+
+    def test_unknown_value_returns_default(self):
+        assert _normalize_context_level("unknown") == "minimal"
+
+    def test_unknown_value_with_custom_default(self):
+        assert _normalize_context_level("invalid", default="full") == "full"
+
+    def test_empty_string_returns_default(self):
+        assert _normalize_context_level("") == "minimal"
+
+    def test_context_level_map_completeness(self):
+        """Verify CONTEXT_LEVEL_MAP has all expected entries."""
+        assert set(CONTEXT_LEVEL_MAP.keys()) == {"1", "2", "3", "minimal", "default", "full"}
+        assert set(CONTEXT_LEVEL_MAP.values()) == {"minimal", "default", "full"}
 
 
 class TestGenerateUniqueSourceNames:
