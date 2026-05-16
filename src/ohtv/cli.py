@@ -2561,6 +2561,17 @@ def _display_retrieval_breakdown(
         console.print("[yellow]No relevant context found.[/yellow]")
         return
 
+    def format_date_filter(start: datetime | None, end: datetime | None, label: str) -> str | None:
+        """Format date range as a Rich-formatted string, or None if no dates."""
+        if not (start or end):
+            return None
+        if start and end:
+            return f"[dim]📅 {label}: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}[/dim]"
+        elif start:
+            return f"[dim]📅 {label}: from {start.strftime('%Y-%m-%d')}[/dim]"
+        else:
+            return f"[dim]📅 {label}: until {end.strftime('%Y-%m-%d')}[/dim]"
+
     # Count unique conversations
     conv_ids = {c.conversation_id for c in chunks}
 
@@ -2569,20 +2580,13 @@ def _display_retrieval_breakdown(
 
     # Show temporal filter info
     if temporal_applied and date_range:
-        start, end = date_range
-        if start and end:
-            console.print(f"[dim]📅 Auto-filtered: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}[/dim]")
-        elif start:
-            console.print(f"[dim]📅 Auto-filtered: from {start.strftime('%Y-%m-%d')}[/dim]")
-        elif end:
-            console.print(f"[dim]📅 Auto-filtered: until {end.strftime('%Y-%m-%d')}[/dim]")
+        filter_msg = format_date_filter(date_range[0], date_range[1], "Auto-filtered")
+        if filter_msg:
+            console.print(filter_msg)
     elif explicit_start or explicit_end:
-        if explicit_start and explicit_end:
-            console.print(f"[dim]📅 Explicit filter: {explicit_start.strftime('%Y-%m-%d')} to {explicit_end.strftime('%Y-%m-%d')}[/dim]")
-        elif explicit_start:
-            console.print(f"[dim]📅 Explicit filter: from {explicit_start.strftime('%Y-%m-%d')}[/dim]")
-        elif explicit_end:
-            console.print(f"[dim]📅 Explicit filter: until {explicit_end.strftime('%Y-%m-%d')}[/dim]")
+        filter_msg = format_date_filter(explicit_start, explicit_end, "Explicit filter")
+        if filter_msg:
+            console.print(filter_msg)
 
     console.print()
 
@@ -2604,10 +2608,8 @@ def _display_retrieval_breakdown(
 
     # Sort conversations by max score (highest first)
     def conv_max_score(conv_id: str) -> float:
-        all_conv_chunks = []
-        for embed_chunks in conv_chunks[conv_id].values():
-            all_conv_chunks.extend(embed_chunks)
-        return max(c.score for c in all_conv_chunks) if all_conv_chunks else 0.0
+        scores = (c.score for embed_chunks in conv_chunks[conv_id].values() for c in embed_chunks)
+        return max(scores, default=0.0)
 
     sorted_conv_ids = sorted(conv_chunks.keys(), key=conv_max_score, reverse=True)
 
