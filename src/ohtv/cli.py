@@ -1966,16 +1966,16 @@ def _count_uncached_conversations_fast(
             # Get cache status for all conversations in one query
             status_map = store.get_cache_status_batch(conv_ids, cache_key)
             
-            # Count those needing analysis
+            # Count those needing analysis (context-aware for skip cache)
             uncached_count = 0
             for conv_id in conv_ids:
                 status = status_map.get(conv_id)
-                if status is None or status.needs_analysis:
+                if status is None or status.needs_analysis_for_context(context):
                     uncached_count += 1
             
             log.debug(
-                "Fast cache check: %d of %d need analysis (key=%s)",
-                uncached_count, len(conversations), cache_key
+                "Fast cache check: %d of %d need analysis (key=%s, context=%s)",
+                uncached_count, len(conversations), cache_key, context
             )
             return uncached_count
             

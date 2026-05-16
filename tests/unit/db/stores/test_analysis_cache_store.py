@@ -317,3 +317,261 @@ class TestCacheStatus:
             skip_event_count=10,  # Older skip
         )
         assert status.needs_analysis is True
+
+
+class TestContextAwareSkipCache:
+    """Tests for context-level-aware skip caching."""
+
+    def test_skip_at_minimal_allows_retry_at_full(self):
+        """Skip at 'minimal' context should allow retry at 'full'."""
+        status = CacheStatus(
+            conversation_id="test",
+            current_event_count=10,
+            is_skipped=True,
+            skip_event_count=10,
+            skip_context_level="minimal",
+        )
+        # Legacy property doesn't consider context
+        assert status.needs_analysis is False
+        # Context-aware method allows retry at higher level
+        assert status.needs_analysis_for_context("minimal") is False
+        assert status.needs_analysis_for_context("default") is True
+        assert status.needs_analysis_for_context("full") is True
+
+    def test_skip_at_default_allows_retry_at_full(self):
+        """Skip at 'default' context should allow retry at 'full' only."""
+        status = CacheStatus(
+            conversation_id="test",
+            current_event_count=10,
+            is_skipped=True,
+            skip_event_count=10,
+            skip_context_level="default",
+        )
+        assert status.needs_analysis_for_context("minimal") is False
+        assert status.needs_analysis_for_context("default") is False
+        assert status.needs_analysis_for_context("full") is True
+
+    def test_skip_at_full_blocks_all_contexts(self):
+        """Skip at 'full' context should block all context levels."""
+        status = CacheStatus(
+            conversation_id="test",
+            current_event_count=10,
+            is_skipped=True,
+            skip_event_count=10,
+            skip_context_level="full",
+        )
+        assert status.needs_analysis_for_context("minimal") is False
+        assert status.needs_analysis_for_context("default") is False
+        assert status.needs_analysis_for_context("full") is False
+
+    def test_legacy_skip_treated_as_minimal(self):
+        """Skip without context_level should be treated as 'minimal'."""
+        status = CacheStatus(
+            conversation_id="test",
+            current_event_count=10,
+            is_skipped=True,
+            skip_event_count=10,
+            skip_context_level=None,  # Legacy entry
+        )
+        # Should allow retry at higher levels
+        assert status.needs_analysis_for_context("minimal") is False
+        assert status.needs_analysis_for_context("default") is True
+        assert status.needs_analysis_for_context("full") is True
+
+    def test_skip_still_invalidated_when_event_count_changes(self):
+        """Skip should be invalidated if event count changed, regardless of context."""
+        status = CacheStatus(
+            conversation_id="test",
+            current_event_count=15,  # Conversation grew
+            is_skipped=True,
+            skip_event_count=10,  # Old skip
+            skip_context_level="full",
+        )
+        # Even at 'full', needs retry because event count changed
+        assert status.needs_analysis_for_context("minimal") is True
+        assert status.needs_analysis_for_context("full") is True
+
+    def test_cached_analysis_still_valid(self):
+        """Cached analysis should still block even with context-aware checks."""
+        status = CacheStatus(
+            conversation_id="test",
+            current_event_count=10,
+            cached_event_count=10,  # Cache hit
+            is_skipped=False,
+        )
+        assert status.needs_analysis_for_context("minimal") is False
+        assert status.needs_analysis_for_context("full") is False
+
+
+class TestUpsertSkipWithContextLevel:
+    """Tests for upsert_skip with context_level."""
+
+    def test_inserts_skip_with_context_level(self, analysis_cache_store, sample_conversation, db_conn):
+        entry = AnalysisSkipEntry(
+            conversation_id="abc123",
+            event_count=42,
+            reason="no_events",
+            skipped_at=datetime.now(timezone.utc),
+            context_level="default",
+        )
+        analysis_cache_store.upsert_skip(entry)
+        db_conn.commit()
+        
+        # Verify context_level is stored
+        cursor = db_conn.execute(
+            "SELECT context_level FROM analysis_skips WHERE conversation_id = ?",
+            ("abc123",),
+        )
+        row = cursor.fetchone()
+        assert row[0] == "default"
+
+    def test_does_not_downgrade_context_level(self, analysis_cache_store, sample_conversation, db_conn):
+        """Skip at higher context should not be overwritten by lower context skip."""
+        # First skip at 'full'
+        entry1 = AnalysisSkipEntry(
+            conversation_id="abc123",
+            event_count=42,
+            reason="no_content",
+            skipped_at=datetime.now(timezone.utc),
+            context_level="full",
+        )
+        analysis_cache_store.upsert_skip(entry1)
+        db_conn.commit()
+        
+        # Try to skip at 'minimal' - should be ignored
+        entry2 = AnalysisSkipEntry(
+            conversation_id="abc123",
+            event_count=42,
+            reason="no_events",
+            skipped_at=datetime.now(timezone.utc),
+            context_level="minimal",
+        )
+        analysis_cache_store.upsert_skip(entry2)
+        db_conn.commit()
+        
+        # Verify context_level is still 'full'
+        cursor = db_conn.execute(
+            "SELECT context_level, reason FROM analysis_skips WHERE conversation_id = ?",
+            ("abc123",),
+        )
+        row = cursor.fetchone()
+        assert row[0] == "full"
+        assert row[1] == "no_content"
+
+    def test_upgrades_context_level(self, analysis_cache_store, sample_conversation, db_conn):
+        """Skip at lower context should be upgraded by higher context skip."""
+        # First skip at 'minimal'
+        entry1 = AnalysisSkipEntry(
+            conversation_id="abc123",
+            event_count=42,
+            reason="no_events",
+            skipped_at=datetime.now(timezone.utc),
+            context_level="minimal",
+        )
+        analysis_cache_store.upsert_skip(entry1)
+        db_conn.commit()
+        
+        # Skip at 'full' - should upgrade
+        entry2 = AnalysisSkipEntry(
+            conversation_id="abc123",
+            event_count=42,
+            reason="no_content",
+            skipped_at=datetime.now(timezone.utc),
+            context_level="full",
+        )
+        analysis_cache_store.upsert_skip(entry2)
+        db_conn.commit()
+        
+        # Verify context_level is now 'full'
+        cursor = db_conn.execute(
+            "SELECT context_level, reason FROM analysis_skips WHERE conversation_id = ?",
+            ("abc123",),
+        )
+        row = cursor.fetchone()
+        assert row[0] == "full"
+        assert row[1] == "no_content"
+
+    def test_event_count_updated_despite_higher_context_skip(
+        self, analysis_cache_store, sample_conversation, db_conn
+    ):
+        """Event count should be updated even when not downgrading context level.
+        
+        This prevents infinite retry loops when:
+        1. Conversation is skipped at 'full' with event_count=10
+        2. Conversation grows to 20 events
+        3. Batch run at 'minimal' context fails, calls upsert_skip(20, 'minimal')
+        4. Without this fix, the early return would leave event_count=10, causing endless retries
+        """
+        # Skip at 'full' with event_count=10
+        entry1 = AnalysisSkipEntry(
+            conversation_id="abc123",
+            event_count=10,
+            reason="no_content",
+            skipped_at=datetime.now(timezone.utc),
+            context_level="full",
+        )
+        analysis_cache_store.upsert_skip(entry1)
+        db_conn.commit()
+        
+        # Conversation grows to 20 events, batch run fails at 'minimal'
+        entry2 = AnalysisSkipEntry(
+            conversation_id="abc123",
+            event_count=20,
+            reason="still_no_content",
+            skipped_at=datetime.now(timezone.utc),
+            context_level="minimal",
+        )
+        analysis_cache_store.upsert_skip(entry2)
+        db_conn.commit()
+        
+        # Verify event_count was updated (even though context stayed at 'full')
+        cursor = db_conn.execute(
+            "SELECT event_count, context_level, reason FROM analysis_skips WHERE conversation_id = ?",
+            ("abc123",),
+        )
+        row = cursor.fetchone()
+        assert row[0] == 20, "event_count should be updated to prevent retry loops"
+        assert row[1] == "full", "context_level should remain at 'full'"
+        # Reason should be preserved from the higher-context skip
+        assert row[2] == "no_content"
+
+
+class TestGetCacheStatusBatchWithContextLevel:
+    """Tests for get_cache_status_batch returning skip_context_level."""
+
+    def test_returns_skip_context_level(self, analysis_cache_store, sample_conversation, db_conn):
+        entry = AnalysisSkipEntry(
+            conversation_id="abc123",
+            event_count=42,
+            reason="no_events",
+            skipped_at=datetime.now(timezone.utc),
+            context_level="default",
+        )
+        analysis_cache_store.upsert_skip(entry)
+        db_conn.commit()
+        
+        status_map = analysis_cache_store.get_cache_status_batch(["abc123"], "test_key")
+        
+        assert "abc123" in status_map
+        status = status_map["abc123"]
+        assert status.is_skipped is True
+        assert status.skip_context_level == "default"
+
+    def test_legacy_skip_returns_minimal(self, analysis_cache_store, sample_conversation, db_conn):
+        """Skip without explicit context_level should return default 'minimal'."""
+        # Insert directly without context_level (simulates legacy data)
+        db_conn.execute(
+            """
+            INSERT INTO analysis_skips (conversation_id, event_count, reason, skipped_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("abc123", 42, "no_events", datetime.now(timezone.utc).isoformat()),
+        )
+        db_conn.commit()
+        
+        status_map = analysis_cache_store.get_cache_status_batch(["abc123"], "test_key")
+        
+        status = status_map["abc123"]
+        assert status.is_skipped is True
+        # SQLite default is 'minimal' from migration
+        assert status.skip_context_level == "minimal"

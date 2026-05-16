@@ -458,12 +458,16 @@ def analyze_objectives(
     event_count = len(data.events)
 
     if not data.events:
-        # Check if already marked as skipped
+        # Check if already marked as skipped at this context level or higher
         if not force_refresh:
-            skip_reason = _cache_manager.is_skipped(conv_dir, event_count)
+            skip_reason = _cache_manager.is_skipped(
+                conv_dir, event_count, context_level=effective_context
+            )
             if skip_reason:
                 raise ValueError(f"Skipped (cached): {skip_reason}")
-        _cache_manager.mark_skipped(conv_dir, event_count, "no_events")
+        _cache_manager.mark_skipped(
+            conv_dir, event_count, "no_events", context_level=effective_context
+        )
         raise ValueError(f"No events found in conversation: {conv_id}")
 
     # Auto-promote context level if transcript is empty but events exist
@@ -485,12 +489,16 @@ def analyze_objectives(
 
     # Now check for empty content after promotion attempts
     if not data.items:
-        # Check if already marked as skipped
+        # Check if already marked as skipped at this context level or higher
         if not force_refresh:
-            skip_reason = _cache_manager.is_skipped(conv_dir, event_count)
+            skip_reason = _cache_manager.is_skipped(
+                conv_dir, event_count, context_level=effective_context
+            )
             if skip_reason:
                 raise ValueError(f"Skipped (cached): {skip_reason}")
-        _cache_manager.mark_skipped(conv_dir, event_count, "no_analyzable_content")
+        _cache_manager.mark_skipped(
+            conv_dir, event_count, "no_analyzable_content", context_level=effective_context
+        )
         raise ValueError(f"No content found in conversation: {conv_id}")
 
     with _timer("format_transcript"):

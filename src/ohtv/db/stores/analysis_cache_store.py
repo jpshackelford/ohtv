@@ -10,7 +10,7 @@ This table only stores metadata for fast lookup.
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
 
 @dataclass
@@ -30,6 +30,20 @@ class AnalysisSkipEntry:
     event_count: int
     reason: str
     skipped_at: datetime
+    context_level: str = "minimal"  # The context level at which skip occurred
+
+
+# Context levels ordered from lowest to highest content inclusion
+CONTEXT_LEVELS = ["minimal", "default", "full"]
+
+
+def context_level_index(level: str) -> int:
+    """Get the numeric index of a context level (0=minimal, 1=default, 2=full)."""
+    try:
+        return CONTEXT_LEVELS.index(level)
+    except ValueError:
+        # Unknown level treated as minimal for safety
+        return 0
 
 
 @dataclass
@@ -44,6 +58,7 @@ class CacheStatus:
         is_skipped: Whether this conversation is marked as skipped
         skip_reason: Reason for skip (if skipped)
         skip_event_count: Event count when skip marker was set (None if not skipped)
+        skip_context_level: Context level at which skip occurred (if skipped)
     """
     conversation_id: str
     current_event_count: int
@@ -52,10 +67,15 @@ class CacheStatus:
     is_skipped: bool = False
     skip_reason: str | None = None
     skip_event_count: int | None = None
+    skip_context_level: str | None = None
     
     @property
     def needs_analysis(self) -> bool:
-        """True if this conversation needs (re)analysis."""
+        """True if this conversation needs (re)analysis.
+        
+        Note: This is a legacy property that doesn't consider context level.
+        For context-aware checks, use needs_analysis_for_context().
+        """
         # Skipped and event count unchanged = don't retry
         if self.is_skipped and self.skip_event_count == self.current_event_count:
             return False
@@ -63,6 +83,31 @@ class CacheStatus:
         if self.cached_event_count is not None and self.cached_event_count == self.current_event_count:
             return False
         # Otherwise needs analysis
+        return True
+    
+    def needs_analysis_for_context(self, requested_context: str) -> bool:
+        """True if this conversation needs (re)analysis at the requested context level.
+        
+        This is context-aware: a skip at 'minimal' allows retry at 'full'.
+        
+        Args:
+            requested_context: The context level being requested (minimal, default, full)
+        
+        Returns:
+            True if analysis should be attempted, False if cached/skipped result is valid
+        """
+        # Cached and event count unchanged = cache hit (cache_key already includes context)
+        if self.cached_event_count is not None and self.cached_event_count == self.current_event_count:
+            return False
+        
+        # Check skip with context awareness
+        if self.is_skipped and self.skip_event_count == self.current_event_count:
+            # If skip_context_level is None or matches/exceeds requested, skip is valid
+            skip_context = self.skip_context_level or "minimal"
+            if context_level_index(requested_context) <= context_level_index(skip_context):
+                return False
+            # Higher context level requested than skip - allow retry
+        
         return True
 
 
@@ -104,26 +149,52 @@ class AnalysisCacheStore:
         )
     
     def upsert_skip(self, entry: AnalysisSkipEntry) -> None:
-        """Insert or update a skip entry."""
+        """Insert or update a skip entry.
+        
+        Note: If a skip already exists at a HIGHER context level, we don't
+        update it. A skip at 'full' encompasses all lower levels.
+        """
         skipped_at_str = entry.skipped_at.isoformat()
         
         # Normalize conversation ID (remove dashes) for consistency
         normalized_id = entry.conversation_id.replace("-", "")
         
+        # Check if there's an existing skip at a higher context level
+        cursor = self.conn.execute(
+            "SELECT context_level, event_count FROM analysis_skips WHERE conversation_id = ?",
+            (normalized_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            existing_context = row[0] if row[0] else "minimal"
+            existing_event_count = row[1]
+            new_context = entry.context_level or "minimal"
+            # Don't downgrade: if existing skip is at higher context, keep it
+            # BUT update event_count if it changed to prevent infinite retry loops
+            if context_level_index(existing_context) > context_level_index(new_context):
+                if existing_event_count != entry.event_count:
+                    self.conn.execute(
+                        "UPDATE analysis_skips SET event_count = ?, skipped_at = ? WHERE conversation_id = ?",
+                        (entry.event_count, skipped_at_str, normalized_id),
+                    )
+                return
+        
         self.conn.execute(
             """
-            INSERT INTO analysis_skips (conversation_id, event_count, reason, skipped_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO analysis_skips (conversation_id, event_count, reason, skipped_at, context_level)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(conversation_id) DO UPDATE SET
                 event_count = excluded.event_count,
                 reason = excluded.reason,
-                skipped_at = excluded.skipped_at
+                skipped_at = excluded.skipped_at,
+                context_level = excluded.context_level
             """,
             (
                 normalized_id,
                 entry.event_count,
                 entry.reason,
                 skipped_at_str,
+                entry.context_level,
             ),
         )
     
@@ -155,7 +226,8 @@ class AnalysisCacheStore:
                 ac.event_count as cached_event_count,
                 ac.cache_key,
                 s.event_count as skip_event_count,
-                s.reason as skip_reason
+                s.reason as skip_reason,
+                s.context_level as skip_context_level
             FROM conversations c
             LEFT JOIN analysis_cache ac ON c.id = ac.conversation_id AND ac.cache_key = ?
             LEFT JOIN analysis_skips s ON c.id = s.conversation_id
@@ -171,6 +243,7 @@ class AnalysisCacheStore:
             cached_count = row["cached_event_count"]
             skip_count = row["skip_event_count"]
             skip_reason = row["skip_reason"]
+            skip_context = row["skip_context_level"]
             
             # is_skipped indicates a skip marker exists (validity checked in needs_analysis)
             is_skipped = skip_count is not None
@@ -183,6 +256,7 @@ class AnalysisCacheStore:
                 is_skipped=is_skipped,
                 skip_reason=skip_reason if is_skipped else None,
                 skip_event_count=skip_count,
+                skip_context_level=skip_context if is_skipped else None,
             )
         
         return results
