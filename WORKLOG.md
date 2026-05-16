@@ -1,3 +1,31 @@
+### 2026-05-16 00:19 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `2a52c4c` | merge | PR #65 - Fix CLI context level -c 3 | **NEW** |
+
+**Previous Workers Completed:**
+- `212fa1e` (testing PR #65): finished ✓ - Manual test results posted
+
+**Spawned: Merge Worker**
+- PR: [#65 - Fix CLI context level -c 3 not converted to 'full'](https://github.com/jpshackelford/ohtv/pull/65)
+- Conversation: [`2a52c4c`](https://app.all-hands.dev/conversations/2a52c4c0ff834e199ada26900bd1b32e)
+- Reason: All merge criteria met (CI green ✓, test results ✓, 0 unresolved threads ✓)
+
+**Current State:**
+- [PR #65](https://github.com/jpshackelford/ohtv/pull/65): `oC` ready, CI green, test results ✓ → merging
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): draft (skipped - waiting for author)
+- Issues needing expansion: None 🎉
+- Ready issues by priority:
+  - MEDIUM: #35, #57, #59, #60
+  - LOW: #46, #53, #58, #64
+
+**Slots:**
+- 🚀 PR slot: Occupied (merge worker for PR #65)
+- ⏳ Expansion slot: Idle (no issues to expand)
+
+---
 ### 2026-05-15 23:50 UTC - Orchestrator
 
 **Active Workers:**
