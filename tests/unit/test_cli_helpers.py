@@ -1,10 +1,11 @@
 """Unit tests for CLI helper functions."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from ohtv.cli import _normalize_context_level, CONTEXT_LEVEL_MAP
+from ohtv.cli import _normalize_context_level, _format_path_for_display, CONTEXT_LEVEL_MAP
 from ohtv.db.utils import generate_unique_source_names
 
 
@@ -113,3 +114,32 @@ class TestGenerateUniqueSourceNames:
         paths = [Path("/data/local"), Path("/data/cloud")]
         result = generate_unique_source_names(paths)
         assert result == ["local_1", "cloud_1"]
+
+
+class TestFormatPathForDisplay:
+    """Tests for _format_path_for_display helper."""
+
+    def test_replaces_home_with_tilde(self):
+        home = str(Path.home())
+        path = f"{home}/.openhands/conversations"
+        assert _format_path_for_display(path) == "~/.openhands/conversations"
+
+    def test_preserves_path_not_in_home(self):
+        path = "/var/data/conversations"
+        assert _format_path_for_display(path) == "/var/data/conversations"
+
+    def test_preserves_relative_path(self):
+        path = "data/conversations"
+        assert _format_path_for_display(path) == "data/conversations"
+
+    def test_exact_home_directory(self):
+        home = str(Path.home())
+        assert _format_path_for_display(home) == "~"
+
+    def test_path_similar_to_home_not_replaced(self):
+        """Path that starts with same chars but isn't under home."""
+        home = str(Path.home())
+        # Create a path that starts with home's characters but has more before /
+        fake_path = home + "_extra/data"
+        # This should NOT be replaced since it's not actually under home
+        assert _format_path_for_display(fake_path) == fake_path

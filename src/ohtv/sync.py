@@ -68,11 +68,16 @@ class RepairResult:
 
     cloud_count: int = 0
     manifest_count: int = 0
-    disk_count: int = 0
+    disk_counts_by_dir: dict[str, int] = field(default_factory=dict)  # Directory path -> count
     ghost_entries: list[str] = field(default_factory=list)  # In manifest but not on disk
     orphaned_files: list[str] = field(default_factory=list)  # On disk but not in manifest
     added_to_manifest: int = 0
     removed_from_manifest: int = 0
+
+    @property
+    def disk_count(self) -> int:
+        """Total conversations on disk across all directories."""
+        return sum(self.disk_counts_by_dir.values())
 
     @property
     def is_consistent(self) -> bool:
@@ -580,6 +585,11 @@ class SyncManager:
         1. Manifest entries vs actual files on disk
         2. Total cloud conversations vs local count
         
+        Scans all configured directories:
+        - synced_conversations_dir (cloud-synced)
+        - local_conversations_dir (local CLI)
+        - extra_conversation_paths (additional sources)
+        
         Args:
             fix: If True, repair inconsistencies (add orphaned files to manifest,
                  remove ghost entries)
@@ -594,18 +604,28 @@ class SyncManager:
         manifest_ids = set(self.manifest.conversations.keys())
         result.manifest_count = len(manifest_ids)
         
-        # Scan disk for actual conversation directories
-        disk_ids: set[str] = set()
+        # Build list of all directories to scan
+        all_dirs: list[Path] = []
         synced_dir = self.config.synced_conversations_dir
-        if synced_dir.exists():
-            for d in synced_dir.iterdir():
-                if d.is_dir():
-                    # Normalize: remove dashes from UUID format
-                    conv_id = d.name.replace("-", "")
-                    disk_ids.add(conv_id)
-        result.disk_count = len(disk_ids)
+        all_dirs.append(synced_dir)
+        all_dirs.append(self.config.local_conversations_dir)
+        all_dirs.extend(self.config.extra_conversation_paths)
         
-        # Find discrepancies
+        # Scan all directories for conversation counts
+        disk_ids: set[str] = set()  # IDs from synced dir only (for ghost/orphan detection)
+        for conv_dir in all_dirs:
+            count = self._count_conversations_in_dir(conv_dir)
+            if count > 0:
+                result.disk_counts_by_dir[str(conv_dir)] = count
+            
+            # For ghost/orphan detection, only check synced directory
+            if conv_dir == synced_dir and conv_dir.exists():
+                for d in conv_dir.iterdir():
+                    if d.is_dir():
+                        conv_id = d.name.replace("-", "")
+                        disk_ids.add(conv_id)
+        
+        # Find discrepancies (only in synced directory)
         result.ghost_entries = sorted(manifest_ids - disk_ids)
         result.orphaned_files = sorted(disk_ids - manifest_ids)
         
@@ -670,6 +690,12 @@ class SyncManager:
             if conv_dir.exists():
                 return conv_dir
         return None
+
+    def _count_conversations_in_dir(self, directory: Path) -> int:
+        """Count conversation directories in a path."""
+        if not directory.exists():
+            return 0
+        return sum(1 for d in directory.iterdir() if d.is_dir())
 
     def reset_to_n_newest(
         self,
