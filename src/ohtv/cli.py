@@ -2701,7 +2701,7 @@ def ask(
     With --agent, enables multi-turn investigation mode where an agent can
     examine specific conversations and search for additional context to
     provide a more thorough answer.
-    
+
     With --explain, shows a per-conversation retrieval breakdown before the
     answer, helping diagnose RAG retrieval quality. With --explain-only,
     shows the breakdown without generating an LLM answer (useful for pure

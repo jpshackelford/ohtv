@@ -230,32 +230,7 @@ class RAGRetriever:
             end_date=end_date,
         )
 
-        # Convert to ContextChunk with full metadata
-        context_chunks = []
-        for r in results:
-            conv = self.conv_store.get(r.conversation_id)
-            title = conv.title if conv and conv.title else f"Conversation {r.conversation_id[:8]}"
-            created_at = conv.created_at if conv else None
-            summary = conv.summary if conv else None
-            conv_source = conv.source if conv else "local"
-
-            # Get source info with refs
-            source = self._get_conversation_source(r.conversation_id)
-            cloud_url = self._get_cloud_url(r.conversation_id)
-
-            context_chunks.append(ContextChunk(
-                conversation_id=r.conversation_id,
-                title=title,
-                embed_type=r.embed_type,
-                source_text=r.source_text,
-                score=r.score,
-                chunk_index=r.chunk_index,
-                summary=summary,
-                cloud_url=cloud_url,
-                created_at=created_at,
-                conv_source=conv_source or "local",
-                source=source,
-            ))
+        context_chunks = self._results_to_context_chunks(results)
 
         search_time = time.perf_counter() - start_time
 
@@ -271,28 +246,7 @@ class RAGRetriever:
                     start_date=None,
                     end_date=None,
                 )
-                for r in results:
-                    conv = self.conv_store.get(r.conversation_id)
-                    title = conv.title if conv and conv.title else f"Conversation {r.conversation_id[:8]}"
-                    created_at = conv.created_at if conv else None
-                    summary = conv.summary if conv else None
-                    conv_source = conv.source if conv else "local"
-                    source = self._get_conversation_source(r.conversation_id)
-                    cloud_url = self._get_cloud_url(r.conversation_id)
-
-                    context_chunks.append(ContextChunk(
-                        conversation_id=r.conversation_id,
-                        title=title,
-                        embed_type=r.embed_type,
-                        source_text=r.source_text,
-                        score=r.score,
-                        chunk_index=r.chunk_index,
-                        summary=summary,
-                        cloud_url=cloud_url,
-                        created_at=created_at,
-                        conv_source=conv_source or "local",
-                        source=source,
-                    ))
+                context_chunks = self._results_to_context_chunks(results)
                 search_time += time.perf_counter() - start_time
                 if context_chunks:
                     temporal_applied = False
@@ -311,6 +265,33 @@ class RAGRetriever:
             temporal_filter_applied=temporal_applied,
             date_range=(start_date, end_date) if temporal_applied else None,
         )
+
+    def _results_to_context_chunks(self, results) -> list[ContextChunk]:
+        """Convert embedding search results to ContextChunk objects with full metadata."""
+        chunks = []
+        for r in results:
+            conv = self.conv_store.get(r.conversation_id)
+            title = conv.title if conv and conv.title else f"Conversation {r.conversation_id[:8]}"
+            created_at = conv.created_at if conv else None
+            summary = conv.summary if conv else None
+            conv_source = conv.source if conv else "local"
+            source = self._get_conversation_source(r.conversation_id)
+            cloud_url = self._get_cloud_url(r.conversation_id)
+
+            chunks.append(ContextChunk(
+                conversation_id=r.conversation_id,
+                title=title,
+                embed_type=r.embed_type,
+                source_text=r.source_text,
+                score=r.score,
+                chunk_index=r.chunk_index,
+                summary=summary,
+                cloud_url=cloud_url,
+                created_at=created_at,
+                conv_source=conv_source or "local",
+                source=source,
+            ))
+        return chunks
 
     def _get_cloud_url(self, conversation_id: str) -> str:
         return f"{self.cloud_base_url}/conversations/{conversation_id}"
