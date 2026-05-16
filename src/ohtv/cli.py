@@ -2541,6 +2541,125 @@ def _print_search_json(
     print(json.dumps(output, indent=2))
 
 
+def _display_retrieval_breakdown(
+    question: str,
+    chunks: list,
+    search_time: float,
+    temporal_applied: bool,
+    date_range: tuple | None,
+    explicit_start: datetime | None,
+    explicit_end: datetime | None,
+) -> None:
+    """Display RAG retrieval breakdown grouped by conversation and embed type.
+
+    Shows per-conversation breakdown with chunk counts and score ranges for each
+    embedding type (analysis, summary, content). Helps diagnose retrieval quality.
+    """
+    from collections import defaultdict
+
+    if not chunks:
+        console.print("[yellow]No relevant context found.[/yellow]")
+        return
+
+    # Count unique conversations
+    conv_ids = {c.conversation_id for c in chunks}
+
+    console.print(f"\n[bold]Query:[/bold] {question}")
+    console.print(f"[dim]Retrieved {len(chunks)} chunks from {len(conv_ids)} conversations[/dim]")
+
+    # Show temporal filter info
+    if temporal_applied and date_range:
+        start, end = date_range
+        if start and end:
+            console.print(f"[dim]📅 Auto-filtered: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}[/dim]")
+        elif start:
+            console.print(f"[dim]📅 Auto-filtered: from {start.strftime('%Y-%m-%d')}[/dim]")
+        elif end:
+            console.print(f"[dim]📅 Auto-filtered: until {end.strftime('%Y-%m-%d')}[/dim]")
+    elif explicit_start or explicit_end:
+        if explicit_start and explicit_end:
+            console.print(f"[dim]📅 Explicit filter: {explicit_start.strftime('%Y-%m-%d')} to {explicit_end.strftime('%Y-%m-%d')}[/dim]")
+        elif explicit_start:
+            console.print(f"[dim]📅 Explicit filter: from {explicit_start.strftime('%Y-%m-%d')}[/dim]")
+        elif explicit_end:
+            console.print(f"[dim]📅 Explicit filter: until {explicit_end.strftime('%Y-%m-%d')}[/dim]")
+
+    console.print()
+
+    # Group chunks by conversation_id, then by embed_type
+    conv_chunks: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    conv_metadata: dict[str, dict] = {}
+
+    for chunk in chunks:
+        conv_id = chunk.conversation_id
+        conv_chunks[conv_id][chunk.embed_type].append(chunk)
+
+        # Store metadata from first chunk of each conversation
+        if conv_id not in conv_metadata:
+            conv_metadata[conv_id] = {
+                "title": chunk.title,
+                "created_at": chunk.created_at,
+                "summary": chunk.summary,
+            }
+
+    # Sort conversations by max score (highest first)
+    def conv_max_score(conv_id: str) -> float:
+        all_conv_chunks = []
+        for embed_chunks in conv_chunks[conv_id].values():
+            all_conv_chunks.extend(embed_chunks)
+        return max(c.score for c in all_conv_chunks) if all_conv_chunks else 0.0
+
+    sorted_conv_ids = sorted(conv_chunks.keys(), key=conv_max_score, reverse=True)
+
+    # Define embed type order and colors
+    embed_type_order = ["analysis", "summary", "content"]
+    embed_type_colors = {
+        "analysis": "green",
+        "summary": "yellow",
+        "content": "dim",
+    }
+
+    for conv_id in sorted_conv_ids:
+        metadata = conv_metadata[conv_id]
+        date_str = metadata["created_at"].strftime("%Y-%m-%d") if metadata["created_at"] else "unknown"
+        conv_id_short = conv_id.replace("-", "")[:8]
+        title = metadata["title"] or "Untitled"
+
+        # Truncate title to fit nicely
+        max_title_len = 50
+        if len(title) > max_title_len:
+            title = title[:max_title_len-3] + "..."
+
+        console.print(f"[cyan]{conv_id_short}[/cyan] ({date_str}) [dim]\"{title}\"[/dim]")
+
+        # Show breakdown by embed type
+        types_by_conv = conv_chunks[conv_id]
+        for embed_type in embed_type_order:
+            if embed_type not in types_by_conv:
+                continue
+
+            type_chunks = types_by_conv[embed_type]
+            scores = [c.score for c in type_chunks]
+            chunk_count = len(type_chunks)
+            color = embed_type_colors.get(embed_type, "white")
+
+            # Format chunk count
+            chunk_label = f"{chunk_count} chunk" if chunk_count == 1 else f"{chunk_count} chunks"
+
+            # Format score range
+            if chunk_count == 1:
+                score_str = f"{scores[0]:.3f}"
+            else:
+                score_str = f"{max(scores):.3f}-{min(scores):.3f}"
+
+            console.print(f"  [{color}]{embed_type:10}[/{color}] {chunk_label:10}  {score_str}")
+
+        console.print()
+
+    # Show timing
+    console.print(f"[dim]Search time: {search_time:.2f}s[/dim]")
+
+
 @main.command("ask")
 @click.argument("question")
 @click.option("--context", "-c", default=5, help="Number of context chunks to use (default: 5)")
@@ -2550,6 +2669,8 @@ def _print_search_json(
 @click.option("--since", type=str, help="Only search conversations from this date (YYYY-MM-DD or relative: 7d, 2w, 1m)")
 @click.option("--until", type=str, help="Only search conversations until this date (YYYY-MM-DD)")
 @click.option("--no-temporal", is_flag=True, help="Disable automatic temporal filtering from question")
+@click.option("--explain", is_flag=True, help="Show RAG retrieval breakdown by conversation and embed type")
+@click.option("--explain-only", is_flag=True, help="Show retrieval breakdown without generating an LLM answer")
 @click.option("--agent", is_flag=True, help="Enable multi-turn investigation mode")
 @click.option("--max-steps", type=int, default=5, help="Max investigation steps (with --agent)")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
@@ -2562,6 +2683,8 @@ def ask(
     since: str | None,
     until: str | None,
     no_temporal: bool,
+    explain: bool,
+    explain_only: bool,
     agent: bool,
     max_steps: int,
     verbose: bool,
@@ -2579,6 +2702,11 @@ def ask(
     examine specific conversations and search for additional context to
     provide a more thorough answer.
     
+    With --explain, shows a per-conversation retrieval breakdown before the
+    answer, helping diagnose RAG retrieval quality. With --explain-only,
+    shows the breakdown without generating an LLM answer (useful for pure
+    retrieval debugging without token cost).
+    
     \b
     Before asking, build embeddings with:
       ohtv db embed
@@ -2591,12 +2719,14 @@ def ask(
       ohtv ask "summarize deployment work" --since 7d    # Last 7 days
       ohtv ask "show me API changes" --since 2026-04-01 --until 2026-04-15
       ohtv ask "recent issues" --no-temporal             # Disable auto-filter
+      ohtv ask "api changes" --explain                   # Show retrieval breakdown
+      ohtv ask "api changes" --explain-only              # Retrieval only, skip LLM
       ohtv ask "explain the auth fix in detail" --agent  # Multi-turn investigation
       ohtv ask "what PRs were created?" --agent --max-steps 10  # More investigation steps
     """
     from ohtv.db import get_connection, get_db_path, migrate
     from ohtv.db.stores import ConversationStore, EmbeddingStore, LinkStore, ReferenceStore, RepoStore
-    from ohtv.analysis.rag import RAGAnswerer
+    from ohtv.analysis.rag import RAGAnswerer, RAGRetriever
     from ohtv.filters import parse_date_filter
     from ohtv.config import Config
     
@@ -2654,9 +2784,47 @@ def ask(
         
         console.print("[dim]Searching for relevant context...[/dim]")
         
-        # Use RAGAnswerer for context retrieval and answer generation
         # Disable temporal filter if explicit dates provided or --no-temporal flag
         enable_temporal = not no_temporal and start_date is None and end_date is None
+        
+        # --explain-only mode: retrieval only, no LLM answer
+        if explain_only:
+            retriever = RAGRetriever(
+                embed_store, conv_store,
+                enable_temporal_filter=enable_temporal,
+                link_store=link_store,
+                ref_store=ref_store,
+                repo_store=repo_store,
+                cloud_base_url=cloud_base_url,
+            )
+            
+            try:
+                retrieval_result = retriever.retrieve(
+                    question,
+                    max_context_chunks=context,
+                    min_score=min_score,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+            except ValueError as e:
+                console.print(f"[yellow]{e}[/yellow]")
+                console.print("[dim]Try lowering --min-score or building more embeddings.[/dim]")
+                raise SystemExit(1)
+            
+            if not retrieval_result.context_chunks:
+                console.print("[yellow]No relevant context found.[/yellow]")
+                raise SystemExit(1)
+            
+            _display_retrieval_breakdown(
+                question, retrieval_result.context_chunks,
+                retrieval_result.search_time_seconds,
+                retrieval_result.temporal_filter_applied,
+                retrieval_result.date_range,
+                start_date, end_date,
+            )
+            return  # Exit early, no LLM answer
+        
+        # Use RAGAnswerer for context retrieval and answer generation
         answerer = RAGAnswerer(
             embed_store, conv_store, 
             model=model, 
@@ -2683,6 +2851,17 @@ def ask(
             console.print(f"[red]Error:[/red] {e}")
             console.print("[dim]Make sure LLM_API_KEY is set.[/dim]")
             raise SystemExit(1)
+        
+        # Show retrieval breakdown if --explain
+        if explain:
+            _display_retrieval_breakdown(
+                question, result.context_chunks,
+                result.search_time_seconds,
+                result.temporal_filter_applied,
+                result.date_range,
+                start_date, end_date,
+            )
+            console.print()  # Extra spacing before answer
         
         # Agent mode: run multi-turn investigation
         investigation_result = None
@@ -2734,23 +2913,24 @@ def ask(
                 console.print("[dim]Falling back to initial answer.[/dim]")
                 investigation_result = None
         
-        # Show temporal filter info if applied
-        if result.temporal_filter_applied and result.date_range:
-            start, end = result.date_range
-            if start and end:
-                console.print(f"[dim]📅 Filtering to: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}[/dim]")
-            elif start:
-                console.print(f"[dim]📅 Filtering to: from {start.strftime('%Y-%m-%d')}[/dim]")
-            elif end:
-                console.print(f"[dim]📅 Filtering to: until {end.strftime('%Y-%m-%d')}[/dim]")
-        elif start_date or end_date:
-            # Explicit date filter was provided
-            if start_date and end_date:
-                console.print(f"[dim]📅 Explicit filter: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}[/dim]")
-            elif start_date:
-                console.print(f"[dim]📅 Explicit filter: from {start_date.strftime('%Y-%m-%d')}[/dim]")
-            elif end_date:
-                console.print(f"[dim]📅 Explicit filter: until {end_date.strftime('%Y-%m-%d')}[/dim]")
+        # Show temporal filter info if applied (skip if --explain already showed it)
+        if not explain:
+            if result.temporal_filter_applied and result.date_range:
+                start, end = result.date_range
+                if start and end:
+                    console.print(f"[dim]📅 Filtering to: {start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}[/dim]")
+                elif start:
+                    console.print(f"[dim]📅 Filtering to: from {start.strftime('%Y-%m-%d')}[/dim]")
+                elif end:
+                    console.print(f"[dim]📅 Filtering to: until {end.strftime('%Y-%m-%d')}[/dim]")
+            elif start_date or end_date:
+                # Explicit date filter was provided
+                if start_date and end_date:
+                    console.print(f"[dim]📅 Explicit filter: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}[/dim]")
+                elif start_date:
+                    console.print(f"[dim]📅 Explicit filter: from {start_date.strftime('%Y-%m-%d')}[/dim]")
+                elif end_date:
+                    console.print(f"[dim]📅 Explicit filter: until {end_date.strftime('%Y-%m-%d')}[/dim]")
         
         # Show context if requested
         if show_context:
