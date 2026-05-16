@@ -1,20 +1,30 @@
+### 2026-05-16 00:20 UTC - Merge Worker
+
+✅ **Merged PR #65 - Fix CLI context level -c 3 not converted to 'full'**
+
+- PR: [#65](https://github.com/jpshackelford/ohtv/pull/65)
+- Merge commit: `3da17e2`
+- Closes: #61
+
+**Summary:** Fixed batch mode not converting numeric context levels (`-c 1`, `-c 2`, `-c 3`) to canonical names (`minimal`, `default`, `full`). Added `_normalize_context_level()` helper and `CONTEXT_LEVEL_MAP` constant.
+
+**Test coverage:** 13 new tests (12 unit + 1 regression), 1004 total passing.
+
+---
+
 ### 2026-05-16 00:19 UTC - Orchestrator
 
 **Active Workers:**
 | Conv ID | Type | Working On | Status |
 |---------|------|------------|--------|
-| `2a52c4c` | merge | PR #65 - Fix CLI context level -c 3 | **NEW** |
+| `2a52c4c` | merge | PR #65 - Fix CLI context level -c 3 | ✅ DONE |
 
 **Previous Workers Completed:**
 - `212fa1e` (testing PR #65): finished ✓ - Manual test results posted
-
-**Spawned: Merge Worker**
-- PR: [#65 - Fix CLI context level -c 3 not converted to 'full'](https://github.com/jpshackelford/ohtv/pull/65)
-- Conversation: [`2a52c4c`](https://app.all-hands.dev/conversations/2a52c4c0ff834e199ada26900bd1b32e)
-- Reason: All merge criteria met (CI green ✓, test results ✓, 0 unresolved threads ✓)
+- `2a52c4c` (merge PR #65): finished ✓ - PR #65 merged
 
 **Current State:**
-- [PR #65](https://github.com/jpshackelford/ohtv/pull/65): `oC` ready, CI green, test results ✓ → merging
+- [PR #65](https://github.com/jpshackelford/ohtv/pull/65): **MERGED** ✅
 - [PR #36](https://github.com/jpshackelford/ohtv/pull/36): draft (skipped - waiting for author)
 - Issues needing expansion: None 🎉
 - Ready issues by priority:
@@ -22,7 +32,7 @@
   - LOW: #46, #53, #58, #64
 
 **Slots:**
-- 🚀 PR slot: Occupied (merge worker for PR #65)
+- 🚀 PR slot: Available (PR #65 merged)
 - ⏳ Expansion slot: Idle (no issues to expand)
 
 ---
