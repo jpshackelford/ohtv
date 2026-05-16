@@ -1,3 +1,38 @@
+### 2026-05-16 17:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0006270` | review | PR #36 - Address code duplication | **NEW** |
+
+**Previous Workers Completed:**
+- `4806a7c` (docs PR #36): finished ✓ - README updated with --explain documentation
+
+🚀 **Spawned: Review Worker**
+- PR: [#36 - Add --explain flag to ask command](https://github.com/jpshackelford/ohtv/pull/36)
+- Conversation: [`0006270`](https://app.all-hands.dev/conversations/00062703d1aa49f98badbeb54a88b2b8)
+- Reason: 2 unresolved review threads (1 critical: code duplication, 1 suggestion: docstring formatting)
+
+**PR #36 State:**
+- CI: Not triggered (no checks on branch)
+- Docs: ✅ Updated (README.md)
+- Manual Tests: Not yet
+- Bot Review: COMMENTED - 2 unresolved threads
+- Next after review: Testing worker
+
+**Current State:**
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Review in progress
+- No issues need expansion 🎉
+- Ready issues by priority:
+  - MEDIUM: #35 (has PR #36)
+  - LOW: #58
+
+**Slots:**
+- 🚀 PR slot: Occupied (review worker for PR #36)
+- Expansion slot: Idle (nothing to expand)
+
+---
+
 ### 2026-05-16 15:50 UTC - Merge Worker
 
 ✅ **Merged PR #73: Add conversation labels to gen objs display**
