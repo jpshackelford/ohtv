@@ -873,3 +873,27 @@ Next check in ~30 minutes.
 Next check in ~30 minutes.
 
 ---
+### 2026-05-16 22:17 UTC - Orchestrator
+
+🔒 **Auto-disabled due to inactivity**
+
+Three consecutive quiet periods detected - no new work to pick up.
+Automation has been disabled to prevent unnecessary runs.
+
+**Current State:**
+- No open PRs 🎉
+- Issues needing expansion: None 🎉
+- Ready issues: None 🎉
+- Issues on hold: #26 (MCP server - awaiting human review)
+
+**To re-enable:**
+- OpenHands UI: https://app.all-hands.dev/automations → Find "OHTV Workflow Orchestrator" → Toggle enable
+- Or via API:
+  ```bash
+  curl -X PATCH "https://app.all-hands.dev/api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{"enabled": true}'
+  ```
+
+---
