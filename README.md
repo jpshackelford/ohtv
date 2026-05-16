@@ -44,6 +44,10 @@ ohtv search "fix authentication bugs"
 # Ask questions about your conversations (RAG)
 ohtv ask "how did we fix the auth bug?"
 
+# Debug RAG retrieval quality
+ohtv ask "api changes" --explain            # Show retrieval breakdown + answer
+ohtv ask "api changes" --explain-only       # Retrieval only (no LLM_API_KEY needed)
+
 # Deep investigation with agent mode
 ohtv ask "explain the auth fix in detail" --agent
 
@@ -1125,6 +1129,15 @@ ohtv ask "explain the auth fix in detail" --agent
 
 # Investigation with more steps for complex questions
 ohtv ask "what went wrong with the deployment?" --agent --max-steps 10
+
+# Debug retrieval quality (show which conversations match)
+ohtv ask "api changes" --explain
+
+# Retrieval debugging only (no LLM answer, no LLM_API_KEY needed)
+ohtv ask "api changes" --explain-only
+
+# Combine with date filters
+ohtv ask "what did we work on yesterday?" --explain --since 7d
 ```
 
 **Example Output:**
@@ -1157,11 +1170,67 @@ Search: 0.15s | Generation: 2.34s | Model: openai/gpt-4o-mini
 | `-s, --min-score N` | Minimum similarity score 0-1 (default: 0.3) |
 | `-m, --model MODEL` | LLM model for answer generation |
 | `--show-context` | Show retrieved context chunks |
+| `--explain` | Show retrieval breakdown before answer (see below) |
+| `--explain-only` | Show retrieval breakdown only, skip LLM answer (no `LLM_API_KEY` needed) |
 | `--agent` | Enable multi-turn investigation mode (see below) |
 | `--max-steps N` | Maximum investigation steps with `--agent` (default: 5) |
+| `-S, --since DATE` | Filter by date (YYYY-MM-DD or relative like `7d`, `2w`) |
+| `-U, --until DATE` | Filter by date (YYYY-MM-DD) |
+| `--no-temporal` | Disable automatic temporal extraction from question |
 | `-v, --verbose` | Show debug output |
 
 **Note:** Requires embeddings. Run `ohtv db embed` first.
+
+#### Retrieval Debugging (`--explain`)
+
+The `--explain` flag shows a per-conversation breakdown of retrieved chunks before the LLM answer, helping diagnose RAG retrieval quality.
+
+```bash
+$ ohtv ask "how do embeddings work?" --explain
+
+Query: how do embeddings work?
+Retrieved 50 chunks from 19 conversations
+📅 Auto-filtered: 2024-04-15 to 2024-04-22
+
+b3af77ff (2024-04-22) "Clarify RAG implementation..."
+  analysis    2 chunks   0.723-0.718
+  summary     1 chunk    0.695
+  content     5 chunks   0.701-0.668
+
+76230e77 (2024-04-21) "Fix embedding functionality..."
+  analysis    1 chunk    0.712
+  content    22 chunks   0.698-0.667
+
+238de50e (2024-04-21) "Draft GitHub issue for..."
+  summary     1 chunk    0.682
+  ...
+
+Search time: 0.23s
+
+Generating answer...
+[Answer follows]
+```
+
+The breakdown shows:
+- **Chunks grouped by conversation** - Each conversation displays its ID (truncated), date, and title
+- **Embed types** - `analysis` (goal/outcomes), `summary` (user messages/refs), `content` (file contents)
+- **Chunk counts** - How many chunks matched from each type
+- **Score ranges** - Similarity scores (higher = better match, 0-1 scale)
+- **Conversations sorted by best score** - Most relevant conversations first
+- **Temporal filter info** - Shows if auto or explicit date filtering was applied
+
+**Use `--explain-only` for retrieval-only debugging:**
+
+```bash
+# Skip LLM answer, just see retrieval (no LLM_API_KEY needed)
+$ ohtv ask "api changes" --explain-only
+```
+
+This is useful for:
+- **Diagnosing retrieval quality** - Are the right conversations being found?
+- **Tuning chunking parameters** - Is content over-fragmented?
+- **Identifying noisy conversations** - Some may flood results with low-quality matches
+- **Comparing embedding types** - Which types work best for different query types?
 
 #### Investigation Mode (`--agent`)
 
