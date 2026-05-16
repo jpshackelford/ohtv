@@ -478,11 +478,12 @@ class TestRepairResult:
     def test_is_consistent_when_no_discrepancies(self):
         result = RepairResult(
             manifest_count=10,
-            disk_count=10,
+            disk_counts_by_dir={"/path/to/dir": 10},
             ghost_entries=[],
             orphaned_files=[],
         )
         assert result.is_consistent is True
+        assert result.disk_count == 10
 
     def test_is_consistent_false_when_ghosts(self):
         result = RepairResult(
@@ -499,12 +500,26 @@ class TestRepairResult:
         assert result.is_consistent is False
 
     def test_cloud_disk_match_when_equal(self):
-        result = RepairResult(cloud_count=100, disk_count=100)
+        result = RepairResult(cloud_count=100, disk_counts_by_dir={"/path": 100})
         assert result.cloud_disk_match is True
 
     def test_cloud_disk_match_false_when_different(self):
-        result = RepairResult(cloud_count=100, disk_count=50)
+        result = RepairResult(cloud_count=100, disk_counts_by_dir={"/path": 50})
         assert result.cloud_disk_match is False
+
+    def test_disk_count_sums_multiple_directories(self):
+        result = RepairResult(
+            disk_counts_by_dir={
+                "/path/to/synced": 50,
+                "/path/to/local": 30,
+                "/path/to/extra": 20,
+            }
+        )
+        assert result.disk_count == 100
+
+    def test_disk_count_empty_when_no_directories(self):
+        result = RepairResult()
+        assert result.disk_count == 0
 
 
 class TestSyncManagerRepair:
@@ -516,6 +531,8 @@ class TestSyncManagerRepair:
         config = MagicMock()
         config.synced_conversations_dir = tmp_path / "synced"
         config.synced_conversations_dir.mkdir(parents=True)
+        config.local_conversations_dir = tmp_path / "local"  # Does not exist initially
+        config.extra_conversation_paths = []
         config.api_key = None  # No API key - skip cloud check
         config.cloud_api_url = "https://example.com"
         
@@ -641,6 +658,65 @@ class TestSyncManagerRepair:
         assert result.added_to_manifest == 0
         assert result.removed_from_manifest == 0
         assert "orphan111" not in manager.manifest.conversations
+
+    def test_counts_multiple_directories(self, manager, tmp_path):
+        """Test that repair counts conversations in multiple directories."""
+        # Create synced conversations
+        (manager.config.synced_conversations_dir / "synced1").mkdir()
+        (manager.config.synced_conversations_dir / "synced2").mkdir()
+        
+        # Create local conversations directory
+        local_dir = tmp_path / "local"
+        local_dir.mkdir()
+        (local_dir / "local1").mkdir()
+        (local_dir / "local2").mkdir()
+        (local_dir / "local3").mkdir()
+        manager.config.local_conversations_dir = local_dir
+        
+        # Create extra conversations directory
+        extra_dir = tmp_path / "extra"
+        extra_dir.mkdir()
+        (extra_dir / "extra1").mkdir()
+        manager.config.extra_conversation_paths = [extra_dir]
+        
+        result = manager.repair(fix=False, check_cloud=False)
+        
+        # Total should include all directories
+        assert result.disk_count == 6
+        
+        # Verify breakdown
+        assert len(result.disk_counts_by_dir) == 3
+        assert result.disk_counts_by_dir[str(manager.config.synced_conversations_dir)] == 2
+        assert result.disk_counts_by_dir[str(local_dir)] == 3
+        assert result.disk_counts_by_dir[str(extra_dir)] == 1
+
+    def test_omits_empty_directories_from_breakdown(self, manager, tmp_path):
+        """Test that directories with zero conversations aren't in the breakdown."""
+        # Create one synced conversation
+        (manager.config.synced_conversations_dir / "synced1").mkdir()
+        
+        # Local directory exists but is empty
+        local_dir = tmp_path / "local"
+        local_dir.mkdir()
+        manager.config.local_conversations_dir = local_dir
+        
+        result = manager.repair(fix=False, check_cloud=False)
+        
+        assert result.disk_count == 1
+        assert len(result.disk_counts_by_dir) == 1
+        assert str(local_dir) not in result.disk_counts_by_dir
+
+    def test_handles_nonexistent_extra_paths(self, manager, tmp_path):
+        """Test that repair handles extra paths that don't exist."""
+        (manager.config.synced_conversations_dir / "synced1").mkdir()
+        
+        # Point to nonexistent directory
+        manager.config.extra_conversation_paths = [tmp_path / "nonexistent"]
+        
+        result = manager.repair(fix=False, check_cloud=False)
+        
+        assert result.disk_count == 1
+        assert len(result.disk_counts_by_dir) == 1
 
 
 class TestSyncManagerFindConversationDir:

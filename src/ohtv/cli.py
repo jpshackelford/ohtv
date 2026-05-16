@@ -1262,6 +1262,20 @@ def _show_status(manager: SyncManager) -> None:
     console.print(table)
 
 
+def _format_path_for_display(path: str) -> str:
+    """Format a path for readable display.
+    
+    Replaces home directory with ~ and uses just the path as-is.
+    """
+    home = str(Path.home())
+    # Match exact home or home followed by /
+    if path == home:
+        return "~"
+    if path.startswith(home + "/"):
+        return "~" + path[len(home):]
+    return path
+
+
 def _run_repair(manager: SyncManager, fix: bool, quiet: bool) -> None:
     """Check and optionally repair sync state consistency."""
     try:
@@ -1284,6 +1298,12 @@ def _run_repair(manager: SyncManager, fix: bool, quiet: bool) -> None:
     table.add_row("Cloud conversations", str(result.cloud_count) if result.cloud_count else "[dim]unavailable[/dim]")
     table.add_row("Manifest entries", str(result.manifest_count))
     table.add_row("Conversations on disk", str(result.disk_count))
+    
+    # Show per-directory breakdown if multiple directories have conversations
+    if len(result.disk_counts_by_dir) > 1:
+        for dir_path, count in sorted(result.disk_counts_by_dir.items()):
+            formatted_path = _format_path_for_display(dir_path)
+            table.add_row(f"  {formatted_path}", str(count), style="dim")
     
     console.print(table)
     console.print()
