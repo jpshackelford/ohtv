@@ -2603,6 +2603,9 @@ def ask(
         if agent:
             from ohtv.analysis.investigator import InvestigationAgent
             
+            # Show initial RAG answer before investigation
+            console.print(f"\n[bold]Initial Answer (from semantic search):[/bold]\n")
+            console.print(result.answer)
             console.print(f"\n[bold cyan]🔍 Starting investigation mode...[/bold cyan]")
             
             # Build list of conversation directories
