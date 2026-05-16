@@ -1068,3 +1068,41 @@ Assessed 5 unprioritized ready issues and applied labels:
 - ⏳ Expansion slot: Idle (no issues to expand)
 
 ---
+### 2026-05-16 03:19 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `5693f88` | merge | PR #67 - Numeric lookback for -D/-W | **NEW** |
+
+**Previous Workers Completed:**
+- `ec6af79` (testing PR #67): finished ✓ - Manual test results posted (14 tests, all PASS)
+
+**Spawned: Merge Worker**
+
+- PR: [#67 - feat: add numeric lookback for -D and -W options](https://github.com/jpshackelford/ohtv/pull/67)
+- Conversation: [`5693f88`](https://app.all-hands.dev/conversations/5693f88...)
+- Reason: All merge criteria met (CI green ✓, docs updated ✓, 14 manual tests PASS ✓, 0 unresolved threads ✓, bot recommends approval ✓)
+
+**PR #67 Summary:**
+- Implements numeric lookback for `-D` and `-W` options per issue #57
+- `-D 3` = last 3 days, `-W 2` = last 2 weeks
+- 25 new tests, all 1090 tests pass
+- Bot review: "Good taste - Clean, simple solution. Recommend approval."
+
+**Current State:**
+- [PR #67](https://github.com/jpshackelford/ohtv/pull/67): ready, CI green, test results ✓ → merging
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): draft (skipped - waiting for author)
+- Issues needing expansion: None 🎉
+- Ready issues by priority:
+  - MEDIUM: #35 (has draft PR #36), #60
+  - LOW: #46, #53, #58, #64
+
+**Housekeeping:**
+- Worklog at 1070 lines (>300 threshold) - truncation needed next cycle
+
+**Slots:**
+- 🚀 PR slot: Occupied (merge worker for PR #67)
+- ⏳ Expansion slot: Idle (no issues to expand)
+
+---
