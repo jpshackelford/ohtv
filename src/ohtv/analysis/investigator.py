@@ -262,6 +262,8 @@ class InvestigationAgent:
                 custom_tools=custom_tools,
                 investigation_steps=investigation_steps,
                 conversations_examined=conversations_examined,
+                question=question,
+                initial_answer=initial_answer,
             )
 
             final_answer = result["answer"]
@@ -406,6 +408,7 @@ class InvestigationAgent:
             role="tool",
             content=result_text,
             tool_call_id=tool_call.id,
+            name=tool_call.name,
         ))
 
     def _extract_final_answer_from_message(self, message) -> str | None:
@@ -425,6 +428,64 @@ class InvestigationAgent:
                 text_parts.append(part.text)
         return "".join(text_parts) if text_parts else None
 
+    def _show_tool_progress(self, tool_name: str, arguments: str | dict) -> None:
+        """Show meaningful progress message based on tool being called."""
+        import json
+        
+        if isinstance(arguments, str):
+            try:
+                args = json.loads(arguments)
+            except json.JSONDecodeError:
+                args = {}
+        else:
+            args = arguments
+        
+        if tool_name == "show_conversation":
+            conv_id = args.get("conversation_id", "unknown")[:8]
+            self.console.print(f"[dim]📖 Examining conversation {conv_id}...[/dim]")
+        elif tool_name == "search_conversations":
+            query = args.get("query", "")[:50]
+            self.console.print(f"[dim]🔍 Searching for: {query}...[/dim]")
+        elif tool_name == "get_refs":
+            conv_id = args.get("conversation_id", "unknown")[:8]
+            self.console.print(f"[dim]🔗 Getting refs for {conv_id}...[/dim]")
+        elif tool_name == "think":
+            # Handled separately in the loop
+            pass
+        elif tool_name == "finish":
+            self.console.print(f"[dim]✅ Finalizing answer...[/dim]")
+        else:
+            self.console.print(f"[dim]🔧 {tool_name}...[/dim]")
+
+    def _synthesize_partial_findings(
+        self,
+        question: str,
+        initial_answer: "RAGAnswer",
+        investigation_steps: list[str],
+        conversations_examined: set[str],
+    ) -> str:
+        """Synthesize findings when investigation hits iteration limit.
+        
+        Instead of returning "iteration limit reached", we summarize what
+        was learned during the investigation.
+        """
+        parts = []
+        
+        # Start with the initial answer
+        parts.append("Based on the available information:\n")
+        parts.append(initial_answer.answer)
+        
+        # Add information about what was examined
+        if conversations_examined:
+            parts.append(f"\n\n**Investigation examined {len(conversations_examined)} additional conversations** ")
+            parts.append(f"(IDs: {', '.join(sorted(c[:8] for c in conversations_examined))})")
+        
+        # Note that investigation was incomplete
+        parts.append("\n\n*Note: Investigation reached iteration limit. "
+                    "For more thorough analysis, try increasing --max-steps.*")
+        
+        return "".join(parts)
+
     def _run_investigation_loop(
         self,
         llm: LLM,
@@ -432,6 +493,8 @@ class InvestigationAgent:
         custom_tools: list[ToolDefinition],
         investigation_steps: list[str],
         conversations_examined: set[str],
+        question: str,
+        initial_answer: "RAGAnswer",
     ) -> dict:
         """Run the investigation loop using direct LLM calls with tools.
 
@@ -457,7 +520,6 @@ class InvestigationAgent:
 
         while not finished and iteration < self.max_iterations:
             iteration += 1
-            self.console.print(f"[dim]Investigation step {iteration}...[/dim]")
 
             try:
                 response = llm.completion(messages, tools=tool_definitions)
@@ -480,9 +542,14 @@ class InvestigationAgent:
                         investigation_steps.append("Finished with direct response")
                     break
 
-                # Process each tool call
+                # Process ALL tool calls in this response before next iteration
+                # This handles cases where LLM wants to make multiple tool calls
+                pending_tool_results = []
                 for tool_call in tool_calls:
                     tool_name = tool_call.name
+                    
+                    # Show meaningful progress based on tool type
+                    self._show_tool_progress(tool_name, tool_call.arguments)
                     investigation_steps.append(f"Called {tool_name}: {tool_call.arguments}")
 
                     result_text, answer, is_finished = self._process_tool_call(
@@ -498,7 +565,13 @@ class InvestigationAgent:
                         if tool_name == "think":
                             thought = result_text.replace("Thought recorded: ", "")
                             investigation_steps.append(f"Thinking: {thought[:100]}...")
-                        self._add_tool_response(messages, tool_call, result_text)
+                            # Show thinking to user
+                            self.console.print(f"[dim italic]💭 {thought[:200]}{'...' if len(thought) > 200 else ''}[/dim italic]")
+                        pending_tool_results.append((tool_call, result_text))
+
+                # Add all tool responses to messages after processing all calls
+                for tool_call, result_text in pending_tool_results:
+                    self._add_tool_response(messages, tool_call, result_text)
 
                 if finished:
                     break
@@ -508,10 +581,10 @@ class InvestigationAgent:
                 investigation_steps.append(f"Error: {e}")
                 break
 
+        # If we hit the iteration limit, synthesize what we learned
         if not final_answer and not finished:
-            final_answer = (
-                "Investigation reached iteration limit without a final answer. "
-                "Please review the investigation steps for partial findings."
+            final_answer = self._synthesize_partial_findings(
+                question, initial_answer, investigation_steps, conversations_examined
             )
 
         return {
