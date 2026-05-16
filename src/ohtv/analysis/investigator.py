@@ -343,8 +343,8 @@ class InvestigationAgent:
         """
         import json
 
-        tool_name = tool_call.function.name
-        arguments = tool_call.function.arguments
+        tool_name = tool_call.name
+        arguments = tool_call.arguments
 
         # Parse arguments (might be string or dict)
         if isinstance(arguments, str):
@@ -482,8 +482,8 @@ class InvestigationAgent:
 
                 # Process each tool call
                 for tool_call in tool_calls:
-                    tool_name = tool_call.function.name
-                    investigation_steps.append(f"Called {tool_name}: {tool_call.function.arguments}")
+                    tool_name = tool_call.name
+                    investigation_steps.append(f"Called {tool_name}: {tool_call.arguments}")
 
                     result_text, answer, is_finished = self._process_tool_call(
                         tool_call, tool_map, conversations_examined
