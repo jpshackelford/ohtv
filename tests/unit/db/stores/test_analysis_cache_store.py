@@ -491,6 +491,50 @@ class TestUpsertSkipWithContextLevel:
         assert row[0] == "full"
         assert row[1] == "no_content"
 
+    def test_event_count_updated_despite_higher_context_skip(
+        self, analysis_cache_store, sample_conversation, db_conn
+    ):
+        """Event count should be updated even when not downgrading context level.
+        
+        This prevents infinite retry loops when:
+        1. Conversation is skipped at 'full' with event_count=10
+        2. Conversation grows to 20 events
+        3. Batch run at 'minimal' context fails, calls upsert_skip(20, 'minimal')
+        4. Without this fix, the early return would leave event_count=10, causing endless retries
+        """
+        # Skip at 'full' with event_count=10
+        entry1 = AnalysisSkipEntry(
+            conversation_id="abc123",
+            event_count=10,
+            reason="no_content",
+            skipped_at=datetime.now(timezone.utc),
+            context_level="full",
+        )
+        analysis_cache_store.upsert_skip(entry1)
+        db_conn.commit()
+        
+        # Conversation grows to 20 events, batch run fails at 'minimal'
+        entry2 = AnalysisSkipEntry(
+            conversation_id="abc123",
+            event_count=20,
+            reason="still_no_content",
+            skipped_at=datetime.now(timezone.utc),
+            context_level="minimal",
+        )
+        analysis_cache_store.upsert_skip(entry2)
+        db_conn.commit()
+        
+        # Verify event_count was updated (even though context stayed at 'full')
+        cursor = db_conn.execute(
+            "SELECT event_count, context_level, reason FROM analysis_skips WHERE conversation_id = ?",
+            ("abc123",),
+        )
+        row = cursor.fetchone()
+        assert row[0] == 20, "event_count should be updated to prevent retry loops"
+        assert row[1] == "full", "context_level should remain at 'full'"
+        # Reason should be preserved from the higher-context skip
+        assert row[2] == "no_content"
+
 
 class TestGetCacheStatusBatchWithContextLevel:
     """Tests for get_cache_status_batch returning skip_context_level."""

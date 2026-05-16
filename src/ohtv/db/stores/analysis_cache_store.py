@@ -161,15 +161,22 @@ class AnalysisCacheStore:
         
         # Check if there's an existing skip at a higher context level
         cursor = self.conn.execute(
-            "SELECT context_level FROM analysis_skips WHERE conversation_id = ?",
+            "SELECT context_level, event_count FROM analysis_skips WHERE conversation_id = ?",
             (normalized_id,),
         )
         row = cursor.fetchone()
         if row:
             existing_context = row[0] if row[0] else "minimal"
+            existing_event_count = row[1]
             new_context = entry.context_level or "minimal"
             # Don't downgrade: if existing skip is at higher context, keep it
+            # BUT update event_count if it changed to prevent infinite retry loops
             if context_level_index(existing_context) > context_level_index(new_context):
+                if existing_event_count != entry.event_count:
+                    self.conn.execute(
+                        "UPDATE analysis_skips SET event_count = ?, skipped_at = ? WHERE conversation_id = ?",
+                        (entry.event_count, skipped_at_str, normalized_id),
+                    )
                 return
         
         self.conn.execute(

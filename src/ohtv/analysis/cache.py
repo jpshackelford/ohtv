@@ -31,6 +31,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from ohtv.config import get_analysis_cache_dir
+from ohtv.db.stores.analysis_cache_store import CONTEXT_LEVELS, context_level_index
 
 log = logging.getLogger("ohtv")
 
@@ -596,20 +597,15 @@ class AnalysisCacheManager:
 
         # Check if requested context level exceeds cached skip context level
         cached_context = skipped.get("context_level", "minimal")
-        context_levels = ["minimal", "default", "full"]
-        try:
-            cached_idx = context_levels.index(cached_context)
-            requested_idx = context_levels.index(context_level)
-            if requested_idx > cached_idx:
-                log.debug(
-                    "Skip marker invalidated: higher context level requested (%s > %s)",
-                    context_level,
-                    cached_context,
-                )
-                return None
-        except ValueError:
-            # Unknown context level, treat cached as valid
-            pass
+        cached_idx = context_level_index(cached_context)
+        requested_idx = context_level_index(context_level)
+        if requested_idx > cached_idx:
+            log.debug(
+                "Skip marker invalidated: higher context level requested (%s > %s)",
+                context_level,
+                cached_context,
+            )
+            return None
 
         return skipped.get("reason")
 
@@ -632,23 +628,36 @@ class AnalysisCacheManager:
         cache_data = self._load_cache_data(cache_file) or {"analyses": {}}
 
         # Check if existing skip is at a higher context level
-        # If so, don't overwrite (higher context encompasses lower)
+        # If so, don't overwrite context (higher context encompasses lower)
+        # BUT we still need to update event_count to prevent infinite retry loops
         existing_skip = cache_data.get("skipped")
         if existing_skip:
             existing_context = existing_skip.get("context_level", "minimal")
-            context_levels = ["minimal", "default", "full"]
-            try:
-                existing_idx = context_levels.index(existing_context)
-                new_idx = context_levels.index(context_level)
-                if existing_idx > new_idx:
+            existing_idx = context_level_index(existing_context)
+            new_idx = context_level_index(context_level)
+            if existing_idx > new_idx:
+                # Don't downgrade context level, but update event_count if changed
+                existing_event_count = cache_data.get("event_count")
+                if existing_event_count != event_count:
+                    cache_data["event_count"] = event_count
+                    cache_data["skipped"]["at"] = datetime.now(timezone.utc).isoformat()
+                    self._save_cache_data(cache_file, cache_data)
+                    # Sync to DB with existing (higher) context level
+                    self._sync_skip_to_db(conv_dir.name, event_count, existing_skip.get("reason", reason), existing_context)
+                    log.debug(
+                        "Updated event_count for skip: %s (%d -> %d, context stays at %s)",
+                        conv_dir.name,
+                        existing_event_count,
+                        event_count,
+                        existing_context,
+                    )
+                else:
                     log.debug(
                         "Not overwriting skip: existing at %s > new at %s",
                         existing_context,
                         context_level,
                     )
-                    return
-            except ValueError:
-                pass
+                return
 
         cache_data["event_count"] = event_count
         cache_data["skipped"] = {

@@ -151,6 +151,30 @@ class TestMarkSkippedContextLevel:
         assert data["skipped"]["context_level"] == "full"
         assert data["skipped"]["reason"] == "still_no_content"
 
+    def test_event_count_updated_despite_higher_context_skip(self, cache_manager, conv_dir, cache_dir):
+        """Event count should be updated even when not downgrading context level.
+        
+        This prevents infinite retry loops when:
+        1. Conversation is skipped at 'full' with event_count=10
+        2. Conversation grows to 20 events
+        3. Batch run at 'minimal' context fails, calls mark_skipped(20, 'minimal')
+        4. Without this fix, the early return would leave event_count=10, causing endless retries
+        """
+        # Skip at 'full' with event_count=10
+        cache_manager.mark_skipped(conv_dir, 10, "no_content", context_level="full")
+        
+        # Conversation grows to 20 events, batch run fails at 'minimal'
+        cache_manager.mark_skipped(conv_dir, 20, "still_no_content", context_level="minimal")
+        
+        # Verify event_count was updated (even though context stayed at 'full')
+        cache_file = cache_dir / conv_dir.name / "objective_analysis.json"
+        data = json.loads(cache_file.read_text())
+        
+        assert data["event_count"] == 20, "event_count should be updated to prevent retry loops"
+        assert data["skipped"]["context_level"] == "full", "context_level should remain at 'full'"
+        # Reason should be preserved from the higher-context skip
+        assert data["skipped"]["reason"] == "no_content"
+
 
 class TestLegacyCacheCompatibility:
     """Tests for backward compatibility with existing cache files."""
