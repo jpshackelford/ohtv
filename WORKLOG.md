@@ -627,3 +627,45 @@
 - 📖 Expansion slot: Idle (no issues to expand)
 
 ---
+### 2026-05-16 13:19 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `339ee91` | review | PR #73 - Fix conversation labels bugs | **NEW** |
+
+**Previous Workers Completed:**
+- `379f9c4` (testing PR #73): finished ✓ - Manual test results posted (6/11 failed - critical bugs found)
+
+**Spawned: Review Worker**
+- PR: [#73 - feat: Add conversation labels to gen objs display](https://github.com/jpshackelford/ohtv/pull/73)
+- Conversation: [`339ee91`](https://app.all-hands.dev/conversations/339ee9107af84e289e4e4104a014eb18)
+- Reason: Manual tests found 3 critical bugs that need fixing
+
+**Bugs to fix:**
+1. `_filter_by_label` calls `get_connection(config)` incorrectly (line 1995)
+2. `_get_conversation_labels` calls `get_connection(config)` incorrectly (line 5021)
+3. Missing `--label` option on `gen objs` command (documented but not implemented)
+
+**PR #73 State:**
+- CI: ✅ green
+- Docs: ✅ Updated (README commit f1572146d6)
+- Tests: ❌ 6/11 manual tests failed due to bugs above
+- Review: 🟡 3 unresolved threads (data flow issues)
+
+**Current State:**
+- [PR #73](https://github.com/jpshackelford/ohtv/pull/73): Review in progress (fixing bugs)
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - human-authored, tied to #35)
+- Issues needing expansion: None 🎉
+- Ready issues by priority:
+  - MEDIUM: #35 (has draft PR #36)
+  - LOW: #53 (has PR #73), #58
+
+**Housekeeping:**
+- Worklog at 629 lines (>300 threshold) - truncation deferred
+
+**Slots:**
+- 🔧 PR slot: Occupied (review worker for PR #73)
+- 📖 Expansion slot: Idle (no issues to expand)
+
+---
