@@ -84,27 +84,32 @@ class TestRAGRetrieverInit:
         assert "app.all-hands.dev" in retriever.cloud_base_url
 
 
-class TestRAGRetrieverHelpers:
-    """Tests for RAGRetriever helper methods."""
+class TestSharedHelpers:
+    """Tests for module-level helper functions."""
 
     def test_get_cloud_url(self):
         """Test cloud URL generation."""
-        retriever = RAGRetriever(
-            MagicMock(), MagicMock(),
-            cloud_base_url="https://test.example.com"
-        )
-        url = retriever._get_cloud_url("abc123")
+        from ohtv.analysis.rag import _get_cloud_url
+        url = _get_cloud_url("https://test.example.com", "abc123")
         assert url == "https://test.example.com/conversations/abc123"
 
     def test_get_conversation_source_without_stores(self):
         """Test source info is None when stores not provided."""
-        retriever = RAGRetriever(MagicMock(), MagicMock())
-        result = retriever._get_conversation_source("abc123")
+        from ohtv.analysis.rag import _get_conversation_source
+        result = _get_conversation_source(
+            "abc123",
+            conv_store=MagicMock(),
+            link_store=None,
+            ref_store=None,
+            repo_store=None,
+            cloud_base_url="https://test.example.com",
+        )
         assert result is None
 
     def test_get_conversation_source_with_stores(self):
         """Test source info retrieval with all stores."""
-        embed_store = MagicMock()
+        from ohtv.analysis.rag import _get_conversation_source
+        
         conv_store = MagicMock()
         link_store = MagicMock()
         ref_store = MagicMock()
@@ -122,14 +127,14 @@ class TestRAGRetrieverHelpers:
         link_store.get_repos_for_conversation.return_value = []
         link_store.get_refs_for_conversation.return_value = []
         
-        retriever = RAGRetriever(
-            embed_store, conv_store,
+        result = _get_conversation_source(
+            "abc123",
+            conv_store=conv_store,
             link_store=link_store,
             ref_store=ref_store,
             repo_store=repo_store,
+            cloud_base_url="https://test.example.com",
         )
-        
-        result = retriever._get_conversation_source("abc123")
         
         assert result is not None
         assert result.conversation_id == "abc123"

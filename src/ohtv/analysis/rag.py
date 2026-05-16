@@ -149,6 +149,114 @@ class RAGAnswer:
     cost: float = 0.0  # Estimated cost in USD
 
 
+# --- Shared helper functions for RAGRetriever and RAGAnswerer ---
+
+
+def _get_cloud_url(cloud_base_url: str, conversation_id: str) -> str:
+    """Generate the cloud URL for a conversation."""
+    return f"{cloud_base_url}/conversations/{conversation_id}"
+
+
+def _get_conversation_source(
+    conversation_id: str,
+    conv_store,
+    link_store,
+    ref_store,
+    repo_store,
+    cloud_base_url: str,
+) -> ConversationSource | None:
+    """Get full source information including refs for a conversation."""
+    if not all([link_store, ref_store, repo_store]):
+        return None
+
+    try:
+        conv = conv_store.get(conversation_id)
+        title = conv.title if conv and conv.title else f"Conversation {conversation_id[:8]}"
+        created_at = conv.created_at if conv else None
+        summary = conv.summary if conv else None
+        conv_source = conv.source if conv else "local"
+
+        repos = []
+        for repo_id, link_type in link_store.get_repos_for_conversation(conversation_id):
+            repo = repo_store.get_by_id(repo_id)
+            if repo:
+                repos.append(RepoInfo(
+                    url=repo.canonical_url,
+                    fqn=repo.fqn,
+                    short_name=repo.short_name,
+                    link_type=link_type.value,
+                ))
+
+        prs = []
+        issues = []
+        for ref_id, link_type in link_store.get_refs_for_conversation(conversation_id):
+            ref = ref_store.get_by_id(ref_id)
+            if ref:
+                ref_info = RefInfo(
+                    ref_type=ref.ref_type.value,
+                    url=ref.url,
+                    fqn=ref.fqn,
+                    display_name=ref.display_name,
+                    link_type=link_type.value,
+                )
+                if ref.ref_type.value == "pr":
+                    prs.append(ref_info)
+                elif ref.ref_type.value == "issue":
+                    issues.append(ref_info)
+
+        return ConversationSource(
+            conversation_id=conversation_id,
+            title=title,
+            summary=summary,
+            source=conv_source or "local",
+            cloud_url=_get_cloud_url(cloud_base_url, conversation_id),
+            created_at=created_at,
+            repos=repos,
+            prs=prs,
+            issues=issues,
+        )
+    except Exception as e:
+        log.debug("Error getting source info for %s: %s", conversation_id, e)
+        return None
+
+
+def _results_to_context_chunks(
+    results,
+    conv_store,
+    link_store,
+    ref_store,
+    repo_store,
+    cloud_base_url: str,
+) -> list[ContextChunk]:
+    """Convert embedding search results to ContextChunk objects with full metadata."""
+    chunks = []
+    for r in results:
+        conv = conv_store.get(r.conversation_id)
+        title = conv.title if conv and conv.title else f"Conversation {r.conversation_id[:8]}"
+        created_at = conv.created_at if conv else None
+        summary = conv.summary if conv else None
+        conv_source = conv.source if conv else "local"
+        source = _get_conversation_source(
+            r.conversation_id, conv_store, link_store, ref_store, repo_store, cloud_base_url
+        )
+        cloud_url = _get_cloud_url(cloud_base_url, r.conversation_id)
+
+        chunks.append(ContextChunk(
+            conversation_id=r.conversation_id,
+            title=title,
+            embed_type=r.embed_type,
+            source_text=r.source_text,
+            score=r.score,
+            chunk_index=r.chunk_index,
+            summary=summary,
+            cloud_url=cloud_url,
+            created_at=created_at,
+            conv_source=conv_source or "local",
+            source=source,
+        ))
+    return chunks
+
+
 class RAGRetriever:
     """Retrieves relevant context without LLM generation.
 
@@ -230,7 +338,10 @@ class RAGRetriever:
             end_date=end_date,
         )
 
-        context_chunks = self._results_to_context_chunks(results)
+        context_chunks = _results_to_context_chunks(
+            results, self.conv_store, self.link_store, self.ref_store,
+            self.repo_store, self.cloud_base_url
+        )
 
         search_time = time.perf_counter() - start_time
 
@@ -246,7 +357,10 @@ class RAGRetriever:
                     start_date=None,
                     end_date=None,
                 )
-                context_chunks = self._results_to_context_chunks(results)
+                context_chunks = _results_to_context_chunks(
+                    results, self.conv_store, self.link_store, self.ref_store,
+                    self.repo_store, self.cloud_base_url
+                )
                 search_time += time.perf_counter() - start_time
                 if context_chunks:
                     temporal_applied = False
@@ -265,90 +379,6 @@ class RAGRetriever:
             temporal_filter_applied=temporal_applied,
             date_range=(start_date, end_date) if temporal_applied else None,
         )
-
-    def _results_to_context_chunks(self, results) -> list[ContextChunk]:
-        """Convert embedding search results to ContextChunk objects with full metadata."""
-        chunks = []
-        for r in results:
-            conv = self.conv_store.get(r.conversation_id)
-            title = conv.title if conv and conv.title else f"Conversation {r.conversation_id[:8]}"
-            created_at = conv.created_at if conv else None
-            summary = conv.summary if conv else None
-            conv_source = conv.source if conv else "local"
-            source = self._get_conversation_source(r.conversation_id)
-            cloud_url = self._get_cloud_url(r.conversation_id)
-
-            chunks.append(ContextChunk(
-                conversation_id=r.conversation_id,
-                title=title,
-                embed_type=r.embed_type,
-                source_text=r.source_text,
-                score=r.score,
-                chunk_index=r.chunk_index,
-                summary=summary,
-                cloud_url=cloud_url,
-                created_at=created_at,
-                conv_source=conv_source or "local",
-                source=source,
-            ))
-        return chunks
-
-    def _get_cloud_url(self, conversation_id: str) -> str:
-        return f"{self.cloud_base_url}/conversations/{conversation_id}"
-
-    def _get_conversation_source(self, conversation_id: str) -> ConversationSource | None:
-        if not all([self.link_store, self.ref_store, self.repo_store]):
-            return None
-
-        try:
-            conv = self.conv_store.get(conversation_id)
-            title = conv.title if conv and conv.title else f"Conversation {conversation_id[:8]}"
-            created_at = conv.created_at if conv else None
-            summary = conv.summary if conv else None
-            conv_source = conv.source if conv else "local"
-
-            repos = []
-            for repo_id, link_type in self.link_store.get_repos_for_conversation(conversation_id):
-                repo = self.repo_store.get_by_id(repo_id)
-                if repo:
-                    repos.append(RepoInfo(
-                        url=repo.canonical_url,
-                        fqn=repo.fqn,
-                        short_name=repo.short_name,
-                        link_type=link_type.value,
-                    ))
-
-            prs = []
-            issues = []
-            for ref_id, link_type in self.link_store.get_refs_for_conversation(conversation_id):
-                ref = self.ref_store.get_by_id(ref_id)
-                if ref:
-                    ref_info = RefInfo(
-                        ref_type=ref.ref_type.value,
-                        url=ref.url,
-                        fqn=ref.fqn,
-                        display_name=ref.display_name,
-                        link_type=link_type.value,
-                    )
-                    if ref.ref_type.value == "pr":
-                        prs.append(ref_info)
-                    elif ref.ref_type.value == "issue":
-                        issues.append(ref_info)
-
-            return ConversationSource(
-                conversation_id=conversation_id,
-                title=title,
-                summary=summary,
-                source=conv_source or "local",
-                cloud_url=self._get_cloud_url(conversation_id),
-                created_at=created_at,
-                repos=repos,
-                prs=prs,
-                issues=issues,
-            )
-        except Exception as e:
-            log.debug("Error getting source info for %s: %s", conversation_id, e)
-            return None
 
 
 class RAGAnswerer:
@@ -530,12 +560,10 @@ class RAGAnswerer:
     ) -> list[ContextChunk]:
         """Retrieve relevant context chunks for a question with full metadata."""
         from ohtv.analysis.embeddings import get_embedding
-        
-        # Embed the question
+
         query_result = get_embedding(question)
         query_embedding = query_result.embedding
-        
-        # Search for relevant context with optional date filter
+
         results = self.embed_store.get_context_for_rag(
             query_embedding,
             max_chunks=max_chunks,
@@ -543,103 +571,18 @@ class RAGAnswerer:
             start_date=start_date,
             end_date=end_date,
         )
-        
-        # Convert to ContextChunk with full metadata
-        chunks = []
-        for r in results:
-            conv = self.conv_store.get(r.conversation_id)
-            title = conv.title if conv and conv.title else f"Conversation {r.conversation_id[:8]}"
-            created_at = conv.created_at if conv else None
-            summary = conv.summary if conv else None
-            conv_source = conv.source if conv else "local"
-            
-            # Get source info with refs
-            source = self._get_conversation_source(r.conversation_id)
-            cloud_url = self._get_cloud_url(r.conversation_id)
-            
-            chunks.append(ContextChunk(
-                conversation_id=r.conversation_id,
-                title=title,
-                embed_type=r.embed_type,
-                source_text=r.source_text,
-                score=r.score,
-                chunk_index=r.chunk_index,
-                summary=summary,
-                cloud_url=cloud_url,
-                created_at=created_at,
-                conv_source=conv_source or "local",
-                source=source,
-            ))
-        
+
+        chunks = _results_to_context_chunks(
+            results, self.conv_store, self.link_store, self.ref_store,
+            self.repo_store, self.cloud_base_url
+        )
+
         # Sort chunks: group by conversation, then by embed_type, then by chunk_index
         # This ensures the LLM sees coherent context from each conversation
         chunks.sort(key=lambda c: (c.conversation_id, c.embed_type, c.chunk_index))
-        
+
         return chunks
-    
-    def _get_cloud_url(self, conversation_id: str) -> str:
-        """Generate the cloud URL for a conversation."""
-        return f"{self.cloud_base_url}/conversations/{conversation_id}"
-    
-    def _get_conversation_source(self, conversation_id: str) -> ConversationSource | None:
-        """Get full source information including refs for a conversation."""
-        if not all([self.link_store, self.ref_store, self.repo_store]):
-            return None
-        
-        try:
-            # Get conversation metadata
-            conv = self.conv_store.get(conversation_id)
-            title = conv.title if conv and conv.title else f"Conversation {conversation_id[:8]}"
-            created_at = conv.created_at if conv else None
-            summary = conv.summary if conv else None
-            conv_source = conv.source if conv else "local"
-            
-            # Get repos
-            repos = []
-            for repo_id, link_type in self.link_store.get_repos_for_conversation(conversation_id):
-                repo = self.repo_store.get_by_id(repo_id)
-                if repo:
-                    repos.append(RepoInfo(
-                        url=repo.canonical_url,
-                        fqn=repo.fqn,
-                        short_name=repo.short_name,
-                        link_type=link_type.value,
-                    ))
-            
-            # Get PRs and issues
-            prs = []
-            issues = []
-            for ref_id, link_type in self.link_store.get_refs_for_conversation(conversation_id):
-                ref = self.ref_store.get_by_id(ref_id)
-                if ref:
-                    ref_info = RefInfo(
-                        ref_type=ref.ref_type.value,
-                        url=ref.url,
-                        fqn=ref.fqn,
-                        display_name=ref.display_name,
-                        link_type=link_type.value,
-                    )
-                    if ref.ref_type.value == "pr":
-                        prs.append(ref_info)
-                    elif ref.ref_type.value == "issue":
-                        issues.append(ref_info)
-                    # Skip branches and other ref types for now
-            
-            return ConversationSource(
-                conversation_id=conversation_id,
-                title=title,
-                summary=summary,
-                source=conv_source or "local",
-                cloud_url=self._get_cloud_url(conversation_id),
-                created_at=created_at,
-                repos=repos,
-                prs=prs,
-                issues=issues,
-            )
-        except Exception as e:
-            log.debug("Error getting source info for %s: %s", conversation_id, e)
-            return None
-    
+
     def _generate_answer(
         self,
         question: str,
