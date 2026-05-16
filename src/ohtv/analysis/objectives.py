@@ -31,7 +31,6 @@ from ohtv.analysis.cache import (
 )
 from ohtv.analysis.transcript import (
     build_transcript_from_context as _build_from_context,
-    format_transcript as _format_transcript,
 )
 from ohtv.prompts.metadata import ContextLevel as ContextLevelMetadata
 
@@ -186,6 +185,18 @@ def extract_action_summary(event: dict) -> str:
         return f"[Finish] {msg}"
     else:
         return f"[{tool_name}]"
+
+
+def _has_action_events(events: list[dict]) -> bool:
+    """Check if events contain any ActionEvents from the agent.
+    
+    Used to determine if context level promotion is worthwhile for
+    worker conversations that have no user messages but do have actions.
+    """
+    return any(
+        e.get("source") == "agent" and e.get("kind") == "ActionEvent"
+        for e in events
+    )
 
 
 # =============================================================================
@@ -455,6 +466,24 @@ def analyze_objectives(
         _cache_manager.mark_skipped(conv_dir, event_count, "no_events")
         raise ValueError(f"No events found in conversation: {conv_id}")
 
+    # Auto-promote context level if transcript is empty but events exist
+    # This handles worker conversations (orchestrator-spawned) that have no user
+    # messages but do have meaningful actions
+    if not data.items and data.events:
+        has_actions = _has_action_events(data.events)
+        
+        # Try progressively higher context levels
+        if effective_context == "minimal" and has_actions:
+            log.debug("Promoting context from 'minimal' to 'default' (no user messages)")
+            effective_context = "default"
+            data = _prepare_data(conv_dir, effective_context)
+        
+        if not data.items and effective_context == "default" and has_actions:
+            log.debug("Promoting context from 'default' to 'full' (no finish action)")
+            effective_context = "full"
+            data = _prepare_data(conv_dir, effective_context)
+
+    # Now check for empty content after promotion attempts
     if not data.items:
         # Check if already marked as skipped
         if not force_refresh:
