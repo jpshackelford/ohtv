@@ -609,3 +609,40 @@ Resolved 3 review threads (all addressed in commit 8433862):
 - 📖 Expansion slot: Idle (no issues to expand)
 
 ---
+### 2026-05-16 18:49 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `929c186` | re-testing | PR #36 - Add --explain flag | **NEW** |
+
+**Previous Workers Completed:**
+- `de0692f` (review PR #36): finished ✓ - Addressed review feedback, pushed fixes
+
+🧪 **Spawned: Re-Testing Worker**
+- PR: [#36 - Add --explain flag to ask command](https://github.com/jpshackelford/ohtv/pull/36)
+- Conversation: [`929c186`](https://app.all-hands.dev/conversations/929c186c20f44bfea6b81c45d8b6a1e0)
+- Reason: Significant code changes after last test (2 commits fixing code duplication)
+
+**PR #36 State:**
+- CI: ✅ green (pr-review SUCCESS)
+- Docs: ✅ Updated (README.md)
+- Manual Tests: ⚠️ Outdated (commits after test at 17:58)
+  - `eede49a` fix(rag): eliminate code duplication
+  - `a853532` refactor(cli): extract date filter formatting
+- Bot Rating: 🟡 "COMMENTED" - 5 unresolved threads
+- Mergeable: ✅ MERGEABLE
+- Next after re-test: Review worker (if threads remain) then merge
+
+**Current State:**
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Re-testing in progress
+- No issues need expansion 🎉
+- Ready issues by priority:
+  - MEDIUM: #35 (has PR #36)
+  - LOW: #58
+
+**Slots:**
+- 🧪 PR slot: Occupied (re-testing worker for PR #36)
+- 📖 Expansion slot: Idle (no issues to expand)
+
+---
