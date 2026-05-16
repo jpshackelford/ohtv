@@ -1,3 +1,24 @@
+### 2026-05-16 08:25 UTC - Implementation Worker
+
+🚀 **Created PR #71 - Fix gen objs sort order for parallel processing**
+
+- PR: [#71](https://github.com/jpshackelford/ohtv/pull/71)
+- Branch: `fix/gen-objs-sort-order-64`
+- Fixes: #64
+
+**Problem solved:** `ohtv gen objs -D` (batch analysis) displayed results in completion order instead of sorted by timestamp. This was because `concurrent.futures.as_completed()` returns results in completion order, not submission order.
+
+**Implementation:**
+- Add sorting of results by `created_at` after parallel processing completes
+- Uses existing `_normalize_datetime_for_sort()` helper for consistent timezone handling
+- Respects `--reverse` flag for oldest-first ordering
+
+**Test coverage:** 2 new integration tests verifying JSON output sort order (newest first by default, oldest first with `--reverse`). All 1132 tests pass.
+
+**Status:** Ready for review (CI green)
+
+---
+
 ### 2026-05-16 05:00 UTC - Review Worker
 
 ✅ **Addressed Review Feedback on PR #69**
