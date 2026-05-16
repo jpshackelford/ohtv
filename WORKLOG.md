@@ -786,3 +786,38 @@ Resolved 3 review threads (all addressed in commit 8433862):
 - 📖 Expansion slot: Idle (no issues to expand)
 
 ---
+### 2026-05-16 20:49 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `582c7c3` | merge | PR #74 - Action summaries | **NEW** |
+
+**Previous Workers Completed:**
+- `5984feb` (testing PR #74): finished ✓ - Manual test results posted (all passed)
+
+🔀 **Spawned: Merge Worker**
+- PR: [#74 - feat: Use agent-provided summary in action extraction](https://github.com/jpshackelford/ohtv/pull/74)
+- Conversation: [`582c7c3`](https://app.all-hands.dev/conversations/582c7c32b1994dd2b8149379124924f7)
+- Reason: PR ready for merge - CI green, tests pass, bot says "Good taste - Worth merging"
+
+**PR #74 State:**
+- CI: ✅ green (pr-review SUCCESS)
+- Docs: ⏭️ Not required (internal improvement, no new CLI options)
+- Manual Tests: ✅ All tests passed
+- Bot Rating: 🟢 "Good taste - Worth merging" (solid implementation, excellent test coverage)
+- Review Threads: ✅ None (clean review)
+- Mergeable: ✅ MERGEABLE
+
+**Current State:**
+- [PR #74](https://github.com/jpshackelford/ohtv/pull/74): Merge in progress
+- Issues needing expansion: None 🎉
+- Ready issues:
+  - LOW: #58 (has PR #74, will close on merge)
+- Issues on hold: #26
+
+**Slots:**
+- 🔀 PR slot: Occupied (merge worker for PR #74)
+- 📖 Expansion slot: Idle (no issues to expand)
+
+---
