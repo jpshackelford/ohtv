@@ -1,3 +1,27 @@
+### 2026-05-16 05:00 UTC - Review Worker
+
+✅ **Addressed Review Feedback on PR #69**
+
+- PR: [#69](https://github.com/jpshackelford/ohtv/pull/69)
+- Commit: `22d90fe`
+
+**Changes made:**
+
+1. **CRITICAL BUG FIX** - Event count stale data bug:
+   - `cache.py mark_skipped()`: Now updates `event_count` when existing skip is at higher context level, preventing infinite retry loops
+   - `analysis_cache_store.py upsert_skip()`: Same fix in database layer
+
+2. **Code deduplication**:
+   - Imported `CONTEXT_LEVELS` and `context_level_index()` from `analysis_cache_store.py` into `cache.py`
+   - Removed duplicate local definitions
+
+3. **Test coverage**:
+   - Added `test_event_count_updated_despite_higher_context_skip` to both file cache and database store tests
+
+**All 4 review threads resolved and PR marked ready for review.**
+
+---
+
 ### 2026-05-16 04:35 UTC - Implementation Worker
 
 🚀 **Created PR #69 - fix: add context_level to skip cache for proper retry at higher levels**
