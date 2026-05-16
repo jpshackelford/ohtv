@@ -1,10 +1,25 @@
+### 2026-05-16 15:50 UTC - Merge Worker
+
+✅ **Merged PR #73: Add conversation labels to gen objs display**
+
+- PR: [#73](https://github.com/jpshackelford/ohtv/pull/73)
+- Merge commit: `a2ee3cf3a51f442c856995ab19376849c484d9bf`
+- Status: Squash merged to main
+
+Resolved 3 review threads (all addressed in commit 8433862):
+- JSON path quoting for special characters in label keys
+- Test coverage for dots/brackets in label keys
+- Index limitation documented in migration 015
+
+---
+
 ### 2026-05-16 11:49 UTC - Implementation Worker
 
 ✅ **Implemented Issue #53: Add conversation labels to gen objs display**
 
 - Issue: [#53](https://github.com/jpshackelford/ohtv/issues/53)
 - PR: [#73](https://github.com/jpshackelford/ohtv/pull/73)
-- Status: Ready for review, CI green
+- Status: Merged ✓
 
 **Implementation Summary:**
 
