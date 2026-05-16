@@ -31,6 +31,7 @@ from ohtv.analysis.cache import (
 )
 from ohtv.analysis.transcript import (
     build_transcript_from_context as _build_from_context,
+    extract_action_summary,
 )
 from ohtv.prompts.metadata import ContextLevel as ContextLevelMetadata
 
@@ -44,6 +45,7 @@ def _timer(label: str):
     yield
     elapsed_ms = (time.perf_counter() - start) * 1000
     log.debug("TIMING %s: %.1fms", label, elapsed_ms)
+
 
 # Context level type
 LegacyContextLevel = Literal["minimal", "default", "full"]
@@ -103,12 +105,13 @@ class ObjectiveAnalysis(CachedAnalysis):
 @dataclass
 class AnalysisResult:
     """Result of an objective analysis, including cost metrics.
-    
+
     Attributes:
         analysis: The objective analysis result
         cost: LLM cost in dollars (0.0 if cached)
         from_cache: Whether the result was loaded from cache
     """
+
     analysis: ObjectiveAnalysis
     cost: float = 0.0
     from_cache: bool = False
@@ -168,34 +171,14 @@ def extract_message_content(event: dict, include_critic: bool = False) -> str:
     return event.get("content", "") or event.get("message", "")
 
 
-def extract_action_summary(event: dict) -> str:
-    """Extract a brief summary of an action."""
-    tool_name = event.get("tool_name", "unknown")
-    action = event.get("action") or {}
-
-    if tool_name == "terminal":
-        cmd = action.get("command", "")[:100]
-        return f"[Terminal] {cmd}"
-    elif tool_name == "file_editor":
-        path = action.get("path", "")
-        cmd = action.get("command", "")
-        return f"[Edit] {cmd} {path}"
-    elif tool_name == "finish":
-        msg = action.get("message", "")[:300]
-        return f"[Finish] {msg}"
-    else:
-        return f"[{tool_name}]"
-
-
 def _has_action_events(events: list[dict]) -> bool:
     """Check if events contain any ActionEvents from the agent.
-    
+
     Used to determine if context level promotion is worthwhile for
     worker conversations that have no user messages but do have actions.
     """
     return any(
-        e.get("source") == "agent" and e.get("kind") == "ActionEvent"
-        for e in events
+        e.get("source") == "agent" and e.get("kind") == "ActionEvent" for e in events
     )
 
 
@@ -232,7 +215,9 @@ def build_transcript(
         return _legacy_build_transcript(events, context)
 
 
-def _legacy_build_transcript(events: list[dict], context: LegacyContextLevel) -> list[dict]:
+def _legacy_build_transcript(
+    events: list[dict], context: LegacyContextLevel
+) -> list[dict]:
     """Build transcript using legacy hardcoded context levels.
 
     DEPRECATED: Use build_transcript() with a ContextLevel object for metadata-driven mode.
@@ -248,7 +233,7 @@ def _legacy_build_transcript(events: list[dict], context: LegacyContextLevel) ->
         "String-based context levels are deprecated. "
         "Use ContextLevel objects from ohtv.prompts.metadata instead.",
         DeprecationWarning,
-        stacklevel=3
+        stacklevel=3,
     )
     items = []
 
@@ -274,15 +259,17 @@ def _legacy_build_transcript(events: list[dict], context: LegacyContextLevel) ->
         # Action events
         elif source == "agent" and kind == "ActionEvent":
             tool_name = event.get("tool_name", "")
+            # Include full command when using full context level
+            include_cmd = context == "full"
 
             # Finish action - included in default and full
             if tool_name == "finish" and context in ("default", "full"):
-                summary = extract_action_summary(event)
+                summary = extract_action_summary(event, include_command=include_cmd)
                 items.append({"role": "action", "text": summary})
 
             # Other actions - only in full context
             elif context == "full" and tool_name != "finish":
-                summary = extract_action_summary(event)
+                summary = extract_action_summary(event, include_command=include_cmd)
                 items.append({"role": "action", "text": summary})
 
     return items
@@ -304,6 +291,7 @@ def format_transcript(items: list[dict]) -> str:
 @dataclass
 class _PreparedData:
     """Intermediate data prepared for analysis (avoids double-loading)."""
+
     events: list[dict]
     items: list[dict]
     content_hash: str
@@ -337,7 +325,7 @@ def get_cached_analysis(
     - Assess flag has changed
     """
     from ohtv.prompts import get_prompt_hash
-    
+
     data = _prepare_data(conv_dir, context)
     prompt_name = _get_prompt_name(detail, assess)
     prompt_hash = get_prompt_hash(prompt_name)
@@ -361,7 +349,7 @@ def _check_cache_with_data(
     prompt_hash: str,
 ) -> tuple[ObjectiveAnalysis | None, _PreparedData]:
     """Check cache and return both result and prepared data.
-    
+
     This avoids double-loading events: the prepared data can be reused
     for analysis if cache misses.
     """
@@ -429,7 +417,7 @@ def analyze_objectives(
         RuntimeError: If LLM call fails
     """
     total_start = time.perf_counter()
-    
+
     # For assessment, we need at least the finish action
     # Upgrade context if needed
     effective_context = context
@@ -439,6 +427,7 @@ def analyze_objectives(
 
     # Get prompt hash early for cache validation
     from ohtv.prompts import get_prompt_hash
+
     prompt_name = _get_prompt_name(detail, assess)
     prompt_hash = get_prompt_hash(prompt_name)
 
@@ -448,7 +437,9 @@ def analyze_objectives(
         data = _prepare_data(conv_dir, effective_context)
         cached = None
     else:
-        cached, data = _check_cache_with_data(conv_dir, effective_context, detail, assess, prompt_hash)
+        cached, data = _check_cache_with_data(
+            conv_dir, effective_context, detail, assess, prompt_hash
+        )
         if cached:
             log.debug("Using cached analysis from %s", cached.analyzed_at)
             return AnalysisResult(analysis=cached, cost=0.0, from_cache=True)
@@ -475,13 +466,15 @@ def analyze_objectives(
     # messages but do have meaningful actions
     if not data.items and data.events:
         has_actions = _has_action_events(data.events)
-        
+
         # Try progressively higher context levels
         if effective_context == "minimal" and has_actions:
-            log.debug("Promoting context from 'minimal' to 'default' (no user messages)")
+            log.debug(
+                "Promoting context from 'minimal' to 'default' (no user messages)"
+            )
             effective_context = "default"
             data = _prepare_data(conv_dir, effective_context)
-        
+
         if not data.items and effective_context == "default" and has_actions:
             log.debug("Promoting context from 'default' to 'full' (no finish action)")
             effective_context = "full"
@@ -497,7 +490,10 @@ def analyze_objectives(
             if skip_reason:
                 raise ValueError(f"Skipped (cached): {skip_reason}")
         _cache_manager.mark_skipped(
-            conv_dir, event_count, "no_analyzable_content", context_level=effective_context
+            conv_dir,
+            event_count,
+            "no_analyzable_content",
+            context_level=effective_context,
         )
         raise ValueError(f"No content found in conversation: {conv_id}")
 
@@ -506,6 +502,7 @@ def analyze_objectives(
 
     # Suppress SDK banner before import
     import os
+
     os.environ.setdefault("OPENHANDS_SUPPRESS_BANNER", "1")
 
     # Import here to avoid loading SDK unless needed
@@ -523,6 +520,7 @@ def analyze_objectives(
     # Load prompt from prompts module (supports user customization)
     # (prompt_name already computed above for cache validation)
     from ohtv.prompts import get_prompt
+
     system_prompt = get_prompt(prompt_name)
 
     # Estimate tokens and log analysis parameters
@@ -588,8 +586,12 @@ def analyze_objectives(
     try:
         result = _parse_llm_response(response_text)
     except json.JSONDecodeError as e:
-        log.error("Failed to parse LLM response for %s: %s", conv_id, response_text[:500])
-        raise RuntimeError(f"Failed to parse LLM response as JSON for {conv_id}: {e}") from e
+        log.error(
+            "Failed to parse LLM response for %s: %s", conv_id, response_text[:500]
+        )
+        raise RuntimeError(
+            f"Failed to parse LLM response as JSON for {conv_id}: {e}"
+        ) from e
 
     # Build analysis object based on detail level
     if detail == "detailed":
@@ -651,12 +653,14 @@ def analyze_objectives(
     # Cache the result
     with _timer("save_cache"):
         _cache_manager.save(conv_dir, analysis)
-    
+
     total_elapsed = (time.perf_counter() - total_start) * 1000
-    log.debug("Analysis complete and cached (cost: $%.4f, total: %.1fms)", cost, total_elapsed)
+    log.debug(
+        "Analysis complete and cached (cost: $%.4f, total: %.1fms)", cost, total_elapsed
+    )
 
     return AnalysisResult(analysis=analysis, cost=cost, from_cache=False)
 
+
 # Backward compatibility: export LegacyContextLevel as ContextLevel
 ContextLevel = LegacyContextLevel
-

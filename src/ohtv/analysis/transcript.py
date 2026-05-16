@@ -39,30 +39,45 @@ def extract_message_content(event: dict, include_critic: bool = False) -> str:
     return event.get("content", "") or event.get("message", "")
 
 
-def extract_action_summary(event: dict) -> str:
-    """Extract a brief summary of an action.
+def extract_action_summary(event: dict, include_command: bool = False) -> str:
+    """Extract a summary of an action, preferring agent-provided summary.
 
     Args:
         event: The action event dictionary
+        include_command: If True, include full command after summary (for full context)
 
     Returns:
-        A brief summary string describing the action
+        Summary string, optionally with command details appended
     """
     tool_name = event.get("tool_name", "unknown")
     action = event.get("action") or {}
+    summary = event.get("summary")  # Agent-provided summary
 
-    if tool_name == "terminal":
-        cmd = action.get("command", "")[:100]
-        return f"[Terminal] {cmd}"
-    elif tool_name == "file_editor":
-        path = action.get("path", "")
-        cmd = action.get("command", "")
-        return f"[Edit] {cmd} {path}"
-    elif tool_name == "finish":
-        msg = action.get("message", "")[:300]
-        return f"[Finish] {msg}"
+    # Build summary line
+    if summary:
+        summary_text = f"[{tool_name.title()}] {summary}"
     else:
-        return f"[{tool_name}]"
+        # Fallback to extracting from action details
+        if tool_name == "terminal":
+            cmd = action.get("command", "")[:100]
+            summary_text = f"[Terminal] {cmd}"
+        elif tool_name == "file_editor":
+            path = action.get("path", "")
+            cmd = action.get("command", "")
+            summary_text = f"[Edit] {cmd} {path}"
+        elif tool_name == "finish":
+            msg = action.get("message", "")[:300]
+            summary_text = f"[Finish] {msg}"
+        else:
+            summary_text = f"[{tool_name}]"
+
+    # Optionally append full command for terminal actions when we have a summary
+    if include_command and tool_name == "terminal" and summary:
+        cmd = action.get("command", "")
+        if cmd:
+            summary_text += f"\n  Command: {cmd}"
+
+    return summary_text
 
 
 def extract_content(event: dict, max_length: int = 0) -> str:
@@ -70,7 +85,7 @@ def extract_content(event: dict, max_length: int = 0) -> str:
 
     Args:
         event: The event dictionary
-        max_length: Maximum length for content (0 = no limit)
+        max_length: Maximum length for content (0 = no limit, meaning full context)
 
     Returns:
         The extracted content, truncated if needed
@@ -81,7 +96,8 @@ def extract_content(event: dict, max_length: int = 0) -> str:
     if kind == "MessageEvent":
         content = extract_message_content(event)
     elif kind == "ActionEvent":
-        content = extract_action_summary(event)
+        # Include full command when no truncation (full context level)
+        content = extract_action_summary(event, include_command=(max_length == 0))
     else:
         content = event.get("content", "") or event.get("message", "")
 
