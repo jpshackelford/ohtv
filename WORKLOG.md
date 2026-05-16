@@ -1,3 +1,39 @@
+### 2026-05-16 02:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `ec6af79` | testing | PR #67 - Numeric lookback for -D/-W | **NEW** |
+
+**Previous Workers Completed:**
+- `fc466dc` (implementation #57): finished ✓ - PR #67 created
+
+**Spawned: Testing Worker**
+
+- PR: [#67 - feat: add numeric lookback for -D and -W options](https://github.com/jpshackelford/ohtv/pull/67)
+- Conversation: [`ec6af79`](https://app.all-hands.dev/conversations/ec6af797e2b047fa83c95d9de230d74d)
+- Reason: PR ready, CI green, docs updated (README.md changed), no manual test results yet
+
+**PR #67 Summary:**
+- Implements numeric lookback for `-D` and `-W` options per issue #57
+- `-D 3` = last 3 days, `-W 2` = last 2 weeks
+- 25 new tests, CI green
+- Bot review recommends approval
+
+**Current State:**
+- [PR #67](https://github.com/jpshackelford/ohtv/pull/67): `o` green ready, testing in progress
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Draft (skipped - waiting for author)
+- Issues needing expansion: None 🎉
+- Ready issues by priority:
+  - MEDIUM: #35 (has draft PR #36), #60
+  - LOW: #46, #53, #58, #64
+- Issues on hold: #26
+
+**Slots:**
+- 🚀 PR slot: Occupied (testing worker for PR #67)
+- ⏳ Expansion slot: Idle (no issues to expand)
+
+---
 ### 2026-05-16 02:35 UTC - Implementation Worker
 
 🚀 **Created PR #67 - Add numeric lookback for -D and -W options**
