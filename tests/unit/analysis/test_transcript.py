@@ -1,7 +1,5 @@
 """Tests for ohtv.analysis.transcript module."""
 
-import pytest
-
 from ohtv.analysis.transcript import (
     extract_content,
     extract_message_content,
@@ -57,7 +55,7 @@ class TestExtractActionSummary:
     """Tests for extract_action_summary function."""
 
     def test_terminal_action(self):
-        """Test terminal action summary."""
+        """Test terminal action summary without agent-provided summary."""
         event = {
             "tool_name": "terminal",
             "action": {"command": "git status"},
@@ -77,7 +75,7 @@ class TestExtractActionSummary:
         assert result.startswith("[Terminal] xxx")
 
     def test_file_editor_action(self):
-        """Test file editor action summary."""
+        """Test file editor action summary without agent-provided summary."""
         event = {
             "tool_name": "file_editor",
             "action": {"command": "str_replace", "path": "/src/main.py"},
@@ -86,7 +84,7 @@ class TestExtractActionSummary:
         assert result == "[Edit] str_replace /src/main.py"
 
     def test_finish_action(self):
-        """Test finish action summary."""
+        """Test finish action summary without agent-provided summary."""
         event = {
             "tool_name": "finish",
             "action": {"message": "Task completed successfully"},
@@ -105,7 +103,7 @@ class TestExtractActionSummary:
         assert len(result) == len("[Finish] ") + 300
 
     def test_unknown_tool(self):
-        """Test unknown tool action summary."""
+        """Test unknown tool action summary without agent-provided summary."""
         event = {
             "tool_name": "custom_tool",
             "action": {"foo": "bar"},
@@ -125,6 +123,133 @@ class TestExtractActionSummary:
         result = extract_action_summary(event)
         assert result == "[Terminal] "
 
+    # Tests for agent-provided summary field (Issue #58)
+
+    def test_prefers_agent_provided_summary(self):
+        """Test that agent-provided summary is preferred over raw command."""
+        event = {
+            "tool_name": "terminal",
+            "summary": "Check git status",
+            "action": {"command": "cd /workspace && git status"},
+        }
+        result = extract_action_summary(event)
+        assert "Check git status" in result
+        assert "cd /workspace" not in result
+        assert result == "[Terminal] Check git status"
+
+    def test_summary_with_file_editor(self):
+        """Test that agent-provided summary works for file_editor actions."""
+        event = {
+            "tool_name": "file_editor",
+            "summary": "Add error handling to main function",
+            "action": {"command": "str_replace", "path": "/src/main.py"},
+        }
+        result = extract_action_summary(event)
+        assert result == "[File_Editor] Add error handling to main function"
+        assert "str_replace" not in result
+
+    def test_summary_with_finish(self):
+        """Test that agent-provided summary works for finish actions."""
+        event = {
+            "tool_name": "finish",
+            "summary": "Completed PR review with fixes",
+            "action": {
+                "message": "I have completed the review and fixed all issues..."
+            },
+        }
+        result = extract_action_summary(event)
+        assert result == "[Finish] Completed PR review with fixes"
+        assert "review and fixed" not in result
+
+    def test_summary_with_custom_tool(self):
+        """Test that agent-provided summary works for unknown tools."""
+        event = {
+            "tool_name": "browser_click",
+            "summary": "Click submit button",
+            "action": {"index": 5},
+        }
+        result = extract_action_summary(event)
+        assert result == "[Browser_Click] Click submit button"
+
+    def test_include_command_with_summary(self):
+        """Test include_command appends full command when summary exists."""
+        event = {
+            "tool_name": "terminal",
+            "summary": "Check git status",
+            "action": {"command": "cd /workspace && git status"},
+        }
+        result = extract_action_summary(event, include_command=True)
+        assert "Check git status" in result
+        assert "cd /workspace && git status" in result
+        assert (
+            result
+            == "[Terminal] Check git status\n  Command: cd /workspace && git status"
+        )
+
+    def test_include_command_without_summary(self):
+        """Test include_command has no effect when no summary exists."""
+        event = {
+            "tool_name": "terminal",
+            "action": {"command": "git status"},
+        }
+        result = extract_action_summary(event, include_command=True)
+        # Should just return normal fallback - no command appended
+        assert result == "[Terminal] git status"
+        assert "Command:" not in result
+
+    def test_include_command_only_for_terminal(self):
+        """Test include_command only appends command for terminal actions."""
+        event = {
+            "tool_name": "file_editor",
+            "summary": "View config file",
+            "action": {"command": "view", "path": "/etc/config.yaml"},
+        }
+        result = extract_action_summary(event, include_command=True)
+        # Should not include Command: line for non-terminal
+        assert result == "[File_Editor] View config file"
+        assert "Command:" not in result
+
+    def test_include_command_empty_command(self):
+        """Test include_command handles empty command gracefully."""
+        event = {
+            "tool_name": "terminal",
+            "summary": "Prepare terminal",
+            "action": {"command": ""},
+        }
+        result = extract_action_summary(event, include_command=True)
+        assert result == "[Terminal] Prepare terminal"
+        assert "Command:" not in result
+
+    def test_fallback_when_no_summary(self):
+        """Test fallback behavior when no summary field exists."""
+        event = {
+            "tool_name": "terminal",
+            "action": {"command": "ls -la"},
+        }
+        result = extract_action_summary(event)
+        assert result == "[Terminal] ls -la"
+
+    def test_fallback_when_summary_is_none(self):
+        """Test fallback when summary is explicitly None."""
+        event = {
+            "tool_name": "terminal",
+            "summary": None,
+            "action": {"command": "ls -la"},
+        }
+        result = extract_action_summary(event)
+        assert result == "[Terminal] ls -la"
+
+    def test_fallback_when_summary_is_empty(self):
+        """Test fallback when summary is empty string."""
+        event = {
+            "tool_name": "terminal",
+            "summary": "",
+            "action": {"command": "ls -la"},
+        }
+        result = extract_action_summary(event)
+        # Empty string is falsy, so should fallback
+        assert result == "[Terminal] ls -la"
+
 
 class TestExtractContent:
     """Tests for extract_content function."""
@@ -139,7 +264,7 @@ class TestExtractContent:
         assert result == "Hello"
 
     def test_action_event_extraction(self):
-        """Test content extraction from ActionEvent."""
+        """Test content extraction from ActionEvent without summary."""
         event = {
             "kind": "ActionEvent",
             "tool_name": "terminal",
@@ -180,6 +305,44 @@ class TestExtractContent:
         result = extract_content(event, max_length=100)
         assert result == short_text
         assert not result.endswith("... [truncated]")
+
+    # Tests for include_command behavior based on max_length (Issue #58)
+
+    def test_action_with_summary_no_truncation(self):
+        """Test that full context (max_length=0) includes command with summary."""
+        event = {
+            "kind": "ActionEvent",
+            "tool_name": "terminal",
+            "summary": "Check git status",
+            "action": {"command": "cd /workspace && git status"},
+        }
+        result = extract_content(event, max_length=0)
+        assert "Check git status" in result
+        assert "cd /workspace && git status" in result
+
+    def test_action_with_summary_with_truncation(self):
+        """Test that truncated context (max_length>0) excludes command."""
+        event = {
+            "kind": "ActionEvent",
+            "tool_name": "terminal",
+            "summary": "Check git status",
+            "action": {"command": "cd /workspace && git status"},
+        }
+        result = extract_content(event, max_length=500)
+        assert "Check git status" in result
+        assert "cd /workspace" not in result
+
+    def test_action_without_summary_no_truncation(self):
+        """Test fallback behavior without summary in full context mode."""
+        event = {
+            "kind": "ActionEvent",
+            "tool_name": "terminal",
+            "action": {"command": "ls -la"},
+        }
+        result = extract_content(event, max_length=0)
+        assert result == "[Terminal] ls -la"
+        # No "Command:" line because no summary exists
+        assert "Command:" not in result
 
 
 class TestBuildTranscriptFromContext:
