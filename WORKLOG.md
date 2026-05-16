@@ -1,3 +1,23 @@
+### 2026-05-16 02:35 UTC - Implementation Worker
+
+🚀 **Created PR #67 - Add numeric lookback for -D and -W options**
+
+- PR: [#67](https://github.com/jpshackelford/ohtv/pull/67)
+- Branch: `feature/numeric-lookback-57`
+- Fixes: #57
+
+**Implementation:**
+- Added `_parse_numeric_lookback()` to detect positive integers
+- Added `_get_day_lookback_bounds()` for multi-day ranges (`-D 3` = last 3 days)
+- Added `_get_week_lookback_bounds()` for multi-week ranges (`-W 2` = last 2 weeks)
+- Modified `_parse_date_filters()` to handle numeric lookback
+- Updated help text for all 4 commands: `list`, `refs`, `gen objs`, `gen run`
+- Updated README with examples
+
+**Test coverage:** 25 new tests, all passing. CI green.
+
+---
+
 ### 2026-05-16 00:20 UTC - Merge Worker
 
 ✅ **Merged PR #65 - Fix CLI context level -c 3 not converted to 'full'**
