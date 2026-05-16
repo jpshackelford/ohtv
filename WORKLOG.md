@@ -1,3 +1,36 @@
+### 2026-05-16 09:55 UTC - Implementation Worker
+
+🚀 **Created PR #72 - sync --repair: Report conversation counts by directory**
+
+- PR: [#72](https://github.com/jpshackelford/ohtv/pull/72)
+- Branch: `feature/repair-directory-counts`
+- Fixes: #46
+
+**Implementation:**
+- Extended `RepairResult` dataclass with `disk_counts_by_dir: dict[str, int]`
+- `disk_count` is now a computed property that sums per-directory counts
+- Modified `repair()` to scan all configured directories (synced, local, extra_conversation_paths)
+- Added `_format_path_for_display()` helper for `~` abbreviation in paths
+- Updated CLI display to show breakdown when >1 directory has conversations
+
+**Display format (when multiple dirs):**
+```
+  Sync State Consistency Check
+┌─────────────────────────────┬──────┐
+│ Cloud conversations         │ 1270 │
+│ Manifest entries            │ 718  │
+│ Conversations on disk       │ 1218 │
+│   ~/.openhands/cloud/conv   │ 500  │
+│   ~/.openhands/conversations│ 500  │
+│   ~/.lxa/sessions           │ 218  │
+└─────────────────────────────┴──────┘
+```
+
+**Test coverage:** 10 new tests (79 total in affected files). All tests pass.
+
+**Status:** Ready for review (CI green)
+
+---
 ### 2026-05-16 08:50 UTC - Orchestrator
 
 **Active Workers:**
