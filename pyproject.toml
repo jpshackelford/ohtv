@@ -27,7 +27,12 @@ build-backend = "hatchling.build"
 packages = ["src/ohtv"]
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pytest-httpx>=0.30", "pyyaml>=6.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-httpx>=0.30",
+    "pyyaml>=6.0",
+    "ruff>=0.15.13",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
