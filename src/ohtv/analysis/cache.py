@@ -555,14 +555,23 @@ class AnalysisCacheManager:
             # - OSError: I/O errors (database access issues)
             log.debug("Failed to update analysis embedding (non-fatal): %s", e)
 
-    def is_skipped(self, conv_dir: Path, event_count: int) -> str | None:
+    def is_skipped(
+        self,
+        conv_dir: Path,
+        event_count: int,
+        context_level: str = "minimal",
+    ) -> str | None:
         """Check if conversation is marked as skipped.
 
         Checks the new location first, then falls back to legacy location.
+        
+        Context-aware: A skip at 'minimal' allows retry at 'full' because
+        full context includes more content that might make analysis possible.
 
         Args:
             conv_dir: Conversation directory
             event_count: Current event count (for invalidation check)
+            context_level: Requested context level (minimal, default, full)
 
         Returns:
             Skip reason if skipped and still valid, None otherwise.
@@ -585,32 +594,87 @@ class AnalysisCacheManager:
             )
             return None
 
+        # Check if requested context level exceeds cached skip context level
+        cached_context = skipped.get("context_level", "minimal")
+        context_levels = ["minimal", "default", "full"]
+        try:
+            cached_idx = context_levels.index(cached_context)
+            requested_idx = context_levels.index(context_level)
+            if requested_idx > cached_idx:
+                log.debug(
+                    "Skip marker invalidated: higher context level requested (%s > %s)",
+                    context_level,
+                    cached_context,
+                )
+                return None
+        except ValueError:
+            # Unknown context level, treat cached as valid
+            pass
+
         return skipped.get("reason")
 
-    def mark_skipped(self, conv_dir: Path, event_count: int, reason: str) -> None:
+    def mark_skipped(
+        self,
+        conv_dir: Path,
+        event_count: int,
+        reason: str,
+        context_level: str = "minimal",
+    ) -> None:
         """Mark a conversation as skipped (cannot be analyzed).
 
         Args:
             conv_dir: Conversation directory
             event_count: Current event count
             reason: Why the conversation was skipped
+            context_level: The context level at which skip occurred
         """
         cache_file = self.get_cache_file(conv_dir)
         cache_data = self._load_cache_data(cache_file) or {"analyses": {}}
+
+        # Check if existing skip is at a higher context level
+        # If so, don't overwrite (higher context encompasses lower)
+        existing_skip = cache_data.get("skipped")
+        if existing_skip:
+            existing_context = existing_skip.get("context_level", "minimal")
+            context_levels = ["minimal", "default", "full"]
+            try:
+                existing_idx = context_levels.index(existing_context)
+                new_idx = context_levels.index(context_level)
+                if existing_idx > new_idx:
+                    log.debug(
+                        "Not overwriting skip: existing at %s > new at %s",
+                        existing_context,
+                        context_level,
+                    )
+                    return
+            except ValueError:
+                pass
 
         cache_data["event_count"] = event_count
         cache_data["skipped"] = {
             "reason": reason,
             "at": datetime.now(timezone.utc).isoformat(),
+            "context_level": context_level,
         }
 
         self._save_cache_data(cache_file, cache_data)
-        log.debug("Conversation marked as skipped: %s (reason: %s)", conv_dir.name, reason)
+        log.debug(
+            "Conversation marked as skipped: %s (reason: %s, context: %s)",
+            conv_dir.name,
+            reason,
+            context_level,
+        )
         
         # Sync to database if available
-        self._sync_skip_to_db(conv_dir.name, event_count, reason)
+        self._sync_skip_to_db(conv_dir.name, event_count, reason, context_level)
 
-    def _sync_skip_to_db(self, conversation_id: str, event_count: int, reason: str) -> None:
+    def _sync_skip_to_db(
+        self,
+        conversation_id: str,
+        event_count: int,
+        reason: str,
+        context_level: str = "minimal",
+    ) -> None:
         """Sync skip entry to database for fast lookup.
         
         This is optional - if database is not available, we just skip.
@@ -629,10 +693,16 @@ class AnalysisCacheManager:
                     event_count=event_count,
                     reason=reason,
                     skipped_at=datetime.now(timezone.utc),
+                    context_level=context_level,
                 )
                 store.upsert_skip(entry)
                 conn.commit()
-                log.debug("Synced skip to DB: %s (reason: %s)", conversation_id, reason)
+                log.debug(
+                    "Synced skip to DB: %s (reason: %s, context: %s)",
+                    conversation_id,
+                    reason,
+                    context_level,
+                )
         except Exception as e:
             # DB sync is optional, don't fail if it doesn't work
             log.debug("Failed to sync skip to DB (non-fatal): %s", e)
