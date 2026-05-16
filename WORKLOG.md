@@ -714,3 +714,39 @@ Resolved 3 review threads (all addressed in commit 8433862):
 - 📖 Expansion slot: Idle (no issues to expand)
 
 ---
+### 2026-05-16 19:49 UTC - Implementation Worker
+
+✅ **Implemented Issue #58: Action summaries not used in transcript building**
+
+- Issue: [#58](https://github.com/jpshackelford/ohtv/issues/58)
+- PR: [#74](https://github.com/jpshackelford/ohtv/pull/74)
+- Status: Ready for review
+
+**Implementation Summary:**
+
+1. **Updated `extract_action_summary()`** in `transcript.py`:
+   - Now checks for `event.summary` (agent-provided) first
+   - Falls back to raw command extraction when no summary exists
+   - Added `include_command` parameter to append full command for full context mode
+
+2. **Consolidated duplicate code:**
+   - Removed duplicate `extract_action_summary()` from `objectives.py`
+   - Now imports from `transcript.py`
+
+3. **Updated context level behavior:**
+   - `extract_content()` passes `include_command=True` when `max_length=0` (full context)
+   - `_legacy_build_transcript()` passes `include_command=True` for "full" context level
+
+4. **Testing:**
+   - 20 new tests for summary extraction behavior
+   - All 1148 tests passing
+
+**Acceptance Criteria Met:**
+- [x] `extract_action_summary()` uses `event.summary` when present
+- [x] Fallback to raw command extraction when no summary exists
+- [x] For "full" context level: include both summary AND command when summary exists
+- [x] Both implementations updated (consolidated to single in transcript.py)
+- [x] Existing tests pass, new tests added for summary extraction
+- [x] Backward compatible: conversations without summary field work unchanged
+
+---
