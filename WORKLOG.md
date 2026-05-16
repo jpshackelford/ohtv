@@ -646,3 +646,39 @@ Resolved 3 review threads (all addressed in commit 8433862):
 - 📖 Expansion slot: Idle (no issues to expand)
 
 ---
+
+---
+### 2026-05-16 19:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `a33fef7` | merge | PR #36 - Add --explain flag | **NEW** |
+
+**Previous Workers Completed:**
+- `929c186` (re-testing PR #36): finished ✓ - Re-test Round 2 passed (7/7 tests)
+
+🔀 **Spawned: Merge Worker**
+- PR: [#36 - Add --explain flag to ask command for RAG retrieval debugging](https://github.com/jpshackelford/ohtv/pull/36)
+- Conversation: [`a33fef7`](https://app.all-hands.dev/conversations/a33fef7f15f24ccf9a7ee94094e8fc0b)
+- Reason: PR ready for merge - CI green, re-test passed, bot says "Good taste - Worth merging"
+
+**PR #36 State:**
+- CI: ✅ green (pr-review SUCCESS)
+- Docs: ✅ Updated (README.md)
+- Manual Tests: ✅ Re-test Round 2 passed (19:03:32Z, after commits)
+- Bot Rating: 🟢 "Good taste - Worth merging"
+- Unresolved Threads: 5 (bot confirms all issues addressed - merge worker will resolve and merge)
+- Mergeable: ✅ MERGEABLE
+
+**Current State:**
+- [PR #36](https://github.com/jpshackelford/ohtv/pull/36): Merge in progress
+- Issues needing expansion: None 🎉
+- Ready issues by priority:
+  - MEDIUM: #35 (has PR #36)
+  - LOW: #58
+- Issues on hold: #26
+
+**Slots:**
+- 🔀 PR slot: Occupied (merge worker for PR #36)
+- 📖 Expansion slot: Idle (no issues to expand)
