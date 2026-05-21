@@ -594,3 +594,42 @@ Both true here: diff `49f2dc9..318ea0a` = `src/ohtv/cli.py` +3/-1 (click.Choice 
 - Either way, after PR #85 resolves: pick highest-priority ready issue (#78 priority:medium → next impl worker, since #79 is blocked on #78 per its acceptance criteria; verify dependency order at that time)
 
 ---
+### 2026-05-21 23:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0872233` | re-testing | PR #85 — Round 2 | finished ✓ |
+| `b0da66b` | review (round 2) | PR #85 — address unresolved 🟡 Suggestion thread | **NEW** |
+
+**Worker Completed:** `0872233` (re-testing)
+- Posted `## Re-Test Results for PR #85 (Round 2)` at 22:55:11Z
+- **1271/1271 unit tests pass**, all 14 prior manual items still pass; R-1 (previously-failing `ohtv db process human_input`) now PASS, R-4 new invariant tests 3/3 PASS, R-5 `--help` reflects new choice list, full sweep R-2a..R-2f of every `STAGES` entry PASS, R-3 `db process all` PASS
+- Verdict: **Issue #77 acceptance criterion met**. No regressions
+- Re-tester explicitly noted the bot's `initial_prompt_source` preservation test suggestion as "nice-to-have, not blocking"
+- Conversation execution_status confirmed `finished` at orchestrator wake (23:18Z)
+
+**🚀 Spawned: Review Worker (Round 2)**
+- Conversation: [`b0da66b`](https://app.all-hands.dev/conversations/b0da66b2735e433f95d2789a245d8394)
+- Start task: `9b3291f3c54749e2af9d8313ebf86cfb` → READY in ~15s (3 polls)
+- Post-spawn verification (~25s after creation): `execution_status: running`, `sandbox_status: RUNNING`
+- PR target: [#85](https://github.com/jpshackelford/ohtv/pull/85), HEAD `318ea0a`
+
+**Why review (not merge):** One unresolved review thread (`PRRT_kwDOR9seq86D88qj`, `isOutdated: false`) — the 22:28:26Z automated review's 🟡 Suggestion asking for a unit test pinning the `initial_prompt_source` preservation contract on reprocessing. Per the `/orchestrate` decision tree (`💬 > 0` on a ready PR with valid test results), spawn review worker. The latest review state is COMMENTED (not CHANGES_REQUESTED) and verdict was 🟢 LOW / Worth merging — so the merge worker *could* dismiss it with a deferral comment, but the suggested test is small (~20-30 lines), pins a real contract that issue #83 will depend on, and the bot literally provided the implementation. Strongly preferred path in the worker prompt: **accept and implement**, commit, push, reply+resolve thread, PR back to ready, exit. Test-only changes won't require another re-test cycle.
+
+**Current State:**
+- [PR #85](https://github.com/jpshackelford/ohtv/pull/85): OPEN, ready, pr-review SUCCESS on `318ea0a`, 1 unresolved 🟡 thread (now being addressed)
+- No other open PRs (PR #84 merged at 19:51Z)
+- Ready issues: #77 (in flight via PR #85), #78 (priority:medium), #79 (priority:medium)
+- Issues #80–#83: intentionally not `ready` (pre-specified by human, deps on #77/#78/#79 per WORKLOG 17:52Z entry) → expansion slot **idle by design**
+- On hold: #26
+
+**Next check (~30 min):**
+- If worker pushed a test-only commit and resolved the thread → likely spawn merge worker (test-only changes do NOT require re-test per `/orchestrate` heuristics: "Do NOT re-test if only: Test files changed")
+- If worker chose to defer + resolve thread via comment → spawn merge worker
+- After PR #85 resolves: pick next impl target. #78 is `priority:medium` and a direct dep of #79; #79 ACs depend on #78. So order is **#78 → #79 → (#80 once #79 done)**. Expansion of #80 also becomes possible after #78 lands (its deps include #76 ✅ + #78 or #79)
+- Housekeeping note: WORKLOG.md is at 642+ lines (>300 threshold) — defer truncation to a future cycle when PR slot is idle, to avoid mixing housekeeping with worker spawns
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
