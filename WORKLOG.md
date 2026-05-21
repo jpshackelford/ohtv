@@ -1,3 +1,47 @@
+### 2026-05-21 23:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `d534691` | merge | PR #85 - human_input counting stage | **NEW** running |
+| `a8653e2` | expansion | Issue #80 - GitHub API LOC fetching command | **NEW** running |
+
+**Spawned: 2 Workers (parallel — both slots filled)**
+
+1. **Merge Worker** — PR slot
+   - PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
+   - Conversation: [`d534691`](https://app.all-hands.dev/conversations/d534691b861148d3b92d41bf0ae60ac8)
+   - Rationale: All merge criteria met
+     - CI green on `6c7c4716` (pr-review SUCCESS); mergeable=MERGEABLE / mergeStateStatus=CLEAN; not draft
+     - Single review thread (🟡 Suggestion on `initial_prompt_source` preservation) is RESOLVED — addressed in commit `6c7c471` by round-2 review worker with new integration test `test_preserves_initial_prompt_source_on_reprocessing`
+     - Manual test results posted 21:57:05Z + Round-2 re-test at 22:55:11Z (1271/1271 unit tests pass, R-1 `ohtv db process human_input` now PASS, full R-2a..R-2f sweep PASS); automated review at 22:28Z = 🟢 LOW risk / Worth merging
+     - **No re-test needed**: only commit after re-test (`6c7c471`, 23:22:08Z) is test-only — per orchestrator heuristics, test-only changes don't trigger re-test
+     - **No docs spot-check needed**: docs were updated pre-test by `d05423f`; the post-test CLI fix (`318ea0a`) made the implementation match what was already documented
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#80 - Add GitHub API LOC fetching command](https://github.com/jpshackelford/ohtv/issues/80)
+   - Conversation: [`a8653e2`](https://app.all-hands.dev/conversations/a8653e2e10dc4b3b9d1e71e03c185ade)
+   - Rationale: Oldest unexpanded `enhancement` issue with no `ready`/`hold` label; downstream of merged #76 schema so dependencies are in place. Design docs (`docs/DESIGN_CONVERSATION_METRICS.md`, `docs/ISSUES_CONVERSATION_METRICS.md`) already exist in-repo for the expansion worker to use as context.
+
+**Current State:**
+- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) (merging now)
+- Ready issues with priority (queued for next impl): #77 (high — being merged), #78 (medium), #79 (medium)
+- Issues needing expansion: #80 (being expanded), #81, #82, #83, #86, #87
+- On hold: #26
+- Previously auto-disabled on 2026-05-16 — re-enabled by human on 2026-05-21 with the conversation-metrics design + 8-issue plan; orchestrator caught up and merged #84 (schema), implemented + tested + is now merging #77 (human_input stage)
+
+**Worker Status Recap Since Last Orchestrator Run:**
+- `b0da66b` (review round 2) — finished ✓ (addressed last 🟡 suggestion, added preservation invariant test, PR back to ready)
+- `0872233` (re-testing) — finished previously (Round 2 PASS)
+- `104623d` (review) — finished previously (click.Choice STAGES drift fix)
+
+**Next Cycle Considerations:**
+- If merge succeeds: PR slot opens up; spawn implementation worker for #78 (priority:medium, next in dependency chain after #77)
+- Issue #83 has a hard dependency on the `initial_prompt_source` preservation contract just locked in by the new integration test — note for prioritization once #77 lands
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-21 23:25 UTC - Review Worker
 
 ✅ **PR #85 — Addressed last unresolved review thread (🟡 Suggestion from 22:28:26Z automated review).** Added a focused integration test `test_preserves_initial_prompt_source_on_reprocessing` in `tests/unit/db/stages/test_human_input.py` (commit `6c7c471`) that pins the `initial_prompt_source` preservation contract: the test runs the stage once (source = `unknown`), simulates a downstream classification stage by directly setting `initial_prompt_source = 'human'`, grows the conversation and re-runs `process_human_input`, then asserts the source is still `'human'` while the count columns were correctly refreshed. This locks in the deliberate omission of `initial_prompt_source` from the upsert's `ON CONFLICT ... DO UPDATE SET` clause — exactly the contract issue #83 will depend on. No production code changed. Full suite: 1272/1272 unit tests pass locally. Replied to thread `PRRT_kwDOR9seq86D88qj` referencing the commit, resolved it, and moved the PR back to ready (no CI runs on `synchronize` — only the `ready_for_review` re-trigger of the pr-review workflow). Next decision (re-test vs merge) belongs to the orchestrator's next cycle.
