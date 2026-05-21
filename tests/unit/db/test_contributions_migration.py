@@ -67,7 +67,7 @@ class TestChangeRefsSchema:
         assert expected == columns
 
     def test_change_type_check_constraint_pr(self, db_with_contributions):
-        """change_type should accept 'pr'."""
+        """change_type 'pr' requires pr_number to be set."""
         # First create a repo to satisfy foreign key
         db_with_contributions.execute(
             "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
@@ -75,26 +75,57 @@ class TestChangeRefsSchema:
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-        # Insert with 'pr' should work
+        # Insert with 'pr' and pr_number should work
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "pr", "pending")
+            "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "pr", 42, "pending")
         )
         db_with_contributions.commit()
 
     def test_change_type_check_constraint_direct_push(self, db_with_contributions):
-        """change_type should accept 'direct_push'."""
+        """change_type 'direct_push' requires commit_range to be set."""
         db_with_contributions.execute(
             "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
             ("https://github.com/test/repo", "test/repo", "repo")
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
+        # Insert with 'direct_push' and commit_range should work
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "direct_push", "pending")
+            "INSERT INTO change_refs (repo_id, change_type, commit_range, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "direct_push", "abc123..def456", "pending")
         )
         db_with_contributions.commit()
+
+    def test_pr_requires_pr_number(self, db_with_contributions):
+        """PRs must have pr_number populated."""
+        db_with_contributions.execute(
+            "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
+            ("https://github.com/test/repo", "test/repo", "repo")
+        )
+        repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # PR without pr_number should fail CHECK constraint
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            db_with_contributions.execute(
+                "INSERT INTO change_refs (repo_id, change_type) VALUES (?, ?)",
+                (repo_id, "pr")
+            )
+
+    def test_direct_push_requires_commit_range(self, db_with_contributions):
+        """Direct pushes must have commit_range populated."""
+        db_with_contributions.execute(
+            "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
+            ("https://github.com/test/repo", "test/repo", "repo")
+        )
+        repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # direct_push without commit_range should fail CHECK constraint
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            db_with_contributions.execute(
+                "INSERT INTO change_refs (repo_id, change_type) VALUES (?, ?)",
+                (repo_id, "direct_push")
+            )
 
     def test_change_type_check_constraint_invalid(self, db_with_contributions):
         """change_type should reject invalid values."""
@@ -104,18 +135,19 @@ class TestChangeRefsSchema:
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
+        # Even with pr_number provided, invalid change_type should fail
         with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
             db_with_contributions.execute(
-                "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-                (repo_id, "invalid_type", "pending")
+                "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+                (repo_id, "invalid_type", 1, "pending")
             )
 
     def test_repo_foreign_key_constraint(self, db_with_contributions):
         """change_refs should enforce foreign key to repositories."""
         with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY constraint failed"):
             db_with_contributions.execute(
-                "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-                (99999, "pr", "pending")
+                "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+                (99999, "pr", 1, "pending")
             )
 
     def test_unique_constraint_with_pr_number(self, db_with_contributions):
@@ -163,30 +195,49 @@ class TestChangeRefsSchema:
         cursor = db_with_contributions.execute("SELECT COUNT(*) FROM change_refs WHERE repo_id = ?", (repo_id,))
         assert cursor.fetchone()[0] == 2
 
-    def test_unique_constraint_null_handling(self, db_with_contributions):
-        """change_refs unique constraint: NULLs in pr_number/commit_range are treated as distinct by SQLite."""
-        # This documents SQLite's behavior: NULL values are considered distinct in unique constraints
+    def test_unique_constraint_prevents_duplicate_prs(self, db_with_contributions):
+        """Duplicate PRs (same repo_id and pr_number) should be rejected."""
         db_with_contributions.execute(
             "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
             ("https://github.com/test/repo", "test/repo", "repo")
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-        # Insert with NULL pr_number and commit_range
+        # First PR insert should succeed
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "pr", "pending")
-        )
-        # Second insert with NULLs - SQLite treats NULLs as distinct, so this works
-        db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "pr", "merged")
+            "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "pr", 42, "pending")
         )
         db_with_contributions.commit()
 
-        # Both inserts succeeded because NULLs are treated as distinct
-        cursor = db_with_contributions.execute("SELECT COUNT(*) FROM change_refs WHERE repo_id = ?", (repo_id,))
-        assert cursor.fetchone()[0] == 2
+        # Duplicate PR with same repo_id and pr_number should fail
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
+            db_with_contributions.execute(
+                "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+                (repo_id, "pr", 42, "merged")
+            )
+
+    def test_unique_constraint_prevents_duplicate_direct_pushes(self, db_with_contributions):
+        """Duplicate direct pushes (same repo_id and commit_range) should be rejected."""
+        db_with_contributions.execute(
+            "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
+            ("https://github.com/test/repo", "test/repo", "repo")
+        )
+        repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # First direct push insert should succeed
+        db_with_contributions.execute(
+            "INSERT INTO change_refs (repo_id, change_type, commit_range, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "direct_push", "abc123..def456", "pending")
+        )
+        db_with_contributions.commit()
+
+        # Duplicate direct push with same repo_id and commit_range should fail
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
+            db_with_contributions.execute(
+                "INSERT INTO change_refs (repo_id, change_type, commit_range, status) VALUES (?, ?, ?, ?)",
+                (repo_id, "direct_push", "abc123..def456", "merged")
+            )
 
     def test_default_status(self, db_with_contributions):
         """status should default to 'pending'."""
@@ -196,9 +247,10 @@ class TestChangeRefsSchema:
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
+        # PR with pr_number but no explicit status
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type) VALUES (?, ?)",
-            (repo_id, "pr")
+            "INSERT INTO change_refs (repo_id, change_type, pr_number) VALUES (?, ?, ?)",
+            (repo_id, "pr", 42)
         )
         db_with_contributions.commit()
 
@@ -231,8 +283,8 @@ class TestConversationContributionsSchema:
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "pr", "pending")
+            "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "pr", 1, "pending")
         )
         change_ref_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -254,8 +306,8 @@ class TestConversationContributionsSchema:
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "pr", "pending")
+            "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "pr", 1, "pending")
         )
         change_ref_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -277,8 +329,8 @@ class TestConversationContributionsSchema:
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "pr", "pending")
+            "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "pr", 1, "pending")
         )
         change_ref_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -300,8 +352,8 @@ class TestConversationContributionsSchema:
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "pr", "pending")
+            "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "pr", 1, "pending")
         )
         change_ref_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -319,8 +371,8 @@ class TestConversationContributionsSchema:
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "pr", "pending")
+            "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "pr", 1, "pending")
         )
         change_ref_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -355,8 +407,8 @@ class TestConversationContributionsSchema:
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "pr", "pending")
+            "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "pr", 1, "pending")
         )
         change_ref_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -386,8 +438,8 @@ class TestConversationContributionsSchema:
         )
         repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
         db_with_contributions.execute(
-            "INSERT INTO change_refs (repo_id, change_type, status) VALUES (?, ?, ?)",
-            (repo_id, "pr", "pending")
+            "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+            (repo_id, "pr", 1, "pending")
         )
         change_ref_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
 

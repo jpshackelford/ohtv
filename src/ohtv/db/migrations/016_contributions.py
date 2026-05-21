@@ -17,6 +17,9 @@ def upgrade(conn: sqlite3.Connection) -> None:
     """Create contribution tracking tables."""
 
     # change_refs: Tracks PRs and direct pushes to main
+    # Note: We use separate unique indexes instead of a composite unique constraint
+    # because SQLite treats NULL as distinct in unique constraints, which would
+    # allow duplicate entries when pr_number or commit_range is NULL.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS change_refs (
             id INTEGER PRIMARY KEY,
@@ -32,9 +35,18 @@ def upgrade(conn: sqlite3.Connection) -> None:
             files_changed INTEGER,
             fetched_at TEXT,
             FOREIGN KEY (repo_id) REFERENCES repositories(id),
-            UNIQUE (repo_id, change_type, pr_number, commit_range)
+            -- Enforce that PRs have pr_number and direct_pushes have commit_range
+            CHECK (
+                (change_type = 'pr' AND pr_number IS NOT NULL) OR
+                (change_type = 'direct_push' AND commit_range IS NOT NULL)
+            )
         )
     """)
+    # Separate unique indexes to properly prevent duplicates:
+    # - PRs are unique by repo_id + pr_number
+    # - Direct pushes are unique by repo_id + commit_range
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_change_refs_pr_unique ON change_refs(repo_id, pr_number) WHERE change_type = 'pr'")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_change_refs_push_unique ON change_refs(repo_id, commit_range) WHERE change_type = 'direct_push'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_change_refs_repo ON change_refs(repo_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_change_refs_type ON change_refs(change_type)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_change_refs_status ON change_refs(status)")
