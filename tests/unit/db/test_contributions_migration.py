@@ -259,6 +259,67 @@ class TestChangeRefsSchema:
         )
         assert cursor.fetchone()["status"] == "pending"
 
+    def test_status_check_constraint_accepts_valid_values(self, db_with_contributions):
+        """status should accept valid enum values."""
+        db_with_contributions.execute(
+            "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
+            ("https://github.com/test/repo", "test/repo", "repo")
+        )
+        repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        # All valid status values should work
+        valid_statuses = ['pending', 'fetched', 'merged', 'closed']
+        for i, status in enumerate(valid_statuses):
+            db_with_contributions.execute(
+                "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+                (repo_id, "pr", i + 1, status)
+            )
+        db_with_contributions.commit()
+
+    def test_status_check_constraint_rejects_invalid_values(self, db_with_contributions):
+        """status should reject invalid enum values."""
+        db_with_contributions.execute(
+            "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
+            ("https://github.com/test/repo", "test/repo", "repo")
+        )
+        repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            db_with_contributions.execute(
+                "INSERT INTO change_refs (repo_id, change_type, pr_number, status) VALUES (?, ?, ?, ?)",
+                (repo_id, "pr", 1, "invalid_status")
+            )
+
+    def test_cascade_delete_when_repository_deleted(self, db_with_contributions):
+        """Deleting a repository should cascade delete related change_refs."""
+        db_with_contributions.execute(
+            "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
+            ("https://github.com/test/repo", "test/repo", "repo")
+        )
+        repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        db_with_contributions.execute(
+            "INSERT INTO change_refs (repo_id, change_type, pr_number) VALUES (?, ?, ?)",
+            (repo_id, "pr", 42)
+        )
+        db_with_contributions.commit()
+
+        # Verify change_refs exists
+        cursor = db_with_contributions.execute(
+            "SELECT COUNT(*) as cnt FROM change_refs WHERE repo_id = ?", (repo_id,)
+        )
+        assert cursor.fetchone()["cnt"] == 1
+
+        # Delete the repository
+        db_with_contributions.execute("DELETE FROM repositories WHERE id = ?", (repo_id,))
+        db_with_contributions.commit()
+
+        # change_refs should be cascade deleted
+        cursor = db_with_contributions.execute(
+            "SELECT COUNT(*) as cnt FROM change_refs WHERE repo_id = ?", (repo_id,)
+        )
+        assert cursor.fetchone()["cnt"] == 0
+
 
 class TestConversationContributionsSchema:
     """Tests for conversation_contributions table schema."""
@@ -464,6 +525,86 @@ class TestConversationContributionsSchema:
         )
         assert cursor.fetchone()[0] == 3
 
+    def test_cascade_delete_when_conversation_deleted(self, db_with_contributions):
+        """Deleting a conversation should cascade delete related conversation_contributions."""
+        db_with_contributions.execute(
+            "INSERT INTO conversations (id, location) VALUES (?, ?)",
+            ("conv123", "/path/to/conv")
+        )
+        db_with_contributions.execute(
+            "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
+            ("https://github.com/test/repo", "test/repo", "repo")
+        )
+        repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
+        db_with_contributions.execute(
+            "INSERT INTO change_refs (repo_id, change_type, pr_number) VALUES (?, ?, ?)",
+            (repo_id, "pr", 42)
+        )
+        change_ref_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
+        db_with_contributions.execute(
+            "INSERT INTO conversation_contributions (conversation_id, change_ref_id, contribution_type) VALUES (?, ?, ?)",
+            ("conv123", change_ref_id, "created")
+        )
+        db_with_contributions.commit()
+
+        # Verify contribution exists
+        cursor = db_with_contributions.execute(
+            "SELECT COUNT(*) as cnt FROM conversation_contributions WHERE conversation_id = ?",
+            ("conv123",)
+        )
+        assert cursor.fetchone()["cnt"] == 1
+
+        # Delete the conversation
+        db_with_contributions.execute("DELETE FROM conversations WHERE id = ?", ("conv123",))
+        db_with_contributions.commit()
+
+        # conversation_contributions should be cascade deleted
+        cursor = db_with_contributions.execute(
+            "SELECT COUNT(*) as cnt FROM conversation_contributions WHERE conversation_id = ?",
+            ("conv123",)
+        )
+        assert cursor.fetchone()["cnt"] == 0
+
+    def test_cascade_delete_when_change_ref_deleted(self, db_with_contributions):
+        """Deleting a change_ref should cascade delete related conversation_contributions."""
+        db_with_contributions.execute(
+            "INSERT INTO conversations (id, location) VALUES (?, ?)",
+            ("conv123", "/path/to/conv")
+        )
+        db_with_contributions.execute(
+            "INSERT INTO repositories (canonical_url, fqn, short_name) VALUES (?, ?, ?)",
+            ("https://github.com/test/repo", "test/repo", "repo")
+        )
+        repo_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
+        db_with_contributions.execute(
+            "INSERT INTO change_refs (repo_id, change_type, pr_number) VALUES (?, ?, ?)",
+            (repo_id, "pr", 42)
+        )
+        change_ref_id = db_with_contributions.execute("SELECT last_insert_rowid()").fetchone()[0]
+        db_with_contributions.execute(
+            "INSERT INTO conversation_contributions (conversation_id, change_ref_id, contribution_type) VALUES (?, ?, ?)",
+            ("conv123", change_ref_id, "created")
+        )
+        db_with_contributions.commit()
+
+        # Verify contribution exists
+        cursor = db_with_contributions.execute(
+            "SELECT COUNT(*) as cnt FROM conversation_contributions WHERE change_ref_id = ?",
+            (change_ref_id,)
+        )
+        assert cursor.fetchone()["cnt"] == 1
+
+        # Delete the change_ref
+        db_with_contributions.execute("DELETE FROM change_refs WHERE id = ?", (change_ref_id,))
+        db_with_contributions.commit()
+
+        # conversation_contributions should be cascade deleted
+        cursor = db_with_contributions.execute(
+            "SELECT COUNT(*) as cnt FROM conversation_contributions WHERE change_ref_id = ?",
+            (change_ref_id,)
+        )
+        assert cursor.fetchone()["cnt"] == 0
+
 
 class TestConversationHumanInputSchema:
     """Tests for conversation_human_input table schema."""
@@ -577,6 +718,38 @@ class TestConversationHumanInputSchema:
         assert row["initial_prompt_source"] == "unknown"
         assert row["followup_word_count"] == 0
         assert row["followup_message_count"] == 0
+
+    def test_cascade_delete_when_conversation_deleted(self, db_with_contributions):
+        """Deleting a conversation should cascade delete related conversation_human_input."""
+        db_with_contributions.execute(
+            "INSERT INTO conversations (id, location) VALUES (?, ?)",
+            ("conv123", "/path/to/conv")
+        )
+        db_with_contributions.execute("""
+            INSERT INTO conversation_human_input (
+                conversation_id, initial_prompt_words, initial_prompt_source,
+                followup_word_count, followup_message_count, processed_at, event_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, ("conv123", 100, "human", 50, 3, datetime.now().isoformat(), 10))
+        db_with_contributions.commit()
+
+        # Verify human_input exists
+        cursor = db_with_contributions.execute(
+            "SELECT COUNT(*) as cnt FROM conversation_human_input WHERE conversation_id = ?",
+            ("conv123",)
+        )
+        assert cursor.fetchone()["cnt"] == 1
+
+        # Delete the conversation
+        db_with_contributions.execute("DELETE FROM conversations WHERE id = ?", ("conv123",))
+        db_with_contributions.commit()
+
+        # conversation_human_input should be cascade deleted
+        cursor = db_with_contributions.execute(
+            "SELECT COUNT(*) as cnt FROM conversation_human_input WHERE conversation_id = ?",
+            ("conv123",)
+        )
+        assert cursor.fetchone()["cnt"] == 0
 
 
 class TestMigrationIdempotency:

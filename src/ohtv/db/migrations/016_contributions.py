@@ -28,13 +28,13 @@ def upgrade(conn: sqlite3.Connection) -> None:
             pr_number INTEGER,
             commit_range TEXT,
             branch TEXT,
-            status TEXT NOT NULL DEFAULT 'pending',
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'fetched', 'merged', 'closed')),
             merged_at TEXT,
             lines_added INTEGER,
             lines_removed INTEGER,
             files_changed INTEGER,
             fetched_at TEXT,
-            FOREIGN KEY (repo_id) REFERENCES repositories(id),
+            FOREIGN KEY (repo_id) REFERENCES repositories(id) ON DELETE CASCADE,
             -- Enforce that PRs have pr_number and direct_pushes have commit_range
             CHECK (
                 (change_type = 'pr' AND pr_number IS NOT NULL) OR
@@ -58,8 +58,8 @@ def upgrade(conn: sqlite3.Connection) -> None:
             conversation_id TEXT NOT NULL,
             change_ref_id INTEGER NOT NULL,
             contribution_type TEXT NOT NULL CHECK(contribution_type IN ('created', 'pushed', 'merged')),
-            FOREIGN KEY (conversation_id) REFERENCES conversations(id),
-            FOREIGN KEY (change_ref_id) REFERENCES change_refs(id),
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            FOREIGN KEY (change_ref_id) REFERENCES change_refs(id) ON DELETE CASCADE,
             UNIQUE (conversation_id, change_ref_id, contribution_type)
         )
     """)
@@ -76,7 +76,7 @@ def upgrade(conn: sqlite3.Connection) -> None:
             followup_message_count INTEGER NOT NULL DEFAULT 0,
             processed_at TEXT NOT NULL,
             event_count INTEGER NOT NULL,
-            FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_human_input_source ON conversation_human_input(initial_prompt_source)")
