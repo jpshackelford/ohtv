@@ -714,3 +714,28 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-21 23:55 UTC - Expansion Worker
+
+✅ **Expanded Issue #80** — *Add GitHub API LOC fetching command*
+
+- Issue: [#80 - Add GitHub API LOC fetching command](https://github.com/jpshackelford/ohtv/issues/80)
+- Type: Enhancement (Conversation Metrics — fetch phase)
+- Status: **Ready for implementation** (`ready` + `priority:medium`)
+
+**What changed on the issue:**
+- Body rewritten in the standard Problem Statement / Proposed Solution / Acceptance Criteria / Out of Scope / Dependencies / Verification format.
+- Added 13 concrete acceptance criteria including idempotency (zero HTTP calls on second run), `--force` semantics, `--dry-run`, `--repo` filter, rate-limit warning at <100 quota, graceful 404/401/5xx handling, and an open-PR re-fetch-after-1h heuristic.
+- Added comment with full Technical Approach: endpoints (`/pulls/{n}` + `/compare/{base}...{head}`), auth headers including `X-GitHub-Api-Version`, rate-limit strategy that mirrors `CloudClient._get_retry_delay`, and cache-key strategy that uses `change_refs.fetched_at` as the cache (no separate cache file).
+- Reconciled the design-doc's `src/ohtv/commands/fetch_loc.py` path with the actual repo convention: CLI commands live inline in `src/ohtv/cli.py`; logic should go in a new `src/ohtv/github/` package (`client.py` + `loc.py`), matching the shape of `src/ohtv/sources/cloud.py`.
+- Documented the test plan around `pytest-httpx` (already a dev dep — `pytest-httpx>=0.30`) with JSON fixtures, satisfying the repo's "no mocks unless justified" policy by mocking only at the HTTP socket boundary.
+- 10 unit tests for `github.client`, 10 unit tests for `github.loc` (against a real in-memory SQLite DB seeded via `migrate()`), plus 3 Click `CliRunner` smoke tests.
+
+**Dependency check:**
+- #76 (schema) is **MERGED** — `change_refs` table exists with all needed columns.
+- #78 / #79 are `ready` but not yet implemented. Determined **not blocking** for #80 implementation because the fetch command only reads existing `change_refs` rows and writes LOC columns; tests seed the table directly. End-to-end smoke does need #78/#79, which is called out in the verification section.
+- #80 unblocks #81 (velocity report).
+
+**Priority rationale:** Kept at `priority:medium` to match #78/#79 it consumes from, per orchestrator instructions. Not bumped to high because #80 is not a hard blocker for #81's *expansion* — only its full verification — and #78/#79 themselves remain medium.
+
+---
