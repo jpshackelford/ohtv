@@ -1,3 +1,10 @@
+### 2026-05-21 23:25 UTC - Review Worker
+
+✅ **PR #85 — Addressed last unresolved review thread (🟡 Suggestion from 22:28:26Z automated review).** Added a focused integration test `test_preserves_initial_prompt_source_on_reprocessing` in `tests/unit/db/stages/test_human_input.py` (commit `6c7c471`) that pins the `initial_prompt_source` preservation contract: the test runs the stage once (source = `unknown`), simulates a downstream classification stage by directly setting `initial_prompt_source = 'human'`, grows the conversation and re-runs `process_human_input`, then asserts the source is still `'human'` while the count columns were correctly refreshed. This locks in the deliberate omission of `initial_prompt_source` from the upsert's `ON CONFLICT ... DO UPDATE SET` clause — exactly the contract issue #83 will depend on. No production code changed. Full suite: 1272/1272 unit tests pass locally. Replied to thread `PRRT_kwDOR9seq86D88qj` referencing the commit, resolved it, and moved the PR back to ready (no CI runs on `synchronize` — only the `ready_for_review` re-trigger of the pr-review workflow). Next decision (re-test vs merge) belongs to the orchestrator's next cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-21 19:51 UTC - Merge Worker
 
 ✅ **PR #84 merged — "Add database schema for contribution tracking"**
