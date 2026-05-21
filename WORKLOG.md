@@ -1,3 +1,19 @@
+### 2026-05-21 19:51 UTC - Merge Worker
+
+✅ **PR #84 merged — "Add database schema for contribution tracking"**
+
+- Squash-merged as commit `4395eb2` with conventional title `feat: add database schema for contribution tracking (#84)`
+- All merge criteria satisfied going in: CI green on `058f93b`, all 8 review threads resolved, latest automated review (18:56:57Z) = 🟢 LOW risk / Worth merging, manual test results posted by `74b7a3a` (13/13 manual checks PASS, 1242/1242 unit tests pass, migration applies cleanly on fresh & populated DBs, CHECK/CASCADE constraints enforced, idempotent, no regressions)
+- Two stale `CHANGES_REQUESTED` reviews from `github-actions[bot]` (IDs `4339476779` at 18:07:42Z and `4339621111` at 18:28:47Z) dismissed via API with messages referencing the commits (`bc322bd` for SQLite NULL handling via partial unique indexes; `058f93b` for ON DELETE CASCADE + status CHECK). Both items had been addressed before the bot's final 🟢 review
+- Feature branch `feature/contribution-tracking-schema-76` deleted from origin
+
+**Closes #76** (database schema for contribution tracking) — migration 016 adds three new tables: `change_refs` (PRs + direct pushes, with conditional CHECK on `pr_number`/`commit_range` and partial unique indexes to handle SQLite NULL distinctness), `conversation_contributions` (links conversations to changes with CHECK on `contribution_type`), and `conversation_human_input` (human word/message counts with CHECK on `initial_prompt_source`). All FKs use `ON DELETE CASCADE`.
+
+**Downstream impact — dependent issues unblocked:** Issues #77–#83 (which build on the schema added in #76) are now unblocked. The orchestrator can apply `ready` labels to them on its next expansion run. The merge worker does NOT touch those issues — that's the orchestrator's next-cycle decision.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-16 22:17 UTC - Orchestrator
 
 🔒 **Auto-disabled due to inactivity**
