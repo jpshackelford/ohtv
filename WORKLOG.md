@@ -501,3 +501,52 @@ PR slot was effectively idle, so re-spawn is safe (not duplicating active work).
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+---
+### 2026-05-21 22:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `3656ae7` | testing | PR #85 - human_input stage | finished ✓ |
+| `104623d` | review | PR #85 - fix click.Choice drift | **NEW** running |
+
+**Worker Completed:** `3656ae7` (testing, re-spawn)
+- Posted structured manual test report on [PR #85](https://github.com/jpshackelford/ohtv/pull/85) at 21:57:05Z
+- Result: **12/14 PASS, 1 PARTIAL, 1 FAIL**
+- ❌ **Test #1 FAIL (blocking):** `ohtv db process human_input` is rejected by `click.Choice` in `src/ohtv/cli.py:6398` — the click-layer allowlist drifted from the `STAGES` registry. Per the test report, this "blocks the stated acceptance criterion of issue #77."
+- ⚠️ Test #11 PARTIAL: README now claims `human_input` is runnable; it isn't until Test #1 is fixed.
+- ✅ All other functional behavior solid: stage logic, schema writes, idempotency, `db process all`/`sync` ordering, `initial_prompt_source` preservation, 378/378 db unit tests, 26/26 new stage tests.
+
+**Spawned: Review Worker (addressing test failure as feedback)**
+- PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
+- Conversation: [`104623d`](https://app.all-hands.dev/conversations/104623d0b0d741d09d2983b921445f66)
+- Start task: `434421be2b5a41c0a79583f34a0121c6` → `READY` on first poll
+- Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING` (~22s after creation)
+- Scope: undo-ready PR #85, fix `click.Choice` to derive choices from `STAGES` registry (per the test report's suggested fix), add invariant unit test pinning "every registered STAGE is a valid `db process` choice", confirm `uv run ohtv db process human_input` works, push, reply to test-report comment with fix SHA, set back to ready. Worker EXITs after that; orchestrator will spawn a re-testing worker next cycle (significant `.py` change after last test ⇒ re-test required per `/orchestrate` heuristics).
+- Note to worker: README pre-existing gap (missing `branch_context`/`push_pr_links`/`summaries` rows) is explicitly OUT OF SCOPE for this PR — separate follow-up.
+
+**PR #85 quick status (oCD green ready → about to flip to draft):**
+- 2 commits: `004395c` (impl, CI ✅) + `49f2dc9` (docs)
+- Reviews: 1 automated (`github-actions`, COMMENTED, 🟢 LOW risk) at 20:29:33Z — pre-test, pre-blocker-discovery
+- Comments: docs note (20:53Z) + Manual Test Results (21:57Z)
+- `mergeable: MERGEABLE`, `reviewDecision: ""`, no human reviewers
+- Click-Choice drift is a real bug — must fix before merge per test report
+
+**Current State:**
+- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) — review-round fix in progress (`104623d`)
+- Ready issues queued behind PR #85: #78 (priority:medium), #79 (priority:medium)
+- Pre-specified but intentionally not `ready` (deps): #80 (waits for #77/#78/#79), #81 (waits for #80), #82 (waits for #81), #83 (waits for #77)
+- Issues on hold: #26 (MCP server)
+- Issues needing expansion (no `ready`, no `hold`): **none in practice** (#80–83 are pre-specified by the human; intentionally not `ready` pending deps)
+
+**Slots:**
+- 🔀 PR slot: Occupied (review worker `104623d` on PR #85)
+- 📖 Expansion slot: Idle — nothing genuinely needs expansion right now.
+
+**Next cycle decision tree:**
+- If `104623d` finishes with click.Choice fix pushed + PR set ready: spawn **re-testing worker** (heuristic: `.py` changes to `src/ohtv/cli.py` since last test ⇒ re-test required, not skip-to-merge)
+- If re-test passes cleanly: spawn merge worker (no human reviewers, automated review favorable, 0 actionable comments after fix-reply resolves the test-report finding)
+- If `104623d` is still running: wait
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
