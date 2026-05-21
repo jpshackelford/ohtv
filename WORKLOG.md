@@ -122,3 +122,32 @@ Track the impact of agent orchestration on development velocity by measuring:
                     ↓
                    #83 (can start after #77)
 ```
+
+---
+### 2026-05-21 18:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `4f892a6` | review | PR #84 - Add database schema for contribution tracking | **NEW** |
+
+**Spawned: Review Worker**
+- PR: [#84 - Add database schema for contribution tracking](https://github.com/jpshackelford/ohtv/pull/84)
+- Conversation: [`4f892a6`](https://app.all-hands.dev/conversations/4f892a610f9c4f6a8ea23c6f661cb8c6)
+- Reason: PR has critical review feedback (changes requested) - SQLite NULL handling in unique constraints needs fix
+
+**Current State:**
+- Open PRs: #84 (changes requested, CI green, 💬3)
+- Issues needing expansion: None (issues #77-83 well-specified, awaiting #76 completion)
+- Ready issues: #76 (priority:high) - implementation complete, PR in review
+- Issues on hold: #26 (MCP server)
+
+**Review Feedback Summary:**
+1. UNIQUE constraint broken by SQLite NULL handling (allows duplicates when columns are NULL)
+2. Missing CHECK constraints to enforce required fields based on change_type
+3. Test gap - test documents bug as "SQLite behavior" instead of fixing it
+
+**Slots:**
+- 🔀 PR slot: Occupied (review worker for PR #84)
+- 📖 Expansion slot: Idle (no issues need expansion)
+
