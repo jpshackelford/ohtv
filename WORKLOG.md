@@ -897,3 +897,47 @@ Automation has been disabled to prevent unnecessary runs.
   ```
 
 ---
+
+### 2026-05-21 17:52 UTC - Human (Research Planning)
+
+📊 **Conversation Metrics Feature - Design & Issue Planning**
+
+**Design Documents Created:**
+- `docs/DESIGN_CONVERSATION_METRICS.md` - Full architecture for measuring development velocity
+- `docs/ISSUES_CONVERSATION_METRICS.md` - Detailed implementation issues with test criteria
+
+**Research Goal:**
+Track the impact of agent orchestration on development velocity by measuring:
+1. Merged PR count and LOC per week (before/after orchestration)
+2. Human input metrics (messages, words per PR, ratio of human words to lines changed)
+
+**Key Design Decisions:**
+- PR-centric data model (metrics on PR/commit, not conversation to avoid double-counting)
+- Two-stage processing: `contributions` stage (local, post-sync) + `fetch-loc` command (network, cached)
+- Distinguish initial prompt (task definition) from follow-up messages (human steering)
+- `initial_prompt_source` field: "human" | "automation" | "unknown" for accurate counting
+
+**Issues Filed:**
+| # | Title | Dependencies |
+|---|-------|--------------|
+| #76 | Database schema for contribution tracking | None |
+| #77 | Human input counting stage | #76 |
+| #78 | PR contribution detection stage | #76 |
+| #79 | Direct push to main detection | #76, #78 |
+| #80 | GitHub API LOC fetching command | #76, #78/#79 |
+| #81 | Velocity report command | #76-80 |
+| #82 | Charting script for velocity reports | #81 |
+| #83 | Conversation classification command | #76, #77 |
+
+**Implementation Order:**
+```
+#76 (Schema) → #77, #78, #79 (parallel) → #80 → #81 → #82
+                    ↓
+                   #83 (can start after #77)
+```
+
+**Next Steps:**
+- Re-enable automation to begin implementation
+- Start with Issue #76 (schema foundation)
+
+---
