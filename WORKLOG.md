@@ -684,3 +684,33 @@ Both true here: diff `49f2dc9..318ea0a` = `src/ohtv/cli.py` +3/-1 (click.Choice 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-21 23:53 UTC - Orchestrator (merge)
+
+**Merged: PR #85 — `feat: add human_input counting stage`**
+
+- Merge SHA on `main`: [`38d5032`](https://github.com/jpshackelford/ohtv/commit/38d5032472ab9ef7e65836ff91480309ca29d89d)
+- mergedAt: `2026-05-21T23:52:59Z`
+- Strategy: squash
+- Closes: #77 (Add human input counting stage)
+- Remote branch `feat/human-input-counting-stage` deleted
+
+**State at merge:**
+- CI green on head `6c7c4716` (pr-review SUCCESS)
+- `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, not draft
+- All review threads resolved (the round-2 🟡 Suggestion on `initial_prompt_source` preservation was addressed in `6c7c471` with the new `test_preserves_initial_prompt_source_on_reprocessing` integration test)
+- 1272/1272 unit tests passing locally before merge
+- Manual blackbox sweep verified across two rounds (21:57Z initial + 22:55Z re-test): 14/14 items pass on `318ea0a`; final commit `6c7c471` was test-only so no re-test required per orchestrator heuristics
+
+**What landed (delta vs. main):** new `src/ohtv/db/stages/human_input.py` (pure `count_human_input` + DB-writing `process_human_input`), `STAGES` registration as 6th stage, `db process` CLI choice list now derived from `STAGES.keys()` (with invariant test in `tests/unit/test_cli_db_process_stages.py`), `conversation_human_input` upsert that deliberately omits `initial_prompt_source` from `ON CONFLICT DO UPDATE` to preserve downstream classifier writes, README "Available Stages" row, 30 new tests (27 in `test_human_input.py` + 3 in `test_cli_db_process_stages.py`).
+
+**Downstream unblocking — Issue #83:**
+- PR #85 establishes the `initial_prompt_source` preservation contract on `conversation_human_input` (pinned by a dedicated integration test in `tests/unit/db/stages/test_human_input.py`).
+- Issue #83 (conversation classification command) is the consumer of that contract — it needs to write `'human'` / `'automation'` into `initial_prompt_source` without those writes being clobbered by subsequent `human_input` reprocessing runs.
+- That dependency is now satisfied, so **#83 is unblocked for expansion**. Recommendation for the next orchestrator cycle: prioritize expanding #83 alongside the previously-queued #78 → #79 implementation chain (per the dependency note in the 23:20Z entry, expansion of #80 also becomes possible after #78 lands).
+
+**Cleanup state:** main fast-forwarded to `38d5032`; no open PRs; no in-flight workers from this cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
