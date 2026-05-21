@@ -409,6 +409,54 @@ class TestProcessHumanInput:
         assert row["followup_word_count"] == 0
         assert row["followup_message_count"] == 0
 
+    def test_preserves_initial_prompt_source_on_reprocessing(
+        self, db_conn, tmp_path
+    ):
+        """``initial_prompt_source`` must NOT revert on reprocessing.
+
+        The upsert in ``process_human_input`` deliberately omits
+        ``initial_prompt_source`` from its ``ON CONFLICT ... DO UPDATE SET``
+        clause so that a downstream classification stage (see issue #83) can
+        set it to e.g. ``'human'`` once and have that value survive any
+        subsequent reprocessing triggered by event growth. This test pins
+        that contract.
+        """
+        conv_dir = tmp_path / "conv-preserve"
+        _write_events(conv_dir, [_user_msg("hello")])
+        conv = _register_conversation(db_conn, "convpres", conv_dir, event_count=1)
+
+        # First processing run: source defaults to 'unknown'.
+        process_human_input(db_conn, conv)
+        initial_row = _get_human_input_row(db_conn, "convpres")
+        assert initial_row["initial_prompt_source"] == "unknown"
+
+        # Simulate a future classification stage marking this prompt as human.
+        db_conn.execute(
+            "UPDATE conversation_human_input "
+            "SET initial_prompt_source = 'human' WHERE conversation_id = ?",
+            ("convpres",),
+        )
+        db_conn.commit()
+
+        # Conversation grows, triggering a reprocess.
+        _write_events(
+            conv_dir,
+            [_user_msg("hello"), _user_msg("now a followup of four words")],
+        )
+        conv2 = Conversation(
+            id="convpres", location=str(conv_dir), event_count=2
+        )
+        ConversationStore(db_conn).upsert(conv2)
+        process_human_input(db_conn, conv2)
+
+        row = _get_human_input_row(db_conn, "convpres")
+        # Contract: classification result is preserved across reprocessing.
+        assert row["initial_prompt_source"] == "human"
+        # Sanity check: the count columns WERE refreshed by the reprocess.
+        assert row["event_count"] == 2
+        assert row["followup_message_count"] == 1
+        assert row["followup_word_count"] == 6
+
     def test_needs_processing_after_first_run(self, db_conn, tmp_path):
         """StageStore.needs_processing reflects completion state correctly."""
         conv_dir = tmp_path / "conv-skip"
