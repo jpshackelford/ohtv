@@ -9,10 +9,12 @@ Stage ordering:
 3. branch_context - Track branches and create branch refs (requires actions)
 4. push_pr_links - Correlate pushes with PRs (requires actions, branch_context)
 5. summaries - Extract summaries from objective analysis cache
+6. human_input - Count human words/messages (initial prompt vs. follow-ups)
 """
 
 from ohtv.db.stages.actions import process_actions
 from ohtv.db.stages.branch_context import process_branch_context
+from ohtv.db.stages.human_input import process_human_input
 from ohtv.db.stages.push_pr_links import process_push_pr_links
 from ohtv.db.stages.refs import process_refs
 from ohtv.db.stages.summaries import process_summaries
@@ -25,12 +27,14 @@ STAGES = {
     "branch_context": process_branch_context,
     "push_pr_links": process_push_pr_links,
     "summaries": process_summaries,
+    "human_input": process_human_input,
 }
 
 __all__ = [
     "STAGES",
     "process_actions",
     "process_branch_context",
+    "process_human_input",
     "process_push_pr_links",
     "process_refs",
     "process_summaries",

@@ -952,6 +952,7 @@ ohtv db process refs -v
 |-------|-------------|
 | `refs` | Extract repository, issue, and PR references |
 | `actions` | Recognize actions (file edits, git ops, PRs, issues, Notion, etc.) |
+| `human_input` | Count human input events per conversation; preserves `initial_prompt_source` for future classification |
 | `all` | Run all stages in sequence |
 
 **Options:**
