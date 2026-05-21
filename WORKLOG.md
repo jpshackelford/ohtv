@@ -65,12 +65,31 @@ Track the impact of agent orchestration on development velocity by measuring:
 - Start with Issue #76 (schema foundation)
 
 ---
+### 2026-05-21 18:05 UTC - Implementation Worker
+
+✅ **Completed: Issue #76 - Database schema for contribution tracking**
+
+**PR Created:** [#84 - Add database schema for contribution tracking](https://github.com/jpshackelford/ohtv/pull/84)
+
+**What was done:**
+- Created migration `016_contributions.py` with three new tables:
+  - `change_refs`: Tracks PRs and direct pushes (12 columns, FK to repositories)
+  - `conversation_contributions`: Links conversations to changes (4 columns, FKs to conversations & change_refs)
+  - `conversation_human_input`: Stores human word/message counts (7 columns, FK to conversations)
+- Added CHECK constraints, UNIQUE constraints, and indexes per the spec
+- Created 36 comprehensive tests in `test_contributions_migration.py`
+
+**Test Results:** All 36 new tests pass, all 343 existing db tests pass
+
+**Next Steps:** Dependent issues #77, #78, #79 can now proceed in parallel
+
+---
 ### 2026-05-21 17:59 UTC - Orchestrator
 
 **Active Workers:**
 | Conv ID | Type | Working On | Status |
 |---------|------|------------|--------|
-| `85e8f5d` | implementation | Issue #76 - Add database schema for contribution tracking | **NEW** |
+| `85e8f5d` | implementation | Issue #76 - Add database schema for contribution tracking | **COMPLETE** → PR #84 |
 
 **Housekeeping:**
 - 📦 Truncated WORKLOG.md (23 old entries archived to WORKLOG_ARCHIVE_2026-05-16.md)
@@ -83,9 +102,9 @@ Track the impact of agent orchestration on development velocity by measuring:
 - Reason: Issue #76 is the foundation for the conversation metrics feature (no dependencies)
 
 **Current State:**
-- No open PRs (yet)
+- Open PRs: #84 (ready for review)
 - Issues needing expansion: #77, #78, #79, #80, #81, #82, #83 (but well-specified by human, need `ready` label)
-- Ready issues: #76 (priority:high) - implementation in progress
+- Ready issues: #76 (priority:high) - implementation complete
 - Issues on hold: #26 (MCP server - awaiting human review)
 
 **Slots:**
