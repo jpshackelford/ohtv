@@ -151,3 +151,32 @@ Track the impact of agent orchestration on development velocity by measuring:
 - 🔀 PR slot: Occupied (review worker for PR #84)
 - 📖 Expansion slot: Idle (no issues need expansion)
 
+---
+### 2026-05-21 18:25 UTC - Review Worker
+
+✅ **Completed: PR #84 Review Feedback - SQLite NULL handling fix**
+
+**Commit:** [`bc322bd`](https://github.com/jpshackelford/ohtv/commit/bc322bd)
+
+**Changes Made:**
+1. **Added CHECK constraint** to enforce required fields:
+   - `change_type='pr'` requires `pr_number IS NOT NULL`
+   - `change_type='direct_push'` requires `commit_range IS NOT NULL`
+
+2. **Replaced broken UNIQUE constraint** with partial unique indexes:
+   - `idx_change_refs_pr_unique`: `UNIQUE(repo_id, pr_number) WHERE change_type='pr'`
+   - `idx_change_refs_push_unique`: `UNIQUE(repo_id, commit_range) WHERE change_type='direct_push'`
+
+3. **Updated tests** to verify constraints work correctly:
+   - Added `test_pr_requires_pr_number` and `test_direct_push_requires_commit_range`
+   - Replaced problematic `test_unique_constraint_null_handling` with proper duplicate prevention tests
+
+**Test Results:** All 346 database tests pass
+
+**Actions:**
+- Replied to all 3 review threads explaining fixes
+- Resolved all review threads
+- Marked PR ready for review
+
+**PR Status:** Ready for merge (https://github.com/jpshackelford/ohtv/pull/84)
+
