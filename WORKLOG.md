@@ -245,3 +245,36 @@ Track the impact of agent orchestration on development velocity by measuring:
 **PR Status:** Ready for merge (https://github.com/jpshackelford/ohtv/pull/84)
 
 ---
+### 2026-05-21 19:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `90b4272` | review | PR #84 - Round 2 (CASCADE/CHECK) | finished ✓ |
+| `74b7a3a` | testing | PR #84 - Manual Test Round 1 | **NEW** |
+
+**Worker Completed:** `90b4272` (review)
+- Addressed all 5 ON DELETE CASCADE + status CHECK threads
+- All 8 review threads now resolved
+- 1193 tests pass
+
+**Spawned: Testing Worker (Round 1)**
+- PR: [#84 - Add database schema for contribution tracking](https://github.com/jpshackelford/ohtv/pull/84)
+- Conversation: [`74b7a3a`](https://app.all-hands.dev/conversations/74b7a3a3b4e142afb911369b400d18ff)
+- Reason: All review threads resolved, CI green, but no manual test results posted yet. Per workflow, testing required before merge.
+- Focus: Pure DB migration - verify migration applies cleanly (fresh + populated DB), constraints work (CASCADE, CHECK), existing functionality unaffected.
+- Note: PR is purely internal/structural (migration 016 + tests). No CLI/output changes → no README update required per workflow rules.
+
+**Current State:**
+- Open PRs: [#84](https://github.com/jpshackelford/ohtv/pull/84) — `oRFRFC` green ready, all 8 threads resolved, manual test in progress
+- Issues needing `ready` label (blocked on #76): #77, #78, #79, #80, #81, #82, #83
+- Ready issues: #76 (priority:high) — PR #84 in test phase
+- Issues on hold: none with `hold` label
+
+**Slots:**
+- 🔀 PR slot: Occupied (testing worker `74b7a3a`)
+- 📖 Expansion slot: Idle — issues #77-83 are well-specified by human and will get `ready` labels once #76/PR #84 merges. Spawning expansion workers on them now would be premature; they depend on the schema introduced by #76.
+
+**Next:** Wait for `74b7a3a` to post manual test results, then spawn merge worker.
+
+---
