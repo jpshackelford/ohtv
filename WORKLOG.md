@@ -376,3 +376,43 @@ Track the impact of agent orchestration on development velocity by measuring:
 - All acceptance criteria from #77 confirmed met; `initial_prompt_source` intentionally left at `'unknown'` for #83
 - Next: review/QA/merge workers spawned by orchestrator; #83 becomes promotable to `ready` once #85 merges
 
+
+### 2026-05-21 20:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `26f66b8` | implementation | Issue #77 → PR #85 | finished ✓ |
+| `d05423f` | docs | PR #85 - human_input stage README row | **NEW** |
+
+**Worker Completed:** `26f66b8` (implementation)
+- Opened [PR #85](https://github.com/jpshackelford/ohtv/pull/85) on branch `feat/human-input-counting-stage`
+- 3 files changed: `src/ohtv/db/stages/human_input.py` (new), `src/ohtv/db/stages/__init__.py` (registration), `tests/unit/db/stages/test_human_input.py` (26 tests)
+- CI: `pr-review` ✅ pass
+- Automated review (`github-actions`, 20:29:33Z, COMMENTED): "🟢 Good taste … ✅ Worth merging" (🟢 LOW risk)
+
+**Spawned: Docs Worker**
+- PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
+- Conversation: [`d05423f`](https://app.all-hands.dev/conversations/d05423fe371b4bccb2582061b148b886)
+- Reason: PR is ready, CI green, but README.md was not updated in the diff. The PR adds a new value to `ohtv db process <stage>` (`human_input`), which is documented in the "Available Stages" table around line ~950 of README. Per workflow rule "test what's documented", docs must be updated BEFORE manual testing.
+- Scoped narrowly: add a single row for `human_input` to the stages table. Existing gaps for `branch_context`/`push_pr_links` are explicitly out of scope.
+
+**PR #85 quick status:**
+- `o` opened, CI green, ready (not draft), 0 manual test comments yet
+- 1 automated review (COMMENTED, "Worth merging")
+- `mergeable: MERGEABLE`, `reviewDecision: ""` (no required reviewers configured for human-style approval)
+
+**Current State:**
+- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) — docs update in progress
+- Ready issues queued behind PR #85: #78 (priority:medium), #79 (priority:medium)
+- Issues blocked on `ready` issues completing: #80 (waits for #77/#78/#79), #81 (waits for #80), #82 (waits for #81), #83 (waits for #77)
+- Issues on hold: #26 (MCP server)
+- Issues needing expansion (no `ready`, no `hold`): none (#80-83 are pre-specified by human; intentionally not yet `ready` pending deps)
+
+**Slots:**
+- 🔀 PR slot: Occupied (docs worker `d05423f` on PR #85)
+- 📖 Expansion slot: Idle — no unexpanded issues. #78/#79 are ready but cannot be implemented in parallel (single PR-slot rule). They will be picked up after PR #85 merges.
+
+**Next:** Wait for `d05423f` to push docs commit + post "Documentation updated" comment. Then orchestrator will spawn a testing worker for PR #85.
+
+---
