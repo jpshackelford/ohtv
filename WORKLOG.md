@@ -180,3 +180,33 @@ Track the impact of agent orchestration on development velocity by measuring:
 
 **PR Status:** Ready for merge (https://github.com/jpshackelford/ohtv/pull/84)
 
+### 2026-05-21 18:48 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `4f892a6` | review | PR #84 - Round 1 | finished ✓ |
+| `90b4272` | review | PR #84 - Round 2 (ON DELETE CASCADE) | **NEW** |
+
+**Worker Completed:** `4f892a6` (review)
+- Addressed SQLite NULL handling (3 threads)
+- But 5 new review threads appeared (ON DELETE CASCADE, CHECK constraint)
+
+**Spawned: Review Worker (Round 2)**
+- PR: [#84 - Add database schema for contribution tracking](https://github.com/jpshackelford/ohtv/pull/84)
+- Conversation: [`90b4272`](https://app.all-hands.dev/conversations/90b42726f762433bb38087728a7c5f15)
+- Reason: 5 unresolved review threads (ON DELETE CASCADE, status CHECK constraint)
+
+**Current State:**
+- Open PRs: #84 (CI green, 5 unresolved review threads)
+- Issues needing `ready` label (blocked on #76): #77, #78, #79, #80, #81, #82, #83
+- Ready issues: #76 (priority:high) - PR #84 in review
+- Issues on hold: #26 (MCP server)
+
+**Slots:**
+- 🔀 PR slot: Occupied (review worker for PR #84)
+- 📖 Expansion slot: Idle (issues #77-83 are already well-specified by human, just need `ready` labels once #76 completes)
+
+**Note:** Issues #77-83 have 4000+ character descriptions with acceptance criteria (created by human in design phase). They don't need expansion - they need `ready` labels after PR #84 merges.
+
+---
