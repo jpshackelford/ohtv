@@ -550,3 +550,47 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 - If `104623d` is still running: wait
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-21 22:55 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `104623d` | review | PR #85 — fix `click.Choice` for `db process` stages | finished ✓ |
+| `0872233` | re-testing | PR #85 — re-test after fix commit `318ea0a` | **NEW** |
+
+**Worker Completed:** `104623d` (review)
+- Pushed fix commit `318ea0a` ("fix(cli): derive db process stage choices from STAGES registry") + new invariant test in `tests/unit/test_cli_db_process_stages.py`
+- Replied to the test-report comment and set PR back to ready
+- CI green on `318ea0a` (pr-review SUCCESS); automated review at 22:28Z = 🟢 LOW risk / Worth merging
+- Sandbox PAUSED, idle 25m → confirmed finished (not duplicate-spawnable)
+
+**🚀 Spawned: Re-Testing Worker**
+- Conversation: [`0872233`](https://app.all-hands.dev/conversations/0872233265774b8cbf75bf0cad35926b)
+- Start task: `9741438327a14bc0bdd1042b94a55b21` → `READY` after one poll (~5s)
+- Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING` (~13s after creation, agent picked up the task)
+- PR target: [#85 — feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85), HEAD `318ea0a`
+
+**Why re-test, not merge:**
+Per `/orchestrate` heuristics, re-testing is required when:
+- Source files (`.py` excluding `*_test.py`) changed AFTER the last manual test, AND
+- "CLI argument handling changed"
+Both true here: diff `49f2dc9..318ea0a` = `src/ohtv/cli.py` +3/-1 (click.Choice now derived from `STAGES.keys()`) + new test file `tests/unit/test_cli_db_process_stages.py` (+37). Even though the change is small and the automated review is 🟢 LOW, the **previously-failing acceptance criterion (`ohtv db process human_input`) was directly the target of this fix** — must be re-verified by a human-runnable test, not just by CI. Worker scope explicitly says: re-run the failing test #1, sweep every stage in the `STAGES` registry, run the new invariant test, run the full suite, post a fresh `## Re-Test Results for PR #85 (Round 2)` comment, and EXIT. No code changes allowed in this conversation.
+
+**Current State:**
+- [PR #85](https://github.com/jpshackelford/ohtv/pull/85): OPEN, MERGEABLE, ready, pr-review SUCCESS — awaiting re-test
+- No other open PRs (PR #84 already merged at 19:51Z as `4395eb2`)
+- Ready issues: #77 (in flight via PR #85), #78 (priority:medium), #79 (priority:medium)
+- Issues needing expansion: none acted on — #80–#83 are intentionally **not** `ready` (pre-specified by human, deps on #77/#78/#79 per WORKLOG 17:52Z entry)
+- On hold: #26
+- Expansion slot: **idle by design** (no eligible candidates)
+- PR slot: occupied by re-testing worker `0872233`
+
+**Next check (~30 min):**
+- If re-test PASS → spawn merge worker for PR #85
+- If re-test FAIL → spawn another review worker to fix
+- Either way, after PR #85 resolves: pick highest-priority ready issue (#78 priority:medium → next impl worker, since #79 is blocked on #78 per its acceptance criteria; verify dependency order at that time)
+
+---
