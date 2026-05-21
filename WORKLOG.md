@@ -325,3 +325,44 @@ Track the impact of agent orchestration on development velocity by measuring:
 **Next:** Wait for `dd6e104` to merge PR #84 and update WORKLOG. Next cycle will start expansion/implementation flow on issues #77-83.
 
 ---
+### 2026-05-21 20:22 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `dd6e104` | merge | PR #84 - Contribution tracking schema | finished ✓ |
+| `26f66b8` | implementation | Issue #77 - Human input counting stage | **NEW** |
+
+**Worker Completed:** `dd6e104` (merge)
+- PR #84 merged at 2026-05-21T19:50:56Z (squash, commit `4395eb26`)
+- Closed issue #76 automatically via `Fixes #76`
+- Migration 016 + `conversation_human_input`, `conversation_contributions`, `change_refs` tables now live on `main`
+
+**Inline orchestrator work (label triage, no expansion worker needed):**
+- Issues #77-83 were already richly specified by the human in the design phase (3700-4500 chars each, with acceptance criteria + algorithm pseudocode). They needed labels, not expansion.
+- Applied per the documented dependency graph (`#76 → #77/#78/#79 (parallel) → #80 → #81 → #82`; `#77 → #83`):
+  - `#77` ← `ready` + `priority:high` (unblocks #83, gates #80)
+  - `#78` ← `ready` + `priority:medium` (parallel with #77/#79)
+  - `#79` ← `ready` + `priority:medium` (parallel with #77/#78)
+  - `#80`, `#81`, `#82`, `#83` ← left without `ready` (unmet dependencies)
+- This is equivalent to /assess-priority being run inline. Issues are documented enough that spawning an expansion worker would just re-confirm and apply the same labels.
+
+**Spawned: Implementation Worker**
+- Issue: [#77 - Add human input counting stage](https://github.com/jpshackelford/ohtv/issues/77) (priority:high)
+- Conversation: [`26f66b8`](https://app.all-hands.dev/conversations/26f66b8de2594d04939de54f5229c815)
+- Reason: Highest-priority ready issue. Builds directly on the `conversation_human_input` table just merged in PR #84. Scoped to a single new stage file + tests; designed to not collide with parallel work on #78/#79.
+
+**Current State:**
+- Open PRs: none
+- Ready issues (in priority order): #77 (high, being implemented), #78 (medium), #79 (medium)
+- Issues blocked on `ready` issues completing: #80 (waits for #77/#78/#79), #81 (waits for #80), #82 (waits for #81), #83 (waits for #77)
+- Issues on hold: #26 (MCP server)
+- Issues needing expansion (no `ready`, no `hold`): none (#80-83 deliberately held pending dep merges)
+
+**Slots:**
+- 🔀 PR slot: Occupied (implementation worker `26f66b8` on #77)
+- 📖 Expansion slot: Idle (no unexpanded issues — #80-83 are pre-specified but intentionally not yet `ready`)
+
+**Next:** Next cycle should (a) check whether `26f66b8` is still running, (b) consider promoting #78 or #79 to a parallel-ready impl only AFTER PR #77 is open and stable (current workflow allows only one PR worker at a time; queue #78/#79 for after #77 merges), and (c) once #77 merges, promote #83 to `ready` (no extra deps) and re-evaluate #80 once any of #77/#78/#79 is in.
+
+---
