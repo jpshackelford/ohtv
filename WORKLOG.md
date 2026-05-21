@@ -416,3 +416,43 @@ Track the impact of agent orchestration on development velocity by measuring:
 **Next:** Wait for `d05423f` to push docs commit + post "Documentation updated" comment. Then orchestrator will spawn a testing worker for PR #85.
 
 ---
+
+### 2026-05-21 21:19 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `d05423f` | docs | PR #85 - human_input stage README row | finished ✓ |
+| `c98452a` | testing | PR #85 - manual blackbox test | **NEW** |
+
+**Worker Completed:** `d05423f` (docs)
+- Pushed commit [`49f2dc9`](https://github.com/jpshackelford/ohtv/commit/49f2dc9) — "docs: document human_input stage in README"
+- Posted PR comment: _"Documentation updated: added `human_input` row to the Available Stages table in README.md."_
+- Sandbox `PAUSED`; conversation done.
+
+**Spawned: Testing Worker**
+- PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
+- Conversation: [`c98452a`](https://app.all-hands.dev/conversations/c98452a2d9ae4a0ba9f6903ac4398654)
+- Reason: PR is ready, CI green on impl commit (`004395c`), README docs now in place (`49f2dc9`), no manual test results yet. Per decision tree → testing worker.
+- Scope: blackbox-verify the new `human_input` stage (population of `conversation_human_input`, idempotency, `initial_prompt_source='unknown'` per #77 scope, `db process all` ordering) + run `tests/unit/db` suite + post structured report. Worker EXITs after posting; does not continue to review/merge.
+
+**PR #85 quick status (oCD green ready):**
+- 2 commits: `004395c` (impl, CI ✅) + `49f2dc9` (docs)
+- Automated review by `github-actions`: 🟢 LOW risk, "✅ Worth merging"
+- `mergeable: UNKNOWN` (will resolve once GitHub re-checks); no required reviewers; `reviewDecision: ""`
+- No human review comments to address (💬=0 actionable)
+
+**Current State:**
+- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) — testing in progress
+- Ready issues queued behind PR #85: #78 (priority:medium), #79 (priority:medium)
+- Issues blocked on `ready` issues completing: #80 (waits for #77/#78/#79), #81 (waits for #80), #82 (waits for #81), #83 (waits for #77)
+- Issues on hold: #26 (MCP server)
+- Issues needing expansion (no `ready`, no `hold`): none in practice. #80–83 are pre-specified by the human; intentionally not yet `ready` pending deps (per prior orchestrator decision).
+
+**Slots:**
+- 🔀 PR slot: Occupied (testing worker `c98452a` on PR #85)
+- 📖 Expansion slot: Idle — nothing genuinely needs expansion right now.
+
+**Next:** Wait for `c98452a` to post a structured "Manual Test Results" PR comment. Once posted with passing report and no significant follow-up commits, orchestrator will spawn a merge worker (no review worker needed — only automated review present, already favorable, 💬=0 actionable).
+
+---
