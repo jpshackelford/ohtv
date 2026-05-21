@@ -210,3 +210,38 @@ Track the impact of agent orchestration on development velocity by measuring:
 **Note:** Issues #77-83 have 4000+ character descriptions with acceptance criteria (created by human in design phase). They don't need expansion - they need `ready` labels after PR #84 merges.
 
 ---
+### 2026-05-21 18:49 UTC - Review Worker
+
+✅ **Completed: PR #84 Review Feedback Round 2 - ON DELETE CASCADE and status CHECK**
+
+**Commit:** [`058f93b`](https://github.com/jpshackelford/ohtv/commit/058f93b)
+
+**Changes Made:**
+1. **Added ON DELETE CASCADE** to all 4 foreign key relationships:
+   - `change_refs.repo_id` → repositories (line 37)
+   - `conversation_contributions.conversation_id` → conversations (line 61)
+   - `conversation_contributions.change_ref_id` → change_refs (line 62)
+   - `conversation_human_input.conversation_id` → conversations (line 79)
+
+2. **Added CHECK constraint for status field**:
+   - `CHECK(status IN ('pending', 'fetched', 'merged', 'closed'))`
+   - Follows same pattern as `change_type` and `contribution_type`
+
+3. **Added 6 new tests** for constraint validation:
+   - `test_status_check_constraint_accepts_valid_values`
+   - `test_status_check_constraint_rejects_invalid_values`
+   - `test_cascade_delete_when_repository_deleted` (change_refs)
+   - `test_cascade_delete_when_conversation_deleted` (conversation_contributions)
+   - `test_cascade_delete_when_change_ref_deleted` (conversation_contributions)
+   - `test_cascade_delete_when_conversation_deleted` (conversation_human_input)
+
+**Test Results:** All 1193 tests pass (45 for contributions migration)
+
+**Actions:**
+- Replied to all 5 review threads explaining fixes
+- Resolved all 5 threads (8/8 total threads now resolved)
+- Marked PR ready for review
+
+**PR Status:** Ready for merge (https://github.com/jpshackelford/ohtv/pull/84)
+
+---
