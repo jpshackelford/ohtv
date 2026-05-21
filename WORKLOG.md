@@ -456,3 +456,48 @@ Track the impact of agent orchestration on development velocity by measuring:
 **Next:** Wait for `c98452a` to post a structured "Manual Test Results" PR comment. Once posted with passing report and no significant follow-up commits, orchestrator will spawn a merge worker (no review worker needed — only automated review present, already favorable, 💬=0 actionable).
 
 ---
+
+### 2026-05-21 21:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c98452a` | testing | PR #85 - human_input stage | failed-to-start ❌ |
+| `3656ae7` | testing (re-spawn) | PR #85 - human_input stage | **NEW** running |
+
+**Observation:** The previous testing worker `c98452a` (spawned at 21:18:52Z) never actually started. Direct evidence:
+- `ohtv show c98452a`: 1 total event, 0 actions, 0 observations, duration N/A
+- API `created_at == updated_at` to the millisecond
+- ~32 minutes elapsed with no activity; PR #85 still has 0 manual test comments
+
+PR slot was effectively idle, so re-spawn is safe (not duplicating active work).
+
+**Spawned: Testing Worker (re-spawn)**
+- PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
+- Conversation: [`3656ae7`](https://app.all-hands.dev/conversations/3656ae77709441778fcd7ec6bef5889a)
+- Start task: `51899049f8c2406f88e31818df5e9f3c` → `READY` after one poll cycle
+- Post-spawn verification: `execution_status: running` (updated_at moved forward by ~13s after creation), confirming the agent actually picked up the task this time.
+- Prompt notes: explicitly mentions the prior failed worker so this one knows it's completing that work, not duplicating it.
+
+**PR #85 quick status (oCD green ready):**
+- Last commits: `004395c` (impl, `pr-review` CI ✅ success at 20:27:18Z) + `49f2dc9` (docs, no CI rerun needed — `pr-review` is the only configured workflow and docs-only push didn't re-trigger it)
+- Comments: 1 (`docs: documentation updated` note from prior docs worker, 20:53:19Z)
+- Reviews: 1 automated (`github-actions`, COMMENTED, 🟢 LOW risk, "Worth merging")
+- `mergeable: MERGEABLE`, `reviewDecision: ""`, `isDraft: false`
+
+**Current State:**
+- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) — manual testing (re-)in progress
+- Ready issues queued behind PR #85: #78 (priority:medium), #79 (priority:medium)
+- Pre-specified but intentionally not `ready` (deps): #80 (waits for #77/#78/#79), #81 (waits for #80), #82 (waits for #81), #83 (waits for #77)
+- Issues on hold: #26 (MCP server)
+- Issues needing expansion (no `ready`, no `hold`): **none**
+
+**Slots:**
+- 🔀 PR slot: Occupied (testing worker `3656ae7` on PR #85)
+- 📖 Expansion slot: Idle — nothing genuinely needs expansion. #78/#79 will be picked up after #85 merges (single PR-slot rule).
+
+**Next:** Wait for `3656ae7` to post a structured "Manual Test Results" PR comment. If a passing report appears with no significant follow-up commits, the next orchestrator cycle should spawn a merge worker (no review worker needed — only an automated favorable review present, 0 actionable comments).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
