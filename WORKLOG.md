@@ -858,3 +858,32 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 ## 2026-05-22T02:24Z — expanded issue #86 (sync --update-metadata)
 
 Restructured #86 into Problem Statement / Proposed Solution / Acceptance Criteria, moved implementation detail into a Technical Approach comment, and called out the prerequisite relationship to #87 and #89. Added `ready` label.
+
+---
+
+## 2026-05-22T02:28Z — addressed review threads on PR #88 (contributions stage)
+
+Resolved both unresolved `github-actions[bot]` review threads on PR #88 (feat: add PR contribution detection stage, fixes #78).
+
+**Thread 1 — `PRRT_kwDOR9seq86D-Cla` (critical, data integrity):** `_upsert_repo_for` was creating GitHub canonical URLs for GitLab/Bitbucket PRs. Fixed in `54008f7` by capturing the host during `_identify_pr` (alongside the existing URL pattern match), carrying it on `_PrIdent` as a new `host` field (defaults to `github.com` for the metadata fallback path), propagating it through the MERGE_PR fallbacks (`seen_pr_repo` now stores `(owner, repo, host)`; `_single_repo_for_conversation` parses the host from the linked repo's `canonical_url` via a new `_host_from_canonical_url` helper), and using it in `_upsert_repo_for`. Mirrors the multi-platform handling already in `refs.py`. Test coverage: 3 new round-trip tests through `process_contributions` (OPEN_PR on GitLab, OPEN_PR on Bitbucket, MERGE_PR by URL on GitLab) asserting the resulting Repository row has the correct `canonical_url`; the existing `_identify_pr` tests for GitLab/Bitbucket were updated to assert the new `host` attribute.
+
+**Thread 2 — `PRRT_kwDOR9seq86D-Clf` (suggestion, efficiency):** `orphan_push_branches: list[str]` could accumulate duplicates when multiple pushes happened on the same branch before a PR. Fixed in `879f75e` — three-line change: declaration to `set[str] = set()`, function signature in `_handle_git_push`, and `.append` → `.add`. The backward pass iterates the collection and looks up `first_pr_per_branch[key]` per entry, so there is no ordering dependency.
+
+**Process:**
+- Flipped PR #88 to draft on entry; flipped back to ready on exit.
+- Two logical commits (`54008f7` platform fix + tests, `879f75e` set refactor) pushed to `feat/contributions-detection-78`.
+- Full suite: **1325/1325 passing** (1322 + 3 new tests).
+- Replied to both threads via `addPullRequestReviewThreadReply` with commit SHAs and test names, then `resolveReviewThread` on both — both threads now `isResolved: true`.
+- No CI configured on the branch (no checks reported); local pytest is the source of truth.
+- PR title and description re-verified against changes — unchanged scope, no rescoping needed.
+
+**Did NOT:**
+- Touch `main` (only `feat/contributions-detection-78` was pushed).
+- Merge the PR.
+- Spawn a testing worker — per prompt, the next orchestrator wake-up evaluates re-test heuristics. The `src/ohtv/db/stages/contributions.py` changes are code (not docs/test-only), so re-test will likely fire on the next cycle.
+
+**Next check (~30 min):**
+- If re-test heuristics fire → spawn testing worker against PR #88 with focus on contributions stage GitLab/Bitbucket round-trip (the 3 new tests + the existing GIT_PUSH backward-pass scenarios still using the (now-set) collection).
+- If re-test does not fire (e.g., diff is small/local enough) → PR #88 enters merge-ready evaluation: review threads ✅ resolved, manual test ✅ still valid (no code changes that invalidate it — only stage-internal refactor + new platform-host handling), docs ✅ unchanged. Likely safe to spawn merge worker.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
