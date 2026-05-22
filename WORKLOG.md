@@ -864,3 +864,57 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-22 05:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `20fb611` | testing | PR #93 - feat(sync): add --update-metadata | **NEW** running |
+| `f777d69` | expansion | Issue #90 - Add `ohtv label` for batch labeling | **NEW** running |
+
+**🚀 Spawned: 2 Workers (parallel — both slots filled, prior cycle's workers completed/paused)**
+
+1. **Testing Worker** — PR slot
+   - PR: [#93 - feat(sync): add --update-metadata](https://github.com/jpshackelford/ohtv/pull/93) (fixes #86)
+   - Conversation: [`20fb611`](https://app.all-hands.dev/conversations/20fb6117479d45a2a1530087f40f84bc)
+   - Start task: `541b8cfb9bf74ea1854d30de0ad1368c` → READY on first poll (~5s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: First test pass for PR #93. README.md is included in PR diff so docs scope is in-scope. Worker tasked with: (a) `gh pr checkout 93` + `uv sync`; (b) full unit suite — confirm ≥1395 tests pass (baseline from review); (c) blackbox scenarios — `--update-metadata --dry-run`, real write path on title/label change, auto-run integration through plain `ohtv sync` (and confirm metadata-refresh error does NOT cascade), mutual-exclusion flag guards with clear errors, `_UNSET` sentinel semantics distinguishing "leave unchanged" from "clear to empty", manifest-title-precedence after a cloud rename, auto-run gating (full vs `--since` quick sync per README), simulated network/auth error isolation; (d) README spot-check ≥2 copy-paste examples; (e) post single `## Manual Test Results — PR #93` comment with verdict (Ready for merge / Re-test / Block). Guardrails: no src/tests/README edits, no draft toggle, no merge, no push, no WORKLOG write.
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#90 - Add `ohtv label` for batch labeling by short ID](https://github.com/jpshackelford/ohtv/issues/90)
+   - Conversation: [`f777d69`](https://app.all-hands.dev/conversations/f777d698c7ba467f9dc8285dfdad062e)
+   - Start task: `dc636d51e65947959601bd5823198c7c` → READY on first poll (~5s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: Re-attempt after prior worker `db9e81d` (03:51Z) ran 24 actions across ~4 min and silently stopped without labeling/commenting — clean re-attempt. Same VERIFY-rather-than-rewrite pattern used for #89/#91 (author body is ~10K chars, comprehensive). Worker tasked with: (a) verify code anchors (`gen objs` short-ID generation, cloud PATCH client in `sources/cloud.py`, `SyncManager._update_manifest_entry`, DB label storage, `ohtv.parallel.run_parallel`); (b) cross-reference deps — soft-vs-hard dep on **#86/PR #93** (PATCH/writeback infra is being introduced there), interaction with #87, factoring opportunity with #89 (shared cloud-PATCH-back helper); (c) verify short-ID resolution + collision handling + full-ID fallback; (d) verify idempotency story for destructive `tags` PATCH (replace-semantics → read-modify-write, `--dry-run`, key-collision policy, local-only conversation behavior); (e) supplement Acceptance Criteria only if gap; (f) Technical Approach comment with file-by-file changes, PATCH request shape, schema deltas, test plan, dep notes, priority rec; (g) `ready` + `priority:medium` (default — aligns with #89's pattern) or `priority:low` if blocker. Blocked exits: `needs-info` if anchors mismatch or PATCH endpoint absent; `needs-split` if bundles features.
+
+**Decision rationale:**
+- **Wake-up state audit:** All workers from prior cycles paused/missing.
+  - Prior cycle merge worker `e086d8c` (PR #88): succeeded — merge commit `6212195` at 03:52:34Z (~2 min after spawn); the prior orchestrator entry already noted this in its "Update (post-commit)" appendix.
+  - Prior cycle expansion worker `db9e81d` (Issue #90): **silent failure** — sandbox PAUSED; conversation has 24 actions + 34 observations across 3m 45s (03:51:12Z → 03:54:58Z) but produced no labels, no comments, no body changes on #90. Pattern fits the "spawn-time hiccup" the prior worklog warned about but harder to diagnose: events did fire, just no side-effects on GitHub. NOT a 0-event spawn so no immediate human-escalation needed; treating as recoverable and re-attempting.
+- **Gap between cycles (03:51 → 05:50 UTC, ~2 hours):** No orchestrator wake-ups happened in between (cron should have fired at 04:21Z and 04:51Z but didn't, possibly due to the auto-disable check being conservative — though no quiet entries triggered it). In the gap, two cloud conversations did productive work for this repo without orchestrator involvement: `6e81da4` (04:31Z, 260 events, branch `feat/sync-update-metadata-86`) — appears to have both implemented #86 → PR #93 AND expanded #91 (jpshackelford comment at 04:36:04Z verifies anchors and adds `ready` + `priority:medium`); `ad1d3fc` (04:47Z, 91 events). The exact spawn chain is unclear from this side, but the net result is healthy: PR #93 is open with green CI + positive automated review + README updated in-diff, and #91 is now `ready`.
+- **Both slots free.** No PR worker or expansion worker active (last seen `e086d8c`, `db9e81d`, `6e81da4`, `ad1d3fc`, `f31b56e` all PAUSED or MISSING).
+- **PR slot pick (testing):** PR #93 matches "PR exists, ready, CI green, docs updated, **no manual test results** → spawn testing worker". Verified: README.md is in `gh pr diff 93 --name-only`; no PR comment with "Manual Test Results"; only review is the github-actions automated one (COMMENTED, positive, no review threads). One commit (`1f21c49`, 04:47:02Z), CI green (pr-review SUCCESS), `MERGEABLE/CLEAN`.
+- **Expansion slot pick (#90):** Applied "oldest unexpanded issue" rule. Pending-expansion list (open, no `ready`, no `hold`): #90 (still unexpanded after silent prior attempt), #92 (brand new, no labels). #90 wins on age. Also strategically: #90 shares the same cloud-PATCH-back infra as #89 and the in-flight PR #93, so resolving its tech approach now lets implementation workers reason about a shared helper.
+- **NOT spawned:** No docs worker (README is already in PR diff). No additional implementation worker for the other `priority:medium` ready issues (#79/#80/#81/#83/#86/#89) — PR slot is occupied by #93 testing; serialized PR slot prevents parallel implementation. No expansion worker for #92 — one expansion per slot.
+
+**Current State:**
+- PR #93 (fixes #86): `oR green ready` — testing worker in flight; docs ✅ (in-diff); review ✅ (1 positive automated review, 0 unresolved threads); CI ✅ green; merge pending test results.
+- Open issues by status:
+  - **Ready** (queued for PR slot, post-#93-merge, in roughly priority/age order): #79 (direct push, `priority:medium`), #80 (LOC fetching, `priority:medium`), #81 (velocity report, `priority:medium`), #83 (classification command, `priority:medium`), #89 (`gen titles`, `priority:medium`), #91 (standardize progress bars, `priority:medium`), #82 (charting, `priority:low`, depends on #81), #87 (manifest cache, `priority:low`, depends on #86 → blocked until #93 merges).
+  - **In-flight expansion:** #90 (just spawned).
+  - **Pending expansion next cycles:** #92 (weekly conversion counts CSV, brand-new, no labels).
+  - **On hold:** #26 (`hold`).
+- Housekeeping: WORKLOG.md is at 866 lines pre-update. Above the 300-line trigger but per the prior cycle's reasoning, the next archive will happen when growth resumes producing dense same-day entries. No truncation this cycle.
+
+**Next check (~30 min):**
+- If `20fb611` (test PR #93) posts a passing `## Manual Test Results — PR #93` comment → next cycle PR #93 enters merge-ready state (docs ✅ + test ✅ + review ✅ + CI ✅) → spawn merge worker.
+- If `20fb611` posts a FAILING report → next cycle spawns implementation worker against PR #93 with the regression details; do NOT spawn merge.
+- If `20fb611` produces 0 events or silently stops (like `db9e81d` did) → escalate via WORKLOG note for human review; do NOT auto-retry a third time.
+- If `f777d69` (expansion #90) adds `ready` label → expansion slot reopens → spawn #92 expansion (next oldest in queue).
+- If `f777d69` adds `needs-info`/`needs-split` → expansion slot reopens → spawn #92 expansion anyway (don't auto-retry blocked issues).
+- If `f777d69` silently stops (matching `db9e81d`'s failure mode on the same issue twice in a row) → escalate via WORKLOG note for human triage of #90 specifically; do NOT auto-retry a third time.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
