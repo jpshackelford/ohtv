@@ -385,3 +385,281 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 **Next:** Wait for `c98452a` to post a structured "Manual Test Results" PR comment. Once posted with passing report and no significant follow-up commits, orchestrator will spawn a merge worker (no review worker needed — only automated review present, already favorable, 💬=0 actionable).
 
+
+
+---
+### 2026-05-21 21:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c98452a` | testing | PR #85 - human_input stage | failed-to-start ❌ |
+| `3656ae7` | testing (re-spawn) | PR #85 - human_input stage | **NEW** running |
+
+**Observation:** The previous testing worker `c98452a` (spawned at 21:18:52Z) never actually started. Direct evidence:
+- `ohtv show c98452a`: 1 total event, 0 actions, 0 observations, duration N/A
+- API `created_at == updated_at` to the millisecond
+- ~32 minutes elapsed with no activity; PR #85 still has 0 manual test comments
+
+PR slot was effectively idle, so re-spawn is safe (not duplicating active work).
+
+**Spawned: Testing Worker (re-spawn)**
+- PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
+- Conversation: [`3656ae7`](https://app.all-hands.dev/conversations/3656ae77709441778fcd7ec6bef5889a)
+- Start task: `51899049f8c2406f88e31818df5e9f3c` → `READY` after one poll cycle
+- Post-spawn verification: `execution_status: running` (updated_at moved forward by ~13s after creation), confirming the agent actually picked up the task this time.
+- Prompt notes: explicitly mentions the prior failed worker so this one knows it's completing that work, not duplicating it.
+
+**PR #85 quick status (oCD green ready):**
+- Last commits: `004395c` (impl, `pr-review` CI ✅ success at 20:27:18Z) + `49f2dc9` (docs, no CI rerun needed — `pr-review` is the only configured workflow and docs-only push didn't re-trigger it)
+- Comments: 1 (`docs: documentation updated` note from prior docs worker, 20:53:19Z)
+- Reviews: 1 automated (`github-actions`, COMMENTED, 🟢 LOW risk, "Worth merging")
+- `mergeable: MERGEABLE`, `reviewDecision: ""`, `isDraft: false`
+
+**Current State:**
+- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) — manual testing (re-)in progress
+- Ready issues queued behind PR #85: #78 (priority:medium), #79 (priority:medium)
+- Pre-specified but intentionally not `ready` (deps): #80 (waits for #77/#78/#79), #81 (waits for #80), #82 (waits for #81), #83 (waits for #77)
+- Issues on hold: #26 (MCP server)
+- Issues needing expansion (no `ready`, no `hold`): **none**
+
+**Slots:**
+- 🔀 PR slot: Occupied (testing worker `3656ae7` on PR #85)
+- 📖 Expansion slot: Idle — nothing genuinely needs expansion. #78/#79 will be picked up after #85 merges (single PR-slot rule).
+
+**Next:** Wait for `3656ae7` to post a structured "Manual Test Results" PR comment. If a passing report appears with no significant follow-up commits, the next orchestrator cycle should spawn a merge worker (no review worker needed — only an automated favorable review present, 0 actionable comments).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-05-21 22:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `3656ae7` | testing | PR #85 - human_input stage | finished ✓ |
+| `104623d` | review | PR #85 - fix click.Choice drift | **NEW** running |
+
+**Worker Completed:** `3656ae7` (testing, re-spawn)
+- Posted structured manual test report on [PR #85](https://github.com/jpshackelford/ohtv/pull/85) at 21:57:05Z
+- Result: **12/14 PASS, 1 PARTIAL, 1 FAIL**
+- ❌ **Test #1 FAIL (blocking):** `ohtv db process human_input` is rejected by `click.Choice` in `src/ohtv/cli.py:6398` — the click-layer allowlist drifted from the `STAGES` registry. Per the test report, this "blocks the stated acceptance criterion of issue #77."
+- ⚠️ Test #11 PARTIAL: README now claims `human_input` is runnable; it isn't until Test #1 is fixed.
+- ✅ All other functional behavior solid: stage logic, schema writes, idempotency, `db process all`/`sync` ordering, `initial_prompt_source` preservation, 378/378 db unit tests, 26/26 new stage tests.
+
+**Spawned: Review Worker (addressing test failure as feedback)**
+- PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
+- Conversation: [`104623d`](https://app.all-hands.dev/conversations/104623d0b0d741d09d2983b921445f66)
+- Start task: `434421be2b5a41c0a79583f34a0121c6` → `READY` on first poll
+- Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING` (~22s after creation)
+- Scope: undo-ready PR #85, fix `click.Choice` to derive choices from `STAGES` registry (per the test report's suggested fix), add invariant unit test pinning "every registered STAGE is a valid `db process` choice", confirm `uv run ohtv db process human_input` works, push, reply to test-report comment with fix SHA, set back to ready. Worker EXITs after that; orchestrator will spawn a re-testing worker next cycle (significant `.py` change after last test ⇒ re-test required per `/orchestrate` heuristics).
+- Note to worker: README pre-existing gap (missing `branch_context`/`push_pr_links`/`summaries` rows) is explicitly OUT OF SCOPE for this PR — separate follow-up.
+
+**PR #85 quick status (oCD green ready → about to flip to draft):**
+- 2 commits: `004395c` (impl, CI ✅) + `49f2dc9` (docs)
+- Reviews: 1 automated (`github-actions`, COMMENTED, 🟢 LOW risk) at 20:29:33Z — pre-test, pre-blocker-discovery
+- Comments: docs note (20:53Z) + Manual Test Results (21:57Z)
+- `mergeable: MERGEABLE`, `reviewDecision: ""`, no human reviewers
+- Click-Choice drift is a real bug — must fix before merge per test report
+
+**Current State:**
+- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) — review-round fix in progress (`104623d`)
+- Ready issues queued behind PR #85: #78 (priority:medium), #79 (priority:medium)
+- Pre-specified but intentionally not `ready` (deps): #80 (waits for #77/#78/#79), #81 (waits for #80), #82 (waits for #81), #83 (waits for #77)
+- Issues on hold: #26 (MCP server)
+- Issues needing expansion (no `ready`, no `hold`): **none in practice** (#80–83 are pre-specified by the human; intentionally not `ready` pending deps)
+
+**Slots:**
+- 🔀 PR slot: Occupied (review worker `104623d` on PR #85)
+- 📖 Expansion slot: Idle — nothing genuinely needs expansion right now.
+
+**Next cycle decision tree:**
+- If `104623d` finishes with click.Choice fix pushed + PR set ready: spawn **re-testing worker** (heuristic: `.py` changes to `src/ohtv/cli.py` since last test ⇒ re-test required, not skip-to-merge)
+- If re-test passes cleanly: spawn merge worker (no human reviewers, automated review favorable, 0 actionable comments after fix-reply resolves the test-report finding)
+- If `104623d` is still running: wait
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-05-21 22:55 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `104623d` | review | PR #85 — fix `click.Choice` for `db process` stages | finished ✓ |
+| `0872233` | re-testing | PR #85 — re-test after fix commit `318ea0a` | **NEW** |
+
+**Worker Completed:** `104623d` (review)
+- Pushed fix commit `318ea0a` ("fix(cli): derive db process stage choices from STAGES registry") + new invariant test in `tests/unit/test_cli_db_process_stages.py`
+- Replied to the test-report comment and set PR back to ready
+- CI green on `318ea0a` (pr-review SUCCESS); automated review at 22:28Z = 🟢 LOW risk / Worth merging
+- Sandbox PAUSED, idle 25m → confirmed finished (not duplicate-spawnable)
+
+**🚀 Spawned: Re-Testing Worker**
+- Conversation: [`0872233`](https://app.all-hands.dev/conversations/0872233265774b8cbf75bf0cad35926b)
+- Start task: `9741438327a14bc0bdd1042b94a55b21` → `READY` after one poll (~5s)
+- Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING` (~13s after creation, agent picked up the task)
+- PR target: [#85 — feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85), HEAD `318ea0a`
+
+**Why re-test, not merge:**
+Per `/orchestrate` heuristics, re-testing is required when:
+- Source files (`.py` excluding `*_test.py`) changed AFTER the last manual test, AND
+- "CLI argument handling changed"
+Both true here: diff `49f2dc9..318ea0a` = `src/ohtv/cli.py` +3/-1 (click.Choice now derived from `STAGES.keys()`) + new test file `tests/unit/test_cli_db_process_stages.py` (+37). Even though the change is small and the automated review is 🟢 LOW, the **previously-failing acceptance criterion (`ohtv db process human_input`) was directly the target of this fix** — must be re-verified by a human-runnable test, not just by CI. Worker scope explicitly says: re-run the failing test #1, sweep every stage in the `STAGES` registry, run the new invariant test, run the full suite, post a fresh `## Re-Test Results for PR #85 (Round 2)` comment, and EXIT. No code changes allowed in this conversation.
+
+**Current State:**
+- [PR #85](https://github.com/jpshackelford/ohtv/pull/85): OPEN, MERGEABLE, ready, pr-review SUCCESS — awaiting re-test
+- No other open PRs (PR #84 already merged at 19:51Z as `4395eb2`)
+- Ready issues: #77 (in flight via PR #85), #78 (priority:medium), #79 (priority:medium)
+- Issues needing expansion: none acted on — #80–#83 are intentionally **not** `ready` (pre-specified by human, deps on #77/#78/#79 per WORKLOG 17:52Z entry)
+- On hold: #26
+- Expansion slot: **idle by design** (no eligible candidates)
+- PR slot: occupied by re-testing worker `0872233`
+
+**Next check (~30 min):**
+- If re-test PASS → spawn merge worker for PR #85
+- If re-test FAIL → spawn another review worker to fix
+- Either way, after PR #85 resolves: pick highest-priority ready issue (#78 priority:medium → next impl worker, since #79 is blocked on #78 per its acceptance criteria; verify dependency order at that time)
+
+---
+### 2026-05-21 23:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0872233` | re-testing | PR #85 — Round 2 | finished ✓ |
+| `b0da66b` | review (round 2) | PR #85 — address unresolved 🟡 Suggestion thread | **NEW** |
+
+**Worker Completed:** `0872233` (re-testing)
+- Posted `## Re-Test Results for PR #85 (Round 2)` at 22:55:11Z
+- **1271/1271 unit tests pass**, all 14 prior manual items still pass; R-1 (previously-failing `ohtv db process human_input`) now PASS, R-4 new invariant tests 3/3 PASS, R-5 `--help` reflects new choice list, full sweep R-2a..R-2f of every `STAGES` entry PASS, R-3 `db process all` PASS
+- Verdict: **Issue #77 acceptance criterion met**. No regressions
+- Re-tester explicitly noted the bot's `initial_prompt_source` preservation test suggestion as "nice-to-have, not blocking"
+- Conversation execution_status confirmed `finished` at orchestrator wake (23:18Z)
+
+**🚀 Spawned: Review Worker (Round 2)**
+- Conversation: [`b0da66b`](https://app.all-hands.dev/conversations/b0da66b2735e433f95d2789a245d8394)
+- Start task: `9b3291f3c54749e2af9d8313ebf86cfb` → READY in ~15s (3 polls)
+- Post-spawn verification (~25s after creation): `execution_status: running`, `sandbox_status: RUNNING`
+- PR target: [#85](https://github.com/jpshackelford/ohtv/pull/85), HEAD `318ea0a`
+
+**Why review (not merge):** One unresolved review thread (`PRRT_kwDOR9seq86D88qj`, `isOutdated: false`) — the 22:28:26Z automated review's 🟡 Suggestion asking for a unit test pinning the `initial_prompt_source` preservation contract on reprocessing. Per the `/orchestrate` decision tree (`💬 > 0` on a ready PR with valid test results), spawn review worker. The latest review state is COMMENTED (not CHANGES_REQUESTED) and verdict was 🟢 LOW / Worth merging — so the merge worker *could* dismiss it with a deferral comment, but the suggested test is small (~20-30 lines), pins a real contract that issue #83 will depend on, and the bot literally provided the implementation. Strongly preferred path in the worker prompt: **accept and implement**, commit, push, reply+resolve thread, PR back to ready, exit. Test-only changes won't require another re-test cycle.
+
+**Current State:**
+- [PR #85](https://github.com/jpshackelford/ohtv/pull/85): OPEN, ready, pr-review SUCCESS on `318ea0a`, 1 unresolved 🟡 thread (now being addressed)
+- No other open PRs (PR #84 merged at 19:51Z)
+- Ready issues: #77 (in flight via PR #85), #78 (priority:medium), #79 (priority:medium)
+- Issues #80–#83: intentionally not `ready` (pre-specified by human, deps on #77/#78/#79 per WORKLOG 17:52Z entry) → expansion slot **idle by design**
+- On hold: #26
+
+**Next check (~30 min):**
+- If worker pushed a test-only commit and resolved the thread → likely spawn merge worker (test-only changes do NOT require re-test per `/orchestrate` heuristics: "Do NOT re-test if only: Test files changed")
+- If worker chose to defer + resolve thread via comment → spawn merge worker
+- After PR #85 resolves: pick next impl target. #78 is `priority:medium` and a direct dep of #79; #79 ACs depend on #78. So order is **#78 → #79 → (#80 once #79 done)**. Expansion of #80 also becomes possible after #78 lands (its deps include #76 ✅ + #78 or #79)
+- Housekeeping note: WORKLOG.md is at 642+ lines (>300 threshold) — defer truncation to a future cycle when PR slot is idle, to avoid mixing housekeeping with worker spawns
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-05-21 23:25 UTC - Review Worker
+
+✅ **PR #85 — Addressed last unresolved review thread (🟡 Suggestion from 22:28:26Z automated review).** Added a focused integration test `test_preserves_initial_prompt_source_on_reprocessing` in `tests/unit/db/stages/test_human_input.py` (commit `6c7c471`) that pins the `initial_prompt_source` preservation contract: the test runs the stage once (source = `unknown`), simulates a downstream classification stage by directly setting `initial_prompt_source = 'human'`, grows the conversation and re-runs `process_human_input`, then asserts the source is still `'human'` while the count columns were correctly refreshed. This locks in the deliberate omission of `initial_prompt_source` from the upsert's `ON CONFLICT ... DO UPDATE SET` clause — exactly the contract issue #83 will depend on. No production code changed. Full suite: 1272/1272 unit tests pass locally. Replied to thread `PRRT_kwDOR9seq86D88qj` referencing the commit, resolved it, and moved the PR back to ready (no CI runs on `synchronize` — only the `ready_for_review` re-trigger of the pr-review workflow). Next decision (re-test vs merge) belongs to the orchestrator's next cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-05-21 23:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `d534691` | merge | PR #85 - human_input counting stage | **NEW** running |
+| `a8653e2` | expansion | Issue #80 - GitHub API LOC fetching command | **NEW** running |
+
+**Spawned: 2 Workers (parallel — both slots filled)**
+
+1. **Merge Worker** — PR slot
+   - PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
+   - Conversation: [`d534691`](https://app.all-hands.dev/conversations/d534691b861148d3b92d41bf0ae60ac8)
+   - Rationale: All merge criteria met
+     - CI green on `6c7c4716` (pr-review SUCCESS); mergeable=MERGEABLE / mergeStateStatus=CLEAN; not draft
+     - Single review thread (🟡 Suggestion on `initial_prompt_source` preservation) is RESOLVED — addressed in commit `6c7c471` by round-2 review worker with new integration test `test_preserves_initial_prompt_source_on_reprocessing`
+     - Manual test results posted 21:57:05Z + Round-2 re-test at 22:55:11Z (1271/1271 unit tests pass, R-1 `ohtv db process human_input` now PASS, full R-2a..R-2f sweep PASS); automated review at 22:28Z = 🟢 LOW risk / Worth merging
+     - **No re-test needed**: only commit after re-test (`6c7c471`, 23:22:08Z) is test-only — per orchestrator heuristics, test-only changes don't trigger re-test
+     - **No docs spot-check needed**: docs were updated pre-test by `d05423f`; the post-test CLI fix (`318ea0a`) made the implementation match what was already documented
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#80 - Add GitHub API LOC fetching command](https://github.com/jpshackelford/ohtv/issues/80)
+   - Conversation: [`a8653e2`](https://app.all-hands.dev/conversations/a8653e2e10dc4b3b9d1e71e03c185ade)
+   - Rationale: Oldest unexpanded `enhancement` issue with no `ready`/`hold` label; downstream of merged #76 schema so dependencies are in place. Design docs (`docs/DESIGN_CONVERSATION_METRICS.md`, `docs/ISSUES_CONVERSATION_METRICS.md`) already exist in-repo for the expansion worker to use as context.
+
+**Current State:**
+- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) (merging now)
+- Ready issues with priority (queued for next impl): #77 (high — being merged), #78 (medium), #79 (medium)
+- Issues needing expansion: #80 (being expanded), #81, #82, #83, #86, #87
+- On hold: #26
+- Previously auto-disabled on 2026-05-16 — re-enabled by human on 2026-05-21 with the conversation-metrics design + 8-issue plan; orchestrator caught up and merged #84 (schema), implemented + tested + is now merging #77 (human_input stage)
+
+**Worker Status Recap Since Last Orchestrator Run:**
+- `b0da66b` (review round 2) — finished ✓ (addressed last 🟡 suggestion, added preservation invariant test, PR back to ready)
+- `0872233` (re-testing) — finished previously (Round 2 PASS)
+- `104623d` (review) — finished previously (click.Choice STAGES drift fix)
+
+**Next Cycle Considerations:**
+- If merge succeeds: PR slot opens up; spawn implementation worker for #78 (priority:medium, next in dependency chain after #77)
+- Issue #83 has a hard dependency on the `initial_prompt_source` preservation contract just locked in by the new integration test — note for prioritization once #77 lands
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-05-21 23:53 UTC - Orchestrator (merge)
+
+**Merged: PR #85 — `feat: add human_input counting stage`**
+
+- Merge SHA on `main`: [`38d5032`](https://github.com/jpshackelford/ohtv/commit/38d5032472ab9ef7e65836ff91480309ca29d89d)
+- mergedAt: `2026-05-21T23:52:59Z`
+- Strategy: squash
+- Closes: #77 (Add human input counting stage)
+- Remote branch `feat/human-input-counting-stage` deleted
+
+**State at merge:**
+- CI green on head `6c7c4716` (pr-review SUCCESS)
+- `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, not draft
+- All review threads resolved (the round-2 🟡 Suggestion on `initial_prompt_source` preservation was addressed in `6c7c471` with the new `test_preserves_initial_prompt_source_on_reprocessing` integration test)
+- 1272/1272 unit tests passing locally before merge
+- Manual blackbox sweep verified across two rounds (21:57Z initial + 22:55Z re-test): 14/14 items pass on `318ea0a`; final commit `6c7c471` was test-only so no re-test required per orchestrator heuristics
+
+**What landed (delta vs. main):** new `src/ohtv/db/stages/human_input.py` (pure `count_human_input` + DB-writing `process_human_input`), `STAGES` registration as 6th stage, `db process` CLI choice list now derived from `STAGES.keys()` (with invariant test in `tests/unit/test_cli_db_process_stages.py`), `conversation_human_input` upsert that deliberately omits `initial_prompt_source` from `ON CONFLICT DO UPDATE` to preserve downstream classifier writes, README "Available Stages" row, 30 new tests (27 in `test_human_input.py` + 3 in `test_cli_db_process_stages.py`).
+
+**Downstream unblocking — Issue #83:**
+- PR #85 establishes the `initial_prompt_source` preservation contract on `conversation_human_input` (pinned by a dedicated integration test in `tests/unit/db/stages/test_human_input.py`).
+- Issue #83 (conversation classification command) is the consumer of that contract — it needs to write `'human'` / `'automation'` into `initial_prompt_source` without those writes being clobbered by subsequent `human_input` reprocessing runs.
+- That dependency is now satisfied, so **#83 is unblocked for expansion**. Recommendation for the next orchestrator cycle: prioritize expanding #83 alongside the previously-queued #78 → #79 implementation chain (per the dependency note in the 23:20Z entry, expansion of #80 also becomes possible after #78 lands).
+
+**Cleanup state:** main fast-forwarded to `38d5032`; no open PRs; no in-flight workers from this cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-05-21 23:55 UTC - Expansion Worker
+
+✅ **Expanded Issue #80** — *Add GitHub API LOC fetching command*
+
+- Issue: [#80 - Add GitHub API LOC fetching command](https://github.com/jpshackelford/ohtv/issues/80)
+- Type: Enhancement (Conversation Metrics — fetch phase)
+- Status: **Ready for implementation** (`ready` + `priority:medium`)
+
+**What changed on the issue:**
+- Body rewritten in the standard Problem Statement / Proposed Solution / Acceptance Criteria / Out of Scope / Dependencies / Verification format.
+- Added 13 concrete acceptance criteria including idempotency (zero HTTP calls on second run), `--force` semantics, `--dry-run`, `--repo` filter, rate-limit warning at <100 quota, graceful 404/401/5xx handling, and an open-PR re-fetch-after-1h heuristic.
+- Added comment with full Technical Approach: endpoints (`/pulls/{n}` + `/compare/{base}...{head}`), auth headers including `X-GitHub-Api-Version`, rate-limit strategy that mirrors `CloudClient._get_retry_delay`, and cache-key strategy that uses `change_refs.fetched_at` as the cache (no separate cache file).
+- Reconciled the design-doc's `src/ohtv/commands/fetch_loc.py` path with the actual repo convention: CLI commands live inline in `src/ohtv/cli.py`; logic should go in a new `src/ohtv/github/` package (`client.py` + `loc.py`), matching the shape of `src/ohtv/sources/cloud.py`.
+- Documented the test plan around `pytest-httpx` (already a dev dep — `pytest-httpx>=0.30`) with JSON fixtures, satisfying the repo's "no mocks unless justified" policy by mocking only at the HTTP socket boundary.
+- 10 unit tests for `github.client`, 10 unit tests for `github.loc` (against a real in-memory SQLite DB seeded via `migrate()`), plus 3 Click `CliRunner` smoke tests.
+
+**Dependency check:**
+- #76 (schema) is **MERGED** — `change_refs` table exists with all needed columns.
+- #78 / #79 are `ready` but not yet implemented. Determined **not blocking** for #80 implementation because the fetch command only reads existing `change_refs` rows and writes LOC columns; tests seed the table directly. End-to-end smoke does need #78/#79, which is called out in the verification section.
+- #80 unblocks #81 (velocity report).
+
+**Priority rationale:** Kept at `priority:medium` to match #78/#79 it consumes from, per orchestrator instructions. Not bumped to high because #80 is not a hard blocker for #81's *expansion* — only its full verification — and #78/#79 themselves remain medium.
