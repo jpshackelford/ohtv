@@ -1,3 +1,26 @@
+### 2026-05-22 04:36 UTC - Expansion Worker (Issue #91)
+
+**Expanded:** [Issue #91 — Standardize progress bars on the `ohtv sync` layout via a shared `make_progress` helper](https://github.com/jpshackelford/ohtv/issues/91) → `ready` + `priority:medium`
+
+**Verification (anchors all matched):**
+- `cli.py:1451` — canonical sync layout (9 columns, transient): exact 9-column shape confirmed; comment on line 1450 even documents it.
+- `cli.py:1144` (embed small batch, 5 cols), `cli.py:7249` (db embed large, 9 cols no cost), `cli.py:8034` (gen objs, has $cost but missing remaining/sep), `cli.py:6503/6568/6762/6910/7077` (5 `current`-tail variants), `cli.py:8645` (periods, bare-bones no transient), `db/maintenance.py:547` (raw `task.percentage`) — all 11 sites and all 5 layout variants verified at the line numbers cited.
+- `src/ohtv/parallel.py` exposes `format_rate`, `RateTracker.get_rate_str()`, `run_parallel` — no coupling between `run_parallel` and any `Progress` instance, so the helper drops in without refactoring the parallel execution path.
+
+**Verdict:** Author had already done a thorough job (~12K-char body with helper signature, audit table, file-by-file migration plan, ACs, test requirements, dependencies, out-of-scope). VERIFY-rather-than-rewrite pattern: posted a focused expansion comment that confirms the audit, flags 5 edge cases the implementer will hit (dynamic-vs-fixed description; sync's fancier `_format_remaining` markup vs the AC's "N left or blank" rule; `quiet` mode handling; snapshot-test stability with frozen clock; lint check implementation), recommends one tweak to the helper signature (`verb: str | None` + `TextColumn("[bold blue]{task.description}")` to support dynamic descriptions in `gen objs` / `periods` / `stage` / `cache-migrate`), and adds cross-references to #21 (cost-column origin), #22 (periods bar origin), #33 (sync layout origin), #44/#45/#54/#55 (recent friction confirming priority), #89 (no hard ordering), #86/#87 (independent).
+
+**Priority rationale:** `priority:medium` — touches 11 call sites, documented friction (4 PRs in last week on progress-bar bugs), unblocks a real UX commitment (every cost-tracking command should show running spend; today only `gen objs` does), bounded scope / low risk. Not `priority:high` because nothing is broken in isolation and no other ready issue depends on it.
+
+**Actions taken:**
+1. Posted [expansion comment](https://github.com/jpshackelford/ohtv/issues/91#issuecomment-4514999476) with anchor verification table, 5 edge cases, helper signature tweak, cross-refs, and priority justification.
+2. Added labels: `ready`, `priority:medium` (final: `enhancement, ready, priority:medium`).
+3. Did NOT edit the issue body — author's existing Acceptance Criteria and Files-to-Modify sections are complete and clear; supplementing via comment preserves attribution.
+
+**Did not need:** `needs-info` (all anchors verified), `needs-split` (helper + migration are tightly coupled; shipping the helper alone is dead code and migration alone reshuffles inconsistency).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ---
 ### 2026-05-22 03:52 UTC - Merge Worker (PR #88)
 
