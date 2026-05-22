@@ -89,7 +89,9 @@ class TestIdentifyPr:
             target="https://github.com/acme/widgets/pull/42",
         )
         ident = _identify_pr(action)
-        assert ident == _PrIdent(owner="acme", repo="widgets", pr_number=42)
+        assert ident == _PrIdent(
+            owner="acme", repo="widgets", pr_number=42, host="github.com"
+        )
 
     def test_from_gitlab_mr_url(self):
         action = ConversationAction(
@@ -99,7 +101,9 @@ class TestIdentifyPr:
             target="https://gitlab.com/acme/widgets/-/merge_requests/17",
         )
         ident = _identify_pr(action)
-        assert ident == _PrIdent(owner="acme", repo="widgets", pr_number=17)
+        assert ident == _PrIdent(
+            owner="acme", repo="widgets", pr_number=17, host="gitlab.com"
+        )
 
     def test_from_bitbucket_pr_url(self):
         action = ConversationAction(
@@ -109,7 +113,9 @@ class TestIdentifyPr:
             target="https://bitbucket.org/acme/widgets/pull-requests/9",
         )
         ident = _identify_pr(action)
-        assert ident == _PrIdent(owner="acme", repo="widgets", pr_number=9)
+        assert ident == _PrIdent(
+            owner="acme", repo="widgets", pr_number=9, host="bitbucket.org"
+        )
 
     def test_falls_back_to_metadata_when_target_is_bare_number(self):
         action = ConversationAction(
@@ -120,7 +126,11 @@ class TestIdentifyPr:
             metadata={"owner": "acme", "repo": "widgets"},
         )
         ident = _identify_pr(action)
-        assert ident == _PrIdent(owner="acme", repo="widgets", pr_number=42)
+        # Metadata fallback path has no URL to inspect, so it defaults to
+        # github.com - this matches the recognizer's current behavior.
+        assert ident == _PrIdent(
+            owner="acme", repo="widgets", pr_number=42, host="github.com"
+        )
 
     def test_returns_none_when_target_is_bare_number_without_metadata(self):
         action = ConversationAction(
@@ -209,6 +219,83 @@ class TestProcessContributions:
         assert repo is not None
         assert repo.fqn == "acme/widgets"
         assert repo.canonical_url == "https://github.com/acme/widgets"
+
+    def test_open_pr_on_gitlab_preserves_canonical_url(self, db_conn):
+        """OPEN_PR for a GitLab MR must upsert a gitlab.com repo, not github.com."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.OPEN_PR,
+            target="https://gitlab.com/acme/widgets/-/merge_requests/17",
+            metadata={"head_branch": "feature/x"},
+        )
+
+        process_contributions(db_conn, conv)
+
+        contributions = ContributionsStore(db_conn).get_contributions_for_conversation(
+            conv.id
+        )
+        assert len(contributions) == 1
+        change_ref = ContributionsStore(db_conn).get_change_ref(
+            contributions[0].change_ref_id
+        )
+        assert change_ref is not None
+        repo = RepoStore(db_conn).get_by_id(change_ref.repo_id)
+        assert repo is not None
+        assert repo.fqn == "acme/widgets"
+        assert repo.canonical_url == "https://gitlab.com/acme/widgets"
+
+    def test_open_pr_on_bitbucket_preserves_canonical_url(self, db_conn):
+        """OPEN_PR for a Bitbucket PR must upsert a bitbucket.org repo, not github.com."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.OPEN_PR,
+            target="https://bitbucket.org/acme/widgets/pull-requests/9",
+            metadata={"head_branch": "feature/x"},
+        )
+
+        process_contributions(db_conn, conv)
+
+        contributions = ContributionsStore(db_conn).get_contributions_for_conversation(
+            conv.id
+        )
+        assert len(contributions) == 1
+        change_ref = ContributionsStore(db_conn).get_change_ref(
+            contributions[0].change_ref_id
+        )
+        assert change_ref is not None
+        repo = RepoStore(db_conn).get_by_id(change_ref.repo_id)
+        assert repo is not None
+        assert repo.fqn == "acme/widgets"
+        assert repo.canonical_url == "https://bitbucket.org/acme/widgets"
+
+    def test_merge_pr_on_gitlab_preserves_canonical_url(self, db_conn):
+        """MERGE_PR for a GitLab MR (by URL) must upsert a gitlab.com repo."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.MERGE_PR,
+            target="https://gitlab.com/acme/widgets/-/merge_requests/17",
+            metadata={"source": "gitlab"},
+        )
+
+        process_contributions(db_conn, conv)
+
+        contributions = ContributionsStore(db_conn).get_contributions_for_conversation(
+            conv.id
+        )
+        assert len(contributions) == 1
+        change_ref = ContributionsStore(db_conn).get_change_ref(
+            contributions[0].change_ref_id
+        )
+        assert change_ref is not None
+        repo = RepoStore(db_conn).get_by_id(change_ref.repo_id)
+        assert repo is not None
+        assert repo.canonical_url == "https://gitlab.com/acme/widgets"
 
     def test_merge_pr_creates_change_ref_and_merged_contribution(self, db_conn):
         conv = _register_conversation(db_conn)

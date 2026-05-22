@@ -59,20 +59,30 @@ STAGE_NAME = "contributions"
 
 # GitHub/GitLab/Bitbucket PR URL patterns. We accept the same hosts as the
 # refs stage so contribution detection stays in sync with repo recognition.
-_PR_URL_PATTERNS = [
-    re.compile(r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)"),
-    re.compile(r"https://gitlab\.com/(.+)/([^/]+)/-/merge_requests/(\d+)"),
-    re.compile(r"https://bitbucket\.org/([^/]+)/([^/]+)/pull-requests/(\d+)"),
+# Each entry is ``(pattern, host)`` so we can preserve the originating
+# platform when building canonical repository URLs.
+_PR_URL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)"), "github.com"),
+    (re.compile(r"https://gitlab\.com/(.+)/([^/]+)/-/merge_requests/(\d+)"), "gitlab.com"),
+    (re.compile(r"https://bitbucket\.org/([^/]+)/([^/]+)/pull-requests/(\d+)"), "bitbucket.org"),
 ]
 
 
 @dataclass(frozen=True)
 class _PrIdent:
-    """Identifying triple for a PR detected on an action."""
+    """Identifying tuple for a PR detected on an action.
+
+    ``host`` is the platform domain (``github.com``, ``gitlab.com``, or
+    ``bitbucket.org``) and is used to construct the correct canonical
+    repository URL. It defaults to ``github.com`` for the metadata
+    fallback path, which is the only platform recognizers currently
+    populate.
+    """
 
     owner: str
     repo: str
     pr_number: int
+    host: str = "github.com"
 
 
 def process_contributions(
@@ -109,9 +119,9 @@ def process_contributions(
     orphan_push_branches: list[str] = []           # branch_keys awaiting backward pass
 
     # Fallback map for MERGE_PR actions that lack repo metadata: remember
-    # which (owner, repo) was attached to each PR number we created in
-    # this conversation.
-    seen_pr_repo: dict[int, tuple[str, str]] = {}  # pr_number → (owner, repo)
+    # which (owner, repo, host) was attached to each PR number we created
+    # in this conversation, so a follow-up merge keeps the right platform.
+    seen_pr_repo: dict[int, tuple[str, str, str]] = {}  # pr_number → (owner, repo, host)
 
     for action in actions:
         if action.action_type == ActionType.OPEN_PR:
@@ -178,7 +188,7 @@ def _handle_open_pr(
     contributions_store: ContributionsStore,
     active_pr_per_branch: dict[str, int],
     first_pr_per_branch: dict[str, int],
-    seen_pr_repo: dict[int, tuple[str, str]],
+    seen_pr_repo: dict[int, tuple[str, str, str]],
 ) -> None:
     """Record a 'created' contribution for an OPEN_PR action.
 
@@ -204,7 +214,7 @@ def _handle_open_pr(
         conversation_id, change_ref_id, "created"
     )
 
-    seen_pr_repo[ident.pr_number] = (ident.owner, ident.repo)
+    seen_pr_repo[ident.pr_number] = (ident.owner, ident.repo, ident.host)
     branch_key = _branch_key(ident.owner, ident.repo, branch)
     if branch_key is not None:
         active_pr_per_branch[branch_key] = change_ref_id
@@ -217,7 +227,7 @@ def _handle_merge_pr(
     repo_store: RepoStore,
     contributions_store: ContributionsStore,
     link_store: LinkStore,
-    seen_pr_repo: dict[int, tuple[str, str]],
+    seen_pr_repo: dict[int, tuple[str, str, str]],
 ) -> None:
     """Record a 'merged' contribution for a MERGE_PR action.
 
@@ -248,12 +258,12 @@ def _handle_merge_pr(
                 conversation_id[:8],
             )
             return
-        owner_repo = seen_pr_repo.get(pr_number)
-        if owner_repo is None:
-            owner_repo = _single_repo_for_conversation(
+        owner_repo_host = seen_pr_repo.get(pr_number)
+        if owner_repo_host is None:
+            owner_repo_host = _single_repo_for_conversation(
                 conversation_id, repo_store, link_store
             )
-        if owner_repo is None:
+        if owner_repo_host is None:
             log.debug(
                 "MERGE_PR action %s in conversation %s could not resolve a "
                 "repo for PR #%d; skipping contribution",
@@ -262,8 +272,10 @@ def _handle_merge_pr(
                 pr_number,
             )
             return
-        owner, repo = owner_repo
-        ident = _PrIdent(owner=owner, repo=repo, pr_number=pr_number)
+        owner, repo, host = owner_repo_host
+        ident = _PrIdent(
+            owner=owner, repo=repo, pr_number=pr_number, host=host
+        )
 
     repo_id = _upsert_repo_for(repo_store, ident)
     change_ref_id = contributions_store.get_or_create_pr_change_ref(
@@ -323,12 +335,14 @@ def _identify_pr(action: ConversationAction) -> _PrIdent | None:
     """
     target = action.target
     if target:
-        for pattern in _PR_URL_PATTERNS:
+        for pattern, host in _PR_URL_PATTERNS:
             match = pattern.search(target)
             if match:
                 owner, repo, num = match.group(1), match.group(2), match.group(3)
                 try:
-                    return _PrIdent(owner=owner, repo=repo, pr_number=int(num))
+                    return _PrIdent(
+                        owner=owner, repo=repo, pr_number=int(num), host=host
+                    )
                 except ValueError:
                     pass  # extremely unlikely - regex matches \d+
 
@@ -350,7 +364,7 @@ def _pr_number_from_target(target: str | None) -> int | None:
     """
     if not target:
         return None
-    for pattern in _PR_URL_PATTERNS:
+    for pattern, _host in _PR_URL_PATTERNS:
         match = pattern.search(target)
         if match:
             try:
@@ -386,15 +400,15 @@ def _branch_key(owner: str | None, repo: str | None, branch: str | None) -> str 
 
 
 def _upsert_repo_for(repo_store: RepoStore, ident: _PrIdent) -> int:
-    """Upsert a Repository row from a ``(owner, repo)`` pair and return its ID.
+    """Upsert a Repository row from a PR identity and return its ID.
 
-    Assumes GitHub as the canonical host for now (matches the existing
-    OPEN_PR / push-pr-link code paths). Other hosts can be added when
-    their recognizers start populating metadata.
+    The canonical URL is built from ``ident.host`` so GitHub, GitLab,
+    and Bitbucket PRs each round-trip into the correct upstream URL.
+    Mirrors the platform handling in :mod:`ohtv.db.stages.refs`.
     """
     repo = Repository(
         id=None,
-        canonical_url=f"https://github.com/{ident.owner}/{ident.repo}",
+        canonical_url=f"https://{ident.host}/{ident.owner}/{ident.repo}",
         fqn=f"{ident.owner}/{ident.repo}",
         short_name=ident.repo,
     )
@@ -405,12 +419,14 @@ def _single_repo_for_conversation(
     conversation_id: str,
     repo_store: RepoStore,
     link_store: LinkStore,
-) -> tuple[str, str] | None:
-    """If exactly one repo is linked to a conversation, return its ``(owner, repo)``.
+) -> tuple[str, str, str] | None:
+    """If exactly one repo is linked to a conversation, return its ``(owner, repo, host)``.
 
     Used as a last-resort fallback for MERGE_PR actions that have no
     repo info of their own. Refuses to choose if there are zero or
-    multiple linked repos.
+    multiple linked repos. ``host`` is parsed from the linked
+    repository's ``canonical_url`` so the platform is preserved across
+    the fallback path.
     """
     linked = link_store.get_repos_for_conversation(conversation_id)
     if len(linked) != 1:
@@ -422,4 +438,18 @@ def _single_repo_for_conversation(
     owner, _, name = repo.fqn.partition("/")
     if not owner or not name:
         return None
-    return owner, name
+    host = _host_from_canonical_url(repo.canonical_url)
+    return owner, name, host
+
+
+def _host_from_canonical_url(canonical_url: str | None) -> str:
+    """Extract the host (e.g. ``github.com``) from a canonical repo URL.
+
+    Defaults to ``github.com`` if the URL is missing or unparseable, to
+    match the historical assumption in this stage.
+    """
+    if canonical_url:
+        match = re.match(r"https?://([^/]+)/", canonical_url)
+        if match:
+            return match.group(1)
+    return "github.com"
