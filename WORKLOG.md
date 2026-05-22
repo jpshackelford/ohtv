@@ -1124,3 +1124,62 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-22 08:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `83019b4` | review | PR #93 — addressed 2 advisory threads (round 2) | finished ✓ |
+| `2b07b04` | re-test | PR #93 — re-test at HEAD `f02208e` (post-refactor) | **NEW** running |
+
+**🚀 Spawned: 1 Worker (PR slot — expansion slot idle, no candidates)**
+
+1. **Re-Test Worker** — PR slot
+   - PR: [#93 - feat(sync): add --update-metadata](https://github.com/jpshackelford/ohtv/pull/93) (fixes #86)
+   - Conversation: [`2b07b04`](https://app.all-hands.dev/conversations/2b07b044078944ba85f82b817f7af091)
+   - Start task: `de86be7b34e94769ba7b53b29e35d0a5` → READY in ~5s
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - **Worker tasked with:** Re-test PR #93 at HEAD `f02208e` after the review-round-2 refactor commit. Verify the helper-extraction (`_update_metadata_with_error_handling`) is truly behavior-preserving — same manifest-first/DB-second ordering, same error-recording semantics, same `any_change_applied` flag setting. Full unit test suite must hold at 1397 passing. Blackbox re-test focused on the refactor surface area (happy path, DB-write failure path which was the original BLOCK, manifest-write failure path, dry-run, mutex, idempotency). README spot-check (no full docs review). Post a NEW PR comment titled "Manual Test Results — PR #93 (Re-test after review round 2)". Mention the brand-new unresolved review thread (`seq86ECw5x`, github-actions, 08:02:22Z) about try/finally protection on the helper's DB connection as awareness-only — do NOT address it. Guardrails: NO code changes, NO branch/PR creation, NO WORKLOG writes, NO merge.
+
+**Worker `83019b4` (prior cycle) — completion summary:**
+- Status: `finished` at 07:58:51Z (cost: $4.52, 6.3M prompt tokens, 14K completion).
+- Pushed 1 commit: **`f02208e`** — `refactor(sync): extract _update_metadata_with_error_handling helper`. Flattens nested try/except in `update_metadata()` from 6 levels to ≤3 by extracting helper. Per commit message: behavior preserved exactly, no new tests added (purely structural). Diff: `src/ohtv/sync.py` only, +45/-23/68 changes.
+- **Thread `PRRT_kwDOR9seq86EBxI0` (extract helper):** ✅ ACCEPTED — addressed in `f02208e`, resolved with reply "Addressed in f02208ed... Extracted `_update_metadata_with_error_handling` helper — the main loop is now flat (≤3 levels) and the helper preserves the original ordering: m[anifest first, then DB]".
+- **Thread `PRRT_kwDOR9seq86EBxI7` (reuse CloudClient):** ✅ DECLINED with reasoning — resolved with reply "Respectfully declining for this PR. The `CloudClient` used by `manager.sync()` is created and closed inside a `with` block in `SyncManager.sync()` (sync.py:197), so it is already closed by the time co[ntrol returns to _run_metadata_refresh in the auto-run path]". This is a legitimate "decline" per the `Handling Review Comments` guidance — the optional `client=` param exists but the client is out of scope at the call site, so threading it through would require restructuring the `with` block, which is beyond review-round scope. The decline is well-reasoned and properly documented in the thread.
+- Both threads now `isResolved: true`. CI green at HEAD `f02208e` (PR Review by OpenHands: ✓ 4m41s).
+- Worker did NOT touch any files outside `src/ohtv/sync.py`. Did NOT touch README. Did NOT touch tests. Worked exactly within the guardrails.
+
+**Decision rationale:**
+- **Wake-up state audit:** Worker `83019b4` completed cleanly. PR #93 went from `oCFcFR` to `oCFcRcFR` (lxa) — review round 2 added a pushed commit (cFc) and a new automated review (Fc → R). State is `green ready`, mergeable.
+- **NEW review thread detected:** `seq86ECw5x` from `github-actions` posted at **08:02:22Z** (after `83019b4` finished at 07:58Z, so the worker had no chance to see it). It's a 🟡 Suggestion about wrapping the new helper's DB-connection acquisition in `try/finally` to guarantee close on `manifest.save()` exceptions. Real concern, advisory severity. The lxa `💬 1` count reflects this single unresolved thread.
+- **Test currency:** Last manual test ran at HEAD `9af9013` (07:29Z, re-test round 1, verdict 🟢). HEAD has advanced to `f02208e`. Diff is `src/ohtv/sync.py` only, 68 lines changed — **above the 50-line non-test threshold**, source file (`.py`, not `*_test.py`). Per the workflow heuristic this **is** a significant change, so test results are **outdated**. Even though the commit message asserts pure refactor, the extraction is sufficiently non-trivial (changes control flow structure, introduces a new method, moves error-recording calls) to warrant verification rather than trust.
+- **PR slot pick (re-test, NOT review, NOT merge):** Decision tree is sequential — re-test must be current before review/merge. The tree branch "PR exists, ready, CI green, test results outdated → Spawn re-testing worker" wins over the review-worker branch.
+  - **NOT merge worker:** test results outdated AND new unresolved thread — two independent disqualifiers.
+  - **NOT review worker:** Even though `💬 > 0`, the test currency requirement takes precedence. The decision tree explicitly orders re-test before review (re-test exists at "CI green, outdated" — which is checked before "valid + 💬 > 0"). This avoids the inversion where reviewers would be looking at hypothetically-broken code.
+  - **NOT docs worker:** README untouched in `f02208e`; refactor is purely internal.
+- **Expansion slot idle:** Same state as the last several cycles — every open issue except #26 (`hold`) is `ready`. No expansion candidates. Healthy.
+- **NOT spawned:** No second PR worker (slot serialized). No expansion worker (no candidates). No docs worker (no user-facing changes since last docs validation). No review worker yet (test currency must be restored first; next cycle will see updated test + the 1 new thread and pick review).
+- **Auto-disable check:** Last 2 orchestrator entries (07:52Z + this one) both spawned workers — neither is "All quiet". Auto-disable does NOT trigger.
+
+**Current State:**
+- **PR #93** (fixes #86): `oCFcRcFR green ready` 💬1 (lxa) — re-test worker in flight at HEAD `f02208e`; docs ✅; round-2 review threads ✅ both resolved (1 accepted/1 declined); 1 NEW advisory thread (`seq86ECw5x`) unresolved; tests ⏳ being re-verified; CI ✅ green; `MERGEABLE/CLEAN`; merge gated on re-test verdict + the 1 new advisory thread.
+- **Open issues by status:**
+  - **Ready** (queued for PR slot after #93 merges, in priority/age order): #79 (direct push), #80 (LOC fetching), #81 (velocity report), #83 (classification command), #89 (`gen titles`), #90 (`ohtv label`), #91 (progress bars), #92 (weekly conversion CSV).
+  - `priority:low` (deferred): #82 (charting, depends on #81), #87 (manifest cache, depends on #86 → unblocks once #93 merges).
+  - **NOTE:** #86 closed-on-merge by PR #93 (`Fixes #86` in description). Post-merge implementation pick remains **#79**.
+  - **In-flight expansion:** none.
+  - **Pending expansion:** none.
+  - **On hold:** #26.
+- **Housekeeping:** WORKLOG.md is at **1126 lines** pre-update — well above the 300-line threshold. Truncation **deferred again** for the same reason as the last 3 cycles: a PR worker is in flight, the recent 6h productive window (02:21Z → 08:21Z) covers ~6 dense cycles which is the bulk of the file, and mid-PR truncation risks losing context that the in-flight saga (#86/#93) needs. **Truncation is the priority housekeeping task for the FIRST quiet cycle after PR #93 merges** — at that point the entire #86/#93 saga (which currently spans most of the file) can be archived together as a coherent block, dropping the file to a manageable size in one operation.
+
+**Next check (~30 min):**
+- **Happy path:** `2b07b04` posts a passing `## Manual Test Results — PR #93 (Re-test after review round 2)` with verdict 🟢 → next cycle decision tree fires "PR exists, ready, test results valid, 💬 > 0 → Spawn review worker" for the 1 new advisory thread (`seq86ECw5x`). Recommended disposition: **accept** the try/finally — it's a small, well-scoped, behavior-preserving wrap of the existing DB-connection block. If the worker accepts and pushes a tight commit, the next cycle after that re-tests (small but technically code-changing), and the cycle after THAT merges.
+- **Refactor-broke-something path:** `2b07b04` posts a 🔴 BLOCK or 🟡 Concerns → next cycle spawns an implementation/fix worker against PR #93 with the specific regression details. The "extract helper" refactor is the most likely culprit if something is broken (e.g., subtle re-ordering of `record_error` vs `any_change_applied`, missing exception path, etc.).
+- **Test-count delta:** If `2b07b04` reports 1397 → 139X (off by ±N), investigate the delta. The refactor commit message claims no new tests, so any test-count change is a red flag.
+- **Worker failure path:** `2b07b04` produces 0 events or stops silently (matching prior `db9e81d` failure mode) → escalate via WORKLOG for human review; do NOT auto-retry on this PR/SHA. Two stagnations in a row would suggest a systemic issue with the worker template for this PR.
+- **New review activity:** If a human or pr-review posts a NEW thread between now and the next cycle, the next cycle re-evaluates which thread(s) to address based on severity.
+- **Expansion slot stays idle** unless a new open issue lands without labels — full backlog is currently expanded.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
