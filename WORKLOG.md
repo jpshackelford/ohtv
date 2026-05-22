@@ -707,3 +707,49 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-22 01:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `85a77b9` | testing | PR #88 - feat: add PR contribution detection stage | **NEW** running |
+| `a931580` | expansion | Issue #83 - Add conversation classification command | **NEW** running |
+
+**🚀 Spawned: 2 Workers (parallel — both slots filled)**
+
+1. **Testing Worker** — PR slot
+   - PR: [#88 - feat: add PR contribution detection stage](https://github.com/jpshackelford/ohtv/pull/88) (fixes #78)
+   - Conversation: [`85a77b9`](https://app.all-hands.dev/conversations/85a77b9...)
+   - Start task: `d69fa05a1bb5474abc4d689bdca8428a` → status `WORKING` → conversation `exec=idle sb=RUNNING` ~2s after POST
+   - Prompt notes: 7 blackbox test cases tailored to the new `contributions` stage — (1) stage registration in `db process --help`, (2) clean run on populated DB, (3) idempotency on second run, (4) inclusion in `db process all`, (5) data inspection via sqlite3 of `conversation_contributions` + `change_refs`, (6) reprocessing safety via `delete_contributions_for_conversation`, (7) empty-DB graceful behavior. Plus README accuracy spot-check on the new "Available Stages" row added by the docs worker. Explicit guardrails: do NOT address the 2 unresolved review threads (review worker's job), do NOT modify src/tests, do NOT toggle draft state. Test comment must be signed as AI-on-behalf-of-@jpshackelford.
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#83 - Add conversation classification command](https://github.com/jpshackelford/ohtv/issues/83)
+   - Conversation: [`a931580`](https://app.all-hands.dev/conversations/a931580...)
+   - Start task: `e690ad2fd65642ccb13d27726253fa57` → status `WORKING` → conversation `exec=idle sb=RUNNING` ~2s after POST
+   - Prompt notes: framed the open-ended title around 4 candidate interpretations the worker must commit to ((a) reporting view over existing `initial_prompt_source`, (b) new orthogonal classification dimension, (c) aggregate/breakdown report, (d) other). Explicit pointers into existing code: `src/ohtv/db/stages/human_input.py`, `conversations.initial_prompt_source` column (from merged PR #85 / issue #77), `src/ohtv/recognizers/`. Required Technical Approach comment covers file layout, data model decision (new table vs new column vs query-only), CLI surface design, test plan, dependency map. Priority justification required (medium if reporting/visibility, low if incremental). Blocked exits: `needs-info` if too vague, `needs-split` if multiple features.
+
+**Decision rationale:**
+- **Wake-up state:** Prior-cycle docs worker `d5736ad` completed quickly (committed `14ec8c7` "docs: document contributions processing stage" + posted "Documentation updated for PR #88" comment at 00:53Z, then sandbox PAUSED — clean exit). Prior-cycle expansion worker `8fdca91` completed (Issue #82 now `ready` + `priority:low` with full Technical Approach comment per its own worklog entry at 00:51Z). Both slots opened simultaneously for this cycle.
+- **PR slot pick (testing):** PR #88 is ready, mergeable=CLEAN, no statusChecks reported (repo has no required CI workflows configured), docs verified updated (commit + comment present), and crucially **NO `Manual Test Results` comment yet**. Per the workflow decision table: "PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker." The 2 unresolved review threads from `github-actions` review bot do NOT short-circuit this — workflow doc is explicit: "Testing step is NOT skipped just because review started. CI must be green to test." Review worker spawns next cycle after test report posts.
+- **Expansion slot pick (#83, not #86/#87):** Applied the `/orchestrate` "oldest unexpanded issue" rule. Three issues need expansion: #83 (no priority), #86 (priority:medium), #87 (priority:low). #83 is oldest by issue number AND has no priority label yet (so it's the most-unprocessed). #86 and #87 already have priority labels (likely from prior triage) — they have *less* missing detail than #83 and will go faster in subsequent cycles.
+- **NOT spawned:** No review worker (testing must complete first, then review can address all 2 threads in one round). No merge worker (need test results + review-resolved before merge).
+
+**Current State:**
+- PR #88 (fixes #78): `oRFc green ready` 💬2 → testing worker spawned; docs ✅; testing in flight; review/merge queued
+- Ready issues queued for PR slot (after PR #88 lands, all `priority:medium`): #79 (direct push), #80 (LOC fetching), #81 (velocity report). Plus #82 (`priority:low`, charting — depends on #81).
+- In-flight expansions: #83 (just spawned)
+- Issues needing expansion next cycles: #86 (sync --update-metadata, priority:medium), #87 (manifest cache, priority:low). Order on completion of #83: #86 → #87.
+- On hold: #26
+- Phantom check: conversation `ddb712a` at 01:20:03Z appeared in the listing 1s before my testing POST landed; not mine (likely another user/automation), confirmed by timing diff vs my spawn POST timestamps.
+
+**Next check (~30 min):**
+- If `85a77b9` (testing PR #88) posts a passing test report → next cycle spawns review worker for the 2 inline threads
+- If `85a77b9` posts a FAILING test report → next cycle exits testing without spawning review; awaits human/impl-worker triage
+- If `a931580` (expansion #83) adds `ready` label → expansion slot reopens → spawn #86 expansion (next in queue, oldest remaining)
+- If `a931580` adds `needs-info`/`needs-split` → expansion slot reopens → spawn #86 expansion anyway (don't retry blocked issues automatically)
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
