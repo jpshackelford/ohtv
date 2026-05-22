@@ -1264,3 +1264,170 @@ class TestWriteManifestMetadata:
         assert entry["updated_at"] == "2024-01-01T00:00:00Z"
         assert entry["event_count"] == 5
         assert entry["downloaded_at"] == "2024-01-02T00:00:00Z"
+
+
+class TestUpdateMetadataRealDB:
+    """Real on-disk SQLite regression test for the metadata-refresh path.
+
+    Background (Issue #93 manual-test follow-up):
+        The original ``_get_conversation_store`` called ``get_connection()``
+        (a ``@contextmanager``) without entering it, so the ``ConversationStore``
+        was constructed with a ``_GeneratorContextManager`` in ``self.conn``.
+        ``update_metadata`` then blew up with::
+
+            AttributeError: '_GeneratorContextManager' object has no attribute 'execute'
+
+        Every test in :class:`TestUpdateMetadata` above patches
+        ``_get_conversation_store`` to return a ``Mock`` (or ``None``), which
+        hid the bug entirely. This test exercises the real
+        ``ConversationStore`` against a real on-disk SQLite database so the
+        store/connection wiring is actually verified.
+    """
+
+    def test_real_db_row_is_updated_and_no_errors(self, tmp_path):
+        """End-to-end: refresh propagates new title + labels to the DB row."""
+        import sqlite3
+
+        from ohtv.db import migrate
+        from ohtv.db.models import Conversation
+        from ohtv.db.stores import ConversationStore
+
+        # Real on-disk SQLite database (NOT in-memory and NOT mocked) so we
+        # exercise the same code path as production.
+        db_path = tmp_path / "index.db"
+        seed_conn = sqlite3.connect(db_path)
+        seed_conn.row_factory = sqlite3.Row
+        seed_conn.execute("PRAGMA foreign_keys = ON")
+        migrate(seed_conn)
+
+        # Seed one conversation row with the *old* title/labels.
+        ConversationStore(seed_conn).upsert(
+            Conversation(
+                id="abc123def456",  # already normalized (no dashes)
+                location=str(tmp_path / "synced" / "abc123def456"),
+                event_count=5,
+                title="Old title",
+                labels=None,
+                source="cloud",
+            )
+        )
+        seed_conn.commit()
+        seed_conn.close()
+
+        # Build a SyncManager whose DB resolution points at our temp DB.
+        config = MagicMock()
+        config.api_key = "test-key"
+        config.cloud_api_url = "https://example.com"
+        config.synced_conversations_dir = tmp_path / "synced"
+
+        with (
+            patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"),
+            patch("ohtv.db.get_db_path", return_value=db_path),
+        ):
+            manager = SyncManager(config)
+            manager.manifest.conversations = {
+                "abc123def456": {
+                    "title": "Old title",
+                    "updated_at": "2024-01-01T00:00:00Z",
+                    "event_count": 5,
+                    "downloaded_at": "2024-01-02T00:00:00Z",
+                    "labels": None,
+                },
+            }
+            client = _RecordingCloudClient(
+                [{
+                    "id": "abc123def456",
+                    "title": "New title",
+                    "tags": {"team": "platform"},
+                }]
+            )
+
+            # NOTE: deliberately NOT patching _get_conversation_store — the
+            # whole point of this test is to drive the real store against a
+            # real connection.
+            result = manager.update_metadata(client=client)
+
+        # The refresh must report no errors (regression: the bug produced
+        # ``errors == 1`` with an AttributeError message).
+        assert result.errors == [], f"expected no errors, got: {result.errors}"
+        assert len(result.errors) == 0
+        assert result.title_changed == 1
+        assert result.labels_changed == 1
+        assert result.both_changed == 1
+
+        # And the DB row must actually reflect the cloud metadata.
+        check_conn = sqlite3.connect(db_path)
+        check_conn.row_factory = sqlite3.Row
+        row = check_conn.execute(
+            "SELECT title, labels FROM conversations WHERE id = ?",
+            ("abc123def456",),
+        ).fetchone()
+        check_conn.close()
+
+        assert row is not None, "seeded conversation row vanished"
+        assert row["title"] == "New title"
+        # labels are stored as a JSON string in the DB
+        assert json.loads(row["labels"]) == {"team": "platform"}
+
+    def test_real_db_dry_run_does_not_touch_row(self, tmp_path):
+        """Dry-run must NOT write to the DB even with real store wiring."""
+        import sqlite3
+
+        from ohtv.db import migrate
+        from ohtv.db.models import Conversation
+        from ohtv.db.stores import ConversationStore
+
+        db_path = tmp_path / "index.db"
+        seed_conn = sqlite3.connect(db_path)
+        seed_conn.row_factory = sqlite3.Row
+        seed_conn.execute("PRAGMA foreign_keys = ON")
+        migrate(seed_conn)
+        ConversationStore(seed_conn).upsert(
+            Conversation(
+                id="abc123def456",
+                location=str(tmp_path / "synced" / "abc123def456"),
+                event_count=5,
+                title="Old title",
+                labels=None,
+                source="cloud",
+            )
+        )
+        seed_conn.commit()
+        seed_conn.close()
+
+        config = MagicMock()
+        config.api_key = "test-key"
+        config.cloud_api_url = "https://example.com"
+        config.synced_conversations_dir = tmp_path / "synced"
+
+        with (
+            patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"),
+            patch("ohtv.db.get_db_path", return_value=db_path),
+        ):
+            manager = SyncManager(config)
+            manager.manifest.conversations = {
+                "abc123def456": {
+                    "title": "Old title",
+                    "updated_at": "u",
+                    "event_count": 5,
+                    "downloaded_at": "d",
+                    "labels": None,
+                },
+            }
+            client = _RecordingCloudClient(
+                [{"id": "abc123def456", "title": "New title", "tags": None}]
+            )
+            result = manager.update_metadata(dry_run=True, client=client)
+
+        assert result.errors == []
+        assert result.title_changed == 1
+
+        # DB row untouched
+        check_conn = sqlite3.connect(db_path)
+        check_conn.row_factory = sqlite3.Row
+        row = check_conn.execute(
+            "SELECT title FROM conversations WHERE id = ?",
+            ("abc123def456",),
+        ).fetchone()
+        check_conn.close()
+        assert row["title"] == "Old title"

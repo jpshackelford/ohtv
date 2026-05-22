@@ -848,6 +848,15 @@ class SyncManager:
                 except Exception as e:  # pragma: no cover - best effort
                     log.warning("Failed to commit DB metadata updates: %s", e)
 
+        # Always close the DB connection we opened in _get_conversation_store.
+        # We own the connection lifecycle here (the factory returns a raw
+        # sqlite3.Connection — not a context manager).
+        if store is not None and store.conn is not None:
+            try:
+                store.conn.close()
+            except Exception as e:  # pragma: no cover - best effort
+                log.warning("Failed to close DB metadata connection: %s", e)
+
         result.elapsed_seconds = _time.perf_counter() - start
         log.info(
             "Metadata refresh complete: checked=%d title_changed=%d labels_changed=%d "
@@ -869,15 +878,32 @@ class SyncManager:
         Errors are logged at info level — failure to open the DB does not
         abort the manifest-only refresh, since manifest writes still benefit
         the user and the DB will be reconciled on the next ``db scan``.
+
+        Returns a ``ConversationStore`` backed by a raw ``sqlite3.Connection``.
+        The caller owns the connection lifecycle and must call
+        ``store.conn.close()`` when finished. We open a real connection here
+        (rather than entering ``get_connection()`` as a context manager)
+        because ``ConversationStore`` expects a live ``sqlite3.Connection``,
+        and entering/exiting the CM around each call would also create a
+        new connection per call — defeating the point of holding a store.
         """
         try:
-            from ohtv.db import get_connection
+            import sqlite3
+
+            from ohtv.db import get_db_path
             from ohtv.db.stores import ConversationStore
         except Exception as e:  # pragma: no cover - defensive
             log.info("DB module unavailable, skipping DB metadata updates: %s", e)
             return None
         try:
-            conn = get_connection()
+            db_path = get_db_path()
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            # WAL mode mirrors get_connection() for consistent concurrency
+            # behavior with the rest of the codebase.
+            conn.execute("PRAGMA journal_mode = WAL")
         except Exception as e:
             log.info("Could not open DB for metadata updates: %s", e)
             return None
