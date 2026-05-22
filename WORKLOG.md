@@ -753,3 +753,53 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-22 01:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c9da90a` | testing | PR #88 - feat: add PR contribution detection stage | **NEW** running |
+| `f583779` | expansion | Issue #83 - Add conversation classification command | **NEW** running |
+
+**🚀 Spawned: 2 Workers (parallel — both slots filled, retrying prior cycle's failed workers)**
+
+1. **Testing Worker (Retry)** — PR slot
+   - PR: [#88 - feat: add PR contribution detection stage](https://github.com/jpshackelford/ohtv/pull/88) (fixes #78)
+   - Conversation: [`c9da90a`](https://app.all-hands.dev/conversations/c9da90aaXXX)
+   - Start task: `a9437929b2f245759688f27d48218bfb` → READY on first poll (~6s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: same 7 blackbox cases + unit-test sweep as the failed 01:20 cycle (stage registration, clean run, idempotency, `all` inclusion, data inspection via sqlite3, reprocessing safety via `delete_contributions_for_conversation`, empty-DB), plus README accuracy spot-check on the new "Available Stages" row added by docs worker `d5736ad` (commit `14ec8c7`). Explicitly framed as "initial test, NOT a re-test" since no `## Manual Test Results` comment exists on PR #88. Same guardrails: don't address the 2 unresolved `github-actions[bot]` review threads, don't modify src/tests, don't toggle draft, don't write WORKLOG.
+
+2. **Expansion Worker (Retry)** — Expansion slot
+   - Issue: [#83 - Add conversation classification command](https://github.com/jpshackelford/ohtv/issues/83)
+   - Conversation: [`f583779`](https://app.all-hands.dev/conversations/f583779fXXX)
+   - Start task: `31fc9d0186a54ff492fdbe38a2e4a814` → READY on first poll (~6s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: same 4-candidate-interpretation framing as the failed 01:20 cycle ((a) reporting view over `initial_prompt_source`, (b) new orthogonal classification dimension via LLM, (c) aggregate/breakdown `report classification`, (d) other). Worker must commit to one and justify rejection of alternatives. Codebase anchors: `db/stages/human_input.py`, `conversations.initial_prompt_source` (PR #85), `recognizers/`, `analysis/objectives.py`. Required Technical Approach comment covers file layout, data model decision (new table vs new column vs query-only), CLI surface, test plan, dependency map. Priority justification: medium if reporting/observability, low if incremental tooling. Blocked exits: `needs-info` (can't pick interpretation) or `needs-split` (multiple features bundled).
+
+**Decision rationale:**
+- **Wake-up state (post-prior-cycle audit):** Both workers from the 01:20Z orchestrator entry (`85a77b9` testing + `a931580` expansion) reached terminal state in API (`status=null, sandbox=PAUSED`) but **produced ZERO events** (1-event count is just the spawn record — confirmed via `ohtv show 85a77b9` showing 0 user/agent/action/observation events). They never actually executed. By contrast, the cycle before that (`d5736ad` docs, `8fdca91` expansion) completed with 53 and 54 events respectively and visible side-effects (docs commit `14ec8c7` + PR comment for d5736ad; Issue #82 `ready`+`priority:low` + Technical Approach comment for 8fdca91). Likely cause: transient infra hiccup at spawn time. No persistent failure mode — retry is appropriate.
+- **Both slots free:** all 4 prior workers in PAUSED state, no PR worker or expansion worker active.
+- **PR slot pick (testing again):** Same decision as 01:20 cycle. PR #88 is `ready`, mergeable=CLEAN, 0 status checks (no required CI), docs verified updated (commit `14ec8c7` + comment from 00:53Z), `comments_count=1` (the docs comment), 2 unresolved `github-actions[bot]` review threads, **NO `Manual Test Results` comment**. Per workflow decision table: "PR exists, ready, CI green, docs updated, no manual test results → testing worker." Testing must complete before review (workflow doc explicit: testing not skipped just because review started).
+- **Expansion slot pick (#83 again):** Applied "oldest unexpanded issue" rule. Pending-expansion list: #83, #86 (`priority:medium`), #87 (`priority:low`), #89 (NEW since last cycle — auto-rename poorly-titled conversations). #83 still oldest, still no expansion. #86/#87 already have priority labels (less missing detail, faster in subsequent cycles). #89 is brand new and not yet investigated. Next cycle's queue after #83: #86 → #87 → #89.
+- **NOT spawned:** No review worker (testing must complete first). No merge worker (test + review-resolved must come before merge). Only 1 expansion worker per slot.
+
+**Current State:**
+- PR #88 (fixes #78): `oR(F)c green ready` 💬2 (1 issue-comment + 2 inline review threads, both unresolved) — testing in flight; docs ✅; review/merge queued
+- Ready issues queued for PR slot (after PR #88 lands): #78 (just landed, drops off), #79 (direct push, `priority:medium`), #80 (LOC fetching, `priority:medium`), #81 (velocity report, `priority:medium`), #82 (charting, `priority:low`, depends on #81)
+- In-flight expansions: #83 (just respawned)
+- Issues needing expansion next cycles: #86 (sync --update-metadata, `priority:medium`), #87 (manifest cache, `priority:low`), #89 (gen titles, NEW). Order on completion of #83: #86 → #87 → #89.
+- On hold: #26
+- Housekeeping: skipped truncation — WORKLOG.md is 755 lines but the prior cycle's truncate already brought it down to its natural floor (productive 6h+ window is bigger than the 300-line nominal threshold). Re-truncating now would lose recent productive context. Will revisit on next quiet cycle.
+
+**Next check (~30 min):**
+- If `c9da90a` (testing PR #88) posts a passing `## Manual Test Results` comment → next cycle spawns review worker for the 2 inline threads
+- If `c9da90a` posts a FAILING test report → next cycle exits PR slot without spawning review; awaits human triage or impl-worker fix
+- If `c9da90a` produces 0 events again (second consecutive failure) → escalate: investigate spawn-time infra issue, possibly notify human via WORKLOG
+- If `f583779` (expansion #83) adds `ready` label → expansion slot reopens → spawn #86 expansion (next oldest in queue)
+- If `f583779` adds `needs-info`/`needs-split` → expansion slot reopens → spawn #86 expansion anyway
+- If `f583779` produces 0 events again → same escalation as above
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
