@@ -1,257 +1,3 @@
-
-
-### 2026-05-21 18:25 UTC - Review Worker
-
-✅ **Completed: PR #84 Review Feedback - SQLite NULL handling fix**
-
-**Commit:** [`bc322bd`](https://github.com/jpshackelford/ohtv/commit/bc322bd)
-
-**Changes Made:**
-1. **Added CHECK constraint** to enforce required fields:
-   - `change_type='pr'` requires `pr_number IS NOT NULL`
-   - `change_type='direct_push'` requires `commit_range IS NOT NULL`
-
-2. **Replaced broken UNIQUE constraint** with partial unique indexes:
-   - `idx_change_refs_pr_unique`: `UNIQUE(repo_id, pr_number) WHERE change_type='pr'`
-   - `idx_change_refs_push_unique`: `UNIQUE(repo_id, commit_range) WHERE change_type='direct_push'`
-
-3. **Updated tests** to verify constraints work correctly:
-   - Added `test_pr_requires_pr_number` and `test_direct_push_requires_commit_range`
-   - Replaced problematic `test_unique_constraint_null_handling` with proper duplicate prevention tests
-
-**Test Results:** All 346 database tests pass
-
-**Actions:**
-- Replied to all 3 review threads explaining fixes
-- Resolved all review threads
-- Marked PR ready for review
-
-**PR Status:** Ready for merge (https://github.com/jpshackelford/ohtv/pull/84)
-
-### 2026-05-21 18:48 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `4f892a6` | review | PR #84 - Round 1 | finished ✓ |
-| `90b4272` | review | PR #84 - Round 2 (ON DELETE CASCADE) | **NEW** |
-
-**Worker Completed:** `4f892a6` (review)
-- Addressed SQLite NULL handling (3 threads)
-- But 5 new review threads appeared (ON DELETE CASCADE, CHECK constraint)
-
-**Spawned: Review Worker (Round 2)**
-- PR: [#84 - Add database schema for contribution tracking](https://github.com/jpshackelford/ohtv/pull/84)
-- Conversation: [`90b4272`](https://app.all-hands.dev/conversations/90b42726f762433bb38087728a7c5f15)
-- Reason: 5 unresolved review threads (ON DELETE CASCADE, status CHECK constraint)
-
-**Current State:**
-- Open PRs: #84 (CI green, 5 unresolved review threads)
-- Issues needing `ready` label (blocked on #76): #77, #78, #79, #80, #81, #82, #83
-- Ready issues: #76 (priority:high) - PR #84 in review
-- Issues on hold: #26 (MCP server)
-
-**Slots:**
-- 🔀 PR slot: Occupied (review worker for PR #84)
-- 📖 Expansion slot: Idle (issues #77-83 are already well-specified by human, just need `ready` labels once #76 completes)
-
-**Note:** Issues #77-83 have 4000+ character descriptions with acceptance criteria (created by human in design phase). They don't need expansion - they need `ready` labels after PR #84 merges.
-
----
-### 2026-05-21 18:49 UTC - Review Worker
-
-✅ **Completed: PR #84 Review Feedback Round 2 - ON DELETE CASCADE and status CHECK**
-
-**Commit:** [`058f93b`](https://github.com/jpshackelford/ohtv/commit/058f93b)
-
-**Changes Made:**
-1. **Added ON DELETE CASCADE** to all 4 foreign key relationships:
-   - `change_refs.repo_id` → repositories (line 37)
-   - `conversation_contributions.conversation_id` → conversations (line 61)
-   - `conversation_contributions.change_ref_id` → change_refs (line 62)
-   - `conversation_human_input.conversation_id` → conversations (line 79)
-
-2. **Added CHECK constraint for status field**:
-   - `CHECK(status IN ('pending', 'fetched', 'merged', 'closed'))`
-   - Follows same pattern as `change_type` and `contribution_type`
-
-3. **Added 6 new tests** for constraint validation:
-   - `test_status_check_constraint_accepts_valid_values`
-   - `test_status_check_constraint_rejects_invalid_values`
-   - `test_cascade_delete_when_repository_deleted` (change_refs)
-   - `test_cascade_delete_when_conversation_deleted` (conversation_contributions)
-   - `test_cascade_delete_when_change_ref_deleted` (conversation_contributions)
-   - `test_cascade_delete_when_conversation_deleted` (conversation_human_input)
-
-**Test Results:** All 1193 tests pass (45 for contributions migration)
-
-**Actions:**
-- Replied to all 5 review threads explaining fixes
-- Resolved all 5 threads (8/8 total threads now resolved)
-- Marked PR ready for review
-
-**PR Status:** Ready for merge (https://github.com/jpshackelford/ohtv/pull/84)
-
----
-### 2026-05-21 19:21 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `90b4272` | review | PR #84 - Round 2 (CASCADE/CHECK) | finished ✓ |
-| `74b7a3a` | testing | PR #84 - Manual Test Round 1 | **NEW** |
-
-**Worker Completed:** `90b4272` (review)
-- Addressed all 5 ON DELETE CASCADE + status CHECK threads
-- All 8 review threads now resolved
-- 1193 tests pass
-
-**Spawned: Testing Worker (Round 1)**
-- PR: [#84 - Add database schema for contribution tracking](https://github.com/jpshackelford/ohtv/pull/84)
-- Conversation: [`74b7a3a`](https://app.all-hands.dev/conversations/74b7a3a3b4e142afb911369b400d18ff)
-- Reason: All review threads resolved, CI green, but no manual test results posted yet. Per workflow, testing required before merge.
-- Focus: Pure DB migration - verify migration applies cleanly (fresh + populated DB), constraints work (CASCADE, CHECK), existing functionality unaffected.
-- Note: PR is purely internal/structural (migration 016 + tests). No CLI/output changes → no README update required per workflow rules.
-
-**Current State:**
-- Open PRs: [#84](https://github.com/jpshackelford/ohtv/pull/84) — `oRFRFC` green ready, all 8 threads resolved, manual test in progress
-- Issues needing `ready` label (blocked on #76): #77, #78, #79, #80, #81, #82, #83
-- Ready issues: #76 (priority:high) — PR #84 in test phase
-- Issues on hold: none with `hold` label
-
-**Slots:**
-- 🔀 PR slot: Occupied (testing worker `74b7a3a`)
-- 📖 Expansion slot: Idle — issues #77-83 are well-specified by human and will get `ready` labels once #76/PR #84 merges. Spawning expansion workers on them now would be premature; they depend on the schema introduced by #76.
-
-**Next:** Wait for `74b7a3a` to post manual test results, then spawn merge worker.
-
----
-### 2026-05-21 19:50 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `74b7a3a` | testing | PR #84 - Manual Test Round 1 | finished ✓ |
-| `dd6e104` | merge | PR #84 - Squash & merge | **NEW** |
-
-**Worker Completed:** `74b7a3a` (testing)
-- Posted comprehensive manual test report on PR #84: 13/13 checks PASS, all 1242 unit tests pass
-- Verified migration applies cleanly on fresh + populated DBs, all CHECK/CASCADE constraints enforced, idempotent, no regressions
-
-**Spawned: Merge Worker**
-- PR: [#84 - Add database schema for contribution tracking](https://github.com/jpshackelford/ohtv/pull/84)
-- Conversation: [`dd6e104`](https://app.all-hands.dev/conversations/dd6e104fe59a4c29a001b0c9817872a1)
-- Reason: All merge gates satisfied — CI green, all 8 review threads resolved, manual test report posted (13/13 PASS), latest automated review at 18:56:57Z explicitly says "✅ Worth merging" (🟢 LOW risk), no docs update required (pure schema migration with no user-facing surface).
-- Caveat passed to worker: `reviewDecision` API field is stale at `CHANGES_REQUESTED` because GitHub does not auto-dismiss the bot's earlier review at 18:28:47Z (the one that asked for CASCADE + status CHECK). Those fixes shipped in commit `058f93b` and the bot's follow-up review is `COMMENTED` (approving). Worker is instructed to dismiss the stale review or use `--admin` if branch protection blocks the merge.
-
-**Current State:**
-- Open PRs: [#84](https://github.com/jpshackelford/ohtv/pull/84) — `oRFRFC` green ready, all threads resolved, manual test posted, merge in progress
-- Ready issues: #76 (priority:high) — being merged via PR #84
-- Issues needing `ready` label (blocked on #76 merge): #77, #78, #79, #80, #81, #82, #83
-- Issues on hold: #26 (MCP server)
-
-**Slots:**
-- 🔀 PR slot: Occupied (merge worker `dd6e104`)
-- 📖 Expansion slot: Idle — issues #77-83 depend on schema being merged; will unblock once `dd6e104` completes. Holding off on spawning expansion workers this cycle to avoid premature work; next orchestrator cycle (after merge) will trigger `ready` labeling for #77-83.
-
-**Next:** Wait for `dd6e104` to merge PR #84 and update WORKLOG. Next cycle will start expansion/implementation flow on issues #77-83.
-
----
-### 2026-05-21 19:51 UTC - Merge Worker
-
-✅ **PR #84 merged — "Add database schema for contribution tracking"**
-
-- Squash-merged as commit `4395eb2` with conventional title `feat: add database schema for contribution tracking (#84)`
-- All merge criteria satisfied going in: CI green on `058f93b`, all 8 review threads resolved, latest automated review (18:56:57Z) = 🟢 LOW risk / Worth merging, manual test results posted by `74b7a3a` (13/13 manual checks PASS, 1242/1242 unit tests pass, migration applies cleanly on fresh & populated DBs, CHECK/CASCADE constraints enforced, idempotent, no regressions)
-- Two stale `CHANGES_REQUESTED` reviews from `github-actions[bot]` (IDs `4339476779` at 18:07:42Z and `4339621111` at 18:28:47Z) dismissed via API with messages referencing the commits (`bc322bd` for SQLite NULL handling via partial unique indexes; `058f93b` for ON DELETE CASCADE + status CHECK). Both items had been addressed before the bot's final 🟢 review
-- Feature branch `feature/contribution-tracking-schema-76` deleted from origin
-
-**Closes #76** (database schema for contribution tracking) — migration 016 adds three new tables: `change_refs` (PRs + direct pushes, with conditional CHECK on `pr_number`/`commit_range` and partial unique indexes to handle SQLite NULL distinctness), `conversation_contributions` (links conversations to changes with CHECK on `contribution_type`), and `conversation_human_input` (human word/message counts with CHECK on `initial_prompt_source`). All FKs use `ON DELETE CASCADE`.
-
-**Downstream impact — dependent issues unblocked:** Issues #77–#83 (which build on the schema added in #76) are now unblocked. The orchestrator can apply `ready` labels to them on its next expansion run. The merge worker does NOT touch those issues — that's the orchestrator's next-cycle decision.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-21 20:22 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `dd6e104` | merge | PR #84 - Contribution tracking schema | finished ✓ |
-| `26f66b8` | implementation | Issue #77 - Human input counting stage | **NEW** |
-
-**Worker Completed:** `dd6e104` (merge)
-- PR #84 merged at 2026-05-21T19:50:56Z (squash, commit `4395eb26`)
-- Closed issue #76 automatically via `Fixes #76`
-- Migration 016 + `conversation_human_input`, `conversation_contributions`, `change_refs` tables now live on `main`
-
-**Inline orchestrator work (label triage, no expansion worker needed):**
-- Issues #77-83 were already richly specified by the human in the design phase (3700-4500 chars each, with acceptance criteria + algorithm pseudocode). They needed labels, not expansion.
-- Applied per the documented dependency graph (`#76 → #77/#78/#79 (parallel) → #80 → #81 → #82`; `#77 → #83`):
-  - `#77` ← `ready` + `priority:high` (unblocks #83, gates #80)
-  - `#78` ← `ready` + `priority:medium` (parallel with #77/#79)
-  - `#79` ← `ready` + `priority:medium` (parallel with #77/#78)
-  - `#80`, `#81`, `#82`, `#83` ← left without `ready` (unmet dependencies)
-- This is equivalent to /assess-priority being run inline. Issues are documented enough that spawning an expansion worker would just re-confirm and apply the same labels.
-
-**Spawned: Implementation Worker**
-- Issue: [#77 - Add human input counting stage](https://github.com/jpshackelford/ohtv/issues/77) (priority:high)
-- Conversation: [`26f66b8`](https://app.all-hands.dev/conversations/26f66b8de2594d04939de54f5229c815)
-- Reason: Highest-priority ready issue. Builds directly on the `conversation_human_input` table just merged in PR #84. Scoped to a single new stage file + tests; designed to not collide with parallel work on #78/#79.
-
-**Current State:**
-- Open PRs: none
-- Ready issues (in priority order): #77 (high, being implemented), #78 (medium), #79 (medium)
-- Issues blocked on `ready` issues completing: #80 (waits for #77/#78/#79), #81 (waits for #80), #82 (waits for #81), #83 (waits for #77)
-- Issues on hold: #26 (MCP server)
-- Issues needing expansion (no `ready`, no `hold`): none (#80-83 deliberately held pending dep merges)
-
-**Slots:**
-- 🔀 PR slot: Occupied (implementation worker `26f66b8` on #77)
-- 📖 Expansion slot: Idle (no unexpanded issues — #80-83 are pre-specified but intentionally not yet `ready`)
-
-**Next:** Next cycle should (a) check whether `26f66b8` is still running, (b) consider promoting #78 or #79 to a parallel-ready impl only AFTER PR #77 is open and stable (current workflow allows only one PR worker at a time; queue #78/#79 for after #77 merges), and (c) once #77 merges, promote #83 to `ready` (no extra deps) and re-evaluate #80 once any of #77/#78/#79 is in.
-
----
-### 2026-05-21 21:19 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `d05423f` | docs | PR #85 - human_input stage README row | finished ✓ |
-| `c98452a` | testing | PR #85 - manual blackbox test | **NEW** |
-
-**Worker Completed:** `d05423f` (docs)
-- Pushed commit [`49f2dc9`](https://github.com/jpshackelford/ohtv/commit/49f2dc9) — "docs: document human_input stage in README"
-- Posted PR comment: _"Documentation updated: added `human_input` row to the Available Stages table in README.md."_
-- Sandbox `PAUSED`; conversation done.
-
-**Spawned: Testing Worker**
-- PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
-- Conversation: [`c98452a`](https://app.all-hands.dev/conversations/c98452a2d9ae4a0ba9f6903ac4398654)
-- Reason: PR is ready, CI green on impl commit (`004395c`), README docs now in place (`49f2dc9`), no manual test results yet. Per decision tree → testing worker.
-- Scope: blackbox-verify the new `human_input` stage (population of `conversation_human_input`, idempotency, `initial_prompt_source='unknown'` per #77 scope, `db process all` ordering) + run `tests/unit/db` suite + post structured report. Worker EXITs after posting; does not continue to review/merge.
-
-**PR #85 quick status (oCD green ready):**
-- 2 commits: `004395c` (impl, CI ✅) + `49f2dc9` (docs)
-- Automated review by `github-actions`: 🟢 LOW risk, "✅ Worth merging"
-- `mergeable: UNKNOWN` (will resolve once GitHub re-checks); no required reviewers; `reviewDecision: ""`
-- No human review comments to address (💬=0 actionable)
-
-**Current State:**
-- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) — testing in progress
-- Ready issues queued behind PR #85: #78 (priority:medium), #79 (priority:medium)
-- Issues blocked on `ready` issues completing: #80 (waits for #77/#78/#79), #81 (waits for #80), #82 (waits for #81), #83 (waits for #77)
-- Issues on hold: #26 (MCP server)
-- Issues needing expansion (no `ready`, no `hold`): none in practice. #80–83 are pre-specified by the human; intentionally not yet `ready` pending deps (per prior orchestrator decision).
-
-**Slots:**
-- 🔀 PR slot: Occupied (testing worker `c98452a` on PR #85)
-- 📖 Expansion slot: Idle — nothing genuinely needs expansion right now.
-
-**Next:** Wait for `c98452a` to post a structured "Manual Test Results" PR comment. Once posted with passing report and no significant follow-up commits, orchestrator will spawn a merge worker (no review worker needed — only automated review present, already favorable, 💬=0 actionable).
-
 ---
 ### 2026-05-21 21:50 UTC - Orchestrator
 
@@ -944,3 +690,55 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 - Implement any part of #87.
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+### 2026-05-22 03:18 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `8136b8e` | re-testing | PR #88 - feat: add PR contribution detection stage | **NEW** running |
+| `09349b2` | expansion | Issue #89 - Add `gen titles` to auto-rename poorly-titled cloud conversations | **NEW** running |
+
+**🚀 Spawned: 2 Workers (parallel — both slots filled, prior cycle's workers both succeeded)**
+
+1. **Re-Testing Worker** — PR slot
+   - PR: [#88 - feat: add PR contribution detection stage](https://github.com/jpshackelford/ohtv/pull/88) (fixes #78)
+   - Conversation: [`8136b8e`](https://app.all-hands.dev/conversations/8136b8efd7...)
+   - Start task: `f239ae6abd0342d68ef98a9e0bcebca2` → READY on first poll (~8s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: Focused re-test of the diff between commit `14ec8c7` (last tested at 01:59:40Z) and `879f75e` (HEAD). Worker must (a) verify GitLab/Bitbucket round-trip through `process_contributions` so `repositories.canonical_url` resolves to `gitlab.com`/`bitbucket.org` rather than the prior GitHub-only default; (b) verify GitHub-default regression path through metadata fallback; (c) verify `orphan_push_branches` set-vs-list refactor still works with multiple pushes on the same branch before a PR; (d) run the full unit+integration suite expecting ≥1325 tests passing (was 1322 + 3 new tests added in `54008f7`); (e) README "Available Stages" row spot-check. Guardrails: no src/tests edits, no draft toggle, no merge, no WORKLOG write.
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#89 - Add `gen titles` to auto-rename poorly-titled cloud conversations](https://github.com/jpshackelford/ohtv/issues/89)
+   - Conversation: [`09349b2`](https://app.all-hands.dev/conversations/09349b2fe2...)
+   - Start task: `8613e7de17af48b59b1aaf9c9632e808` → READY on first poll (~8s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: Unusual case — author already wrote a richly detailed Summary/Motivation/Pipeline/CLI-surface. Expansion worker's job is to VERIFY rather than re-write: confirm the cited code anchors (`SyncManager._update_manifest_entry`, `gen objs` cli location, `~/.ohtv/cache/analysis/<id>/objective_analysis.json` cache loader at `src/ohtv/analysis/cache.py`, `sources/cloud.py:parse_conversation_info`, the placeholder-title regex `^Conversation [0-9a-f]{5,32}$`) actually exist and behave as described; map dependency on #86 (writeback path / PATCH client) and #87 (manifest refresh after PATCH) as must-have vs nice-to-have; add Acceptance Criteria to body if missing; comment a Technical Approach covering file-by-file changes, data model (cache+API only?), LLM call shape (model/prompt template/batch size/retry), parallelism via `ohtv.parallel.run_parallel`, idempotency (dry-run + double-PATCH no-op), test plan, cost estimate. Priority labels: `priority:medium` if assessed high-value UX (sample data shows ~13/20 conversations have placeholders), else `priority:low`. Blocked exits: `needs-info` if anchors don't match, `needs-split` if it bundles features.
+
+**Decision rationale:**
+- **Wake-up state (post-prior-cycle audit):** Both 02:24Z workers reached terminal state with visible side-effects.
+  - Review worker `c9f15be` (PR #88): pushed 2 commits (`54008f7` platform fix + 3 new tests, `879f75e` set refactor), resolved both unresolved review threads via GraphQL, full suite reported 1325/1325 passing, PR flipped back to ready. Then a *third* review thread (`PRRT_kwDOR9seq86D-_dt`, a suggestion, not critical) appeared at 02:32Z; the same conversation respectfully declined it with a technical justification in a follow-up cycle (`02:56:28Z` entry shows the decline + resolution). All 3 review threads now `isResolved: true`.
+  - Expansion worker `21f155f` (Issue #86): added `ready` + `priority:medium` labels, restructured #86 with Problem Statement / Proposed Solution / Acceptance Criteria + Technical Approach comment, called out the #87/#89 coupling. The 02:56Z worklog entry also shows a follow-on triage of #87 (which was already pre-expanded by the author) — verified the anchors and added `ready` label.
+- **Both slots free:** Both prior workers in cloud API status `null/PAUSED`. No PR worker or expansion worker active.
+- **PR slot pick (re-testing):** PR #88 satisfies the workflow's "PR exists, ready, CI green, **test results outdated** → spawn re-testing worker" branch. Last manual test at 01:59:40Z against `14ec8c7`; HEAD is `879f75e` with two new commits in `src/ohtv/db/stages/contributions.py` at 02:26:59Z and 02:27:25Z. Per the "Significant Changes" heuristic: source files changed (`.py` excluding test files) → re-test required. CI on `879f75e` is green (pr-review workflow SUCCESS at 02:32:18Z), `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`. All 3 review threads resolved.
+- **Expansion slot pick (#89):** Applied "oldest unexpanded issue" rule. Pending-expansion list (open issues without `ready` or `hold`): #89 (`gen titles`, oldest at issue #), #90 (`ohtv label` batch labeling), #91 (standardize progress bars), #92 (weekly conversion counts CSV — newest, no labels at all). #89 wins on age. The author has already provided substantial detail, so this is more a verification + acceptance-criteria + dependency-mapping pass than a from-scratch expansion. Strategically it's also downstream of #86 (which just landed `ready`), so getting it `ready` opens the implementation queue for the planned `gen titles` → `sync --update-metadata` → manifest-refresh chain.
+- **NOT spawned:** No initial testing worker (testing was already done in the prior cycle's pass). No docs worker (docs already updated by `d5736ad` at 00:51Z, commit `14ec8c7`; the post-test code changes were code-only). No merge worker (must wait for re-test result). Only one expansion worker per slot. Did not pick #86 or #87 for implementation despite both being `ready` and `priority:medium` — PR slot is still occupied by #88 re-test; serialized PR slot prevents parallel implementation work.
+
+**Current State:**
+- PR #88 (fixes #78): `oRFcFR green ready` — re-test worker in flight; docs ✅; review ✅ (all 3 threads resolved); CI ✅ green; merge pending re-test result.
+- Ready issues queued for PR slot (after PR #88 lands), in roughly priority/age order: #79 (direct push, `priority:medium`), #80 (LOC fetching, `priority:medium`), #81 (velocity report, `priority:medium`), #83 (classification command, `priority:medium`), #86 (`sync --update-metadata`, `priority:medium`), #82 (charting, `priority:low`, depends on #81), #87 (manifest cache, `priority:low`, depends on #86).
+- In-flight expansions: #89 (just spawned).
+- Issues needing expansion next cycles, in queue order: #90 (`ohtv label` batch labeling), #91 (standardize progress bars), #92 (weekly conversion counts CSV — brand-new, no labels at all).
+- On hold: #26 (`hold`).
+- Housekeeping: WORKLOG.md was 946 lines on wake-up; archived 254 lines (entries 2026-05-21 18:25Z through 21:19Z, all >6h old) into `WORKLOG_ARCHIVE_2026-05-21.md`. Worklog now at 692 lines + this entry. Will revisit truncation on next quiet cycle.
+
+**Next check (~30 min):**
+- If `8136b8e` (re-test PR #88) posts a passing `## Manual Test Results — PR #88 (Re-test...)` comment → next cycle PR #88 enters merge-ready state (re-test ✅ + review ✅ + docs ✅ + CI ✅) → spawn merge worker.
+- If `8136b8e` posts a FAILING re-test report → next cycle does NOT spawn merge; spawn implementation worker against PR #88 with the regression details, awaiting next re-test.
+- If `8136b8e` produces 0 events (spawn-time hiccup, happened twice on 01:20Z cycle) → escalate via WORKLOG note for human review; do NOT auto-retry a third time.
+- If `09349b2` (expansion #89) adds `ready` label → expansion slot reopens → spawn #90 expansion (next oldest in queue).
+- If `09349b2` adds `needs-info`/`needs-split` → expansion slot reopens → spawn #90 anyway (don't auto-retry blocked issues).
+- If `09349b2` produces 0 events → same escalation as `8136b8e`.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
