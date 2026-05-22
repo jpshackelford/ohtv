@@ -920,3 +920,27 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 **Status:** PR #88 now has **all 3 review threads resolved**. The two prior code commits (`54008f7` + `879f75e`) are still post-test, so the orchestrator's re-test heuristic from the previous worklog entry still applies on the next cycle — this decline-only update does not change that.
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+## 2026-05-22T02:56:28Z — Triage: issue #87 (manifest as full cloud metadata cache)
+
+**Task:** Verify the auto-generated expansion of #87 ("extend manifest cache to selected_repository, selected_branch, created_at") against the current codebase and decide whether it is ready to implement.
+
+**Verification:** Walked the cited code paths on `main`:
+
+- `SyncManager._update_manifest_entry` at `src/ohtv/sync.py:510-528` — confirmed it currently writes only `title / updated_at / event_count / downloaded_at / labels`. The proposed additive fields slot in cleanly.
+- Repair fallback at `sync.py:667-672` (issue cites 670-674; close enough) — confirmed it nulls title/updated_at today.
+- `db/scanner.py:load_manifest_labels` (line 67) and `extract_metadata` (lines 93-156) match the issue's description. `selected_repository` and `created_at` are read from `base_state.json` at 117-118.
+- `sources/cloud.py:parse_conversation_info` only extracts `created_at` and `selected_repository` from the listing — confirms #87's claim that `selected_branch` is non-refreshable from the listing API and only available via `meta.json` (`exporter.py:60 _meta_to_base_state`).
+- `ConversationStore` does not yet have an `update_metadata` method — confirms the dependency on #86 (which introduces it) is real. #86 is `ready` but not yet implemented; that's the expected interlocked state.
+
+**Decision:** Option A. Expansion is concrete, files-to-modify list is correct, acceptance criteria are testable, lazy backfill (Option A in the issue) is the right risk profile. Added `ready` label and posted a short verification comment on the issue. Did NOT add `hold` — a label-conditional priority queue handles the #86-before-#87 ordering without needing a semantic block.
+
+**Did NOT:**
+- Modify the issue body.
+- Touch #86 or PR #88.
+- Push any code changes.
+- Implement any part of #87.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
