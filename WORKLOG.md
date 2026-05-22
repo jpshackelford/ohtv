@@ -887,3 +887,36 @@ Resolved both unresolved `github-actions[bot]` review threads on PR #88 (feat: a
 - If re-test does not fire (e.g., diff is small/local enough) → PR #88 enters merge-ready evaluation: review threads ✅ resolved, manual test ✅ still valid (no code changes that invalidate it — only stage-internal refactor + new platform-host handling), docs ✅ unchanged. Likely safe to spawn merge worker.
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+## 2026-05-22 — PR #88 final review thread: respectfully declined
+
+**Context:** A third automated review thread appeared at 02:32:01Z on PR #88 (`feat/contributions-detection-78`) *after* the two prior fixes (`54008f7`, `879f75e`) had already been pushed and the earlier threads resolved. This one was a 🟡 *suggestion* (not critical) on `src/ohtv/db/stages/contributions.py` line 221.
+
+**Thread `PRRT_kwDOR9seq86D-_dt`:** Suggested using a composite `(pr_number, owner/repo)` key for `seen_pr_repo` instead of the current `pr_number`-only key, to handle the theoretical case where one conversation works with PR #42 in two different repos and the MERGE_PR fallback chain pulls the wrong repo. Notably, the reviewer's own comment ended with *"this is an edge case in a fallback chain (behind URL parsing and metadata), so the current pragmatic approach is acceptable. The code properly skips the contribution rather than guessing if all fallbacks fail."*
+
+**Decision:** Respectfully declined. Confirmed by reading the code at `src/ohtv/db/stages/contributions.py`:
+
+- `seen_pr_repo` is only consulted in the MERGE_PR fallback *after* URL parsing on `target` and `metadata.owner`/`metadata.repo` have already failed (lines ~248–275).
+- If the dict lookup misses, code falls back to `_single_repo_for_conversation`; if that also misses, the contribution is **skipped** with a debug log — no misattribution risk in practice.
+- A composite key would not actually help in the failing-fallback case anyway, since the caller does not know owner/repo at that point (that is precisely why we are in the fallback).
+- The hypothetical collision (same conversation, same bare PR number, two different repos, *and* metadata + URL parsing failing on MERGE_PR) is implausible and has not been observed.
+- Adding composite-key handling would add complexity to a fallback branch already designed to skip gracefully, contrary to the project's pragmatic-solutions preference.
+
+**Actions:**
+- Posted a polite, technical decline via `addPullRequestReviewThreadReply` (comment `PRRC_kwDOR9seq87D1Vpw`, URL <https://github.com/jpshackelford/ohtv/pull/88#discussion_r3285539440>).
+- Resolved the thread via `resolveReviewThread` — confirmed `isResolved: true`.
+- Verified the two prior threads (`PRRT_kwDOR9seq86D-Cla`, `PRRT_kwDOR9seq86D-Clf`) remain resolved.
+- PR #88 is **OPEN** and **not draft** — left untouched since there are no code changes for this thread.
+
+**Did NOT:**
+- Push any code changes (this thread is a decline, not a fix).
+- Flip the PR to draft (no code changes warrant it).
+- Merge the PR.
+- Spawn additional workers or testing runs.
+- Touch any other open issues or PRs.
+
+**Status:** PR #88 now has **all 3 review threads resolved**. The two prior code commits (`54008f7` + `879f75e`) are still post-test, so the orchestrator's re-test heuristic from the previous worklog entry still applies on the next cycle — this decline-only update does not change that.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
