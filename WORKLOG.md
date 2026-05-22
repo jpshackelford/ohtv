@@ -666,3 +666,44 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-22 00:51 UTC - Expansion Worker (`8fdca91`)
+
+✅ **Expanded Issue #82** — *Add charting script for velocity reports*
+
+- Issue: [#82 - Add charting script for velocity reports](https://github.com/jpshackelford/ohtv/issues/82)
+- Type: Enhancement (Conversation Metrics — visualization layer)
+- Status: **Ready for implementation** (`ready` + `priority:low`)
+
+**What changed on the issue:**
+- Body rewritten in the standard Problem Statement / Proposed Solution / Acceptance Criteria / Out of Scope / Dependencies / Verification format with 9 concrete acceptance criteria.
+- Added a single Technical Approach comment ([#issuecomment-4514002849](https://github.com/jpshackelford/ohtv/issues/82#issuecomment-4514002849)) covering library choice, CLI surface, data flow, file layout, implementation plan, test plan, dependency map, and open questions.
+- **Library choice**: matplotlib (sole primary, optional dep under `[project.optional-dependencies] charts = ["matplotlib>=3.8"]`). Explicitly rejected plotext (terminal-only, doesn't solve the paper/slide use case), plotly/altair (heavier, HTML+JS overhead unnecessary for static figures), and pandas (gratuitous round-trip — #81's `VelocityRow` dataclass is already chart-ready). matplotlib gets imported **lazily inside the render function**, so `import ohtv.reports.charts` works without the extra installed and the CLI emits a friendly `click.UsageError` when `--chart` is invoked without matplotlib present.
+- **CLI surface**: extends #81's `report velocity` with `--chart <path>`, `--mark-date`, `--title` flags rather than a separate `scripts/` script or new `report chart` subcommand. Inherits all of #81's filters (`--since`, `--until`, `--repo`, `--include-empty`) for free; one mental model. Also ships the `scripts/chart_velocity.py` stdin-CSV shim from the original issue body (~15 lines, delegates to the same `ohtv.reports.charts.plot_velocity`) for the "CSV-from-elsewhere" workflow.
+- **Output format**: extension drives format (`.png`/`.svg`/`.pdf`) — dropped the original `--format` flag because it duplicated the extension contract.
+- **Chart layout**: 3 stacked panels (PR created+merged overlay; LOC diverging ± bars; words/LOC line) with optional `--mark-date` vertical reference line across all panels.
+
+**Dependency map documented:**
+- **Hard depends on #81** — must wait for #81 to merge before this lands; the `--chart` flag attaches to `report velocity` and uses #81's `VelocityRow` / `bucket_by_iso_week`.
+- **Soft depends on #78** (PR #88, in flight) and #80 (`ready`, queued) — populates the data being charted; until they land, charts render with sparse/zero values but the code path is fully testable against seeded `change_refs` + `conversation_contributions`.
+- **Does not block / unblock** any currently-tracked issue.
+
+**Test plan** (~13 tests):
+- 7 unit tests in `tests/unit/reports/test_charts.py` — extension→format mapping, PNG/SVG/PDF magic-bytes assertions, mark-date `axvline` call count, `words_per_loc=None` handling, empty-rows raises `ValueError`. All under `matplotlib.use("Agg")` for headless CI. **No pixel-diff snapshots** (flaky across matplotlib/font versions); assert on data passed to plotting calls + file written.
+- 4 CLI smoke tests in `tests/unit/reports/test_cli_chart.py` via `CliRunner` against in-memory SQLite seeded with `migrate(conn)` — file creation, empty-DB-no-file-written, missing-matplotlib `UsageError`, `--repo` filter respected.
+- 2 standalone-script tests for `scripts/chart_velocity.py` (CSV from file, CSV from stdin via `subprocess.run`).
+
+**Priority justification** (`priority:low`):
+- Hard-depends on #81 which is `priority:medium` and not yet implemented.
+- Soft-depends on #78 (in PR review) and #80 (ready, queued). Charts can be tested with seeded data, but the *first useful chart* requires those producers to land.
+- This is internal-tooling visualization — paper/deck artifacts, not a blocker for any user-facing flow.
+- Implementation is small (~120 LOC domain code + 30 LOC CLI delta + 15 LOC shim + tests) and self-contained once the data API exists.
+
+**Open questions deferred** (called out in the comment so the implementer can punt):
+1. `plotext` terminal preview as a future `--preview` flag? (Different problem, future iteration.)
+2. Per-repo small-multiples when no `--repo` filter is given? (Future `--by-repo` flag.)
+3. PDF metadata (author/title/subject) via `PdfPages`? (Only if needed for paper submission.)
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
