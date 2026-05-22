@@ -1073,3 +1073,54 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-22 07:52 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `b6dac75` | re-test | PR #93 — re-test at `9af9013` | finished ✓ (verdict: 🟢 Ready for merge) |
+| `83019b4` | review | PR #93 — address 2 advisory 🟡 threads | **NEW** running |
+
+**🚀 Spawned: 1 Worker (PR slot only — expansion slot idle, no unexpanded issues)**
+
+1. **Review Worker** — PR slot
+   - PR: [#93 - feat(sync): add --update-metadata](https://github.com/jpshackelford/ohtv/pull/93) (fixes #86)
+   - Conversation: [`83019b4`](https://app.all-hands.dev/conversations/83019b4ecf6c471fac8a116dfb786308)
+   - Start task: `bfeff6ab36e34c61884561d308af5997` → READY in ~5s
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - **Worker tasked with:** Evaluate the 2 unresolved advisory 🟡 threads on PR #93 (both from `github-actions`), accept or decline each on merits per `Handling Review Comments`, push tight commits if accepting, reply+resolve each thread, flip back to ready, exit. Guardrails: NO merge, NO README edits, NO scope creep, NO WORKLOG writes, behavior-preserving changes only (1397 tests must still pass; new tests only if intentional + justified). The two threads:
+     - `PRRT_kwDOR9seq86EBxI0` — `src/ohtv/sync.py:821` — Extract `_update_metadata_with_error_handling` helper (6 levels of nesting → 3-level max guideline). Recommended: **accept** (clean, well-scoped refactor).
+     - `PRRT_kwDOR9seq86EBxI7` — `src/ohtv/cli.py:388` — Thread existing `CloudClient` from completed sync into `_run_metadata_refresh` (auto-run path) instead of opening a new one; `update_metadata` already supports the optional `client=` param. Recommended: **accept if** client is in scope at the auto-run call site; **decline with reasoning** if the existing client is already out of its `with` block (out-of-scope to restructure).
+
+**Decision rationale:**
+- **Wake-up state audit:** Prior cycle's worker `b6dac75` (re-test PR #93) completed cleanly at 07:29:53Z and posted a 🟢 **Ready for merge** verdict against HEAD `9af9013`. All 1397 unit tests pass (1395 prior + 2 new `TestUpdateMetadataRealDB`). The previously-broken DB-write scenario now writes to disk correctly; mutex flags, idempotency, dry-run, and README all clean. CI green at HEAD. `MERGEABLE/CLEAN`. The re-test report explicitly identifies the 2 advisory threads as non-blocking but earmarked for "the next review-worker cycle" — which is now.
+- **Expansion slot idle.** Same state as last cycle — every open issue except #26 (`hold`) is `ready`. No expansion candidates. Healthy.
+- **PR slot pick (review, NOT merge):** Decision tree branch is unambiguous: "PR exists, ready, CI green, test results **valid**, 💬 > 0 → review worker." Test results ARE valid (07:29Z re-test at HEAD `9af9013`), and 2 unresolved 🟡 threads exist. The merge worker is **NOT** appropriate this cycle because the threads remain open — `gh pr ready` and "review approval" don't auto-resolve threads, and the merge worker's contract is to merge only when threads are addressed. Going straight to merge would either (a) leave threads unresolved post-merge (bad hygiene) or (b) force the merge worker to do review-worker duties (scope creep).
+- **Why both threads warrant action (not blanket dismissal):** Per `Handling Review Comments`, the bar is "does it fix a real issue or improve clarity significantly?" Thread 1 directly violates a documented project guideline (3-level-max nesting → currently at 6 levels). Thread 2 follows a pattern the codebase already supports (the optional `client=` param exists for exactly this purpose). Neither adds verbosity; neither over-engineers; both align with pragmatic clean-up. The worker has explicit license to decline thread 2 if the client's scope makes the threading impossible without restructuring.
+- **NOT spawned:** No expansion worker (no candidates). No second PR worker (slot serialized). No docs worker (README is in-diff and validated at `9af9013` per re-test). No re-test worker (test results are valid for current HEAD; the review worker's changes will need their own re-test next cycle if they touch behavior, but the worker is instructed to keep behavior unchanged).
+- **Auto-disable check:** Last 2 orchestrator entries (07:20Z + this one) both spawned workers — neither is "All quiet". Auto-disable does NOT trigger.
+
+**Current State:**
+- **PR #93** (fixes #86): `oCFcRc green ready` (lxa, last 19m ago) — review worker in flight; docs ✅; tests ✅ valid (re-test green at HEAD `9af9013`); 2 unresolved advisory 🟡 threads being addressed; CI ✅; merge gated on thread resolution.
+- **Open issues by status:**
+  - **Ready** (queued for PR slot after #93 merges; expected impl order, oldest `priority:medium` first): #79 (direct push), #80 (LOC fetching), #81 (velocity report), #83 (classification command), #89 (`gen titles`), #90 (`ohtv label`), #91 (progress bars), #92 (weekly conversion CSV).
+  - `priority:low` (deferred): #82 (charting, depends on #81), #87 (manifest cache, depends on #86 → unblocks once #93 merges).
+  - **NOTE:** #86 is closed-on-merge by PR #93 (description includes `Fixes #86`); post-merge implementation pick remains **#79**.
+  - **In-flight expansion:** none.
+  - **Pending expansion:** none.
+  - **On hold:** #26.
+- **Housekeeping:** WORKLOG.md is at **1075 lines** pre-update — well above the 300-line threshold. Truncation **deferred** again this cycle for the same reason as last cycle: the 6h productive window (01:52Z → 07:52Z) covers ~6 dense cycles which is the bulk of the recent history, and mid-cycle truncation while a worker is active risks losing context the next cycle wants. **Marking truncation as the priority housekeeping task for the next cycle that lands in a `All quiet` state OR right after PR #93 merges** (whichever comes first). At that point the entire #86/#93 saga can be archived together as a coherent block.
+
+**Next check (~30 min):**
+- **Happy path:** `83019b4` accepts both threads → pushes 2 small refactor commits → CI stays green → replies/resolves both threads → flips back to ready. Next cycle's decision: re-test or merge?
+  - If commits touched behavior (unintentionally): re-test worker.
+  - If commits are pure refactors with 1397 tests still passing (the worker's contract): **merge worker** directly. The 3-level-max refactor and the `client=` param threading are both behavior-preserving — the worker is explicitly required to keep test count stable (or document any new tests as intentional).
+- **Partial-accept path:** `83019b4` accepts one, declines the other with reasoning → still triggers merge-worker cycle as long as both threads are resolved (resolved = either "Addressed in <SHA>" or "Respectfully declining" + thread closed).
+- **Failure path:** `83019b4` produces 0 events or stops silently (matching prior `db9e81d` failure mode) → escalate via WORKLOG for human review; do NOT auto-retry on this PR/SHA. Two threads can be human-resolved or human-declined directly.
+- **CI failure path:** review-worker commits break CI → next cycle is an implementation/fix worker against PR #93 (similar to the `0e15793` cycle that fixed the original BLOCK).
+- **Scope-creep path:** review worker tries to refactor unrelated code → flag in next cycle; revert non-scope commits; spawn a fresh review worker with tighter guardrails. (Not expected; prompt is explicit about scope.)
+- **Expansion slot stays idle** unless a new open issue lands without labels.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
