@@ -785,3 +785,28 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+
+---
+
+### 2026-05-22 00:26 UTC - Expansion Worker (`68sTA3L`)
+
+✅ **Expanded Issue #81** — Add velocity report command
+
+- Issue: [#81 - Add velocity report command](https://github.com/jpshackelford/ohtv/issues/81)
+- Type: Enhancement
+- Status: **Ready for implementation** (labels: `enhancement`, `ready`, `priority:medium`)
+- Approach summary:
+  - Reconciled the issue's suggested file path (`src/ohtv/commands/report.py`) with the actual repo convention: CLI lives in `src/ohtv/cli.py` with domain logic in a new `src/ohtv/reports/velocity.py` module (mirrors `analysis/objectives.py` split).
+  - New `@main.group() report` + `@report.command("velocity")` with `--format table|csv`, `--since/--until`, `--repo`, `--include-empty`, `--no-totals`, `-v`.
+  - **Key technical call-out**: SQLite's `strftime('%W')` is **not** ISO 8601 (verified: 2024-12-30 → SQLite W53 vs ISO W01). Aggregation must bucket in Python using `datetime.isocalendar()` / re-using `analysis/periods.py`. Pinned with regression test T-4.
+  - **Subtle DISTINCT bug surfaced**: a conversation contributing as both `created` and `merged` would 3× the human-word sum without care. Documented and covered by T-6.
+  - Graceful partial-data behaviour documented: LOC columns render `-` when `change_refs.lines_added IS NULL`; empty DB prints a hint to run `db process all` / `fetch-loc`. Report is develop-able and unit-testable today even though #78/#79/#80 are still pending — full e2e verification waits on them.
+  - Test plan: 12 unit tests on real in-memory SQLite (seeded via `migrate()`) + 3 `CliRunner` smoke tests.
+- Dependency map surfaced in the issue body:
+  - **MERGED** #76 (schema), #77 via PR #85 (human_input)
+  - **Not yet implemented** #78 (PR contributions), #79 (direct pushes), #80 (LOC fetch)
+  - `'unknown'` `initial_prompt_source` (currently 100% of rows until #83) treated optimistically as `'human'` and documented as a caveat.
+- **Unblocks #82** (charting) — explicit guidance that `fetch_raw_rows` / `bucket_by_iso_week` should be importable.
+- Comment added with full Technical Approach, file layout, SQL strategy, Implementation Plan, and Test Plan.
+
