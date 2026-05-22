@@ -1,3 +1,29 @@
+### 2026-05-22 06:55 UTC - Expansion Worker (Issue #92)
+
+**Expanded:** [Issue #92 — Weekly conversion counts CSV export (cloud, cli, total)](https://github.com/jpshackelford/ohtv/issues/92) → `ready` + `priority:medium`
+
+**Verification (anchors all matched):**
+- `src/ohtv/sources/base.py:18`, `sources/local.py:16` — source identifier is **`local`** (not `cli`) → flagged the naming gotcha in the expansion comment and recommended translating at the report layer.
+- `src/ohtv/db/migrations/006_conversation_metadata.py` — `source`, `created_at` columns + indices already exist; **no migration needed** for counts-only scope.
+- `src/ohtv/db/stores/conversation_store.py:140-180` — `list_in_range(start, end, source)` already filters by all three; query layer is reusable as-is.
+- `src/ohtv/analysis/periods.py` — `make_week_period()`, `iterate_periods("week", …)`, `PeriodInfo.iso` already emit `YYYY-Www` (zero-padded ISO 8601); directly reusable.
+- `src/ohtv/filters.py:parse_date_filter` — same `--since`/`--until` parsing used by `list`/`refs`/`errors`/`search`.
+- `db/scanner.py:104`, `sources/local.py:20` (`timestamps_are_utc = source != "local"`) — local timestamps are naive; flagged TZ caveat (best-effort UTC treatment).
+- Sibling #81 (`ready`, `priority:medium`) — establishes `src/ohtv/reports/` package + `report` Click group + table/CSV writer convention + ISO-week-in-Python regression test pattern. Recommend implementing #92 after #81 to reuse ~80 LOC of scaffolding.
+
+**Verdict:** Author's body is clean and small (counts only); author's follow-up comment proposes a substantial scope expansion to add token/cost columns (new DB migration + sync extraction + litellm cost computation + backfill of ~1280 conversations). VERIFY-rather-than-rewrite pattern: posted a focused expansion comment that (a) treats the body as the canonical narrow scope, (b) flags the `cli` vs `local` naming gotcha, (c) makes 12 explicit design decisions (ISO week, `YYYY-Www`, `created_at` bucket, UTC bins with caveat, wide column shape, stdout-by-default + `--out`, `--include-empty` matching #81, `--exclude-current-week`, `--source [cloud|cli|all]`, reuse `parse_date_filter`), (d) provides file-by-file plan (~150 LOC `weekly_counts.py` + ~50 LOC CLI wiring), (e) gives a single-table SQL with **Python-side ISO bucketing** (NOT SQL `%W`/`%V` — same regression #81 documents in T-4), (f) test plan of 12 unit tests + 3 CLI smoke tests, (g) ACs, (h) dependencies (soft on #81, upstream of #82, no hard deps), and (i) **recommends filing token/cost as a separate companion issue** with a feature-comparison table (effort: ½ day for counts vs 2–3 days for tokens/cost). Did not apply `needs-split` because (1) repo doesn't have that label, (2) the body itself is already cleanly scoped, (3) orchestrator handoff guidance specifies `enhancement, ready, priority:*` as the ready set.
+
+**Priority rationale:** `priority:medium` — matches sibling #81 (also medium) and downstream #82 (low/charting consumes this CSV). It's a reporting/insight feature, not a blocker. Implementation is ~½ day if #81 lands first (reuses scaffolding); otherwise ~1 day standalone.
+
+**Actions taken:**
+1. Posted [expansion comment](https://github.com/jpshackelford/ohtv/issues/92#issuecomment-4516029892) with anchor verification table, 12 design decisions, file-by-file plan, SQL+Python sketch, test plan, ACs, sequencing notes, and a scope-split recommendation for the token/cost expansion.
+2. Added labels: `ready`, `priority:medium`, `enhancement` (final: `enhancement, ready, priority:medium`).
+3. No code changes — expansion comment only.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+---
 ### 2026-05-22 04:49 UTC - Implementation Worker (Issue #86)
 
 **Implemented:** [Issue #86 — Add sync --update-metadata to pick up cloud-side title/label edits](https://github.com/jpshackelford/ohtv/issues/86) → PR [#93](https://github.com/jpshackelford/ohtv/pull/93) (ready for review)
