@@ -739,3 +739,49 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 **Priority rationale:** Kept at `priority:medium` to match #78/#79 it consumes from, per orchestrator instructions. Not bumped to high because #80 is not a hard blocker for #81's *expansion* — only its full verification — and #78/#79 themselves remain medium.
 
 ---
+### 2026-05-22 00:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `96ff9d4` | implementation | Issue #78 — PR contribution detection stage | **NEW** running |
+| `4a0bd57` | expansion | Issue #81 — velocity report command | **NEW** running |
+
+**🚀 Spawned: 2 Workers (both slots filled, parallel)**
+
+1. **Implementation Worker** — PR slot
+   - Issue: [#78 — Add PR contribution detection stage](https://github.com/jpshackelford/ohtv/issues/78) (priority:medium)
+   - Conversation: [`96ff9d4`](https://app.all-hands.dev/conversations/96ff9d46a962433c87496d195d3b17d6)
+   - Start task: `12a4cf50a6004d9e8b05fb99e6b09545` → READY on first poll (~5s)
+   - Post-spawn verification (~8s later): `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: pulled fresh `main` (PR #85 head `38d5032`), patterned tests on the recently-merged `tests/unit/db/stages/test_human_input.py`, called out that #79 (direct-push detection) consumes the same stage interface so keep it generic
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#81 — Add velocity report command](https://github.com/jpshackelford/ohtv/issues/81)
+   - Conversation: [`4a0bd57`](https://app.all-hands.dev/conversations/4a0bd574c3224b3f8785beb0f1e11f60)
+   - Start task: `344e88e2c8c64ce690849711b9445293` → READY on first poll (~5s)
+   - Post-spawn verification (~8s later): `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: flagged the existing issue body's `src/ohtv/commands/report.py` path as inconsistent with repo convention (CLI lives in `src/ohtv/cli.py`), asked the worker to reconcile the way #80 did. Documented full dep map: needs #78/#79/#80 (all in-flight or ready) for full output, MERGED #76 + #77 already provide schema/words columns. Target priority on completion: `priority:medium`.
+
+**Decision rationale:**
+- Previous cycle (23:53Z) merged PR #85 (Issue #77) and the same cycle's downstream expansion worker (23:55Z) finished expanding Issue #80 with `ready`+`priority:medium`. Both worker slots emptied at wake.
+- **PR slot pick (#78 over #79/#80):** All three are `priority:medium`. Per the documented dep chain (worklog 23:20Z entry: `#78 → #79 → (#80 once #79 done)`), #78 is the strict root and is the only one with zero implementation deps in-tree. #80's expansion comment also notes #80 itself doesn't hard-block on #78/#79 for unit tests (it seeds `change_refs` directly), but the contribution-detection stage from #78 is the producer for everything else in the reporting cluster — start there.
+- **Expansion slot pick (#81 over #82/#83/#86/#87):** Per `/orchestrate` "oldest unexpanded issue" rule. #81 (created earliest of the unexpanded) is also the gateway for #82 (charting) and consumes the entire #78/#79/#80 chain — expanding it now lets us pipeline the design while #78 is being implemented. #83 (newly unblocked by PR #85's `initial_prompt_source` preservation contract) is queued for next cycle. #86/#87 are sync-metadata items that can wait.
+- **NOT spawned:** No docs/testing/review/merge work because no PR is open.
+
+**Current State:**
+- No open PRs (PR #85 merged at 23:53Z; main at `f8e3f06`)
+- Ready issues being worked: #78 (in flight), #81 (in expansion)
+- Other ready issues (queued): #79, #80 (both priority:medium) — next PR-slot candidates after #78 lands
+- Issues needing expansion (next cycles): #82 (charting, depends on #81), #83 (classification, unblocked by #77), #86 (sync --update-metadata, priority:medium), #87 (manifest cache, priority:low). Order on completion of #81: #83 → #82 → #86 → #87 (#83 has no in-tree deps and was specifically flagged unblocked at 23:53Z).
+- On hold: #26
+- Housekeeping: WORKLOG.md at 741 lines (well over the 300-line threshold). Deferring truncation again — both slots are now occupied, so cycle ends here and truncation can run in a future cycle when the PR slot is naturally idle (e.g., between PR #78 merge and the next implementation spawn) to avoid mixing housekeeping commits with active worker activity.
+
+**Next check (~30 min):**
+- If `4a0bd57` (expansion #81) finishes and adds `ready` label, the expansion slot reopens → spawn #83 expansion (per queue order above).
+- If `96ff9d4` (implementation #78) opens a draft PR → orchestrator will track via PR-slot workflow (docs → testing → review → merge), per the documented sequence.
+- If either worker enters `error`/`stuck`, surface in next entry for human attention.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
