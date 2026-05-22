@@ -2,6 +2,11 @@
 
 from ohtv.db.stores.action_store import ActionStore
 from ohtv.db.stores.analysis_cache_store import AnalysisCacheStore
+from ohtv.db.stores.contributions_store import (
+    ChangeRef,
+    Contribution,
+    ContributionsStore,
+)
 from ohtv.db.stores.conversation_store import ConversationStore
 from ohtv.db.stores.embedding_store import EmbeddingStore
 from ohtv.db.stores.link_store import LinkStore
@@ -12,6 +17,9 @@ from ohtv.db.stores.stage_store import StageStore
 __all__ = [
     "ActionStore",
     "AnalysisCacheStore",
+    "ChangeRef",
+    "Contribution",
+    "ContributionsStore",
     "ConversationStore",
     "EmbeddingStore",
     "LinkStore",
