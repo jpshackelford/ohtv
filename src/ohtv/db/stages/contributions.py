@@ -116,7 +116,7 @@ def process_contributions(
     # Forward-pass state for push-to-PR correlation. Mirrors push_pr_links.
     active_pr_per_branch: dict[str, int] = {}      # branch_key → change_ref_id
     first_pr_per_branch: dict[str, int] = {}       # branch_key → change_ref_id
-    orphan_push_branches: list[str] = []           # branch_keys awaiting backward pass
+    orphan_push_branches: set[str] = set()         # branch_keys awaiting backward pass
 
     # Fallback map for MERGE_PR actions that lack repo metadata: remember
     # which (owner, repo, host) was attached to each PR number we created
@@ -291,7 +291,7 @@ def _handle_git_push(
     conversation_id: str,
     contributions_store: ContributionsStore,
     active_pr_per_branch: dict[str, int],
-    orphan_push_branches: list[str],
+    orphan_push_branches: set[str],
 ) -> None:
     """Attribute a GIT_PUSH action to its branch's PR, when possible.
 
@@ -317,7 +317,7 @@ def _handle_git_push(
             conversation_id, change_ref_id, "pushed"
         )
     else:
-        orphan_push_branches.append(branch_key)
+        orphan_push_branches.add(branch_key)
 
 
 # ---------------------------------------------------------------------------
