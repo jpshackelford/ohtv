@@ -11,7 +11,10 @@ from ohtv.db.scanner import (
     ScanResult,
     count_events,
     discover_conversations,
+    extract_metadata,
     get_events_mtime,
+    load_manifest_labels,
+    load_manifest_metadata,
     scan_conversations,
 )
 from ohtv.db.stores import ConversationStore
@@ -440,3 +443,149 @@ class TestScanConversations:
         
         store = ConversationStore(db_conn)
         assert store.get("conv-1") is not None
+
+
+# =====================================================================
+# Issue #86: manifest title preference + load_manifest_metadata()
+# =====================================================================
+
+
+class TestLoadManifestMetadata:
+    """Tests for load_manifest_metadata() (Issue #86)."""
+
+    def test_returns_empty_when_manifest_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "ohtv.db.scanner.get_manifest_path",
+            lambda: tmp_path / "missing.json",
+        )
+        assert load_manifest_metadata() == {}
+
+    def test_returns_empty_on_corrupt_manifest(self, tmp_path, monkeypatch):
+        manifest_path = tmp_path / "manifest.json"
+        manifest_path.write_text("not valid json {")
+        monkeypatch.setattr(
+            "ohtv.db.scanner.get_manifest_path", lambda: manifest_path
+        )
+        assert load_manifest_metadata() == {}
+
+    def test_extracts_title_and_labels(self, tmp_path, monkeypatch):
+        manifest_path = tmp_path / "manifest.json"
+        manifest_path.write_text(json.dumps({
+            "conversations": {
+                "conv1": {
+                    "title": "My Convo",
+                    "labels": {"qa": "smoke"},
+                    "updated_at": "x",
+                },
+                "conv2": {
+                    "title": None,
+                    "labels": None,
+                },
+            }
+        }))
+        monkeypatch.setattr(
+            "ohtv.db.scanner.get_manifest_path", lambda: manifest_path
+        )
+
+        m = load_manifest_metadata()
+        assert m["conv1"] == {"title": "My Convo", "labels": {"qa": "smoke"}}
+        # labels normalized to {} (the sentinel meaning "manifest knows
+        # about it, no labels")
+        assert m["conv2"] == {"title": None, "labels": {}}
+
+    def test_load_manifest_labels_still_works(self, tmp_path, monkeypatch):
+        """Backward-compatible wrapper still returns labels-only map."""
+        manifest_path = tmp_path / "manifest.json"
+        manifest_path.write_text(json.dumps({
+            "conversations": {
+                "conv1": {"title": "X", "labels": {"k": "v"}},
+                "conv2": {"title": "Y", "labels": None},
+            }
+        }))
+        monkeypatch.setattr(
+            "ohtv.db.scanner.get_manifest_path", lambda: manifest_path
+        )
+
+        labels = load_manifest_labels()
+        assert labels["conv1"] == {"k": "v"}
+        assert labels["conv2"] == {}
+
+
+class TestExtractMetadataManifestTitlePreference:
+    """Tests for the Issue #86 title-source precedence."""
+
+    def _make_conv(self, base: Path, conv_id: str, base_state_title: str | None):
+        """Build a conv dir with a base_state.json containing the given title."""
+        conv_dir = base / conv_id
+        (conv_dir / "events").mkdir(parents=True)
+        if base_state_title is not None:
+            (conv_dir / "base_state.json").write_text(json.dumps({
+                "title": base_state_title,
+            }))
+        return conv_dir
+
+    def test_manifest_title_overrides_base_state(self, tmp_path):
+        conv_dir = self._make_conv(tmp_path, "conv1", base_state_title="Original")
+        manifest_map = {"conv1": {"title": "Renamed in cloud", "labels": {}}}
+
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+
+        assert meta["title"] == "Renamed in cloud"
+
+    def test_falls_back_to_base_state_when_manifest_title_empty(self, tmp_path):
+        conv_dir = self._make_conv(tmp_path, "conv1", base_state_title="From base_state")
+        manifest_map = {"conv1": {"title": None, "labels": {}}}
+
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+
+        assert meta["title"] == "From base_state"
+
+    def test_falls_back_to_base_state_when_manifest_title_whitespace(self, tmp_path):
+        conv_dir = self._make_conv(tmp_path, "conv1", base_state_title="From base_state")
+        # Title is only whitespace — treat as empty.
+        manifest_map = {"conv1": {"title": "   ", "labels": {}}}
+
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+
+        assert meta["title"] == "From base_state"
+
+    def test_falls_back_to_base_state_when_conv_not_in_manifest(self, tmp_path):
+        conv_dir = self._make_conv(tmp_path, "conv1", base_state_title="From base_state")
+        # Manifest knows nothing about this conv at all
+        manifest_map: dict[str, dict] = {}
+
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+
+        assert meta["title"] == "From base_state"
+
+    def test_no_manifest_map_preserves_base_state_behavior(self, tmp_path):
+        conv_dir = self._make_conv(tmp_path, "conv1", base_state_title="X")
+        # Legacy call with no manifest_map at all
+        meta = extract_metadata(conv_dir, "cloud")
+        assert meta["title"] == "X"
+
+    def test_legacy_labels_map_argument_still_works(self, tmp_path):
+        """Backward-compat: the labels_map kwarg still controls labels."""
+        conv_dir = self._make_conv(tmp_path, "conv1", base_state_title="X")
+        labels_map = {"conv1": {"qa": "smoke"}}
+
+        meta = extract_metadata(conv_dir, "cloud", labels_map=labels_map)
+
+        assert meta["labels"] == {"qa": "smoke"}
+
+    def test_manifest_map_drives_labels_too(self, tmp_path):
+        """When manifest_map is given, its labels are used."""
+        conv_dir = self._make_conv(tmp_path, "conv1", base_state_title="X")
+        manifest_map = {
+            "conv1": {"title": "Renamed", "labels": {"qa": "smoke"}},
+        }
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+        assert meta["title"] == "Renamed"
+        assert meta["labels"] == {"qa": "smoke"}
+
+    def test_empty_dict_labels_in_manifest_clears_labels(self, tmp_path):
+        """Empty-dict labels in manifest signals 'explicitly cleared' -> None."""
+        conv_dir = self._make_conv(tmp_path, "conv1", base_state_title="X")
+        manifest_map = {"conv1": {"title": None, "labels": {}}}
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+        assert meta["labels"] is None

@@ -63,6 +63,40 @@ class SyncResult:
 
 
 @dataclass
+class MetadataRefreshResult:
+    """Results of a metadata-only refresh (Issue #86).
+
+    Reports what was learned from comparing the cloud listing against the
+    local manifest. Does NOT modify ``manifest.last_sync_at`` or
+    ``manifest.sync_count`` — this is an out-of-band pass that never
+    downloads trajectories.
+    """
+
+    checked: int = 0
+    title_changed: int = 0
+    labels_changed: int = 0
+    both_changed: int = 0
+    unchanged: int = 0
+    new_on_cloud: int = 0       # In cloud listing but not in manifest (count only)
+    missing_on_cloud: int = 0   # In manifest but not in cloud listing (count only)
+    errors: list[tuple[str, str]] = field(default_factory=list)
+    elapsed_seconds: float = 0.0
+
+    @property
+    def total_changed(self) -> int:
+        """Number of manifest entries that received at least one change."""
+        # both_changed counts a single conv whose title and labels both differ.
+        # title_changed and labels_changed are individual field counters; their
+        # sum minus both_changed (which we counted in BOTH columns) gives the
+        # number of entries touched at least once.
+        return self.title_changed + self.labels_changed - self.both_changed
+
+    @property
+    def has_errors(self) -> bool:
+        return len(self.errors) > 0
+
+
+@dataclass
 class RepairResult:
     """Results of a repair operation."""
 
@@ -681,6 +715,247 @@ class SyncManager:
         
         return result
 
+    # ------------------------------------------------------------------ #
+    # Metadata-only refresh (Issue #86)
+    # ------------------------------------------------------------------ #
+
+    def update_metadata(
+        self,
+        *,
+        dry_run: bool = False,
+        on_progress: Callable[[int, int], None] | None = None,
+        client: CloudClient | None = None,
+    ) -> MetadataRefreshResult:
+        """Refresh cached ``title`` and ``labels`` for synced conversations.
+
+        Lists every cloud conversation (unfiltered by ``updated_at``), then
+        for each manifest entry that also appears in the listing, rewrites
+        the manifest's ``title``/``labels`` fields and the DB row when
+        they differ. Never downloads trajectories.
+
+        Args:
+            dry_run: If True, count diffs but do not write the manifest or
+                DB. Manifest file mtime is preserved.
+            on_progress: Optional callback ``(processed, total)`` invoked
+                after each manifest entry is checked. Useful for CLI
+                progress bars.
+            client: Optional pre-opened CloudClient to reuse (e.g. from
+                an auto-run after a normal sync). If None, opens a new
+                client using ``self.config``.
+
+        Returns:
+            MetadataRefreshResult with diff counts and any errors.
+
+        Raises:
+            ValueError: If no API key is configured.
+            SyncAuthError: On 401/403 from the cloud API.
+            SyncAbortedError: On unrecoverable network errors.
+        """
+        if not self.config.api_key:
+            raise ValueError(
+                "API key required. Set OPENHANDS_API_KEY or OH_API_KEY environment variable."
+            )
+
+        import time as _time
+        start = _time.perf_counter()
+        result = MetadataRefreshResult()
+
+        try:
+            if client is not None:
+                cloud_by_id = self._fetch_cloud_listing_by_id(client)
+            else:
+                with CloudClient(self.config.cloud_api_url, self.config.api_key) as new_client:
+                    cloud_by_id = self._fetch_cloud_listing_by_id(new_client)
+        except httpx.HTTPStatusError as e:
+            log.error("HTTP error during metadata refresh: %s %s",
+                      e.response.status_code, e.response.reason_phrase)
+            if e.response.status_code in (401, 403):
+                raise SyncAuthError(
+                    f"Authentication failed (HTTP {e.response.status_code}). Check your API key."
+                )
+            raise
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            log.error("Network error during metadata refresh: %s", e)
+            raise SyncAbortedError(f"Network error: {e}")
+
+        # Compute diffs against the manifest. We snapshot the manifest IDs up
+        # front so changes during iteration are deterministic.
+        manifest_ids = list(self.manifest.conversations.keys())
+        cloud_ids = set(cloud_by_id.keys())
+        result.new_on_cloud = len(cloud_ids - set(manifest_ids))
+        manifest_only = [cid for cid in manifest_ids if cid not in cloud_by_id]
+        result.missing_on_cloud = len(manifest_only)
+
+        in_both = [cid for cid in manifest_ids if cid in cloud_by_id]
+        total = len(in_both)
+        any_change_applied = False
+        store = self._get_conversation_store()
+
+        try:
+            for i, conv_id in enumerate(in_both):
+                cloud_conv = cloud_by_id[conv_id]
+                manifest_entry = self.manifest.conversations[conv_id]
+                title_changed, labels_changed = _metadata_differs(cloud_conv, manifest_entry)
+
+                result.checked += 1
+                if not (title_changed or labels_changed):
+                    result.unchanged += 1
+                else:
+                    if title_changed:
+                        result.title_changed += 1
+                    if labels_changed:
+                        result.labels_changed += 1
+                    if title_changed and labels_changed:
+                        result.both_changed += 1
+
+                    if not dry_run:
+                        new_title = cloud_conv.get("title") if title_changed else manifest_entry.get("title")
+                        new_labels = _normalize_labels(cloud_conv.get("tags")) if labels_changed else _normalize_labels(manifest_entry.get("labels"))
+                        if self._update_metadata_with_error_handling(
+                            conv_id, new_title, new_labels, store, result,
+                        ):
+                            any_change_applied = True
+
+                if on_progress:
+                    try:
+                        on_progress(i + 1, total)
+                    except Exception:  # pragma: no cover - never let progress crash sync
+                        pass
+
+            if any_change_applied and not dry_run:
+                self.manifest.save(self.manifest_path)
+                # Commit DB writes if we opened a connection
+                if store is not None and store.conn is not None:
+                    try:
+                        store.conn.commit()
+                    except Exception as e:  # pragma: no cover - best effort
+                        log.warning("Failed to commit DB metadata updates: %s", e)
+        finally:
+            # Always close the DB connection we opened in _get_conversation_store.
+            # We own the connection lifecycle here (the factory returns a raw
+            # sqlite3.Connection — not a context manager). The try/finally
+            # guards against manifest.save() raising (disk full, permission
+            # denied, etc.), which would otherwise leak the connection.
+            if store is not None and store.conn is not None:
+                try:
+                    store.conn.close()
+                except Exception as e:  # pragma: no cover - best effort
+                    log.warning("Failed to close DB metadata connection: %s", e)
+
+        result.elapsed_seconds = _time.perf_counter() - start
+        log.info(
+            "Metadata refresh complete: checked=%d title_changed=%d labels_changed=%d "
+            "both_changed=%d unchanged=%d new_on_cloud=%d missing_on_cloud=%d errors=%d",
+            result.checked, result.title_changed, result.labels_changed, result.both_changed,
+            result.unchanged, result.new_on_cloud, result.missing_on_cloud, len(result.errors),
+        )
+        return result
+
+    @staticmethod
+    def _fetch_cloud_listing_by_id(client: CloudClient) -> dict[str, dict]:
+        """Pull the full unfiltered listing and key it by conversation id."""
+        items = client.search_all_conversations(updated_since=None)
+        return {item["id"]: item for item in items if "id" in item}
+
+    def _get_conversation_store(self):
+        """Open a DB connection + ConversationStore, returning None on failure.
+
+        Errors are logged at info level — failure to open the DB does not
+        abort the manifest-only refresh, since manifest writes still benefit
+        the user and the DB will be reconciled on the next ``db scan``.
+
+        Returns a ``ConversationStore`` backed by a raw ``sqlite3.Connection``.
+        The caller owns the connection lifecycle and must call
+        ``store.conn.close()`` when finished. We open a real connection here
+        (rather than entering ``get_connection()`` as a context manager)
+        because ``ConversationStore`` expects a live ``sqlite3.Connection``,
+        and entering/exiting the CM around each call would also create a
+        new connection per call — defeating the point of holding a store.
+        """
+        try:
+            import sqlite3
+
+            from ohtv.db import get_db_path
+            from ohtv.db.stores import ConversationStore
+        except Exception as e:  # pragma: no cover - defensive
+            log.info("DB module unavailable, skipping DB metadata updates: %s", e)
+            return None
+        try:
+            db_path = get_db_path()
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            # WAL mode mirrors get_connection() for consistent concurrency
+            # behavior with the rest of the codebase.
+            conn.execute("PRAGMA journal_mode = WAL")
+        except Exception as e:
+            log.info("Could not open DB for metadata updates: %s", e)
+            return None
+        return ConversationStore(conn)
+
+    def _update_metadata_with_error_handling(
+        self,
+        conv_id: str,
+        new_title: str | None,
+        new_labels: dict[str, str] | None,
+        store,
+        result: "MetadataRefreshResult",
+    ) -> bool:
+        """Apply title + labels updates to manifest and (if open) DB.
+
+        Flattens what would otherwise be a 6-level-nested try/except in the
+        main refresh loop. Manifest write is attempted first; if it fails,
+        the DB write is skipped to preserve "manifest is source of truth"
+        ordering. DB failures are recorded but never roll back the manifest
+        change.
+
+        Returns:
+            True if the manifest write succeeded (caller should treat the
+            row as updated, e.g. set ``any_change_applied``). False if the
+            manifest write failed.
+        """
+        try:
+            self._write_manifest_metadata(
+                conv_id, title=new_title, labels=new_labels,
+            )
+        except Exception as e:
+            log.warning("Failed to update manifest metadata for %s: %s", conv_id, e)
+            result.errors.append((conv_id, str(e)))
+            return False
+
+        if store is not None:
+            try:
+                store.update_metadata(
+                    conv_id, title=new_title, labels=new_labels,
+                )
+            except Exception as e:
+                log.warning("Failed to update DB metadata for %s: %s", conv_id, e)
+                result.errors.append((conv_id, f"db: {e}"))
+        return True
+
+    def _write_manifest_metadata(
+        self,
+        conv_id: str,
+        *,
+        title: str | None,
+        labels: dict[str, str] | None,
+    ) -> None:
+        """Rewrite ONLY title + labels on the manifest entry.
+
+        Preserves ``updated_at``, ``event_count``, and ``downloaded_at``
+        byte-for-byte — only the two metadata fields are touched.
+        """
+        entry = self.manifest.conversations.get(conv_id)
+        if entry is None:  # pragma: no cover - guarded by caller
+            return
+        entry["title"] = title
+        entry["labels"] = labels
+
+    # ------------------------------------------------------------------ #
+    # End metadata-only refresh
+    # ------------------------------------------------------------------ #
+
     def _find_conversation_dir(self, conv_id: str) -> Path | None:
         """Find conversation directory on disk, handling UUID format variations."""
         synced_dir = self.config.synced_conversations_dir
@@ -809,3 +1084,52 @@ def _format_datetime(dt: datetime | None) -> str | None:
     if not dt:
         return None
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _normalize_labels(value: object) -> dict[str, str] | None:
+    """Normalize a labels/tags value to ``dict[str, str]`` or ``None``.
+
+    Empty dict ``{}`` collapses to ``None`` to match the normalization in
+    ``sources/cloud.py:parse_conversation_info`` and the manifest writer in
+    ``SyncManager._update_manifest_entry``. Non-dict / falsy values also
+    collapse to ``None``.
+    """
+    if isinstance(value, dict) and len(value) > 0:
+        # Cast keys/values to str defensively — API returns strings, but
+        # we don't want a stray int sneaking into the DB JSON column.
+        return {str(k): str(v) for k, v in value.items()}
+    return None
+
+
+def _metadata_differs(
+    cloud_conv: dict,
+    manifest_entry: dict,
+) -> tuple[bool, bool]:
+    """Compare cloud listing entry vs manifest entry on title+labels.
+
+    Both fields are normalized before comparison:
+    - ``title``: missing/empty strings collapse to ``None``.
+    - ``labels``: empty dict ``{}`` collapses to ``None`` (same rule as
+      ``parse_conversation_info``); key order is irrelevant since we
+      compare dicts directly.
+
+    Args:
+        cloud_conv: Conversation dict from the cloud listing
+            (``client.search_all_conversations``). Labels live under
+            ``"tags"`` in the API response.
+        manifest_entry: Conversation entry from the local manifest.
+            Labels live under ``"labels"`` (already normalized at write
+            time by ``_update_manifest_entry``).
+
+    Returns:
+        ``(title_changed, labels_changed)`` booleans.
+    """
+    cloud_title = cloud_conv.get("title") or None
+    manifest_title = manifest_entry.get("title") or None
+    title_changed = cloud_title != manifest_title
+
+    cloud_labels = _normalize_labels(cloud_conv.get("tags"))
+    manifest_labels = _normalize_labels(manifest_entry.get("labels"))
+    labels_changed = cloud_labels != manifest_labels
+
+    return title_changed, labels_changed
