@@ -101,18 +101,23 @@ class ContributionsStore:
         repo_id: int,
         commit_range: str,
         branch: str | None = None,
+        status: str = "pending",
     ) -> int:
         """Return the change_ref ID for a direct push, creating it if needed.
 
         Direct pushes are uniquely identified by ``(repo_id, commit_range)``.
-        This method is provided so a future stage (issue #79) can detect
-        pushes that bypass PRs without needing to add a new store.
+        This method is used by the contributions stage to record pushes
+        that bypass PRs.
 
         Args:
             repo_id: Foreign key into ``repositories``.
             commit_range: A unique identifier for the push - typically the
                 ``oldsha..newsha`` range from ``git push`` output.
             branch: Optional branch name, recorded on creation only.
+            status: Initial change_ref status, recorded on creation only.
+                For direct pushes to main/master the caller typically
+                passes ``"merged"`` since the change has already landed.
+                Defaults to ``"pending"`` for backwards compatibility.
 
         Returns:
             The integer ID of the (existing or newly inserted) change_ref.
@@ -131,10 +136,10 @@ class ContributionsStore:
             """
             INSERT INTO change_refs
                 (repo_id, change_type, commit_range, branch, status)
-            VALUES (?, 'direct_push', ?, ?, 'pending')
+            VALUES (?, 'direct_push', ?, ?, ?)
             RETURNING id
             """,
-            (repo_id, commit_range, branch),
+            (repo_id, commit_range, branch, status),
         )
         return cursor.fetchone()[0]
 

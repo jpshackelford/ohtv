@@ -149,6 +149,31 @@ class TestGetOrCreateDirectPushChangeRef:
         push = store.get_or_create_direct_push_change_ref(repo_id, "aaa..bbb")
         assert pr != push
 
+    def test_creates_with_explicit_status_merged(self, db_conn, repo_id):
+        """Direct-push detection (#79) creates change_refs with status='merged'."""
+        store = ContributionsStore(db_conn)
+        cr_id = store.get_or_create_direct_push_change_ref(
+            repo_id, "abc..def", branch="main", status="merged"
+        )
+        change_ref = store.get_change_ref(cr_id)
+        assert change_ref is not None
+        assert change_ref.status == "merged"
+
+    def test_status_preserved_across_dedup_lookup(self, db_conn, repo_id):
+        """Re-calling with a different status returns the existing row unchanged."""
+        store = ContributionsStore(db_conn)
+        first = store.get_or_create_direct_push_change_ref(
+            repo_id, "abc..def", status="merged"
+        )
+        second = store.get_or_create_direct_push_change_ref(
+            repo_id, "abc..def", status="pending"
+        )
+        assert first == second
+        change_ref = store.get_change_ref(first)
+        assert change_ref is not None
+        # First insert wins: status stays 'merged'.
+        assert change_ref.status == "merged"
+
 
 # ---------------------------------------------------------------------------
 # record_contribution / get_*_for_*

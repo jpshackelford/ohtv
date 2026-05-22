@@ -8,6 +8,7 @@ from ohtv.db.stages.recognizers.git_operations import (
     recognize_git_operations,
     _extract_push_branch,
     _extract_repo_from_push_target,
+    extract_push_info,
     extract_working_directory,
     extract_checkout_branch,
     is_checkout_command,
@@ -297,6 +298,205 @@ class TestExtractRepoFromPushTarget:
         """Should return None for non-GitHub URLs."""
         url = "https://gitlab.com/owner/repo.git"
         assert _extract_repo_from_push_target(url) is None
+
+
+class TestExtractPushInfo:
+    """Tests for commit-range extraction from git push output."""
+
+    def test_extracts_fast_forward_push(self):
+        """Standard fast-forward push line yields base/head/range/branch."""
+        output = (
+            "To https://github.com/owner/repo.git\n"
+            "   418680a..6ecae71  main -> main\n"
+        )
+        info = extract_push_info(output)
+        assert info is not None
+        assert info["base_commit"] == "418680a"
+        assert info["head_commit"] == "6ecae71"
+        assert info["commit_range"] == "418680a..6ecae71"
+        assert info["local_branch"] == "main"
+        assert info["remote_branch"] == "main"
+        assert info["force"] is False
+
+    def test_extracts_full_sha_push(self):
+        """40-char SHAs are accepted."""
+        base = "a" * 40
+        head = "b" * 40
+        output = f"   {base}..{head}  develop -> develop"
+        info = extract_push_info(output)
+        assert info is not None
+        assert info["base_commit"] == base
+        assert info["head_commit"] == head
+        assert info["commit_range"] == f"{base}..{head}"
+
+    def test_extracts_feature_branch_push(self):
+        """Branch names with slashes are preserved verbatim."""
+        output = (
+            "To github.com:OpenHands/software-agent-sdk.git\n"
+            "   4e29d53..2a8b342  feature/my-branch -> feature/my-branch\n"
+        )
+        info = extract_push_info(output)
+        assert info is not None
+        assert info["local_branch"] == "feature/my-branch"
+        assert info["remote_branch"] == "feature/my-branch"
+        assert info["force"] is False
+
+    def test_extracts_force_push_three_dot(self):
+        """Force-push lines use ``...`` and set force=True."""
+        output = (
+            "To github.com:owner/repo.git\n"
+            " + 418680a...6ecae71  main -> main (forced update)\n"
+        )
+        info = extract_push_info(output)
+        assert info is not None
+        assert info["base_commit"] == "418680a"
+        assert info["head_commit"] == "6ecae71"
+        assert info["commit_range"] == "418680a...6ecae71"
+        assert info["force"] is True
+
+    def test_force_push_two_dot_with_plus_marker(self):
+        """A leading ``+`` marker also indicates a force push."""
+        output = " + 418680a..6ecae71  main -> main (forced update)\n"
+        info = extract_push_info(output)
+        assert info is not None
+        assert info["force"] is True
+
+    def test_local_and_remote_branch_can_differ(self):
+        """``local -> remote`` is preserved as two distinct fields."""
+        output = "   abc1234..def5678  local-branch -> remote-branch"
+        info = extract_push_info(output)
+        assert info is not None
+        assert info["local_branch"] == "local-branch"
+        assert info["remote_branch"] == "remote-branch"
+
+    def test_returns_none_for_new_branch_output(self):
+        """A new-branch push has no commit range."""
+        output = (
+            "To https://github.com/owner/repo.git\n"
+            " * [new branch]      feature/x -> feature/x\n"
+        )
+        assert extract_push_info(output) is None
+
+    def test_returns_none_for_everything_up_to_date(self):
+        """`Everything up-to-date` has no commit range."""
+        assert extract_push_info("Everything up-to-date\n") is None
+
+    def test_returns_none_for_empty_output(self):
+        """Empty or ``None`` output returns ``None``."""
+        assert extract_push_info("") is None
+        assert extract_push_info(None) is None  # type: ignore[arg-type]
+
+    def test_returns_none_for_unrelated_output(self):
+        """Unrelated terminal output yields ``None``."""
+        assert extract_push_info("fatal: bad config line\n") is None
+
+
+class TestRecognizeGitPushPopulatesCommitRange:
+    """The GIT_PUSH recognizer surfaces commit_range metadata when present."""
+
+    @pytest.fixture
+    def make_context(self):
+        def _make(events, current_index=0):
+            return RecognizerContext(
+                conversation_id="test-conv",
+                events=events,
+                current_index=current_index,
+            )
+        return _make
+
+    def test_push_to_main_adds_commit_range_metadata(self, make_context):
+        """A direct push to main adds commit_range/base/head/remote_branch."""
+        action_event = {
+            "id": "evt-1",
+            "kind": "ActionEvent",
+            "tool_name": "terminal",
+            "action": {"command": "git push origin main"},
+        }
+        obs_event = {
+            "kind": "ObservationEvent",
+            "observation": {
+                "exit_code": 0,
+                "content": [{
+                    "type": "text",
+                    "text": (
+                        "To https://github.com/owner/repo.git\n"
+                        "   418680a..6ecae71  main -> main\n"
+                    ),
+                }],
+            },
+        }
+        context = make_context([action_event, obs_event])
+        actions = recognize_git_operations(action_event, context)
+
+        assert len(actions) == 1
+        meta = actions[0].metadata
+        assert meta is not None
+        assert meta["branch"] == "main"
+        assert meta["remote_branch"] == "main"
+        assert meta["commit_range"] == "418680a..6ecae71"
+        assert meta["base_commit"] == "418680a"
+        assert meta["head_commit"] == "6ecae71"
+        assert "force" not in meta  # not a force push
+
+    def test_force_push_to_main_sets_force_flag(self, make_context):
+        """A force push to main sets force=True in metadata."""
+        action_event = {
+            "id": "evt-2",
+            "kind": "ActionEvent",
+            "tool_name": "terminal",
+            "action": {"command": "git push --force origin main"},
+        }
+        obs_event = {
+            "kind": "ObservationEvent",
+            "observation": {
+                "exit_code": 0,
+                "content": [{
+                    "type": "text",
+                    "text": (
+                        "To github.com:owner/repo.git\n"
+                        " + aaaaaaa...bbbbbbb  main -> main (forced update)\n"
+                    ),
+                }],
+            },
+        }
+        context = make_context([action_event, obs_event])
+        actions = recognize_git_operations(action_event, context)
+
+        assert len(actions) == 1
+        meta = actions[0].metadata
+        assert meta is not None
+        assert meta["commit_range"] == "aaaaaaa...bbbbbbb"
+        assert meta["force"] is True
+
+    def test_new_branch_push_has_no_commit_range(self, make_context):
+        """A new-branch push records the branch but no commit_range."""
+        action_event = {
+            "id": "evt-3",
+            "kind": "ActionEvent",
+            "tool_name": "terminal",
+            "action": {"command": "git push -u origin feature/x"},
+        }
+        obs_event = {
+            "kind": "ObservationEvent",
+            "observation": {
+                "exit_code": 0,
+                "content": [{
+                    "type": "text",
+                    "text": (
+                        "To https://github.com/owner/repo.git\n"
+                        " * [new branch]      feature/x -> feature/x\n"
+                    ),
+                }],
+            },
+        }
+        context = make_context([action_event, obs_event])
+        actions = recognize_git_operations(action_event, context)
+
+        assert len(actions) == 1
+        meta = actions[0].metadata
+        assert meta is not None
+        assert meta["branch"] == "feature/x"
+        assert "commit_range" not in meta
 
 
 class TestExtractWorkingDirectory:
