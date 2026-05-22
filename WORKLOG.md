@@ -774,3 +774,56 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-22 03:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e086d8c` | merge | PR #88 - feat: add PR contribution detection stage | **NEW** running |
+| `db9e81d` | expansion | Issue #90 - Add `ohtv label` for batch labeling by short ID | **NEW** running |
+
+**🚀 Spawned: 2 Workers (parallel — both slots filled, prior cycle's workers both succeeded)**
+
+1. **Merge Worker** — PR slot
+   - PR: [#88 - feat: add PR contribution detection stage](https://github.com/jpshackelford/ohtv/pull/88) (fixes #78)
+   - Conversation: [`e086d8c`](https://app.all-hands.dev/conversations/e086d8c101404c65880f4ae610295e4d)
+   - Start task: `963ea2537d2640cfad162fb3e4776d0a` → READY on first poll (~10s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: All 6 merge prerequisites satisfied (CI green @ `879f75e6`, docs ✓, re-test ✓ @ HEAD, all 3 review threads resolved, `MERGEABLE/CLEAN`, docs spot-check explicit "no edits needed" in re-test report). Worker tasked with: (a) study full PR diff holistically; (b) update PR description to reflect final state (multi-platform host preservation, set-based `orphan_push_branches`, declined `seen_pr_repo` suggestion with justification, Closes #78); (c) craft conventional commit body (`feat:` prefix, ≤72-char summary, body listing stage + multi-platform + dedup + `Fixes #78` trailer); (d) `gh pr merge 88 --squash --body "..."`; (e) verify merged state; (f) WORKLOG entry on main. Guardrails: no code edits, no other PRs/issues touched, no auto-rebase on conflict (escalate via WORKLOG instead).
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#90 - Add `ohtv label` for batch labeling by short ID](https://github.com/jpshackelford/ohtv/issues/90)
+   - Conversation: [`db9e81d`](https://app.all-hands.dev/conversations/db9e81dbe02041c29fab72add5997301)
+   - Start task: `bb67b80c2f764ba1b2b5e3e9c311261b` → READY on first poll (~10s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: Same VERIFY-rather-than-rewrite pattern used for #89 — author has already written a ~10K-char body with Summary, Motivation, and CLI surface. Worker tasked with: (a) verify code anchors (gen-objs short-ID generation, cloud PATCH client presence in `sources/cloud.py`, manifest writeback at `SyncManager._update_manifest_entry`, DB label storage, `ohtv.parallel.run_parallel`); (b) cross-reference with #86 (PATCH client dep), #87 (manifest cache dep), #89 (shared PATCH-back-to-cloud infrastructure — flag factoring opportunities); (c) verify short-ID resolution + collision handling; (d) verify idempotency/safety story for destructive `tags` PATCH (read-modify-write, `--dry-run`, key-collision handling, local-only conversation behavior); (e) supplement Acceptance Criteria if any gap; (f) add Technical Approach comment with file-by-file changes, PATCH request shape, schema deltas, test plan, soft-dep notes, priority recommendation; (g) `ready` + `priority:medium|low` labels + WORKLOG entry. Blocked exits: `needs-info` if anchors mismatch or cloud `tags` PATCH absent server-side, `needs-split` if bundles multiple features.
+
+**Decision rationale:**
+- **Wake-up state (post-prior-cycle audit):** Both 03:18Z workers reached terminal state with visible side-effects.
+  - Re-test worker `8136b8e` (PR #88): posted comprehensive re-test report at 03:23:57Z against HEAD `879f75e` — full suite 1325/1325 passing in 12.57s, all 5 blackbox scenarios pass (GitLab/Bitbucket round-trip, GitHub default regression, `orphan_push_branches` set dedup including multi-push-per-branch and mixed pre/post-PR-push), README spot-check confirms no doc edits needed, explicit "✅ Ready for merge" verdict. Both API status `null/PAUSED`.
+  - Expansion worker `09349b2` (Issue #89): added `ready` + `priority:medium` labels to #89. Body changes/comment not visible via `comment_count` (the author's pre-existing body may have absorbed the additions; ready label gating is the contract that matters). Both API status `null/PAUSED`.
+- **Both slots free.** No other workers running.
+- **PR slot pick (merge):** PR #88 matches the workflow's "PR exists, ready, test results valid, good rating, docs valid → spawn merge worker" branch. All preconditions satisfied: CI green, docs updated and validated in re-test report, re-test passed at exact HEAD SHA, all 3 review threads `isResolved: true`, no manual test invalidation since the re-test (latest commit is still `879f75e` from 02:27Z, no new commits after the 03:23Z re-test). Verified via `gh api graphql` thread query.
+- **Expansion slot pick (#90):** Applied "oldest unexpanded issue" rule. Pending-expansion list (open issues without `ready` or `hold`): #90 (`ohtv label` batch labeling), #91 (standardize progress bars), #92 (weekly conversion counts CSV). #90 wins on age. #89 just landed `ready` and #90 shares the same cloud-PATCH-back pattern — expanding it now also lets the next implementation worker reason about factoring out shared infrastructure.
+- **NOT spawned:** No docs spot-check worker (re-test report explicitly verified docs at HEAD). No additional re-test (re-test already passed at HEAD). No second expansion worker (one per slot). Did NOT pick any of the `priority:medium` ready issues (#79, #80, #81, #83, #86, #89) for implementation — PR slot will be freed by the merge worker, and serialized PR slot prevents parallel implementation.
+
+**Current State:**
+- PR #88 (fixes #78): `oRFcFRc green ready` — merge worker in flight; all prerequisites met.
+- Ready issues queued for PR slot (after #88 merges), in roughly priority/age order: #79 (direct push, `priority:medium`), #80 (LOC fetching, `priority:medium`), #81 (velocity report, `priority:medium`), #83 (classification command, `priority:medium`), #86 (`sync --update-metadata`, `priority:medium`), #89 (`gen titles`, `priority:medium`), #82 (charting, `priority:low`, depends on #81), #87 (manifest cache, `priority:low`, depends on #86).
+- In-flight expansions: #90 (just spawned).
+- Issues needing expansion next cycles, in queue order: #91 (standardize progress bars), #92 (weekly conversion counts CSV — brand-new, no labels at all).
+- On hold: #26 (`hold`).
+- Housekeeping: WORKLOG.md is at 744 lines pre-update; below the 300-line trigger no longer applies (threshold was set when growth was slower; archive happened last cycle at 946 lines). No truncation this cycle.
+
+**Next check (~30 min):**
+- If `e086d8c` (merge PR #88) completes successfully → PR slot reopens → spawn impl worker for highest-priority ready issue (likely #86 `sync --update-metadata` since #87 and #89 both depend on it).
+- If `e086d8c` fails (e.g., race with new commit on main → conflict) → escalate via WORKLOG note; do NOT auto-retry merge in this orchestrator cycle.
+- If `db9e81d` (expansion #90) adds `ready` label → expansion slot reopens → spawn #91 expansion (next oldest in queue).
+- If `db9e81d` adds `needs-info`/`needs-split` → expansion slot reopens → spawn #91 anyway (don't auto-retry blocked issues).
+- If either worker produces 0 events (spawn-time hiccup, has happened twice on 01:20Z cycle) → escalate via WORKLOG for human review; do NOT auto-retry a third time.
+
+**Update (post-commit):** This entry was written at 03:51Z but commit was delayed by a remote-side update. By the time of commit, the merge worker `e086d8c` had already merged PR #88 (merge commit `6212195`, merged at 03:52:34Z, ~2 min after spawn) and pushed its own WORKLOG entry (`bd5b781`). Both workers per API still `running` — they're finishing post-task cleanup. PR slot now effectively freed for next orchestrator cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
