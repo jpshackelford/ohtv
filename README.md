@@ -952,8 +952,11 @@ ohtv db process refs -v
 |-------|-------------|
 | `refs` | Extract repository, issue, and PR references |
 | `actions` | Recognize actions (file edits, git ops, PRs, issues, Notion, etc.) |
+| `contributions` | Walk the action timeline to attribute PR creation/merge/push contributions to `change_refs` (depends on `actions`) |
 | `human_input` | Count human input events per conversation; preserves `initial_prompt_source` for future classification |
 | `all` | Run all stages in sequence |
+
+Stage dependencies are respected when running `all` (e.g. `contributions` runs after `actions`). Running a stage individually before its dependencies have completed is allowed but produces no useful results — prefer `db process all` unless you know what you're doing.
 
 **Options:**
 | Flag | Description |
