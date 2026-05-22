@@ -1183,3 +1183,62 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-22 08:52 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `2b07b04` | re-test | PR #93 — re-test at `f02208e` (post-refactor) | finished ✓ (verdict: 🟢 Ready for merge) |
+| `836fe76` | review (round 3) | PR #93 — 1 advisory thread (DB conn try/finally) | **NEW** running |
+
+**🚀 Spawned: 1 Worker (PR slot — expansion slot idle, no candidates)**
+
+1. **Review Worker (round 3)** — PR slot
+   - PR: [#93 - feat(sync): add --update-metadata](https://github.com/jpshackelford/ohtv/pull/93) (fixes #86)
+   - Conversation: [`836fe76`](https://app.all-hands.dev/conversations/836fe76ac5d249cb8ae52a2616552a57)
+   - Start task: `d14d6ed8c2f244bea5ed71673e87af2f` → READY in ~5s
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - **Worker tasked with:** Critically evaluate the single unresolved 🟡 advisory thread on PR #93 (`PRRT_kwDOR9seq86ECw5x`, github-actions, 08:02:22Z, `src/ohtv/sync.py:792`) about wrapping the DB connection in `try/finally` for resource management. Trace the actual connection lifecycle in `update_metadata` + the new `_update_metadata_with_error_handling` helper (does `_get_conversation_store()` open a new connection or reuse a cached one? is there an existing context-manager / close path?), then either **accept** (push a tight `try/finally` wrap, behavior-preserving, 1397-test baseline must hold) or **decline with reasoning** (cite specific line numbers showing the leak doesn't occur — the re-tester's 08:24Z note that "the helper itself does *not* open a connection" is a strong prior toward decline). Reply + resolve thread either way. Flip back to ready. Guardrails: ONLY `src/ohtv/sync.py` (+ at most one test file if a regression test is justified by an accept decision); NO merge; NO README edits; NO WORKLOG writes; NO scope creep; only `gh pr ready --undo` at start + `gh pr ready` at end for draft toggling.
+
+**Worker `2b07b04` (prior cycle) — completion summary:**
+- Status: `finished` (sandbox PAUSED at 08:25Z, ~3.5 min from start).
+- Posted: `## Manual Test Results — PR #93 (Re-test after review round 2)` at 08:24:53Z.
+- Verdict: **🟢 Ready for merge** at HEAD `f02208e`. Full suite: **1397 passed** (no delta vs prior 🟢). Metadata-specific suite: **116 passed**. All refactor-critical scenarios green (`test_db_failure_recorded_but_does_not_abort`, `test_real_db_row_is_updated_and_no_errors`, mutex flags, dry-run, idempotency). Line-by-line diff review of `f02208e` confirms behavior contracts preserved (manifest-then-DB ordering, error-prefix `"db:"`, `any_change_applied` flag set only on manifest success, no rollback on DB failure). README spot-check clean. **Critically:** the report explicitly flagged the new 08:02Z thread `ECw5x` as out-of-scope-for-this-test but noted "the helper itself does *not* open a connection (`store` is passed in by the caller and the connection lifecycle is owned by `update_metadata`), so the advisory may already be moot" — flagged for the next review-worker cycle to verify.
+- Worker stayed within guardrails: no code/test/README/WORKLOG edits, no merge, no draft toggle.
+
+**Decision rationale:**
+- **Wake-up state audit:** `2b07b04` posted a clean 🟢 re-test verdict at HEAD `f02208e`. The refactor commit (helper extraction from review round 2) is verified behavior-preserving. PR #93 is now `oCFcRcFRc green ready` 💬1, `MERGEABLE/CLEAN`, with 1 remaining unresolved advisory thread.
+- **PR slot pick (review, NOT merge):** Decision tree branch is unambiguous — "PR exists, ready, CI green, test results **valid**, 💬 > 0 → review worker." Test results ARE valid (re-test at current HEAD `f02208e` is green), and 1 unresolved 🟡 thread exists. Going straight to merge would leave the thread unresolved, violating the merge-worker contract.
+- **Why this thread warrants action (not dismissal):** Per `Handling Review Comments`, the bar is "real bug / meaningful clarity gain". Resource leaks on rare exception paths *can* be real concerns. The cost-of-fix is small (a few lines of `try/finally`). The cost-of-decline is also small IF the re-tester's note is correct (connection already managed elsewhere). Either disposition is acceptable; the worker just needs to verify the actual state of the code rather than reflexively accept or decline. This is exactly the "critically evaluate each review comment" guidance.
+- **Why NOT merge worker this cycle:** Thread `ECw5x` is unresolved. Merge worker's contract is to merge only after threads are addressed. Going straight to merge would either skip the thread (bad hygiene) or force scope creep onto the merge worker.
+- **Why NOT another re-test worker:** Tests are valid for HEAD `f02208e`. No new commits since re-test.
+- **Why NOT docs worker:** README has not been touched since round 1 re-test validation; the round-2 refactor (and any prospective round-3 fix) is purely internal resource management.
+- **Expansion slot idle:** Same state as the last 4+ cycles — every open issue except #26 (`hold`) is `ready`. No expansion candidates.
+- **NOT spawned:** No second PR worker (slot serialized). No expansion worker (no candidates). No docs worker. No merge worker (thread unresolved). No additional re-test (current test results are valid).
+- **Auto-disable check:** Last 2 orchestrator entries (08:21Z + this one) both spawned workers — neither is "All quiet". Auto-disable does NOT trigger.
+
+**Current State:**
+- **PR #93** (fixes #86): `oCFcRcFRc green ready` 💬1 (lxa) — review worker round 3 in flight at HEAD `f02208e`; docs ✅; round-1 threads ✅ resolved (1 accept, 1 decline); round-2 thread (`ECw5x`) ⏳ being addressed; re-test ✅ 🟢 valid at current HEAD; CI ✅ green; `MERGEABLE/CLEAN`; merge gated on thread resolution + (probably) one more re-test if the worker pushes a code fix.
+- **Open issues by status:**
+  - **Ready** (queued for PR slot after #93 merges, in priority/age order): #79 (direct push), #80 (LOC fetching), #81 (velocity report), #83 (classification command), #89 (`gen titles`), #90 (`ohtv label`), #91 (progress bars), #92 (weekly conversion CSV).
+  - `priority:low` (deferred): #82 (charting, depends on #81), #87 (manifest cache, depends on #86 → unblocks once #93 merges).
+  - **NOTE:** #86 closed-on-merge by PR #93 (`Fixes #86` in description). Post-merge implementation pick remains **#79**.
+  - **In-flight expansion:** none.
+  - **Pending expansion:** none.
+  - **On hold:** #26.
+- **Housekeeping:** WORKLOG.md is now at **~1185 lines** pre-update — well above the 300-line threshold. Truncation **deferred again** this cycle for the same reasons as the last 4 cycles (PR worker in flight; the entire 6h productive window covers the #86/#93 saga which should be archived atomically). **Truncation remains the priority housekeeping task for the FIRST quiet cycle after PR #93 merges.** If the next cycle yields another spawn, the cycle after that should force truncation regardless.
+
+**Next check (~30 min):**
+- **Decline path (most likely):** `836fe76` confirms the re-tester's observation — `_get_conversation_store()` returns a cached/managed connection that's already closed by an existing path. Worker replies + resolves the thread with line references, no commits, flips back to ready. Next cycle's decision: **merge worker** (test results still valid for `f02208e`, all threads resolved).
+- **Accept path:** `836fe76` finds a real leak, pushes a small `try/finally` commit, replies + resolves the thread. CI must stay green. Next cycle decision: **re-test worker** (the new commit is a code change, so test results become outdated even if the commit is "obviously" behavior-preserving — same rule that fired this cycle for the helper-extraction refactor). The cycle after that, with the re-test green, spawns the merge worker. One extra cycle, but consistent with the workflow's "test what's documented and changed" principle.
+- **Partial path:** Worker accepts the wrapping but writes a new regression test → 1397 → 1398. As long as the new test is intentional and documented in the commit message, this is fine. Same downstream flow as accept.
+- **Failure path:** `836fe76` produces 0 events or stops silently (matching prior `db9e81d` failure mode) → escalate via WORKLOG for human review; do NOT auto-retry on this PR/SHA. The single thread is small enough that a human can resolve it directly. **NOTE:** `2b07b04` finished in ~3.5min cleanly — no signs of the prior failure mode this cycle.
+- **CI failure path:** worker commit breaks CI → next cycle is an implementation/fix worker against PR #93. Unlikely for a small try/finally wrap.
+- **Scope-creep path:** worker tries to refactor unrelated code → flag in next cycle; revert non-scope commits; spawn fresh review worker with even tighter guardrails. Not expected; prompt is explicit about scope and the prior round-2 worker stayed within guardrails.
+- **New activity:** If a human or pr-review posts a NEW thread between now and the next cycle, the next cycle re-evaluates which thread(s) to address based on severity.
+- **Expansion slot stays idle** unless a new open issue lands without labels — full backlog is currently expanded.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
