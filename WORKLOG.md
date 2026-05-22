@@ -1,3 +1,23 @@
+### 2026-05-22 06:55 UTC - QA Fix Worker (PR #93)
+
+**Fixed:** Manual-test failure on PR [#93](https://github.com/jpshackelford/ohtv/pull/93) — `sync --update-metadata` surfaced `Errors: 1` on every non-dry-run change because `SyncManager._get_conversation_store` called `get_connection()` (a `@contextmanager`) without entering it, so `ConversationStore.update_metadata` blew up with an `AttributeError` ("`_GeneratorContextManager` object has no attribute `execute`"). Manifest writes succeeded but the DB row was never updated.
+
+**Fix commit:** [`9af9013`](https://github.com/jpshackelford/ohtv/commit/9af9013) on `feat/sync-update-metadata-86`:
+- `src/ohtv/sync.py::_get_conversation_store` now opens a real `sqlite3.Connection` directly via `get_db_path()`, applying the same PRAGMAs (`foreign_keys = ON`, `journal_mode = WAL`) as `get_connection`. Factory owns the lifecycle; caller closes after commit.
+- Added `TestUpdateMetadataRealDB` (2 tests) in `tests/unit/test_sync.py` that exercises the real `ConversationStore` against an on-disk SQLite database — closes the coverage gap (the existing 9 `TestUpdateMetadata` tests all mocked `_get_conversation_store`, which is exactly why 1395 tests passed despite the bug). Confirmed locally by reverting just `sync.py` that the new test reproduces the original error.
+
+**Verification:**
+- Full unit suite: 1348 passed (no regressions; 2 net new tests).
+- `uv run ruff check src/ohtv/sync.py` clean; 2 pre-existing F401/F841 hits in `test_sync.py` are unrelated to this change.
+- Reproduced the bug locally in an isolated `HOME=/tmp/xxx OHTV_DIR=/tmp/xxx/.ohtv` sandbox before and after the fix.
+
+**Actions taken:**
+1. Set PR back to draft, pushed fix, replied to the manual-test comment with a [diagnosis + commit reference](https://github.com/jpshackelford/ohtv/pull/93#issuecomment-4516041000), re-marked PR as ready for review.
+2. No README / unrelated changes — pure bug fix.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-22 06:55 UTC - Expansion Worker (Issue #92)
 
 **Expanded:** [Issue #92 — Weekly conversion counts CSV export (cloud, cli, total)](https://github.com/jpshackelford/ohtv/issues/92) → `ready` + `priority:medium`
