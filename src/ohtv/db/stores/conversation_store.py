@@ -223,6 +223,72 @@ class ConversationStore:
             (summary, conversation_id),
         )
         return cursor.rowcount > 0
+
+    # Sentinel used by update_metadata() to distinguish "leave unchanged"
+    # from "explicitly clear" semantics. Pass a real value (string or None)
+    # to write that value; omit the argument (or pass _UNSET) to skip.
+    _UNSET: object = object()
+
+    def update_metadata(
+        self,
+        conversation_id: str,
+        *,
+        title: str | None | object = _UNSET,
+        labels: dict[str, str] | None | object = _UNSET,
+    ) -> bool:
+        """Update only the title and/or labels for a conversation.
+
+        Used by the metadata-refresh sync path (Issue #86) to propagate
+        cloud-side title/label edits without re-downloading trajectories.
+
+        Args:
+            conversation_id: Conversation ID. Normalized by stripping dashes
+                (see AGENTS.md item 14 on ID normalization).
+            title: New title value. Omit (or pass the _UNSET sentinel) to
+                leave the column untouched. Pass ``None`` to clear it.
+            labels: New labels dict. Omit (or pass the _UNSET sentinel) to
+                leave the column untouched. Pass ``None`` or an empty dict
+                to clear labels (empty dict is normalized to NULL to match
+                ``sources/cloud.py:parse_conversation_info``).
+
+        Returns:
+            True if a matching row was updated, False if the conversation
+            ID does not exist in the index.
+        """
+        if title is self._UNSET and labels is self._UNSET:
+            # Nothing to do; treat as a successful no-op only when the row
+            # exists, so callers can still distinguish "missing conversation"
+            # from a real no-op (matches update_summary semantics).
+            cursor = self.conn.execute(
+                "SELECT 1 FROM conversations WHERE id = ?",
+                (conversation_id.replace("-", ""),),
+            )
+            return cursor.fetchone() is not None
+
+        normalized_id = conversation_id.replace("-", "")
+
+        set_clauses: list[str] = []
+        params: list[object] = []
+
+        if title is not self._UNSET:
+            set_clauses.append("title = ?")
+            params.append(title)
+
+        if labels is not self._UNSET:
+            # Normalize empty dict -> None, matching parse_conversation_info.
+            labels_value: dict[str, str] | None
+            if isinstance(labels, dict) and len(labels) > 0:
+                labels_value = labels  # type: ignore[assignment]
+            else:
+                labels_value = None
+            labels_json = json.dumps(labels_value) if labels_value else None
+            set_clauses.append("labels = ?")
+            params.append(labels_json)
+
+        params.append(normalized_id)
+        sql = f"UPDATE conversations SET {', '.join(set_clauses)} WHERE id = ?"
+        cursor = self.conn.execute(sql, params)
+        return cursor.rowcount > 0
     
     def list_without_summary(self) -> list[Conversation]:
         """List conversations that don't have a summary yet."""

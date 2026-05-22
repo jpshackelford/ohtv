@@ -159,6 +159,12 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - **Implementation**: `get_prompt(name)` and `get_prompt_hash(name)` in `ohtv/prompts/__init__.py`
     - **Cache invalidation**: Prompt hash (SHA256, first 16 chars) is stored with cached analysis; cache invalidates when prompt content changes
 
+27. **Manifest as canonical metadata source (Issue #86)**: The sync manifest (`~/.ohtv/sync_manifest.json`) is the authoritative cache for cloud-side editable metadata — currently `title` and `labels`. The scanner (`db/scanner.py:extract_metadata`) prefers a non-empty manifest title over `base_state.json`, so a cold `db scan` after a cloud rename does the right thing.
+    - **Refresh path**: `ohtv sync --update-metadata` lists all cloud conversations (unfiltered by `updated_at`) and rewrites only the `title`/`labels` fields where they differ. Never downloads trajectories. Does not advance `last_sync_at` or increment `sync_count`.
+    - **Auto-run**: A normal `ohtv sync` automatically runs the metadata refresh after a successful sync **only when** `result.new + result.updated > 0`. Skipped on `--dry-run`, `--force`, `--repair`, `--status`.
+    - **Direct DB write**: `ConversationStore.update_metadata(conv_id, *, title, labels)` writes only the `title` and `labels` columns; uses a sentinel to distinguish "leave unchanged" from "clear" and normalizes empty-dict labels to NULL (matching `parse_conversation_info`).
+    - **#87 / #89 follow-ups**: This is the foundational metadata-refresh path. Issue #87 extends the manifest to cache `selected_repository`/`selected_branch`/`created_at` and widens `ConversationStore.update_metadata`. Issue #89's `gen titles` command will PATCH back to the cloud API and then reuse this same write path.
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input

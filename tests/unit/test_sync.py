@@ -7,7 +7,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ohtv.sync import RepairResult, SyncManager, SyncManifest, SyncResult
+from ohtv.sync import (
+    MetadataRefreshResult,
+    RepairResult,
+    SyncManager,
+    SyncManifest,
+    SyncResult,
+    _metadata_differs,
+    _normalize_labels,
+)
 
 
 class TestSyncResult:
@@ -762,3 +770,497 @@ class TestSyncManagerFindConversationDir:
         result = manager._find_conversation_dir("nonexistent123")
         
         assert result is None
+
+
+# =====================================================================
+# Issue #86: ohtv sync --update-metadata
+# =====================================================================
+
+
+class TestNormalizeLabels:
+    """Tests for the module-level _normalize_labels helper."""
+
+    def test_none_returns_none(self):
+        assert _normalize_labels(None) is None
+
+    def test_empty_dict_returns_none(self):
+        assert _normalize_labels({}) is None
+
+    def test_non_dict_returns_none(self):
+        assert _normalize_labels("not a dict") is None
+        assert _normalize_labels(42) is None
+        assert _normalize_labels([]) is None
+
+    def test_dict_with_content_returned_as_is(self):
+        assert _normalize_labels({"qa": "smoke"}) == {"qa": "smoke"}
+
+    def test_coerces_non_string_values_defensively(self):
+        # Int values should never come from the API, but be safe in the
+        # face of mixed input.
+        assert _normalize_labels({"k": 1}) == {"k": "1"}
+
+
+class TestMetadataDiffers:
+    """Tests for _metadata_differs() (cloud listing entry vs manifest entry)."""
+
+    def test_neither_changed(self):
+        cloud = {"title": "Same", "tags": {"k": "v"}}
+        manifest = {"title": "Same", "labels": {"k": "v"}}
+        assert _metadata_differs(cloud, manifest) == (False, False)
+
+    def test_title_only(self):
+        cloud = {"title": "New", "tags": {"k": "v"}}
+        manifest = {"title": "Old", "labels": {"k": "v"}}
+        assert _metadata_differs(cloud, manifest) == (True, False)
+
+    def test_labels_only(self):
+        cloud = {"title": "Same", "tags": {"k": "v2"}}
+        manifest = {"title": "Same", "labels": {"k": "v"}}
+        assert _metadata_differs(cloud, manifest) == (False, True)
+
+    def test_both_changed(self):
+        cloud = {"title": "New", "tags": {"k": "v2"}}
+        manifest = {"title": "Old", "labels": {"k": "v"}}
+        assert _metadata_differs(cloud, manifest) == (True, True)
+
+    def test_empty_dict_labels_equals_none(self):
+        """{} from API must compare equal to None from manifest (no churn)."""
+        cloud = {"title": "Same", "tags": {}}
+        manifest = {"title": "Same", "labels": None}
+        assert _metadata_differs(cloud, manifest) == (False, False)
+
+    def test_none_labels_equals_missing(self):
+        cloud = {"title": "Same"}  # No tags key at all
+        manifest = {"title": "Same", "labels": None}
+        assert _metadata_differs(cloud, manifest) == (False, False)
+
+    def test_reordered_dict_keys_equal(self):
+        cloud = {"title": "Same", "tags": {"a": "1", "b": "2"}}
+        manifest = {"title": "Same", "labels": {"b": "2", "a": "1"}}
+        assert _metadata_differs(cloud, manifest) == (False, False)
+
+    def test_empty_title_equals_missing(self):
+        """Empty string title collapses to None for comparison."""
+        cloud = {"title": "", "tags": None}
+        manifest = {"title": None, "labels": None}
+        assert _metadata_differs(cloud, manifest) == (False, False)
+
+    def test_missing_manifest_title_treated_as_none(self):
+        cloud = {"title": "X", "tags": None}
+        manifest = {}  # No title, no labels
+        assert _metadata_differs(cloud, manifest) == (True, False)
+
+
+class TestMetadataRefreshResult:
+    """Tests for the MetadataRefreshResult dataclass."""
+
+    def test_total_changed_subtracts_both(self):
+        # 3 title changes + 2 label changes, 1 was both -> 4 distinct touches
+        r = MetadataRefreshResult(
+            title_changed=3, labels_changed=2, both_changed=1
+        )
+        assert r.total_changed == 4
+
+    def test_has_errors_false_when_empty(self):
+        assert MetadataRefreshResult().has_errors is False
+
+    def test_has_errors_true_when_nonempty(self):
+        r = MetadataRefreshResult(errors=[("conv1", "boom")])
+        assert r.has_errors is True
+
+
+class _RecordingCloudClient:
+    """Stub CloudClient that records every method call.
+
+    Used by the update_metadata tests to assert that download_trajectory
+    is NEVER called during a metadata refresh.
+    """
+
+    def __init__(self, listing: list[dict]):
+        self._listing = listing
+        self.search_calls: list = []
+        self.download_calls: list = []
+
+    def search_all_conversations(self, updated_since=None):
+        self.search_calls.append(updated_since)
+        return self._listing
+
+    def download_trajectory(self, conversation_id: str) -> bytes:  # pragma: no cover
+        # Recorded so tests can assert it is never invoked
+        self.download_calls.append(conversation_id)
+        return b""
+
+    def close(self) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
+class TestUpdateMetadata:
+    """Tests for SyncManager.update_metadata() (Issue #86)."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """SyncManager with a tmp manifest and mocked config."""
+        config = MagicMock()
+        config.api_key = "test-key"
+        config.cloud_api_url = "https://example.com"
+        config.synced_conversations_dir = tmp_path / "synced"
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_raises_when_no_api_key(self, tmp_path):
+        config = MagicMock()
+        config.api_key = ""
+        config.cloud_api_url = "https://example.com"
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            manager = SyncManager(config)
+        with pytest.raises(ValueError, match="API key required"):
+            manager.update_metadata()
+
+    def test_title_change_is_written_to_manifest(self, manager):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Old title",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "event_count": 5,
+                "downloaded_at": "2024-01-02T00:00:00Z",
+                "labels": None,
+            },
+        }
+        client = _RecordingCloudClient(
+            [{"id": "abc", "title": "Renamed", "tags": None}]
+        )
+
+        # Skip DB writes for this test - we only care about manifest behavior
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            result = manager.update_metadata(client=client)
+
+        assert client.download_calls == []
+        assert result.checked == 1
+        assert result.title_changed == 1
+        assert result.labels_changed == 0
+        assert result.both_changed == 0
+        assert result.unchanged == 0
+        assert manager.manifest.conversations["abc"]["title"] == "Renamed"
+        # Bookkeeping fields preserved byte-for-byte
+        assert manager.manifest.conversations["abc"]["updated_at"] == "2024-01-01T00:00:00Z"
+        assert manager.manifest.conversations["abc"]["event_count"] == 5
+        assert manager.manifest.conversations["abc"]["downloaded_at"] == "2024-01-02T00:00:00Z"
+
+    def test_labels_change_normalizes_tags_dict(self, manager):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Same",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "event_count": 5,
+                "downloaded_at": "2024-01-02T00:00:00Z",
+                "labels": None,
+            },
+        }
+        client = _RecordingCloudClient(
+            [{"id": "abc", "title": "Same", "tags": {"qa": "smoke"}}]
+        )
+
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            result = manager.update_metadata(client=client)
+
+        assert client.download_calls == []
+        assert result.labels_changed == 1
+        assert result.title_changed == 0
+        assert manager.manifest.conversations["abc"]["labels"] == {"qa": "smoke"}
+
+    def test_both_changed_counts_correctly(self, manager):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Old",
+                "updated_at": "x",
+                "event_count": 1,
+                "downloaded_at": "y",
+                "labels": None,
+            },
+        }
+        client = _RecordingCloudClient(
+            [{"id": "abc", "title": "New", "tags": {"k": "v"}}]
+        )
+
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            result = manager.update_metadata(client=client)
+
+        assert result.title_changed == 1
+        assert result.labels_changed == 1
+        assert result.both_changed == 1
+        # total_changed is the dedup-by-conversation count
+        assert result.total_changed == 1
+
+    def test_unchanged_does_not_rewrite_manifest(self, manager, tmp_path):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Same",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "event_count": 5,
+                "downloaded_at": "2024-01-02T00:00:00Z",
+                "labels": None,
+            },
+        }
+        # Save manifest, capture mtime
+        manager.manifest.save(manager.manifest_path)
+        import os
+        before_mtime = os.path.getmtime(manager.manifest_path)
+
+        client = _RecordingCloudClient(
+            [{"id": "abc", "title": "Same", "tags": None}]
+        )
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            result = manager.update_metadata(client=client)
+
+        # mtime should be untouched
+        after_mtime = os.path.getmtime(manager.manifest_path)
+        assert before_mtime == after_mtime
+        assert result.unchanged == 1
+        assert result.title_changed == 0
+
+    def test_dry_run_does_not_mutate(self, manager, tmp_path):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Old",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "event_count": 1,
+                "downloaded_at": "2024-01-02T00:00:00Z",
+                "labels": None,
+            },
+        }
+        manager.manifest.save(manager.manifest_path)
+        import os
+        before_mtime = os.path.getmtime(manager.manifest_path)
+
+        client = _RecordingCloudClient(
+            [{"id": "abc", "title": "New", "tags": {"k": "v"}}]
+        )
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            result = manager.update_metadata(dry_run=True, client=client)
+
+        # Counters report the diff
+        assert result.title_changed == 1
+        assert result.labels_changed == 1
+        # ... but manifest is untouched on disk
+        after_mtime = os.path.getmtime(manager.manifest_path)
+        assert before_mtime == after_mtime
+        # ... and in memory
+        assert manager.manifest.conversations["abc"]["title"] == "Old"
+        assert manager.manifest.conversations["abc"]["labels"] is None
+
+    def test_never_downloads_trajectories(self, manager):
+        # Even when every conversation has a diff, download is never called.
+        manager.manifest.conversations = {
+            f"c{i}": {
+                "title": f"old{i}",
+                "updated_at": "x",
+                "event_count": 1,
+                "downloaded_at": "y",
+                "labels": None,
+            }
+            for i in range(5)
+        }
+        client = _RecordingCloudClient(
+            [{"id": f"c{i}", "title": f"new{i}", "tags": None} for i in range(5)]
+        )
+
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            result = manager.update_metadata(client=client)
+
+        assert client.download_calls == []
+        assert result.title_changed == 5
+
+    def test_does_not_touch_sync_bookkeeping(self, manager):
+        # Capture before
+        before_sync_count = manager.manifest.sync_count
+        before_last_sync = manager.manifest.last_sync_at
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "old",
+                "updated_at": "x",
+                "event_count": 1,
+                "downloaded_at": "y",
+                "labels": None,
+            },
+        }
+        client = _RecordingCloudClient(
+            [{"id": "abc", "title": "new", "tags": None}]
+        )
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            manager.update_metadata(client=client)
+
+        assert manager.manifest.sync_count == before_sync_count
+        assert manager.manifest.last_sync_at == before_last_sync
+
+    def test_new_on_cloud_and_missing_on_cloud_counts(self, manager):
+        manager.manifest.conversations = {
+            "in_both": {
+                "title": "Same",
+                "updated_at": "x",
+                "event_count": 1,
+                "downloaded_at": "y",
+                "labels": None,
+            },
+            "only_local": {
+                "title": "Local only",
+                "updated_at": "x",
+                "event_count": 1,
+                "downloaded_at": "y",
+                "labels": None,
+            },
+        }
+        client = _RecordingCloudClient([
+            {"id": "in_both", "title": "Same", "tags": None},
+            {"id": "only_cloud_a", "title": "Cloud A", "tags": None},
+            {"id": "only_cloud_b", "title": "Cloud B", "tags": None},
+        ])
+
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            result = manager.update_metadata(client=client)
+
+        assert result.checked == 1   # only in_both
+        assert result.new_on_cloud == 2
+        assert result.missing_on_cloud == 1
+        # And missing/new conversations were NOT added/removed
+        assert "only_cloud_a" not in manager.manifest.conversations
+        assert "only_local" in manager.manifest.conversations
+
+    def test_calls_db_update_when_changed(self, manager):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Old",
+                "updated_at": "x",
+                "event_count": 1,
+                "downloaded_at": "y",
+                "labels": None,
+            },
+        }
+        store = MagicMock()
+        store.conn = MagicMock()
+
+        with patch.object(manager, "_get_conversation_store", return_value=store):
+            client = _RecordingCloudClient(
+                [{"id": "abc", "title": "New", "tags": {"k": "v"}}]
+            )
+            manager.update_metadata(client=client)
+
+        store.update_metadata.assert_called_once_with(
+            "abc", title="New", labels={"k": "v"}
+        )
+        # And the commit was called (any change applied)
+        store.conn.commit.assert_called()
+
+    def test_skips_db_write_on_dry_run(self, manager):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Old",
+                "updated_at": "x",
+                "event_count": 1,
+                "downloaded_at": "y",
+                "labels": None,
+            },
+        }
+        store = MagicMock()
+        with patch.object(manager, "_get_conversation_store", return_value=store):
+            client = _RecordingCloudClient(
+                [{"id": "abc", "title": "New", "tags": None}]
+            )
+            manager.update_metadata(dry_run=True, client=client)
+
+        store.update_metadata.assert_not_called()
+
+    def test_progress_callback_invoked(self, manager):
+        manager.manifest.conversations = {
+            "a": {"title": "x", "updated_at": "u", "event_count": 1, "downloaded_at": "d", "labels": None},
+            "b": {"title": "x", "updated_at": "u", "event_count": 1, "downloaded_at": "d", "labels": None},
+        }
+        client = _RecordingCloudClient([
+            {"id": "a", "title": "x", "tags": None},
+            {"id": "b", "title": "x", "tags": None},
+        ])
+        events: list[tuple[int, int]] = []
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            manager.update_metadata(
+                client=client,
+                on_progress=lambda done, total: events.append((done, total)),
+            )
+
+        assert events == [(1, 2), (2, 2)]
+
+    def test_db_failure_recorded_but_does_not_abort(self, manager):
+        manager.manifest.conversations = {
+            "a": {"title": "old", "updated_at": "u", "event_count": 1, "downloaded_at": "d", "labels": None},
+            "b": {"title": "old", "updated_at": "u", "event_count": 1, "downloaded_at": "d", "labels": None},
+        }
+        store = MagicMock()
+        store.update_metadata.side_effect = RuntimeError("db broke")
+        with patch.object(manager, "_get_conversation_store", return_value=store):
+            client = _RecordingCloudClient([
+                {"id": "a", "title": "new", "tags": None},
+                {"id": "b", "title": "new", "tags": None},
+            ])
+            result = manager.update_metadata(client=client)
+
+        # Both manifest writes succeeded; both DB writes failed
+        assert result.title_changed == 2
+        assert len(result.errors) == 2
+        for _, msg in result.errors:
+            assert "db:" in msg
+        # Manifest got the updates regardless
+        assert manager.manifest.conversations["a"]["title"] == "new"
+        assert manager.manifest.conversations["b"]["title"] == "new"
+
+    def test_no_manifest_save_when_no_changes(self, manager, tmp_path):
+        """If nothing differs, the manifest file is not rewritten on disk."""
+        manager.manifest.conversations = {
+            "a": {"title": "x", "updated_at": "u", "event_count": 1, "downloaded_at": "d", "labels": None},
+        }
+        manager.manifest.save(manager.manifest_path)
+        import os
+        before = os.path.getmtime(manager.manifest_path)
+
+        client = _RecordingCloudClient(
+            [{"id": "a", "title": "x", "tags": None}]
+        )
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            manager.update_metadata(client=client)
+
+        after = os.path.getmtime(manager.manifest_path)
+        assert before == after
+
+
+class TestWriteManifestMetadata:
+    """Tests for SyncManager._write_manifest_metadata()."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        config = MagicMock()
+        config.api_key = "test-key"
+        config.cloud_api_url = "https://example.com"
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_preserves_bookkeeping_fields(self, manager):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Old",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "event_count": 5,
+                "downloaded_at": "2024-01-02T00:00:00Z",
+                "labels": None,
+            },
+        }
+        manager._write_manifest_metadata("abc", title="New", labels={"k": "v"})
+
+        entry = manager.manifest.conversations["abc"]
+        assert entry["title"] == "New"
+        assert entry["labels"] == {"k": "v"}
+        assert entry["updated_at"] == "2024-01-01T00:00:00Z"
+        assert entry["event_count"] == 5
+        assert entry["downloaded_at"] == "2024-01-02T00:00:00Z"

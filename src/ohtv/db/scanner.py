@@ -64,50 +64,101 @@ def discover_conversations(base_dir: Path, source: str) -> list[tuple[str, Path,
     return conversations
 
 
-def load_manifest_labels() -> dict[str, dict[str, str]]:
-    """Load labels from sync manifest.
-    
+def load_manifest_metadata() -> dict[str, dict]:
+    """Load per-conversation metadata cache from the sync manifest.
+
     Returns:
-        Dict mapping conversation ID to labels dict.
-        Includes all conversations (empty dict for those without labels)
-        so that label removal can propagate from cloud to database.
+        Dict mapping conversation ID to a dict with keys ``"title"`` and
+        ``"labels"``. Includes ALL manifest entries (with ``None``/empty
+        for missing fields) so that label removal and cloud-side renames
+        propagate down through the scanner.
+
+    The returned ``"labels"`` value is ``{}`` (empty dict) when labels are
+    absent on the manifest entry — this is the sentinel ``extract_metadata``
+    uses to mean "manifest knows about this conversation, but it has no
+    labels" so that label removal propagates correctly.
     """
     manifest_path = get_manifest_path()
     if not manifest_path.exists():
         return {}
-    
+
     try:
         data = json.loads(manifest_path.read_text())
         conversations = data.get("conversations", {})
-        labels_map = {}
-        for conv_id, conv_data in conversations.items():
-            labels = conv_data.get("labels")
-            # Include all conversations, even those with null/empty labels
-            # This ensures label removal propagates from cloud to database
-            labels_map[conv_id] = labels if (labels and isinstance(labels, dict)) else {}
-        return labels_map
     except (json.JSONDecodeError, OSError):
         return {}
 
+    metadata_map: dict[str, dict] = {}
+    for conv_id, conv_data in conversations.items():
+        if not isinstance(conv_data, dict):
+            continue
+        labels = conv_data.get("labels")
+        normalized_labels = (
+            labels if (labels and isinstance(labels, dict)) else {}
+        )
+        metadata_map[conv_id] = {
+            "title": conv_data.get("title"),
+            "labels": normalized_labels,
+        }
+    return metadata_map
 
-def extract_metadata(conv_path: Path, source: str, labels_map: dict[str, dict[str, str]] | None = None) -> dict:
+
+def load_manifest_labels() -> dict[str, dict[str, str]]:
+    """Backward-compatible wrapper that returns only the labels component.
+
+    Prefer ``load_manifest_metadata()`` for new code so that title and
+    labels are loaded in a single pass.
+    """
+    return {
+        conv_id: meta.get("labels", {})
+        for conv_id, meta in load_manifest_metadata().items()
+    }
+
+
+def extract_metadata(
+    conv_path: Path,
+    source: str,
+    labels_map: dict[str, dict[str, str]] | None = None,
+    manifest_map: dict[str, dict] | None = None,
+) -> dict:
     """Extract metadata from a conversation directory.
-    
+
     Args:
-        conv_path: Path to conversation directory
-        source: Source identifier ('local' or 'cloud')
-        labels_map: Optional pre-loaded labels from manifest (keyed by conversation ID)
-    
+        conv_path: Path to conversation directory.
+        source: Source identifier ('local' or 'cloud').
+        labels_map: Legacy parameter — pre-loaded labels map keyed by
+            conversation ID. Used when ``manifest_map`` is not supplied
+            to preserve backward compatibility with callers that only
+            need labels.
+        manifest_map: Pre-loaded manifest metadata map keyed by
+            conversation ID, with ``{"title": ..., "labels": ...}``
+            values. When provided, a non-empty manifest title takes
+            precedence over ``base_state.json`` (Issue #86 — keep
+            ``db scan`` honest after a cloud-side rename).
+
     Returns:
-        Dict with title, created_at, updated_at, selected_repository, labels
+        Dict with title, created_at, updated_at, selected_repository, labels.
     """
     timestamps_are_utc = source != "local"
-    
+
     title = None
     selected_repository = None
     created_at = None
     updated_at = None
-    
+    conv_id = conv_path.name
+
+    # Title-source precedence (Issue #86):
+    #   1. Non-empty manifest title (reflects cloud-side renames)
+    #   2. base_state.json title
+    #   3. First user message extraction (later fallback)
+    manifest_title: str | None = None
+    if manifest_map is not None:
+        manifest_entry = manifest_map.get(conv_id)
+        if manifest_entry:
+            mt = manifest_entry.get("title")
+            if isinstance(mt, str) and mt.strip():
+                manifest_title = mt
+
     # Try to read from base_state.json
     base_state = conv_path / "base_state.json"
     if base_state.exists():
@@ -119,13 +170,17 @@ def extract_metadata(conv_path: Path, source: str, labels_map: dict[str, dict[st
             updated_at = _parse_datetime(data.get("updated_at"), timestamps_are_utc)
         except (json.JSONDecodeError, OSError):
             pass
-    
+
+    # Manifest title wins over base_state.json title when present.
+    if manifest_title:
+        title = manifest_title
+
     # Prefer timestamps from events for accuracy
     event_timestamps = _get_event_timestamps(conv_path, timestamps_are_utc)
     if event_timestamps:
         created_at = event_timestamps[0]
         updated_at = event_timestamps[1]
-    
+
     # Last resort: file mtime
     if created_at is None and base_state.exists():
         try:
@@ -134,21 +189,25 @@ def extract_metadata(conv_path: Path, source: str, labels_map: dict[str, dict[st
             updated_at = file_mtime
         except OSError:
             pass
-    
+
     # Get title from first user message if not present
     if not title:
         title = _get_title_from_first_user_message(conv_path)
-    
+
     # Get labels from manifest (for cloud conversations)
     # Empty dict {} means labels were explicitly removed; convert to None for storage
     labels = None
-    if labels_map:
-        conv_id = conv_path.name
-        manifest_labels = labels_map.get(conv_id)
+    effective_labels_map: dict[str, dict[str, str]] | None = labels_map
+    if manifest_map is not None and effective_labels_map is None:
+        effective_labels_map = {
+            cid: meta.get("labels", {}) for cid, meta in manifest_map.items()
+        }
+    if effective_labels_map:
+        manifest_labels = effective_labels_map.get(conv_id)
         # {} from manifest means no labels (explicit removal), store as None
         # dict with content means real labels
         labels = manifest_labels if manifest_labels else None
-    
+
     return {
         "title": title,
         "created_at": created_at,
@@ -267,8 +326,10 @@ def scan_conversations(
     store = ConversationStore(conn)
     openhands_dir = get_openhands_dir()
     
-    # Load labels from manifest (for cloud conversations)
-    labels_map = load_manifest_labels()
+    # Load title + labels from manifest (for cloud conversations). Manifest
+    # title takes precedence over base_state.json (Issue #86 — keeps a cold
+    # `db scan` honest after a cloud-side rename).
+    manifest_map = load_manifest_metadata()
     
     # Discover from both local CLI and synced cloud locations
     local_dir = openhands_dir / "conversations"
@@ -311,7 +372,7 @@ def scan_conversations(
         
         if existing is None:
             # New conversation - extract metadata
-            metadata = extract_metadata(conv_path, source, labels_map)
+            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map)
             store.upsert(Conversation(
                 id=conv_id,
                 location=str(conv_path),
@@ -327,7 +388,7 @@ def scan_conversations(
             new_count += 1
         elif force or _has_changed(existing, current_mtime, current_count):
             # Changed or forced update - re-extract metadata
-            metadata = extract_metadata(conv_path, source, labels_map)
+            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map)
             store.upsert(Conversation(
                 id=conv_id,
                 location=str(conv_path),
@@ -393,8 +454,8 @@ def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
     store = ConversationStore(conn)
     openhands_dir = get_openhands_dir()
     
-    # Load labels from manifest (for cloud conversations)
-    labels_map = load_manifest_labels()
+    # Load title + labels from manifest (manifest title wins; Issue #86)
+    manifest_map = load_manifest_metadata()
     
     local_dir = openhands_dir / "conversations"
     cloud_dir = openhands_dir / "cloud" / "conversations"
@@ -414,7 +475,7 @@ def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
         existing = store.get(conv_id)
         
         if existing is None or _has_changed(existing, current_mtime, current_count):
-            metadata = extract_metadata(conv_path, source, labels_map)
+            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map)
             changed.append(Conversation(
                 id=conv_id,
                 location=str(conv_path),

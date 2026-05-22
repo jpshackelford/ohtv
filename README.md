@@ -867,6 +867,11 @@ ohtv sync --status
 ohtv sync --repair --dry-run  # Check only
 ohtv sync --repair            # Fix inconsistencies
 
+# Refresh cached title + labels for already-synced conversations
+# (picks up cloud-side renames or tag edits — no re-download)
+ohtv sync --update-metadata
+ohtv sync --update-metadata --dry-run  # Preview diffs without writing
+
 # Quiet mode (for cron jobs)
 ohtv sync --quiet
 ```
@@ -879,8 +884,35 @@ ohtv sync --quiet
 | `--dry-run` | Show what would sync without downloading |
 | `-s, --status` | Show sync status |
 | `--repair` | Check and fix sync state (manifest vs disk vs cloud) |
+| `--update-metadata` | Refresh cached title + labels for already-synced cloud conversations **without** re-downloading. Mutually exclusive with `--force`, `--since`, `--max-new`, `--repair`, `--status`. |
 | `-p, --process` | Run all processing stages after sync |
 | `-q, --quiet` | Minimal output for cron jobs |
+
+#### Metadata refresh (`--update-metadata`)
+
+Cloud-side edits to a conversation's title or labels (via the
+`PATCH /app-conversations/{id}` API or the cloud UI) are not picked up
+by the normal incremental sync because the API may not bump `updated_at`
+on a metadata-only change. Run `ohtv sync --update-metadata` to refresh
+cached titles and labels for every already-synced conversation without
+re-downloading any trajectories.
+
+Behavior:
+- Lists all cloud conversations (unfiltered by `updated_at`) and diffs
+  each manifest entry's `title`/`labels` against the cloud listing.
+- Rewrites only the `title` and `labels` fields in the manifest and the
+  matching DB row; `updated_at`, `event_count`, and `downloaded_at` are
+  preserved.
+- Never downloads trajectory ZIPs — the cost is one paged listing call.
+- Does **not** advance `last_sync_at` or increment `sync_count`; this is
+  an out-of-band metadata-only pass.
+- Reports conversations that exist on the cloud but not locally
+  (`new_on_cloud`, hint: run `ohtv sync`) and conversations in the
+  manifest but absent from the cloud listing (`missing_on_cloud`, hint:
+  run `ohtv sync --repair`). Neither is acted on automatically.
+- A normal `ohtv sync` auto-runs this refresh **only when** at least one
+  new or updated conversation was actually downloaded. It never fires
+  on `--dry-run`, `--force`, `--repair`, or `--status`.
 
 ---
 

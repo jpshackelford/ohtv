@@ -77,7 +77,14 @@ class SectionedGroup(click.Group):
 
 from ohtv.logging import setup_logging
 from ohtv.sources import ConversationInfo, LocalSource
-from ohtv.sync import RepairResult, SyncAbortedError, SyncAuthError, SyncManager, SyncResult
+from ohtv.sync import (
+    MetadataRefreshResult,
+    RepairResult,
+    SyncAbortedError,
+    SyncAuthError,
+    SyncManager,
+    SyncResult,
+)
 
 console = Console()
 
@@ -276,6 +283,18 @@ def main() -> None:
 @click.option("--max-new", "-n", type=int, help="Maximum number of NEW conversations to sync")
 @click.option("--status", "-s", is_flag=True, help="Show sync status")
 @click.option("--repair", is_flag=True, help="Check and repair sync state consistency")
+@click.option(
+    "--update-metadata",
+    "update_metadata_flag",
+    is_flag=True,
+    help=(
+        "Refresh cached title + labels for already-synced cloud "
+        "conversations WITHOUT re-downloading trajectories. Use this to "
+        "pick up cloud-side title or label edits. Unlike --force, this "
+        "never re-downloads conversation data. Mutually exclusive with "
+        "--force, --since, --max-new, --repair, --status."
+    ),
+)
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output for cron jobs")
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 @click.option("--no-llm", is_flag=True, help="Skip LLM-powered analysis (summaries won't be generated)")
@@ -287,6 +306,7 @@ def sync(
     max_new: int | None,
     status: bool,
     repair: bool,
+    update_metadata_flag: bool,
     quiet: bool,
     verbose: bool,
     no_llm: bool,
@@ -301,6 +321,10 @@ def sync(
     - Indexes conversations and runs processing stages
     - Generates LLM analysis and extracts summaries (unless --no-llm)
     - Generates embeddings for RAG search (unless --no-embed)
+    - Refreshes cached title + labels for already-synced cloud
+      conversations (only when at least one new/updated conversation
+      was processed). Use --update-metadata to run this refresh on
+      its own without downloading anything.
     
     Combining --force with -n resets local storage to only the N most
     recent conversations (destructive operation, requires confirmation).
@@ -311,6 +335,23 @@ def sync(
 
     config = Config.from_env()
     manager = SyncManager(config)
+
+    if update_metadata_flag:
+        _validate_update_metadata_flags(
+            force=force, since=since, max_new=max_new, repair=repair, status=status,
+        )
+        if not config.api_key:
+            _error_no_api_key()
+            return
+        try:
+            _run_metadata_refresh(manager, dry_run=dry_run, quiet=quiet)
+        except SyncAuthError as e:
+            console.print(f"[red]Authentication error:[/red] {e}")
+            raise SystemExit(1)
+        except SyncAbortedError as e:
+            console.print(f"[red]Sync aborted:[/red] {e}")
+            raise SystemExit(1)
+        return
 
     if status:
         _show_status(manager)
@@ -334,6 +375,27 @@ def sync(
         if not quiet:
             _show_result(result, dry_run, elapsed)
         
+        # Auto-run metadata refresh after a real sync when work was done.
+        # Gated to never fire on --dry-run / --force / --repair / --status
+        # (the latter two short-circuited above). The refresh has its own
+        # progress bar + result block visually distinct from the sync output.
+        if (
+            not dry_run
+            and not force
+            and (result.new + result.updated) > 0
+        ):
+            try:
+                _run_metadata_refresh(
+                    manager, dry_run=False, quiet=quiet, auto=True,
+                )
+            except (SyncAuthError, SyncAbortedError) as e:
+                # Don't fail the whole sync over a metadata refresh hiccup —
+                # the main sync work already succeeded.
+                if not quiet:
+                    console.print(
+                        f"[yellow]Metadata refresh skipped:[/yellow] {e}"
+                    )
+        
         # Always run processing stages after sync (unless dry-run)
         if not dry_run:
             _run_post_sync_processing(quiet, verbose, no_llm, no_embed)
@@ -344,6 +406,149 @@ def sync(
     except SyncAbortedError as e:
         console.print(f"[red]Sync aborted:[/red] {e}")
         raise SystemExit(1)
+
+
+def _validate_update_metadata_flags(
+    *,
+    force: bool,
+    since: datetime | None,
+    max_new: int | None,
+    repair: bool,
+    status: bool,
+) -> None:
+    """Enforce mutual exclusion for ``--update-metadata`` (Issue #86)."""
+    conflicts: list[str] = []
+    if force:
+        conflicts.append("--force")
+    if since is not None:
+        conflicts.append("--since")
+    if max_new is not None:
+        conflicts.append("--max-new")
+    if repair:
+        conflicts.append("--repair")
+    if status:
+        conflicts.append("--status")
+    if conflicts:
+        joined = ", ".join(conflicts)
+        raise click.UsageError(
+            f"--update-metadata cannot be combined with {joined}. "
+            "It is a metadata-only refresh and does not download "
+            "trajectories or modify sync bookkeeping."
+        )
+
+
+def _run_metadata_refresh(
+    manager: SyncManager,
+    *,
+    dry_run: bool,
+    quiet: bool,
+    auto: bool = False,
+) -> MetadataRefreshResult:
+    """Run a metadata-only refresh with a Rich progress bar.
+
+    Args:
+        manager: Configured SyncManager.
+        dry_run: If True, don't write the manifest or DB.
+        quiet: If True, suppress progress bar and result block.
+        auto: If True, the refresh is auto-running after a successful
+            sync; render a distinct header so the user can tell it apart
+            from the main SyncResult block above.
+    """
+    if not quiet:
+        if auto:
+            console.print()
+            console.print(
+                "[bold blue]Refreshing cloud metadata[/bold blue] "
+                "[dim](title + labels, no re-download)[/dim]"
+            )
+        else:
+            mode = "[yellow]DRY RUN[/yellow] " if dry_run else ""
+            console.print(
+                f"{mode}Refreshing cached title + labels from cloud "
+                "(no trajectory download)..."
+            )
+
+    if quiet:
+        result = manager.update_metadata(dry_run=dry_run)
+        if not auto:
+            # In explicit --update-metadata mode, still surface a single
+            # line summary so cron jobs see something.
+            log.info("Metadata refresh: %d changed of %d checked",
+                     result.total_changed, result.checked)
+        return result
+
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+    )
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]Metadata refresh"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TextColumn("[dim]{task.fields[changed]} changed[/dim]"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Metadata refresh", total=None, changed=0)
+        changed_count = [0]
+
+        def on_progress(done: int, total: int) -> None:
+            if progress.tasks[0].total != total:
+                progress.update(task, total=total)
+            progress.update(task, completed=done, changed=changed_count[0])
+
+        # We can't know the per-iteration title_changed without peeking into
+        # the result; recompute changed each tick by reading the running
+        # result via a closure. The simpler path is to update changed only
+        # at the end, but a live counter is more useful — wrap the callback
+        # to grab the running result.
+        result = manager.update_metadata(
+            dry_run=dry_run,
+            on_progress=on_progress,
+        )
+        changed_count[0] = result.total_changed
+        progress.update(task, completed=result.checked, changed=result.total_changed)
+
+    _show_metadata_result(result, dry_run=dry_run)
+    return result
+
+
+def _show_metadata_result(result: MetadataRefreshResult, *, dry_run: bool) -> None:
+    """Render a result block for a metadata refresh, distinct from SyncResult."""
+    console.print()
+    if dry_run:
+        console.print("[yellow]Would refresh metadata:[/yellow]")
+    else:
+        elapsed_str = (
+            f" in {_format_elapsed(result.elapsed_seconds)}"
+            if result.elapsed_seconds
+            else ""
+        )
+        console.print(f"[green]Metadata refresh complete{elapsed_str}:[/green]")
+
+    console.print(f"  Checked:           {result.checked}")
+    console.print(f"  Title changed:     {result.title_changed}")
+    console.print(f"  Labels changed:    {result.labels_changed}")
+    console.print(f"  Both changed:      {result.both_changed}")
+    console.print(f"  Unchanged:         {result.unchanged}")
+    if result.new_on_cloud:
+        console.print(
+            f"  [cyan]New on cloud:      {result.new_on_cloud}[/cyan] "
+            "[dim](run 'ohtv sync' to download)[/dim]"
+        )
+    if result.missing_on_cloud:
+        console.print(
+            f"  [yellow]Missing on cloud:  {result.missing_on_cloud}[/yellow] "
+            "[dim](run 'ohtv sync --repair' to clean up)[/dim]"
+        )
+    if result.errors:
+        console.print(f"  [red]Errors:            {len(result.errors)}[/red]")
+        _show_errors(result.errors)
 
 
 def _run_force_reset(
