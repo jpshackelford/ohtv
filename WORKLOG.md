@@ -1,3 +1,17 @@
+### 2026-05-22 04:49 UTC - Implementation Worker (Issue #86)
+
+**Implemented:** [Issue #86 — Add sync --update-metadata to pick up cloud-side title/label edits](https://github.com/jpshackelford/ohtv/issues/86) → PR [#93](https://github.com/jpshackelford/ohtv/pull/93) (ready for review)
+
+**Outcome:**
+- `ohtv sync --update-metadata` refreshes cached `title` + `labels` for already-synced cloud conversations without re-downloading any trajectory ZIPs. Normal `ohtv sync` auto-runs the same refresh when at least one new/updated conversation was processed.
+- New `SyncManager.update_metadata()` + `MetadataRefreshResult` dataclass; new focused `ConversationStore.update_metadata(conv_id, *, title, labels)` write path; scanner now prefers a non-empty manifest title over `base_state.json`. Mutual exclusion enforced for `--force`/`--since`/`--max-new`/`--repair`/`--status`. Never advances `last_sync_at` / `sync_count`.
+- 60+ new unit tests; full suite green (1395 passed). Lint baseline unchanged (no new ruff errors introduced). No CI test suite is wired in this repo — only `pr-review` workflow runs, and it's now armed by marking ready.
+- Unblocks #87 (extend manifest to full cloud metadata cache) and #89 (`gen titles` with PATCH-back). The `ConversationStore.update_metadata` signature is the foundational write path both will reuse.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+---
 ### 2026-05-22 04:36 UTC - Expansion Worker (Issue #91)
 
 **Expanded:** [Issue #91 — Standardize progress bars on the `ohtv sync` layout via a shared `make_progress` helper](https://github.com/jpshackelford/ohtv/issues/91) → `ready` + `priority:medium`
