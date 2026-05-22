@@ -1,5 +1,28 @@
 
 
+### 2026-05-22 10:55 UTC - Implementation Worker (Issue #79)
+
+✅ **Completed:** PR [#94](https://github.com/jpshackelford/ohtv/pull/94) — *Detect direct pushes to main/master*
+
+- Issue: [#79 - Add direct push to main detection](https://github.com/jpshackelford/ohtv/issues/79) (`priority:medium`)
+- Branch: `feat/direct-push-detection-79`
+- Dependencies: #76 (schema) and #78 (contributions stage) — both already merged.
+
+**What landed:**
+- New `extract_push_info()` helper in `git_operations.py` recognizer — parses both fast-forward (`oldsha..newsha`) and force-push (`oldsha...newsha` or leading `+`) update lines from `git push` output.
+- `GIT_PUSH` action metadata now includes `commit_range`, `base_commit`, `head_commit`, `remote_branch`, and `force` flag.
+- Contributions stage detects pushes whose remote branch is `main`/`master`; creates a `change_ref` with `change_type="direct_push"`, `status="merged"`, and records a `pushed` contribution. Dedup is on `(repo_id, commit_range)` and works across replays and across conversations.
+- `ContributionsStore.get_or_create_direct_push_change_ref` gained an optional `status=` parameter (defaults to `"pending"` for backwards compat).
+
+**Tests:** 26 new tests added; full suite 1375 passing.
+
+**Acceptance criteria:** all 6 verified via dedicated tests (see PR description for the test→criterion mapping).
+
+**PR status:** Ready for review (out of draft). CI workflow `pr-review` will run next.
+
+**Note for follow-up:** the push-target recognizer currently only emits `owner`/`repo` for `github.com` URLs, so direct-push detection effectively only fires for GitHub today. A code comment in `contributions.py` documents the extension point for GitLab/Bitbucket. Not worth a new issue until the underlying recognizer is extended.
+
+
 ### 2026-05-22 00:51 UTC - Expansion Worker (`8fdca91`)
 
 ✅ **Expanded Issue #82** — *Add charting script for velocity reports*
