@@ -791,53 +791,56 @@ class SyncManager:
         any_change_applied = False
         store = self._get_conversation_store()
 
-        for i, conv_id in enumerate(in_both):
-            cloud_conv = cloud_by_id[conv_id]
-            manifest_entry = self.manifest.conversations[conv_id]
-            title_changed, labels_changed = _metadata_differs(cloud_conv, manifest_entry)
+        try:
+            for i, conv_id in enumerate(in_both):
+                cloud_conv = cloud_by_id[conv_id]
+                manifest_entry = self.manifest.conversations[conv_id]
+                title_changed, labels_changed = _metadata_differs(cloud_conv, manifest_entry)
 
-            result.checked += 1
-            if not (title_changed or labels_changed):
-                result.unchanged += 1
-            else:
-                if title_changed:
-                    result.title_changed += 1
-                if labels_changed:
-                    result.labels_changed += 1
-                if title_changed and labels_changed:
-                    result.both_changed += 1
+                result.checked += 1
+                if not (title_changed or labels_changed):
+                    result.unchanged += 1
+                else:
+                    if title_changed:
+                        result.title_changed += 1
+                    if labels_changed:
+                        result.labels_changed += 1
+                    if title_changed and labels_changed:
+                        result.both_changed += 1
 
-                if not dry_run:
-                    new_title = cloud_conv.get("title") if title_changed else manifest_entry.get("title")
-                    new_labels = _normalize_labels(cloud_conv.get("tags")) if labels_changed else _normalize_labels(manifest_entry.get("labels"))
-                    if self._update_metadata_with_error_handling(
-                        conv_id, new_title, new_labels, store, result,
-                    ):
-                        any_change_applied = True
+                    if not dry_run:
+                        new_title = cloud_conv.get("title") if title_changed else manifest_entry.get("title")
+                        new_labels = _normalize_labels(cloud_conv.get("tags")) if labels_changed else _normalize_labels(manifest_entry.get("labels"))
+                        if self._update_metadata_with_error_handling(
+                            conv_id, new_title, new_labels, store, result,
+                        ):
+                            any_change_applied = True
 
-            if on_progress:
-                try:
-                    on_progress(i + 1, total)
-                except Exception:  # pragma: no cover - never let progress crash sync
-                    pass
+                if on_progress:
+                    try:
+                        on_progress(i + 1, total)
+                    except Exception:  # pragma: no cover - never let progress crash sync
+                        pass
 
-        if any_change_applied and not dry_run:
-            self.manifest.save(self.manifest_path)
-            # Commit DB writes if we opened a connection
+            if any_change_applied and not dry_run:
+                self.manifest.save(self.manifest_path)
+                # Commit DB writes if we opened a connection
+                if store is not None and store.conn is not None:
+                    try:
+                        store.conn.commit()
+                    except Exception as e:  # pragma: no cover - best effort
+                        log.warning("Failed to commit DB metadata updates: %s", e)
+        finally:
+            # Always close the DB connection we opened in _get_conversation_store.
+            # We own the connection lifecycle here (the factory returns a raw
+            # sqlite3.Connection — not a context manager). The try/finally
+            # guards against manifest.save() raising (disk full, permission
+            # denied, etc.), which would otherwise leak the connection.
             if store is not None and store.conn is not None:
                 try:
-                    store.conn.commit()
+                    store.conn.close()
                 except Exception as e:  # pragma: no cover - best effort
-                    log.warning("Failed to commit DB metadata updates: %s", e)
-
-        # Always close the DB connection we opened in _get_conversation_store.
-        # We own the connection lifecycle here (the factory returns a raw
-        # sqlite3.Connection — not a context manager).
-        if store is not None and store.conn is not None:
-            try:
-                store.conn.close()
-            except Exception as e:  # pragma: no cover - best effort
-                log.warning("Failed to close DB metadata connection: %s", e)
+                    log.warning("Failed to close DB metadata connection: %s", e)
 
         result.elapsed_seconds = _time.perf_counter() - start
         log.info(

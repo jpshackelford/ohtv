@@ -1234,6 +1234,31 @@ class TestUpdateMetadata:
         after = os.path.getmtime(manager.manifest_path)
         assert before == after
 
+    def test_db_connection_closed_when_manifest_save_raises(self, manager):
+        """If manifest.save() raises, the DB connection must still be closed.
+
+        Regression guard for the resource leak in update_metadata(): the
+        connection opened by _get_conversation_store() is owned by this
+        method (ConversationStore is not a context manager), so it must be
+        released via try/finally even if manifest.save() raises OSError
+        (disk full, permission denied, etc.).
+        """
+        manager.manifest.conversations = {
+            "a": {"title": "old", "updated_at": "u", "event_count": 1, "downloaded_at": "d", "labels": None},
+        }
+        store = MagicMock()
+        store.conn = MagicMock()  # truthy + supports .close()
+        with patch.object(manager, "_get_conversation_store", return_value=store), \
+             patch.object(manager.manifest, "save", side_effect=OSError("disk full")):
+            client = _RecordingCloudClient(
+                [{"id": "a", "title": "new", "tags": None}]
+            )
+            with pytest.raises(OSError, match="disk full"):
+                manager.update_metadata(client=client)
+
+        # The exception propagated, but close() must still have been invoked.
+        store.conn.close.assert_called_once()
+
 
 class TestWriteManifestMetadata:
     """Tests for SyncManager._write_manifest_metadata()."""
