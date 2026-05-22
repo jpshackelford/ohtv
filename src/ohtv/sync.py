@@ -808,30 +808,12 @@ class SyncManager:
                     result.both_changed += 1
 
                 if not dry_run:
-                    try:
-                        new_title = cloud_conv.get("title") if title_changed else manifest_entry.get("title")
-                        new_labels = _normalize_labels(cloud_conv.get("tags")) if labels_changed else _normalize_labels(manifest_entry.get("labels"))
-                        self._write_manifest_metadata(
-                            conv_id,
-                            title=new_title,
-                            labels=new_labels,
-                        )
+                    new_title = cloud_conv.get("title") if title_changed else manifest_entry.get("title")
+                    new_labels = _normalize_labels(cloud_conv.get("tags")) if labels_changed else _normalize_labels(manifest_entry.get("labels"))
+                    if self._update_metadata_with_error_handling(
+                        conv_id, new_title, new_labels, store, result,
+                    ):
                         any_change_applied = True
-                        if store is not None:
-                            try:
-                                store.update_metadata(
-                                    conv_id,
-                                    title=new_title,
-                                    labels=new_labels,
-                                )
-                            except Exception as e:
-                                log.warning(
-                                    "Failed to update DB metadata for %s: %s", conv_id, e
-                                )
-                                result.errors.append((conv_id, f"db: {e}"))
-                    except Exception as e:
-                        log.warning("Failed to update manifest metadata for %s: %s", conv_id, e)
-                        result.errors.append((conv_id, str(e)))
 
             if on_progress:
                 try:
@@ -908,6 +890,46 @@ class SyncManager:
             log.info("Could not open DB for metadata updates: %s", e)
             return None
         return ConversationStore(conn)
+
+    def _update_metadata_with_error_handling(
+        self,
+        conv_id: str,
+        new_title: str | None,
+        new_labels: dict[str, str] | None,
+        store,
+        result: "MetadataRefreshResult",
+    ) -> bool:
+        """Apply title + labels updates to manifest and (if open) DB.
+
+        Flattens what would otherwise be a 6-level-nested try/except in the
+        main refresh loop. Manifest write is attempted first; if it fails,
+        the DB write is skipped to preserve "manifest is source of truth"
+        ordering. DB failures are recorded but never roll back the manifest
+        change.
+
+        Returns:
+            True if the manifest write succeeded (caller should treat the
+            row as updated, e.g. set ``any_change_applied``). False if the
+            manifest write failed.
+        """
+        try:
+            self._write_manifest_metadata(
+                conv_id, title=new_title, labels=new_labels,
+            )
+        except Exception as e:
+            log.warning("Failed to update manifest metadata for %s: %s", conv_id, e)
+            result.errors.append((conv_id, str(e)))
+            return False
+
+        if store is not None:
+            try:
+                store.update_metadata(
+                    conv_id, title=new_title, labels=new_labels,
+                )
+            except Exception as e:
+                log.warning("Failed to update DB metadata for %s: %s", conv_id, e)
+                result.errors.append((conv_id, f"db: {e}"))
+        return True
 
     def _write_manifest_metadata(
         self,
