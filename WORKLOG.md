@@ -854,3 +854,7 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-05-22T02:24Z — expanded issue #86 (sync --update-metadata)
+
+Restructured #86 into Problem Statement / Proposed Solution / Acceptance Criteria, moved implementation detail into a Technical Approach comment, and called out the prerequisite relationship to #87 and #89. Added `ready` label.
