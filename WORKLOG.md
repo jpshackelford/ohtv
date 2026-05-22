@@ -1,244 +1,5 @@
-### 2026-05-22 00:33 UTC - Implementation Worker
 
-✅ **PR [#88 - feat: add PR contribution detection stage (#78)](https://github.com/jpshackelford/ohtv/pull/88) — opened, marked ready for review.**
 
-Implemented the `contributions` processing stage per issue #78. New `ContributionsStore` (`src/ohtv/db/stores/contributions_store.py`) provides `get_or_create_pr_change_ref`, `get_or_create_direct_push_change_ref` (already in place to unblock #79), `record_contribution` (INSERT-OR-IGNORE), and `delete_contributions_for_conversation` for reprocessing-safe replays. New `process_contributions` stage (`src/ohtv/db/stages/contributions.py`) walks the actions table in temporal order, mirroring `push_pr_links`' forward/backward correlation so orphan pushes (those before any PR on their branch) still get attributed to the first subsequent PR. `MERGE_PR` actions — which the current recognizer emits without repo info (target is the bare PR number from `gh pr merge 42`) — fall back through URL parsing → metadata.owner/repo → seen-PR map from same-conversation OPEN_PRs → single linked repo from `conversation_repos`; we refuse to guess if 0 or >1 repos are linked. Stage registered in `STAGES`; CLI's `db process <stage>` picks it up via the existing `click.Choice(STAGES.keys())`.
-
-**Tests:** 50 new tests (16 store + 34 stage), full suite 1322/1322 passing (was 1272). Coverage: 93% stage / 97% store. Untested lines are defensive guards (`int()` on regex-`\d+` matches, tuple-row fallbacks).
-
-**All 7 acceptance criteria checked off in the PR body.** Generic enough for #79: `ContributionsStore` already exposes the direct-push helper, and the contribution_type enum accepts `"pushed"`/`"created"` against `direct_push` change_refs — #79 can land as a sibling stage with no refactor here.
-
-**Learnings / follow-ups:**
-- The current `MERGE_PR` recognizer in `recognizers/github_actions.py` only stores `{"source": "github"}` in metadata. A small follow-up could attach owner/repo to merge metadata to remove the need for the seen-PR-map and single-repo fallbacks.
-- There's intentional but worth-noting overlap between this stage and `push_pr_links`: both re-derive the same push→PR temporal correlation, but populate different tables (`conversation_contributions` vs WRITE links on `conversation_refs`). A future refactor could unify them into one walk; for now they stay decoupled because #78 explicitly wants the contributions table as its own concern.
-- Repository URLs assume GitHub host (matches existing `OPEN_PR` recognition); when GitLab/Bitbucket recognizers grow, `_upsert_repo_for` will need a host-aware variant.
-
-**Next action belongs to orchestrator / review bot:** pr-review workflow triggers on `ready_for_review` (just hit). No other CI workflow gates this repo.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-21 23:51 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `d534691` | merge | PR #85 - human_input counting stage | **NEW** running |
-| `a8653e2` | expansion | Issue #80 - GitHub API LOC fetching command | **NEW** running |
-
-**Spawned: 2 Workers (parallel — both slots filled)**
-
-1. **Merge Worker** — PR slot
-   - PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
-   - Conversation: [`d534691`](https://app.all-hands.dev/conversations/d534691b861148d3b92d41bf0ae60ac8)
-   - Rationale: All merge criteria met
-     - CI green on `6c7c4716` (pr-review SUCCESS); mergeable=MERGEABLE / mergeStateStatus=CLEAN; not draft
-     - Single review thread (🟡 Suggestion on `initial_prompt_source` preservation) is RESOLVED — addressed in commit `6c7c471` by round-2 review worker with new integration test `test_preserves_initial_prompt_source_on_reprocessing`
-     - Manual test results posted 21:57:05Z + Round-2 re-test at 22:55:11Z (1271/1271 unit tests pass, R-1 `ohtv db process human_input` now PASS, full R-2a..R-2f sweep PASS); automated review at 22:28Z = 🟢 LOW risk / Worth merging
-     - **No re-test needed**: only commit after re-test (`6c7c471`, 23:22:08Z) is test-only — per orchestrator heuristics, test-only changes don't trigger re-test
-     - **No docs spot-check needed**: docs were updated pre-test by `d05423f`; the post-test CLI fix (`318ea0a`) made the implementation match what was already documented
-
-2. **Expansion Worker** — Expansion slot
-   - Issue: [#80 - Add GitHub API LOC fetching command](https://github.com/jpshackelford/ohtv/issues/80)
-   - Conversation: [`a8653e2`](https://app.all-hands.dev/conversations/a8653e2e10dc4b3b9d1e71e03c185ade)
-   - Rationale: Oldest unexpanded `enhancement` issue with no `ready`/`hold` label; downstream of merged #76 schema so dependencies are in place. Design docs (`docs/DESIGN_CONVERSATION_METRICS.md`, `docs/ISSUES_CONVERSATION_METRICS.md`) already exist in-repo for the expansion worker to use as context.
-
-**Current State:**
-- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) (merging now)
-- Ready issues with priority (queued for next impl): #77 (high — being merged), #78 (medium), #79 (medium)
-- Issues needing expansion: #80 (being expanded), #81, #82, #83, #86, #87
-- On hold: #26
-- Previously auto-disabled on 2026-05-16 — re-enabled by human on 2026-05-21 with the conversation-metrics design + 8-issue plan; orchestrator caught up and merged #84 (schema), implemented + tested + is now merging #77 (human_input stage)
-
-**Worker Status Recap Since Last Orchestrator Run:**
-- `b0da66b` (review round 2) — finished ✓ (addressed last 🟡 suggestion, added preservation invariant test, PR back to ready)
-- `0872233` (re-testing) — finished previously (Round 2 PASS)
-- `104623d` (review) — finished previously (click.Choice STAGES drift fix)
-
-**Next Cycle Considerations:**
-- If merge succeeds: PR slot opens up; spawn implementation worker for #78 (priority:medium, next in dependency chain after #77)
-- Issue #83 has a hard dependency on the `initial_prompt_source` preservation contract just locked in by the new integration test — note for prioritization once #77 lands
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-21 23:25 UTC - Review Worker
-
-✅ **PR #85 — Addressed last unresolved review thread (🟡 Suggestion from 22:28:26Z automated review).** Added a focused integration test `test_preserves_initial_prompt_source_on_reprocessing` in `tests/unit/db/stages/test_human_input.py` (commit `6c7c471`) that pins the `initial_prompt_source` preservation contract: the test runs the stage once (source = `unknown`), simulates a downstream classification stage by directly setting `initial_prompt_source = 'human'`, grows the conversation and re-runs `process_human_input`, then asserts the source is still `'human'` while the count columns were correctly refreshed. This locks in the deliberate omission of `initial_prompt_source` from the upsert's `ON CONFLICT ... DO UPDATE SET` clause — exactly the contract issue #83 will depend on. No production code changed. Full suite: 1272/1272 unit tests pass locally. Replied to thread `PRRT_kwDOR9seq86D88qj` referencing the commit, resolved it, and moved the PR back to ready (no CI runs on `synchronize` — only the `ready_for_review` re-trigger of the pr-review workflow). Next decision (re-test vs merge) belongs to the orchestrator's next cycle.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-21 19:51 UTC - Merge Worker
-
-✅ **PR #84 merged — "Add database schema for contribution tracking"**
-
-- Squash-merged as commit `4395eb2` with conventional title `feat: add database schema for contribution tracking (#84)`
-- All merge criteria satisfied going in: CI green on `058f93b`, all 8 review threads resolved, latest automated review (18:56:57Z) = 🟢 LOW risk / Worth merging, manual test results posted by `74b7a3a` (13/13 manual checks PASS, 1242/1242 unit tests pass, migration applies cleanly on fresh & populated DBs, CHECK/CASCADE constraints enforced, idempotent, no regressions)
-- Two stale `CHANGES_REQUESTED` reviews from `github-actions[bot]` (IDs `4339476779` at 18:07:42Z and `4339621111` at 18:28:47Z) dismissed via API with messages referencing the commits (`bc322bd` for SQLite NULL handling via partial unique indexes; `058f93b` for ON DELETE CASCADE + status CHECK). Both items had been addressed before the bot's final 🟢 review
-- Feature branch `feature/contribution-tracking-schema-76` deleted from origin
-
-**Closes #76** (database schema for contribution tracking) — migration 016 adds three new tables: `change_refs` (PRs + direct pushes, with conditional CHECK on `pr_number`/`commit_range` and partial unique indexes to handle SQLite NULL distinctness), `conversation_contributions` (links conversations to changes with CHECK on `contribution_type`), and `conversation_human_input` (human word/message counts with CHECK on `initial_prompt_source`). All FKs use `ON DELETE CASCADE`.
-
-**Downstream impact — dependent issues unblocked:** Issues #77–#83 (which build on the schema added in #76) are now unblocked. The orchestrator can apply `ready` labels to them on its next expansion run. The merge worker does NOT touch those issues — that's the orchestrator's next-cycle decision.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-16 22:17 UTC - Orchestrator
-
-🔒 **Auto-disabled due to inactivity**
-
-Three consecutive quiet periods detected - no new work to pick up.
-Automation has been disabled to prevent unnecessary runs.
-
-**Current State:**
-- No open PRs 🎉
-- Issues needing expansion: None 🎉
-- Ready issues: None 🎉
-- Issues on hold: #26 (MCP server - awaiting human review)
-
-**To re-enable:**
-- OpenHands UI: https://app.all-hands.dev/automations → Find "OHTV Workflow Orchestrator" → Toggle enable
-- Or via API:
-  ```bash
-  curl -X PATCH "https://app.all-hands.dev/api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b" \
-    -H "Authorization: Bearer ${OPENHANDS_API_KEY}" \
-    -H "Content-Type: application/json" \
-    -d '{"enabled": true}'
-  ```
-
----
-### 2026-05-21 17:52 UTC - Human (Research Planning)
-
-📊 **Conversation Metrics Feature - Design & Issue Planning**
-
-**Design Documents Created:**
-- `docs/DESIGN_CONVERSATION_METRICS.md` - Full architecture for measuring development velocity
-- `docs/ISSUES_CONVERSATION_METRICS.md` - Detailed implementation issues with test criteria
-
-**Research Goal:**
-Track the impact of agent orchestration on development velocity by measuring:
-1. Merged PR count and LOC per week (before/after orchestration)
-2. Human input metrics (messages, words per PR, ratio of human words to lines changed)
-
-**Key Design Decisions:**
-- PR-centric data model (metrics on PR/commit, not conversation to avoid double-counting)
-- Two-stage processing: `contributions` stage (local, post-sync) + `fetch-loc` command (network, cached)
-- Distinguish initial prompt (task definition) from follow-up messages (human steering)
-- `initial_prompt_source` field: "human" | "automation" | "unknown" for accurate counting
-
-**Issues Filed:**
-| # | Title | Dependencies |
-|---|-------|--------------|
-| #76 | Database schema for contribution tracking | None |
-| #77 | Human input counting stage | #76 |
-| #78 | PR contribution detection stage | #76 |
-| #79 | Direct push to main detection | #76, #78 |
-| #80 | GitHub API LOC fetching command | #76, #78/#79 |
-| #81 | Velocity report command | #76-80 |
-| #82 | Charting script for velocity reports | #81 |
-| #83 | Conversation classification command | #76, #77 |
-
-**Implementation Order:**
-```
-#76 (Schema) → #77, #78, #79 (parallel) → #80 → #81 → #82
-                    ↓
-                   #83 (can start after #77)
-```
-
-**Next Steps:**
-- Re-enable automation to begin implementation
-- Start with Issue #76 (schema foundation)
-
----
-### 2026-05-21 18:05 UTC - Implementation Worker
-
-✅ **Completed: Issue #76 - Database schema for contribution tracking**
-
-**PR Created:** [#84 - Add database schema for contribution tracking](https://github.com/jpshackelford/ohtv/pull/84)
-
-**What was done:**
-- Created migration `016_contributions.py` with three new tables:
-  - `change_refs`: Tracks PRs and direct pushes (12 columns, FK to repositories)
-  - `conversation_contributions`: Links conversations to changes (4 columns, FKs to conversations & change_refs)
-  - `conversation_human_input`: Stores human word/message counts (7 columns, FK to conversations)
-- Added CHECK constraints, UNIQUE constraints, and indexes per the spec
-- Created 36 comprehensive tests in `test_contributions_migration.py`
-
-**Test Results:** All 36 new tests pass, all 343 existing db tests pass
-
-**Next Steps:** Dependent issues #77, #78, #79 can now proceed in parallel
-
----
-### 2026-05-21 17:59 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `85e8f5d` | implementation | Issue #76 - Add database schema for contribution tracking | **COMPLETE** → PR #84 |
-
-**Housekeeping:**
-- 📦 Truncated WORKLOG.md (23 old entries archived to WORKLOG_ARCHIVE_2026-05-16.md)
-- ✅ Closed issue #75 (completed investigation - duration columns work correctly)
-- 🏷️ Marked issue #76 as `ready` + `priority:high`
-
-**Spawned: Implementation Worker**
-- Issue: [#76 - Add database schema for contribution tracking](https://github.com/jpshackelford/ohtv/issues/76)
-- Conversation: [`85e8f5d`](https://app.all-hands.dev/conversations/85e8f5ded30d42ecbd3473c703003b57)
-- Reason: Issue #76 is the foundation for the conversation metrics feature (no dependencies)
-
-**Current State:**
-- Open PRs: #84 (ready for review)
-- Issues needing expansion: #77, #78, #79, #80, #81, #82, #83 (but well-specified by human, need `ready` label)
-- Ready issues: #76 (priority:high) - implementation complete
-- Issues on hold: #26 (MCP server - awaiting human review)
-
-**Slots:**
-- 🔀 PR slot: Occupied (implementation worker for Issue #76)
-- 📖 Expansion slot: Idle (issues #77-83 are already well-specified, pending ready labels)
-
-**Notes:**
-- The human has already created detailed design docs for issues #76-83
-- These issues have acceptance criteria, test requirements, and verification instructions
-- They should be marked `ready` once #76 completes (to respect dependencies)
-
-**Implementation Order (from human design):**
-```
-#76 (Schema) → #77, #78, #79 (parallel) → #80 → #81 → #82
-                    ↓
-                   #83 (can start after #77)
-```
-
----
-### 2026-05-21 18:20 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `4f892a6` | review | PR #84 - Add database schema for contribution tracking | **NEW** |
-
-**Spawned: Review Worker**
-- PR: [#84 - Add database schema for contribution tracking](https://github.com/jpshackelford/ohtv/pull/84)
-- Conversation: [`4f892a6`](https://app.all-hands.dev/conversations/4f892a610f9c4f6a8ea23c6f661cb8c6)
-- Reason: PR has critical review feedback (changes requested) - SQLite NULL handling in unique constraints needs fix
-
-**Current State:**
-- Open PRs: #84 (changes requested, CI green, 💬3)
-- Issues needing expansion: None (issues #77-83 well-specified, awaiting #76 completion)
-- Ready issues: #76 (priority:high) - implementation complete, PR in review
-- Issues on hold: #26 (MCP server)
-
-**Review Feedback Summary:**
-1. UNIQUE constraint broken by SQLite NULL handling (allows duplicates when columns are NULL)
-2. Missing CHECK constraints to enforce required fields based on change_type
-3. Test gap - test documents bug as "SQLite behavior" instead of fixing it
-
-**Slots:**
-- 🔀 PR slot: Occupied (review worker for PR #84)
-- 📖 Expansion slot: Idle (no issues need expansion)
-
----
 ### 2026-05-21 18:25 UTC - Review Worker
 
 ✅ **Completed: PR #84 Review Feedback - SQLite NULL handling fix**
@@ -396,6 +157,22 @@ Track the impact of agent orchestration on development velocity by measuring:
 **Next:** Wait for `dd6e104` to merge PR #84 and update WORKLOG. Next cycle will start expansion/implementation flow on issues #77-83.
 
 ---
+### 2026-05-21 19:51 UTC - Merge Worker
+
+✅ **PR #84 merged — "Add database schema for contribution tracking"**
+
+- Squash-merged as commit `4395eb2` with conventional title `feat: add database schema for contribution tracking (#84)`
+- All merge criteria satisfied going in: CI green on `058f93b`, all 8 review threads resolved, latest automated review (18:56:57Z) = 🟢 LOW risk / Worth merging, manual test results posted by `74b7a3a` (13/13 manual checks PASS, 1242/1242 unit tests pass, migration applies cleanly on fresh & populated DBs, CHECK/CASCADE constraints enforced, idempotent, no regressions)
+- Two stale `CHANGES_REQUESTED` reviews from `github-actions[bot]` (IDs `4339476779` at 18:07:42Z and `4339621111` at 18:28:47Z) dismissed via API with messages referencing the commits (`bc322bd` for SQLite NULL handling via partial unique indexes; `058f93b` for ON DELETE CASCADE + status CHECK). Both items had been addressed before the bot's final 🟢 review
+- Feature branch `feature/contribution-tracking-schema-76` deleted from origin
+
+**Closes #76** (database schema for contribution tracking) — migration 016 adds three new tables: `change_refs` (PRs + direct pushes, with conditional CHECK on `pr_number`/`commit_range` and partial unique indexes to handle SQLite NULL distinctness), `conversation_contributions` (links conversations to changes with CHECK on `contribution_type`), and `conversation_human_input` (human word/message counts with CHECK on `initial_prompt_source`). All FKs use `ON DELETE CASCADE`.
+
+**Downstream impact — dependent issues unblocked:** Issues #77–#83 (which build on the schema added in #76) are now unblocked. The orchestrator can apply `ready` labels to them on its next expansion run. The merge worker does NOT touch those issues — that's the orchestrator's next-cycle decision.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-21 20:22 UTC - Orchestrator
 
 **Active Workers:**
@@ -437,57 +214,6 @@ Track the impact of agent orchestration on development velocity by measuring:
 **Next:** Next cycle should (a) check whether `26f66b8` is still running, (b) consider promoting #78 or #79 to a parallel-ready impl only AFTER PR #77 is open and stable (current workflow allows only one PR worker at a time; queue #78/#79 for after #77 merges), and (c) once #77 merges, promote #83 to `ready` (no extra deps) and re-evaluate #80 once any of #77/#78/#79 is in.
 
 ---
-
-## 2026-05-21T20:27Z — Implementation worker: PR #85 opened (issue #77)
-
-- Branch: `feat/human-input-counting-stage`
-- PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85) — ready for review
-- New module `src/ohtv/db/stages/human_input.py` + registration in `STAGES`
-- 26 unit/integration tests (full `tests/unit/db` suite: 378 passing); `ruff check` + `ruff format` clean
-- All acceptance criteria from #77 confirmed met; `initial_prompt_source` intentionally left at `'unknown'` for #83
-- Next: review/QA/merge workers spawned by orchestrator; #83 becomes promotable to `ready` once #85 merges
-
-
-### 2026-05-21 20:51 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `26f66b8` | implementation | Issue #77 → PR #85 | finished ✓ |
-| `d05423f` | docs | PR #85 - human_input stage README row | **NEW** |
-
-**Worker Completed:** `26f66b8` (implementation)
-- Opened [PR #85](https://github.com/jpshackelford/ohtv/pull/85) on branch `feat/human-input-counting-stage`
-- 3 files changed: `src/ohtv/db/stages/human_input.py` (new), `src/ohtv/db/stages/__init__.py` (registration), `tests/unit/db/stages/test_human_input.py` (26 tests)
-- CI: `pr-review` ✅ pass
-- Automated review (`github-actions`, 20:29:33Z, COMMENTED): "🟢 Good taste … ✅ Worth merging" (🟢 LOW risk)
-
-**Spawned: Docs Worker**
-- PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
-- Conversation: [`d05423f`](https://app.all-hands.dev/conversations/d05423fe371b4bccb2582061b148b886)
-- Reason: PR is ready, CI green, but README.md was not updated in the diff. The PR adds a new value to `ohtv db process <stage>` (`human_input`), which is documented in the "Available Stages" table around line ~950 of README. Per workflow rule "test what's documented", docs must be updated BEFORE manual testing.
-- Scoped narrowly: add a single row for `human_input` to the stages table. Existing gaps for `branch_context`/`push_pr_links` are explicitly out of scope.
-
-**PR #85 quick status:**
-- `o` opened, CI green, ready (not draft), 0 manual test comments yet
-- 1 automated review (COMMENTED, "Worth merging")
-- `mergeable: MERGEABLE`, `reviewDecision: ""` (no required reviewers configured for human-style approval)
-
-**Current State:**
-- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) — docs update in progress
-- Ready issues queued behind PR #85: #78 (priority:medium), #79 (priority:medium)
-- Issues blocked on `ready` issues completing: #80 (waits for #77/#78/#79), #81 (waits for #80), #82 (waits for #81), #83 (waits for #77)
-- Issues on hold: #26 (MCP server)
-- Issues needing expansion (no `ready`, no `hold`): none (#80-83 are pre-specified by human; intentionally not yet `ready` pending deps)
-
-**Slots:**
-- 🔀 PR slot: Occupied (docs worker `d05423f` on PR #85)
-- 📖 Expansion slot: Idle — no unexpanded issues. #78/#79 are ready but cannot be implemented in parallel (single PR-slot rule). They will be picked up after PR #85 merges.
-
-**Next:** Wait for `d05423f` to push docs commit + post "Documentation updated" comment. Then orchestrator will spawn a testing worker for PR #85.
-
----
-
 ### 2026-05-21 21:19 UTC - Orchestrator
 
 **Active Workers:**
@@ -527,7 +253,6 @@ Track the impact of agent orchestration on development velocity by measuring:
 **Next:** Wait for `c98452a` to post a structured "Manual Test Results" PR comment. Once posted with passing report and no significant follow-up commits, orchestrator will spawn a merge worker (no review worker needed — only automated review present, already favorable, 💬=0 actionable).
 
 ---
-
 ### 2026-05-21 21:50 UTC - Orchestrator
 
 **Active Workers:**
@@ -570,8 +295,6 @@ PR slot was effectively idle, so re-spawn is safe (not duplicating active work).
 **Next:** Wait for `3656ae7` to post a structured "Manual Test Results" PR comment. If a passing report appears with no significant follow-up commits, the next orchestrator cycle should spawn a merge worker (no review worker needed — only an automated favorable review present, 0 actionable comments).
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
 
 ---
 ### 2026-05-21 22:20 UTC - Orchestrator
@@ -623,7 +346,6 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-05-21 22:55 UTC - Orchestrator
 
 **Active Workers:**
@@ -704,7 +426,57 @@ Both true here: diff `49f2dc9..318ea0a` = `src/ohtv/cli.py` +3/-1 (click.Choice 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-21 23:25 UTC - Review Worker
 
+✅ **PR #85 — Addressed last unresolved review thread (🟡 Suggestion from 22:28:26Z automated review).** Added a focused integration test `test_preserves_initial_prompt_source_on_reprocessing` in `tests/unit/db/stages/test_human_input.py` (commit `6c7c471`) that pins the `initial_prompt_source` preservation contract: the test runs the stage once (source = `unknown`), simulates a downstream classification stage by directly setting `initial_prompt_source = 'human'`, grows the conversation and re-runs `process_human_input`, then asserts the source is still `'human'` while the count columns were correctly refreshed. This locks in the deliberate omission of `initial_prompt_source` from the upsert's `ON CONFLICT ... DO UPDATE SET` clause — exactly the contract issue #83 will depend on. No production code changed. Full suite: 1272/1272 unit tests pass locally. Replied to thread `PRRT_kwDOR9seq86D88qj` referencing the commit, resolved it, and moved the PR back to ready (no CI runs on `synchronize` — only the `ready_for_review` re-trigger of the pr-review workflow). Next decision (re-test vs merge) belongs to the orchestrator's next cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-05-21 23:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `d534691` | merge | PR #85 - human_input counting stage | **NEW** running |
+| `a8653e2` | expansion | Issue #80 - GitHub API LOC fetching command | **NEW** running |
+
+**Spawned: 2 Workers (parallel — both slots filled)**
+
+1. **Merge Worker** — PR slot
+   - PR: [#85 - feat: add human_input counting stage (#77)](https://github.com/jpshackelford/ohtv/pull/85)
+   - Conversation: [`d534691`](https://app.all-hands.dev/conversations/d534691b861148d3b92d41bf0ae60ac8)
+   - Rationale: All merge criteria met
+     - CI green on `6c7c4716` (pr-review SUCCESS); mergeable=MERGEABLE / mergeStateStatus=CLEAN; not draft
+     - Single review thread (🟡 Suggestion on `initial_prompt_source` preservation) is RESOLVED — addressed in commit `6c7c471` by round-2 review worker with new integration test `test_preserves_initial_prompt_source_on_reprocessing`
+     - Manual test results posted 21:57:05Z + Round-2 re-test at 22:55:11Z (1271/1271 unit tests pass, R-1 `ohtv db process human_input` now PASS, full R-2a..R-2f sweep PASS); automated review at 22:28Z = 🟢 LOW risk / Worth merging
+     - **No re-test needed**: only commit after re-test (`6c7c471`, 23:22:08Z) is test-only — per orchestrator heuristics, test-only changes don't trigger re-test
+     - **No docs spot-check needed**: docs were updated pre-test by `d05423f`; the post-test CLI fix (`318ea0a`) made the implementation match what was already documented
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#80 - Add GitHub API LOC fetching command](https://github.com/jpshackelford/ohtv/issues/80)
+   - Conversation: [`a8653e2`](https://app.all-hands.dev/conversations/a8653e2e10dc4b3b9d1e71e03c185ade)
+   - Rationale: Oldest unexpanded `enhancement` issue with no `ready`/`hold` label; downstream of merged #76 schema so dependencies are in place. Design docs (`docs/DESIGN_CONVERSATION_METRICS.md`, `docs/ISSUES_CONVERSATION_METRICS.md`) already exist in-repo for the expansion worker to use as context.
+
+**Current State:**
+- Open PRs: [#85](https://github.com/jpshackelford/ohtv/pull/85) (merging now)
+- Ready issues with priority (queued for next impl): #77 (high — being merged), #78 (medium), #79 (medium)
+- Issues needing expansion: #80 (being expanded), #81, #82, #83, #86, #87
+- On hold: #26
+- Previously auto-disabled on 2026-05-16 — re-enabled by human on 2026-05-21 with the conversation-metrics design + 8-issue plan; orchestrator caught up and merged #84 (schema), implemented + tested + is now merging #77 (human_input stage)
+
+**Worker Status Recap Since Last Orchestrator Run:**
+- `b0da66b` (review round 2) — finished ✓ (addressed last 🟡 suggestion, added preservation invariant test, PR back to ready)
+- `0872233` (re-testing) — finished previously (Round 2 PASS)
+- `104623d` (review) — finished previously (click.Choice STAGES drift fix)
+
+**Next Cycle Considerations:**
+- If merge succeeds: PR slot opens up; spawn implementation worker for #78 (priority:medium, next in dependency chain after #77)
+- Issue #83 has a hard dependency on the `initial_prompt_source` preservation contract just locked in by the new integration test — note for prioritization once #77 lands
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-21 23:53 UTC - Orchestrator (merge)
 
 **Merged: PR #85 — `feat: add human_input counting stage`**
@@ -734,7 +506,6 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-05-21 23:55 UTC - Expansion Worker
 
 ✅ **Expanded Issue #80** — *Add GitHub API LOC fetching command*
@@ -805,10 +576,6 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
----
-
 ### 2026-05-22 00:26 UTC - Expansion Worker (`68sTA3L`)
 
 ✅ **Expanded Issue #81** — Add velocity report command
@@ -830,3 +597,72 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 - **Unblocks #82** (charting) — explicit guidance that `fetch_raw_rows` / `bucket_by_iso_week` should be importable.
 - Comment added with full Technical Approach, file layout, SQL strategy, Implementation Plan, and Test Plan.
 
+---
+### 2026-05-22 00:33 UTC - Implementation Worker
+
+✅ **PR [#88 - feat: add PR contribution detection stage (#78)](https://github.com/jpshackelford/ohtv/pull/88) — opened, marked ready for review.**
+
+Implemented the `contributions` processing stage per issue #78. New `ContributionsStore` (`src/ohtv/db/stores/contributions_store.py`) provides `get_or_create_pr_change_ref`, `get_or_create_direct_push_change_ref` (already in place to unblock #79), `record_contribution` (INSERT-OR-IGNORE), and `delete_contributions_for_conversation` for reprocessing-safe replays. New `process_contributions` stage (`src/ohtv/db/stages/contributions.py`) walks the actions table in temporal order, mirroring `push_pr_links`' forward/backward correlation so orphan pushes (those before any PR on their branch) still get attributed to the first subsequent PR. `MERGE_PR` actions — which the current recognizer emits without repo info (target is the bare PR number from `gh pr merge 42`) — fall back through URL parsing → metadata.owner/repo → seen-PR map from same-conversation OPEN_PRs → single linked repo from `conversation_repos`; we refuse to guess if 0 or >1 repos are linked. Stage registered in `STAGES`; CLI's `db process <stage>` picks it up via the existing `click.Choice(STAGES.keys())`.
+
+**Tests:** 50 new tests (16 store + 34 stage), full suite 1322/1322 passing (was 1272). Coverage: 93% stage / 97% store. Untested lines are defensive guards (`int()` on regex-`\d+` matches, tuple-row fallbacks).
+
+**All 7 acceptance criteria checked off in the PR body.** Generic enough for #79: `ContributionsStore` already exposes the direct-push helper, and the contribution_type enum accepts `"pushed"`/`"created"` against `direct_push` change_refs — #79 can land as a sibling stage with no refactor here.
+
+**Learnings / follow-ups:**
+- The current `MERGE_PR` recognizer in `recognizers/github_actions.py` only stores `{"source": "github"}` in metadata. A small follow-up could attach owner/repo to merge metadata to remove the need for the seen-PR-map and single-repo fallbacks.
+- There's intentional but worth-noting overlap between this stage and `push_pr_links`: both re-derive the same push→PR temporal correlation, but populate different tables (`conversation_contributions` vs WRITE links on `conversation_refs`). A future refactor could unify them into one walk; for now they stay decoupled because #78 explicitly wants the contributions table as its own concern.
+- Repository URLs assume GitHub host (matches existing `OPEN_PR` recognition); when GitLab/Bitbucket recognizers grow, `_upsert_repo_for` will need a host-aware variant.
+
+**Next action belongs to orchestrator / review bot:** pr-review workflow triggers on `ready_for_review` (just hit). No other CI workflow gates this repo.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-22 00:52 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `d5736ad` | docs | PR #88 - feat: add PR contribution detection stage | **NEW** running |
+| `8fdca91` | expansion | Issue #82 - Add charting script for velocity reports | **NEW** running |
+
+**🚀 Spawned: 2 Workers (parallel — both slots filled)**
+
+1. **Documentation Worker** — PR slot
+   - PR: [#88 - feat: add PR contribution detection stage](https://github.com/jpshackelford/ohtv/pull/88) (fixes #78)
+   - Conversation: [`d5736ad`](https://app.all-hands.dev/conversations/d5736ad8e724436aba9e24185a104912)
+   - Start task: `08d93609f23540e88d79e8b9d965a283` → READY on first poll (~6s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: pinpointed exact README section needing update ("Available Stages" table around line 949-955) with the existing 4-stage roster (`refs`/`actions`/`human_input`/`all`). New `contributions` stage is user-visible via `ohtv db process <stage>` so README *does* need a row, but no separate top-level CLI doc section (just another value for an existing subcommand). Told worker to also grep README for other stage mentions and check AGENTS.md item #11 (stage order doc) for any reflected updates. Explicitly out-of-scope: addressing the 2 open review threads (that's the review worker), running manual tests (testing worker), modifying src/ or tests/. If README already documents `contributions`, post explicit "no updates needed" comment.
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#82 - Add charting script for velocity reports](https://github.com/jpshackelford/ohtv/issues/82)
+   - Conversation: [`8fdca91`](https://app.all-hands.dev/conversations/8fdca9100c2649f9a040c0dc0b07398d)
+   - Start task: `01a54f974d4d47c3a60024453367b461` → READY on first poll (~6s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: required worker to read freshly-expanded #81 first (`fetch_raw_rows`/`bucket_by_iso_week` are its inputs — chart must reuse, not re-query). Framed the design as 8 decision points: (1) charting library — flagged plotext as repo-fit for terminal-first, matplotlib for PNG, called out hybrid as an option; (2) CLI surface — lean toward extending `report` group rather than new `scripts/` script; (3) data flow — reuse #81 functions; (4) output format defaults; (5) optional vs core deps in pyproject.toml; (6) file layout; (7) test plan (snapshot data prep, smoke chart gen); (8) acceptance criteria. Dependency map: hard depends on #81, soft depends on #78 (in PR #88) and #80 (ready, queued) for real data. Target priority: `priority:low` (downstream of #81, low urgency) unless worker finds reason to bump.
+
+**Decision rationale:**
+- **Wake-up state:** Prior-cycle workers from the 00:21Z orchestrator entry (`96ff9d4` impl + `4a0bd57` expansion) both reached terminal state. Impl produced PR #88 (00:33Z entry on this worklog), expansion produced Issue #81 `ready`+`priority:medium` (00:26Z entry). Both slots opened simultaneously, allowing parallel dispatch this cycle.
+- **PR slot pick (docs, not testing/review/merge):** PR #88 is ready (not draft), CI green, mergeable=CLEAN, no manual test results yet, 2 unresolved review threads from `github-actions` review bot. Per the documented workflow sequence (`Implementation → CI Green → DOCS UPDATE → Manual Testing → Review → Merge`), **docs must run before testing** so testers verify documented behavior matches built behavior. PR diff does not touch `README.md`, but adds a user-visible value (`contributions`) to the existing `db process <stage>` subcommand → README "Available Stages" table needs updating. Picked docs worker over testing/review/merge for this reason.
+- **Expansion slot pick (#82 over #83/#86/#87):** Per `/orchestrate` "oldest unexpanded issue" rule, #82 is the oldest of the four pending-expansion issues. Bonus: expanding #82 right after #81 just got expanded keeps design context fresh — they're a natural pair (velocity report → its charting script). Prior orchestrator's queue (#83 → #82 → #86 → #87) was a dependency-aware reordering; I'm reverting to the documented "oldest first" rule because (a) #82's expansion only requires reading code, not implementations being complete, and (b) the #82↔#81 design pipeline benefit outweighs #83's "no in-tree deps" argument.
+- **NOT spawned:** No testing/review/merge worker — docs must complete first. No additional expansion worker — slot can hold only 1.
+
+**Current State:**
+- PR #88 (fixes #78): `oR green ready` 💬2 — docs worker spawned to add `contributions` row to README's Available Stages table; testing/review/merge will follow in subsequent cycles
+- Ready issues (queued for PR slot, all `priority:medium`): #79 (direct push detection), #80 (LOC fetching), #81 (velocity report) — next implementation candidates after PR #88 lands and the PR slot reopens
+- In-flight expansions: #82 (just spawned)
+- Issues needing expansion (next cycles): #83 (classification, unblocked by PR #85's preserved `initial_prompt_source`), #86 (sync --update-metadata, priority:medium), #87 (manifest cache, priority:low). Order on completion of #82: #83 → #86 → #87.
+- On hold: #26
+- Housekeeping: ran truncate-worklog this cycle (832 → 618 lines, then this entry adds ~60 lines). Patched `/tmp/truncate_worklog.py` to handle worklogs without a `## Log` header marker (treats whole file as entries). Cutoff 2026-05-21 18:25Z; archived 5 entries across `WORKLOG_ARCHIVE_2026-05-16.md` (+1) and `WORKLOG_ARCHIVE_2026-05-21.md` (+4). Recent productive context preserved (>6h of spawn/complete/merge entries — actually ~7h back to 17:52Z). Worklog still over the 300-line nominal threshold but contains only the productive 6h+ window — natural floor given recent high activity. Will re-truncate naturally on next quiet cycle.
+
+**Next check (~30 min):**
+- If `d5736ad` (docs PR #88) commits README changes + posts comment → docs done → next cycle spawns testing worker
+- If `d5736ad` posts "no README updates needed" comment → next cycle skips to testing worker
+- If `8fdca91` (expansion #82) adds `ready` label → expansion slot reopens → spawn #83 expansion (next in queue)
+- If PR #88 review threads resolved & test posted in same cycle → spawn review worker for the 2 inline threads
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
