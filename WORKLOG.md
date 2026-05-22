@@ -1018,3 +1018,58 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-22 07:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `b6dac75` | re-test | PR #93 — verify DB-write fix at `9af9013` | **NEW** running |
+
+**🚀 Spawned: 1 Worker (PR slot only — expansion slot idle, no unexpanded issues)**
+
+1. **Re-Testing Worker** — PR slot
+   - PR: [#93 - feat(sync): add --update-metadata](https://github.com/jpshackelford/ohtv/pull/93) (fixes #86)
+   - Conversation: [`b6dac75`](https://app.all-hands.dev/conversations/b6dac75fba1045348fcdb503a607e94b)
+   - Start task: `a2e13ff291274b54a19deab8d84bc037` → READY on first poll (~6s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - **What changed since last test (`1f21c49` → `9af9013`):** Fix worker `0e15793` pushed commit `9af9013` at 06:56:24Z that addresses the prior BLOCK verdict. `SyncManager._get_conversation_store` now opens a raw `sqlite3.Connection` via `get_db_path()` and applies the same PRAGMAs (`foreign_keys`, `journal_mode=WAL`) that `get_connection()` used to apply; `update_metadata()` closes the connection after commit. Two new tests in `TestUpdateMetadataRealDB` (`tests/unit/test_sync.py`, +167 lines) exercise the real on-disk path WITHOUT mocking `_get_conversation_store` — fix-worker confirmed locally that reverting just the `sync.py` change makes both new tests fail with the exact original `AttributeError`. CI green at HEAD (`pr-review` SUCCESS, 5m 35s); `MERGEABLE/CLEAN`. Worker also posted a fix-reply comment at 06:56:51Z linking commit + rationale.
+   - **Worker tasked with:** (a) checkout `9af9013` and `uv sync`; (b) **focused re-test of the previously-broken DB-write path** — seed a real on-disk SQLite DB, run `ohtv sync --update-metadata` (NOT dry-run), assert no `Errors: 1`, no `_GeneratorContextManager` warning in `~/.ohtv/logs/ohtv.log`, manifest written, AND `conversations` row updated (query DB directly); also dry-run negative case; (c) sanity-pass the 11/12 previously-passing scenarios (mutual-exclusion, sentinel semantics, manifest path); (d) full unit suite expecting **1397 passed** (1395 prior + 2 new in `TestUpdateMetadataRealDB`), call out either of `test_real_db_row_is_updated_and_no_errors` / `test_real_db_dry_run_does_not_touch_row` if they fail; (e) README spot-check against `9af9013` (no edits, flag drift only); (f) post a NEW `## Manual Test Results — PR #93 (Re-test after review round 1)` comment per `/manual-test`, explicit about `9af9013` vs `1f21c49`, originally-broken-scenario verdict, and final `Ready for merge` / `Block` call. Guardrails: NO src/test edits, NO README edits, NO draft toggle, NO merge, NO WORKLOG write, NO addressing the two 🟡 review threads (they belong to the next review-worker cycle, see below).
+
+**Decision rationale:**
+- **Wake-up state audit:** Both prior cycle (06:50Z) workers PAUSED with healthy side-effects.
+  - Review/fix worker `0e15793` (PR #93): **success** — commit `9af9013` lands the diagnosed Option B fix (raw `sqlite3.Connection`, lifecycle ownership in `update_metadata`), adds the missing real-DB regression tests (+167 lines, 2 new tests), and posts a thorough fix-reply on the manual-test thread linking the commit. CI green at HEAD. PR remained ready (worker chose not to toggle draft, which is fine since the fix is tight and CI was monitored — matches the spirit of the "back to draft" guidance which is most useful when a fix lands on a previously-approved PR; here the only review was advisory).
+  - Expansion worker `3ecb17d` (Issue #92): **success** — added `enhancement` + `ready` + `priority:medium` labels at 06:55:44Z plus a Technical Approach comment titled "Expansion comment — VERIFY pattern (body is the canonical scope)" clarifying that body is canonical (counts only) and the proposed token/cost expansion lives in a follow-up comment (deferred scope).
+- **Expansion slot idle.** First time the slot has been idle in many cycles — **every open issue except #26 (`hold`) is now `ready`**. The full ready backlog (11 issues): #79, #80, #81, #82, #83, #86, #87, #89, #90, #91, #92. Nothing for a new expansion worker to do. This is a healthy state, not an auto-disable trigger (PR slot is active).
+- **PR slot pick (re-testing, NOT review):** Two competing decision tree branches both match the current state:
+  - "PR exists, ready, CI green, **test results outdated** → re-testing worker" — test was at 06:01Z against `1f21c49`, fix landed at 06:56Z as `9af9013`, source file `src/ohtv/sync.py` changed (not just tests) → outdated test, per the "Significant Changes" heuristic.
+  - "PR exists, ready, CI green, test results valid, 💬 > 0 → review worker" — 2 new unresolved 🟡 review threads posted at 07:03:09Z by github-actions (after the fix, before this cycle).
+  - **Re-testing wins** because the workflow sequence is `... → Testing → Review → [Re-test?] → Merge`, and we don't have *valid* test results yet (the only test on file is the BLOCK verdict against `1f21c49`). Re-test must validate the fix end-to-end before review work is meaningful. The 2 advisory threads can be addressed in the next cycle.
+- **The 2 new review threads (deferred to next cycle, not this one):**
+  - `PRRT_kwDOR9seq86EBxI0` (🟡 Suggestion): extract nested DB-update logic into `_update_metadata_with_error_handling` helper (6 levels of indent → violates "3 levels max" guideline). github-actions itself notes "This is a style refinement, not a blocker."
+  - `PRRT_kwDOR9seq86EBxI7` (🟡 Suggestion, previously noted): reuse `CloudClient` from the completed sync in `_run_metadata_refresh` instead of opening a new one. Marked "minor" performance optimization.
+  - Both are advisory; neither blocks merge mechanically. They will be addressed by the next review-worker cycle (after re-test) with case-by-case accept/decline judgments per the "Handling Review Comments" guidance.
+- **NOT spawned:** No docs worker (README is in-diff, already validated in the 06:01Z report — fix didn't touch docs). No second expansion worker (no candidates). No implementation worker for any of the 11 ready issues (PR slot serialized; #93 must merge first).
+- **Auto-disable check:** Last 2 orchestrator entries (06:50Z + this one) both spawned at least one worker — neither is an "All quiet" entry. Auto-disable does NOT trigger.
+
+**Current State:**
+- **PR #93** (fixes #86): `oCFcFR green ready` — re-test worker in flight; docs ✅; review ⚠️ (2 advisory 🟡 threads unresolved + 1 positive automated review); CI ✅ green at `9af9013`; merge gated on re-test verdict + (probably) addressing the 2 advisory threads.
+- **Open issues by status:**
+  - **Ready** (queued for PR slot after #93 merges, in priority/age order):
+    - `priority:medium`: #79 (direct push), #80 (LOC fetching), #81 (velocity report), #83 (classification command), #89 (`gen titles`), #90 (`ohtv label`), #91 (progress bars), #92 (weekly conversion CSV — newest, just landed `ready`).
+    - `priority:low`: #82 (charting, depends on #81), #87 (manifest cache, depends on #86 → unblocks once #93 merges).
+    - **NOTE:** #86 itself is no longer in the queue — its PR (#93) is in flight; once #93 merges, #86 closes. So the post-#93 implementation pick is most likely **#79** (oldest `priority:medium` ready issue not blocked by a dep).
+  - **In-flight expansion:** none (slot idle).
+  - **Pending expansion:** none.
+  - **On hold:** #26.
+- **Housekeeping:** WORKLOG.md is at **1020 lines** pre-update — well above the 300-line trigger. Prior cycle deferred truncation pending "smaller cycles." Cycles haven't gotten smaller (the 06:50Z entry alone was ~120 lines). **Marking truncation as a TODO for the next quiet cycle or when no PR is in flight** — doing it mid-cycle would mean rewriting on top of an active worker's expected file size. Truncate-worklog skill recommends preserving the last 6h of productive entries; current 6h window (01:20Z → 07:20Z) covers ~5 dense cycles which is the bulk of the file — there isn't much to archive yet without losing context the next cycle would want.
+
+**Next check (~30 min):**
+- If `b6dac75` (re-test PR #93) posts a passing `## Manual Test Results — PR #93 (Re-test...)` with verdict `Ready for merge` → next cycle's PR slot decision is **review worker** to address the 2 advisory 🟡 threads (accept extract-helper if it's a clean refactor, evaluate CloudClient-reuse on its merits — likely accept since it's just threading through an existing optional param). After that round resolves the threads, the cycle following spawns the merge worker.
+- If `b6dac75` posts a FAILING re-test report → next cycle does NOT spawn merge or review; spawns implementation worker against PR #93 with the specific regression details (similar to what `0e15793` just did for the original BLOCK).
+- If `b6dac75` produces 0 events or silently stops (matching prior `db9e81d` failure mode) → escalate via WORKLOG for human review; do NOT auto-retry a third time on this specific PR/SHA.
+- If a new commit lands on `feature/sync-update-metadata-86` before next check (e.g., from someone manually addressing the advisory threads) → next cycle re-evaluates test currency against the new HEAD.
+- **Expansion slot stays idle** unless a new open issue lands without labels — full backlog is currently expanded.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
