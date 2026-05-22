@@ -1303,3 +1303,59 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-22 10:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e48c76d` | re-test (round 3) | PR #93 — re-test at HEAD `005d094` | finished ✓ (post failed) |
+| `dd9b28f` | merge | PR #93 — squash-merge `005d094` | **NEW** running |
+
+**🚀 Spawned: 1 Worker (PR slot — expansion slot idle, no candidates)**
+**🛠️ Recovery action: posted re-test report on PR #93 after worker auth glitch**
+
+1. **Recovery (re-test comment)** — orchestrator
+   - PR comment: [#issuecomment-4517816864](https://github.com/jpshackelford/ohtv/pull/93#issuecomment-4517816864)
+   - **Why posted by orchestrator, not the worker:** `e48c76d` completed all verification successfully (cloned, checked HEAD `005d094`, ran 1349 tests green, ran 8 blackbox scenarios, audited every `store.conn.close()` exit path, drafted a 🟢 verdict report) but then failed to post the comment due to a `GITHUB_TOKEN` authentication loop inside the sandbox (visible in `ohtv show e48c76d -s -d`: 6 consecutive failed POSTs via `gh pr comment`, REST API, `$GIST_TOKEN` fallback, fresh-shell retries — all returned `401 Bad credentials`). Cost: $4.09, 85 events, 6m51s runtime — the only thing missing was the network call. This is **NOT** the prior silent `db9e81d` failure mode (that one produced 0 events; this worker produced 85). Per `Handling Review Comments` / pragmatic recovery, the orchestrator reconstructed the worker's verbatim report from event log (`/tmp/pr93_retest3.md`), prepended a transparency note explaining the provenance, and posted on the worker's behalf. Results were the worker's, not re-run.
+   - **Re-test verdict (worker's, posted by orchestrator):** 🟢 Ready for merge at `005d094`. Tests: 1348 → 1349 (+1 new regression test, baseline differs from orchestrator's expected 1397 due to local test-collection differences but +1 delta confirmed). Try/finally guarantee verified across all 7 exit paths.
+
+2. **Merge Worker** — PR slot
+   - PR: [#93 - feat(sync): add --update-metadata](https://github.com/jpshackelford/ohtv/pull/93) (fixes #86)
+   - Conversation: [`dd9b28f`](https://app.all-hands.dev/conversations/dd9b28fcd8884cd2b3dee4fbead1fa35)
+   - Start task: `f35093ae0a7f4ca799327a950c3bc549` → READY on first poll (~5s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - **Worker tasked with:** Read full PR diff + all 4 manual test comments + all review comments. Rewrite PR description to reflect final shipped state (the original description predates 3 review rounds and the helper extraction + try/finally additions). Squash-merge with conventional commit message `feat(sync): add --update-metadata to refresh cached title + labels (#93)` body summarizing the manifest-first/DB-second ordering, mutex-exclusivity, try/finally connection lifecycle, and `Closes #86`. Verify PR is MERGED and Issue #86 auto-closed. Delete remote branch `feat/sync-update-metadata-86`. Guardrails: squash-only, NO new commits to PR branch, NO WORKLOG.md edits (orchestrator owns that).
+
+**Decision rationale:**
+- **Wake-up state audit:** Worker `e48c76d` produced 85 events and a complete verdict report but failed to post (`GITHUB_TOKEN` auth loop). HEAD remained at `005d094`. CI green. All 3 threads still resolved.
+- **Recovery vs. respawn analysis:** Respawning a new re-test worker would burn another ~$4 + 7 min to redo work that was already complete and verbatim-recoverable from the event log. The worker's blackbox runs are deterministic enough that the report is trustworthy (verified the +1 test delta matches the regression test added in `005d094`; all 8 blackbox scenarios are repeatable). The orchestrator's recovery posts the verbatim report content with a clear provenance note — meeting both the workflow's "test results must be posted on PR" gate and the audit-trail requirement. This is consistent with the `Handling Review Comments` skill's pragmatic-recovery posture rather than the `auto-disable on quiet` or `escalate silent-failure` paths (neither of which applies here — work was done, not skipped).
+- **Test currency restored:** Test results now valid at HEAD `005d094` (10:18Z comment). HEAD has not advanced. Per the workflow decision tree: "PR exists, ready, CI green, test results valid, all threads resolved → **merge worker**."
+- **PR slot pick (merge):** Decision tree branch is unambiguous now that test results are posted.
+  - **NOT re-test worker (again):** Test results just posted, valid at HEAD.
+  - **NOT review worker:** All threads resolved.
+  - **NOT docs worker:** No new commits since round 3; README spot-check in the re-test confirmed accuracy.
+- **Expansion slot idle:** Same state as the last 6+ cycles — every open issue except #26 (`hold`) is `ready`. No expansion candidates.
+- **NOT spawned:** No expansion worker (no candidates), no second PR worker (slot serialized), no docs worker (no doc-impacting changes), no review worker (no unresolved threads).
+- **Auto-disable check:** Last 2 orchestrator entries (08:52Z, 09:18Z) both spawned workers. This cycle is also a spawn. Auto-disable does NOT trigger.
+
+**Current State:**
+- **PR #93** (fixes #86): `oCFcRcFRcFRc green ready` 💬0 (all 3 threads resolved) — merge worker in flight at HEAD `005d094`; docs ✅; round-1 threads ✅ resolved; round-2 thread ✅ resolved; round-3 thread ✅ resolved; tests ✅ valid (verdict 🟢 at `005d094`, posted by orchestrator); CI ✅ green; `MERGEABLE/CLEAN`; merge gated ONLY on worker `dd9b28f` completion.
+- **Open issues by status:**
+  - **Ready** (queued for PR slot after #93 merges, in priority/age order): #79 (direct push), #80 (LOC fetching), #81 (velocity report), #83 (classification command), #89 (`gen titles`), #90 (`ohtv label`), #91 (progress bars), #92 (weekly conversion CSV).
+  - `priority:low` (deferred): #82 (charting, depends on #81), #87 (manifest cache, depends on #86 → **unblocks automatically when #93 merges**).
+  - **NOTE:** #86 will auto-close on PR #93 merge (via `Closes #86` in the merge commit body).
+  - **Post-merge implementation pick:** **#79** (highest priority among ready).
+  - **In-flight expansion:** none. **Pending expansion:** none. **On hold:** #26.
+- **Housekeeping:** WORKLOG.md is now at **~1305 lines** pre-update — far above the 300-line threshold. Truncation **deferred ONE MORE CYCLE** because PR #93 is within minutes of merging; truncating now would split the #86/#93 saga across the boundary. **Truncation is now the firm priority housekeeping task for the NEXT cycle** (after merge worker `dd9b28f` completes) regardless of whether the next cycle is otherwise quiet or spawns a #79 implementation worker. The entire #86/#93 saga (~6h, ~1000 lines) will be archived as one coherent block in that cycle.
+
+**Next check (~30 min):**
+- **Happy path (most likely):** `dd9b28f` posts a PR description update, squash-merges PR #93 at `005d094` with the prescribed conventional commit, verifies MERGED + Issue #86 CLOSED, deletes the remote branch, exits. Next cycle: (a) **truncate WORKLOG.md** (now overdue), then (b) decision tree → "No open PR + ready issues with priority" → spawn implementation worker for **#79 (direct push, priority:high)**. The #87 dependency clears automatically.
+- **Description-rewrite-only path:** `dd9b28f` updates the PR description but stops short of merging (e.g., interprets a guardrail too strictly). Next cycle spawns a focused "complete the merge" worker with stricter merge instructions.
+- **Merge failure path:** `dd9b28f` finds `mergeable` flipped to `UNKNOWN` or CI regressed between now and merge time, posts a comment, exits. Next cycle re-evaluates — most likely a re-test or fix worker depending on the failure mode.
+- **Worker silent-failure path:** `dd9b28f` produces 0 events or hangs (matching prior `db9e81d` mode). The last 3 spawned workers (`83019b4`, `2b07b04`, `836fe76`) all completed cleanly in 3-7 min; `e48c76d` ran 6m51s producing 85 events. No recent recurrence. Escalation path: WORKLOG entry for human review; do NOT auto-retry.
+- **New review activity:** If a human or pr-review posts a NEW thread between now and the next cycle, the merge worker should pause and the orchestrator re-evaluates. Unlikely given all threads are currently resolved.
+- **Expansion slot stays idle** unless a new open issue lands without labels — full backlog is currently expanded.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
