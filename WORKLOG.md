@@ -918,3 +918,57 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-22 06:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0e15793` | review/fix | PR #93 — fix DB write bug | **NEW** running |
+| `3ecb17d` | expansion | Issue #92 — Weekly conversion counts CSV | **NEW** running |
+
+**🚀 Spawned: 2 Workers (parallel — both slots filled)**
+
+1. **Review/Fix Worker** — PR slot
+   - PR: [#93 - feat(sync): add --update-metadata](https://github.com/jpshackelford/ohtv/pull/93) (fixes #86)
+   - Conversation: [`0e15793`](https://app.all-hands.dev/conversations/0e1579305a974dcfa5a252aa866ae1f9)
+   - Start task: `3cedd1461e0b436f804cd03c06d79df5` → READY in ~8s
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - **Failing-test feedback to address:** Prior cycle's testing worker `20fb611` posted `## Manual Test Results — PR #93` at 06:01:11Z with verdict 🛑 **Block on bug.** Root cause already diagnosed in the report: `src/ohtv/sync.py::SyncManager._get_conversation_store` calls `get_connection()` (a `@contextmanager`) without entering it, returning a `_GeneratorContextManager` wrapper, which then explodes when `ConversationStore.update_metadata` calls `conn.execute()`. User-visible: every non-dry-run `--update-metadata` emits `Errors: 1` and the DB row is NOT updated (manifest write still succeeds; `db scan --force` reconciles). 1395 unit tests miss this because `_get_conversation_store` is patched to return a Mock throughout `tests/unit/test_sync.py` lines ~940-1231.
+   - **Worker tasked with:** (a) `gh pr checkout 93` + `gh pr ready 93 --undo` (back to draft); (b) reproduce the bug locally in an isolated sandbox; (c) fix `_get_conversation_store` (prompt offers two options: enter the CM with explicit `__exit__`, or open a direct `sqlite3.Connection` from `get_db_path()` — worker picks the idiom that matches the codebase); (d) add a **real on-disk SQLite regression test** (NOT a Mock) that runs the metadata-refresh path end-to-end and asserts both the manifest write AND the `conversations` table row; (e) keep existing mocked tests as fast smoke tests; (f) commit/push; (g) reply to the manual-test comment with the fix SHA; (h) watch CI until green; (i) `gh pr ready 93` to flip back to ready; (j) WORKLOG entry on `main`. Guardrails: no merge, no scope creep, no README edits (pure bug fix), no re-test by this worker (next orchestrator cycle owns that).
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#92 - Weekly conversion counts CSV export](https://github.com/jpshackelford/ohtv/issues/92)
+   - Conversation: [`3ecb17d`](https://app.all-hands.dev/conversations/3ecb17d878fd44d59050d582768988df)
+   - Start task: `bcc728863b694fae92caa4d8388c2411` → READY in ~8s
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - **Worker tasked with:** VERIFY-rather-than-rewrite pattern (matches #89/#90/#91). Anchor in real code: `sources/` enumeration, DB `conversations.created_at` + `.source` columns (per AGENTS.md item 24), CLI report-style patterns (`filters.parse_date_filter()`), and explicit sequencing with **#81 (velocity report)** + **#82 (charting)**. Resolve open design questions: ISO week (Mon-Sun) vs calendar week, `YYYY-Www` labels, UTC bins, wide vs long CSV (recommend wide default + `--long` flag), `--since`/`--until` filters, `created_at` anchor, current-week handling. Write Technical Approach comment with file-by-file plan + Test Plan (bin-boundary, mixed source, empty weeks). Apply `enhancement` + `ready` + `priority:medium` (matches #81/#82). Blocked exits: `needs-info` if column anchors mismatch; `needs-split` if bundled.
+
+**Decision rationale:**
+- **Wake-up state audit:** Both prior cycle workers PAUSED but both produced their outputs:
+  - Testing worker `20fb611` (PR #93): posted `## Manual Test Results — PR #93` at 06:01:11Z. Verdict: 🛑 **Block on bug** — DB write path broken (clear root cause + suggested fix in report). README spot-check ✅, unit suite ✅ (1395), 11/12 scenarios ✅, mutual-exclusion ✅, sentinel semantics ✅, manifest write ✅; only the DB write step fails.
+  - Expansion worker `f777d69` (Issue #90): **success** — added `enhancement` + `ready` + `priority:medium` labels at 05:55:39Z; comment with verification + Technical Approach + Test Plan + priority rationale is on the issue (visible at #90's comments). Healthy outcome — addresses the prior cycle's "silent failure" recovery note.
+- **Both slots free.** No conversations active.
+- **PR slot pick (review/fix, not merge):** Manual test verdict was BLOCK, not PASS. Per the decision tree: "If `20fb611` posts a FAILING report → next cycle spawns implementation worker against PR #93 with the regression details; do NOT spawn merge." Mapping that to worker types: this is a Review Worker (addressing feedback on an existing PR by writing a fix), not an Implementation Worker (greenfield from an issue). The "feedback" is the test report itself (no inline GraphQL threads exist; the github-actions automated review is positive 🟢 and has no blocking items).
+- **Expansion slot pick (#92):** Applied "oldest unexpanded issue" rule. Pending-expansion list (open, no `ready`, no `hold`) is now exactly **#92** — #90 just landed `ready` and #91 was expanded out-of-band in the 04:31Z gap by conversation `6e81da4` (now also `ready`). #92 is the only candidate.
+- **NOT spawned:** No docs worker (README is in PR #93's diff and was validated). No re-test worker (waiting on the fix first). No implementation worker for any other `priority:medium` ready issue — PR slot is occupied by #93's review/fix; serialized PR slot prevents parallel impl.
+
+**Current State:**
+- PR #93 (fixes #86): `oC green ready` — review/fix worker in flight; will go back to draft, fix DB connection bug, add real-DB regression test, push, re-flip to ready. CI green at HEAD (`1f21c49`), `MERGEABLE`, no unresolved threads.
+- Open issues by status:
+  - **Ready** (queued for PR slot, post-#93-merge, in roughly priority/age order): #79 (direct push, `priority:medium`), #80 (LOC fetching, `priority:medium`), #81 (velocity report, `priority:medium`), #83 (classification command, `priority:medium`), #89 (`gen titles`, `priority:medium`), #90 (`ohtv label` batch labeling, `priority:medium` — newly ready), #91 (standardize progress bars, `priority:medium` — newly ready), #82 (charting, `priority:low`, depends on #81), #87 (manifest cache, `priority:low`, depends on #86 → blocked until #93 merges).
+  - **In-flight expansion:** #92 (just spawned).
+  - **Pending expansion next cycles:** *none* — #92 is the last unexpanded open issue.
+  - **On hold:** #26 (`hold`).
+- Housekeeping: WORKLOG.md is at 920 lines pre-update. Above the 300-line trigger but per prior cycles' reasoning (the next archive happens when dense same-day growth resumes), no truncation this cycle. The 920-line size includes the very long prior cycle entry (~120 lines on its own) — once a few smaller cycles pass, the file will be a candidate for truncation.
+
+**Next check (~30 min):**
+- If `0e15793` (review/fix PR #93) pushes a fix and CI goes green → next cycle spawns a **re-testing worker** (per decision tree: "PR exists, ready, CI green, **test results outdated** → re-testing worker"). Re-test should focus on the metadata write path against a real DB.
+- If `0e15793` produces 0 events or silently stops (matching the `db9e81d` failure mode) → escalate via WORKLOG for human review; do NOT auto-retry.
+- If `0e15793` finds the bug fix requires significant scope creep (e.g., `get_connection` is misused across the codebase) → expect the worker to file a follow-up issue and keep this PR's fix tight per its guardrails.
+- If `3ecb17d` (expansion #92) adds `ready` label → expansion slot reopens → **no more issues to expand** → expansion slot stays idle next cycle (this is a healthy state — full backlog expanded).
+- If `3ecb17d` adds `needs-info`/`needs-split` → expansion slot reopens → also idle (no other pending-expansion issues).
+- If `3ecb17d` silently stops → escalate via WORKLOG; do NOT auto-retry (matches prior `db9e81d` recovery policy).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
