@@ -1,3 +1,23 @@
+### 2026-05-22 00:33 UTC - Implementation Worker
+
+✅ **PR [#88 - feat: add PR contribution detection stage (#78)](https://github.com/jpshackelford/ohtv/pull/88) — opened, marked ready for review.**
+
+Implemented the `contributions` processing stage per issue #78. New `ContributionsStore` (`src/ohtv/db/stores/contributions_store.py`) provides `get_or_create_pr_change_ref`, `get_or_create_direct_push_change_ref` (already in place to unblock #79), `record_contribution` (INSERT-OR-IGNORE), and `delete_contributions_for_conversation` for reprocessing-safe replays. New `process_contributions` stage (`src/ohtv/db/stages/contributions.py`) walks the actions table in temporal order, mirroring `push_pr_links`' forward/backward correlation so orphan pushes (those before any PR on their branch) still get attributed to the first subsequent PR. `MERGE_PR` actions — which the current recognizer emits without repo info (target is the bare PR number from `gh pr merge 42`) — fall back through URL parsing → metadata.owner/repo → seen-PR map from same-conversation OPEN_PRs → single linked repo from `conversation_repos`; we refuse to guess if 0 or >1 repos are linked. Stage registered in `STAGES`; CLI's `db process <stage>` picks it up via the existing `click.Choice(STAGES.keys())`.
+
+**Tests:** 50 new tests (16 store + 34 stage), full suite 1322/1322 passing (was 1272). Coverage: 93% stage / 97% store. Untested lines are defensive guards (`int()` on regex-`\d+` matches, tuple-row fallbacks).
+
+**All 7 acceptance criteria checked off in the PR body.** Generic enough for #79: `ContributionsStore` already exposes the direct-push helper, and the contribution_type enum accepts `"pushed"`/`"created"` against `direct_push` change_refs — #79 can land as a sibling stage with no refactor here.
+
+**Learnings / follow-ups:**
+- The current `MERGE_PR` recognizer in `recognizers/github_actions.py` only stores `{"source": "github"}` in metadata. A small follow-up could attach owner/repo to merge metadata to remove the need for the seen-PR-map and single-repo fallbacks.
+- There's intentional but worth-noting overlap between this stage and `push_pr_links`: both re-derive the same push→PR temporal correlation, but populate different tables (`conversation_contributions` vs WRITE links on `conversation_refs`). A future refactor could unify them into one walk; for now they stay decoupled because #78 explicitly wants the contributions table as its own concern.
+- Repository URLs assume GitHub host (matches existing `OPEN_PR` recognition); when GitLab/Bitbucket recognizers grow, `_upsert_repo_for` will need a host-aware variant.
+
+**Next action belongs to orchestrator / review bot:** pr-review workflow triggers on `ready_for_review` (just hit). No other CI workflow gates this repo.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-21 23:51 UTC - Orchestrator
 
 **Active Workers:**
