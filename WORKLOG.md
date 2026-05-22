@@ -803,3 +803,54 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-22 02:24 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c9f15be` | review | PR #88 - feat: add PR contribution detection stage | **NEW** running |
+| `21f155f` | expansion | Issue #86 - Add sync --update-metadata | **NEW** running |
+
+**🚀 Spawned: 2 Workers (parallel — both slots filled, prior cycle's retries both succeeded)**
+
+1. **Review Worker** — PR slot
+   - PR: [#88 - feat: add PR contribution detection stage](https://github.com/jpshackelford/ohtv/pull/88) (fixes #78)
+   - Conversation: [`c9f15be`](https://app.all-hands.dev/conversations/c9f15bebe8374f5299dfdd1e30c01069)
+   - Start task: `b2a90cc3f3244e5793fa9f5a3de2a873` → READY on first poll (~0s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: Two unresolved `github-actions[bot]` review threads to address in `src/ohtv/db/stages/contributions.py`. Worker has thread IDs (`PRRT_kwDOR9seq86D-Cla` critical, `PRRT_kwDOR9seq86D-Clf` suggestion), file lines (401 / 308 / 109), and rationale to accept both. Required steps: (a) flip PR to draft, (b) fix `_upsert_repo_for` to preserve GitLab/Bitbucket hosts via `source_url` pattern-match mirroring `refs.py:119-138`, (c) convert `orphan_push_branches` from list to set, (d) add tests for GitLab/Bitbucket round-trip, (e) run full 1322+ test suite, (f) reply+resolve both threads via GraphQL with commit SHAs, (g) flip PR back to ready, (h) append WORKLOG entry on main. Guardrails: no `main` pushes, no merge, no scope creep beyond the two threads.
+
+2. **Expansion Worker** — Expansion slot
+   - Issue: [#86 - Add sync --update-metadata to pick up cloud-side title/label changes](https://github.com/jpshackelford/ohtv/issues/86)
+   - Conversation: [`21f155f`](https://app.all-hands.dev/conversations/21f155feb58b4166be18485812a4d9a0)
+   - Start task: `a52dae6f819b4042b620a9f63decb82a` → READY on first poll (~0s)
+   - Post-spawn verification: `execution_status: running`, `sandbox_status: RUNNING`
+   - Prompt notes: Enhancement expansion. Worker must design `--update-metadata` flag scope (which fields refreshed: just `title`? also `labels`/`status`/`selected_repository`?), pick source-of-truth endpoint (likely existing `app-conversations/search` is sufficient and cheaper than per-conv GETs), decide selection (all / since / window), storage destination (on-disk `metadata.json` vs DB `conversations` row vs both), default-behavior compatibility (recommend strictly opt-in), and title-source precedence vs first-message-derived title. Files: `src/ohtv/sync.py`, `src/ohtv/cli.py`, `src/ohtv/sources/cloud.py`, `src/ohtv/db/scanner.py`. Required Technical Approach comment covers files, CLI API, implementation steps, test plan, and dependency map. Must NOT remove existing `priority:medium` label. Explicitly called out the upstream/downstream coupling with #87 (manifest-as-metadata-cache, builds on this) and #89 (auto-rename, consumes this). Blocked exits: `needs-info` if metadata model unclear; `needs-split` discouraged (#87 already takes the next layer).
+
+**Decision rationale:**
+- **Wake-up state (post-prior-cycle audit):** Both prior workers from the 01:51Z entry COMPLETED successfully this time (vs the earlier 0-event failures).
+  - Testing worker `c9da90a` (PR #88): ran 9m11s, 146 events with FINISH action, posted `## Manual Test Results — PR #88` comment at 01:59:40Z. Result: ✅ Ready for review — all 7 blackbox cases pass, 1322/1322 unit+integration tests green, docs verified accurate. Two unresolved review threads remain (intentionally deferred per prompt).
+  - Expansion worker `f583779` (Issue #83): ran 3m45s, 50 events (13 actions / 19 observations — efficient), no FINISH action recorded in event stream but Issue #83 was updated at 01:55:02Z with `ready` + `priority:medium` labels and a structured Problem Statement / Technical Approach body. Result: ✅ ready for implementation.
+- **Both slots free:** No active workers in cloud (both prior workers in `finished` / `PAUSED`).
+- **PR slot pick (review):** PR #88 satisfies the workflow's "ready, CI green, test results valid, 💬 > 0 → review worker" branch. Manual test report is recent (just posted, no commits after it), CI checks are clean (mergeable=CLEAN, 0 status checks because no required CI configured), docs were already updated by `d5736ad`. Both review threads need code changes (one critical correctness bug, one efficiency suggestion) — solid review-round material. Re-test trigger threshold not yet met; review worker will land changes and a re-test will spawn on the next cycle if heuristics fire.
+- **Expansion slot pick (#86):** Applied "oldest unexpanded issue" rule. Pending-expansion list (sorted oldest→newest): #86 (`enhancement`, `priority:medium`), #87 (`enhancement`, `priority:low`), #89 (`enhancement`), #90 (`enhancement`), #91 (`enhancement`), #92 (no labels at all — brand-new). #86 wins on age. It's also strategically important — it's the prerequisite for both #87 and #89, so unblocking it opens the largest amount of downstream work.
+- **NOT spawned:** No testing worker (testing was just completed). No re-testing worker (no significant code changes since last test). No merge worker (review threads must resolve first). Only one expansion worker per slot.
+
+**Current State:**
+- PR #88 (fixes #78): `oRFc green ready` 💬2 unresolved (1 critical, 1 suggestion) → review worker in flight; docs ✅; manual test ✅ passing (1322/1322); review round 1 starting; merge queued after re-test
+- Ready issues queued for PR slot (after PR #88 lands, all `priority:medium` unless noted): #79 (direct push), #80 (LOC fetching), #81 (velocity report), #83 (classification command — newly expanded), #82 (charting, `priority:low`, depends on #81)
+- In-flight expansions: #86 (just spawned)
+- Issues needing expansion next cycles, in queue order: #87 (manifest cache, `priority:low`), #89 (`gen titles` auto-rename), #90 (`ohtv label` batch labeling), #91 (standardize progress bars), #92 (weekly conversion counts CSV — brand-new, no labels)
+- On hold: #26 (`hold`)
+- Housekeeping: WORKLOG.md is now 856+ lines, well over the 300-line nominal threshold. Last truncate ran in a prior cycle; the productive 6h+ window stays large because of dense activity (3 successful spawn rounds in the last ~2h). Will defer truncation again this cycle — most of those entries are from the active workflow window and retain useful causal context. Revisit on next quiet cycle or after the next merge.
+
+**Next check (~30 min):**
+- If `c9f15be` (review PR #88) pushes commits + replies/resolves both threads + flips PR back to ready → next cycle evaluates re-test heuristics. `src/ohtv/db/stages/contributions.py` changes are code (not test-only / not docs-only), so re-test will likely be required.
+- If `c9f15be` pushes only the set-conversion (minor) and the platform fix is more invasive than expected → expect the worker to ship the minimum viable fix anyway per guardrail; re-test still required.
+- If `c9f15be` produces 0 events (third occurrence of spawn-time hiccup) → escalate via WORKLOG note for human review; consider opening an infra issue.
+- If `21f155f` (expansion #86) adds `ready` label → expansion slot reopens → spawn #87 (next oldest, `priority:low`).
+- If `21f155f` adds `needs-info`/`needs-split` → expansion slot reopens → spawn #87 anyway (don't auto-retry blocked issues).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
