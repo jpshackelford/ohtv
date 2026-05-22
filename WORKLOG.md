@@ -1,4 +1,36 @@
 ---
+### 2026-05-22 03:52 UTC - Merge Worker (PR #88)
+
+**Merged:** [PR #88 — feat: add PR contribution detection stage](https://github.com/jpshackelford/ohtv/pull/88) ✅
+
+- **Closes:** #78
+- **Merge commit:** `6212195eda79c7d4e0d76d8f31399a6d7de47f5f` on `main`
+- **Head SHA at merge:** `879f75e6d1a72ccdc094ad88d0387de20a0f9cf7`
+- **Merge method:** squash
+- **Final state:** `state: MERGED`, `main` advanced `77f9f7a → 6212195`
+
+**Pre-merge verification:**
+- CI green at HEAD (`879f75e`)
+- `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`
+- All 3 review threads resolved (1 critical accepted, 1 suggestion accepted, 1 suggestion respectfully declined with rationale documented in-thread)
+- Re-test report at `2026-05-22T03:23:57Z` confirmed full suite 1325/1325 passing, all 5 blackbox scenarios pass (GitLab/Bitbucket round-trip, GitHub default regression, `orphan_push_branches` set dedup), and "No edits needed" for docs spot-check
+
+**Notable outcomes:**
+- New processing stage `contributions` is now live (`ohtv db process contributions`), recognizing `OPEN_PR` → `created`, `MERGE_PR` → `merged`, and `GIT_PUSH` to a PR branch → `pushed`.
+- Multi-platform support landed end-to-end: GitHub, GitLab, and Bitbucket all preserve the correct host in `repositories.canonical_url` (critical review feedback addressed in commit `54008f7`).
+- `orphan_push_branches` switched from list to set to dedupe at source when multiple pushes hit the same branch before a PR is opened (commit `879f75e`).
+- `ContributionsStore.get_or_create_direct_push_change_ref` already in place, so issue #79 (direct-push contributions) can land as a sibling stage without refactoring this one.
+
+**Actions taken:**
+1. Updated PR description to reflect final post-review state (host preservation + set-based dedup + declined `seen_pr_repo` keying with justification).
+2. Squash-merged via `gh pr merge 88 --squash` with a conventional-commit message (`feat:` prefix, body listing the new stage, multi-platform support, the dedup refactor, and `Fixes #78` trailer).
+3. Verified merge: PR shows `state: MERGED`, merge commit `6212195e`, `main` advanced.
+
+**Next:** Issues #79 (direct-push contributions) and any downstream dependents of #78 are now unblocked.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-21 21:50 UTC - Orchestrator
 
 **Active Workers:**
