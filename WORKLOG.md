@@ -743,3 +743,73 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-26 19:19 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `007863e` | docs | PR #97 — `ohtv fetch-loc` README updates | **NEW** (spawned 19:19:08Z, `execution_status: running`, `sandbox: RUNNING`) |
+
+**Spawned: Documentation Worker for PR #97 (impl worker `6a10472a` finished; CI green; README has no `fetch-loc` references; new top-level CLI command requires docs BEFORE testing per the "test what's documented" workflow principle)**
+
+- PR: [#97 — feat: add fetch-loc command to backfill LOC from GitHub API (#80)](https://github.com/jpshackelford/ohtv/pull/97) (`isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `pr-review` check `SUCCESS`)
+- Conversation: [`007863ee`](https://app.all-hands.dev/conversations/007863ee61f94b9da1f4902e53114104) (`selected_repository=jpshackelford/ohtv`, `pr_number=[97]`)
+- Start task: `d8c2cc34` → `READY` on first 6s poll → `app_conversation_id=007863ee61f94b9da1f4902e53114104`. Verified `GET /app-conversations?ids=…` returns `execution_status: running`, `sandbox_status: RUNNING`.
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Model: `litellm_proxy/claude-opus-4-7`.
+
+**Why decision-tree gates pass for spawning docs:**
+
+- ✅ **Impl worker finished:** `6a10472a` shows `execution_status: finished` (sandbox still RUNNING but agent exited). The previous orchestrator's spawned implementation worker completed successfully, opened PR #97 ready, and committed back a worklog entry at 19:10Z.
+- ✅ **CI green:** `gh pr view 97 --json statusCheckRollup` → `pr-review` `COMPLETED/SUCCESS`. No failing checks.
+- ✅ **PR is READY (not draft):** `isDraft=false`. Mergeable.
+- ✅ **README NOT updated:** `grep -n "fetch-loc\|fetch_loc" README.md` → empty. `gh pr diff 97 --name-only` shows only `src/ohtv/cli.py`, `src/ohtv/db/migrations/017_change_refs_status_open.py`, `src/ohtv/fetch_loc.py`, `src/ohtv/github_api.py`, and three test files. Zero README diff.
+- ✅ **Docs are REQUIRED for this PR:** new top-level CLI command (`ohtv fetch-loc`), new options (`--repo`, `--force`, `--dry-run`, `--limit`, `--quiet`, `-v`), new env var requirement (`GITHUB_TOKEN`). Per the "When Docs Update is Required" checklist, multiple triggers fire.
+- ✅ **No competing PR worker:** Network-wide `running` conversations: only `b0b6992f` (this orchestrator cycle, no repo binding) and the just-spawned `007863ee`. All prior workers (`6a10472a` impl, `32538365` merge, `e009b928` review chain, etc.) paused.
+- ✅ **Bot review at 19:13Z left feedback ("🟡 Acceptable") but docs is the next gate** — the workflow sequence is `impl → CI green → DOCS → testing → review → merge`. The bot's review feedback will be handled by the review worker downstream, NOT inline by this docs worker.
+
+**Docs worker scope (prompt highlights):**
+
+- Read PR body + diff; identify user-facing surface (top-level command, 6 options, `GITHUB_TOKEN` env var, idempotency behavior, open-PR 1h cache window, rate-limit handling, graceful per-row failures, non-GitHub repo skipping).
+- Update README.md only — match existing tone/structure. Place `fetch-loc` near the database/indexing command section (it consumes `change_refs` populated by `db process all`).
+- Add 2–3 copy-pasteable examples (`--dry-run` preview, real run, `--repo` filter w/ `--force`).
+- Add `GITHUB_TOKEN` to the existing env-vars section if one exists (don't invent a new section).
+- Commit `docs: document ohtv fetch-loc command (#80)`, push, wait for CI green, post PR comment summarizing the docs update.
+- Append a brief WORKLOG.md entry on `main` using the rebase-safe stash/checkout pattern, then EXIT.
+
+**Explicit DO-NOTs encoded in prompt:**
+
+- No code changes (`src/ohtv/` or `tests/` off-limits).
+- No PR title/description edits — only NEW comment.
+- Do not address the github-actions bot review (review worker's job).
+- Do not move PR to draft, mark approved, or run testing/review/merge.
+- Do not invent a new env-vars section if none exists in README.
+
+**PR slot:** Now occupied by `007863ee` (docs on PR #97).
+**Expansion slot:** Idle — `gh issue list --jq '[.[]|select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]|length'` → 0. All 7 open issues are `ready` + priority-labeled. Nothing to expand.
+
+**Current State (verified 19:15–19:19Z):**
+
+- **Open PRs:** [PR #97](https://github.com/jpshackelford/ohtv/pull/97) (`ready`, CI green, no docs yet, no manual test, 1 bot review at 19:13Z).
+- **Ready issues (7, all expanded):** `priority:medium`: #80 (in PR #97), #81, #83, #90, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** none competing (only `b0b6992f` this cycle, no repo binding).
+
+**Housekeeping (truncation deferred):** WORKLOG.md is 745 lines — over the 300 threshold. However, oldest entry is the 16:00Z #89 impl-completion (3h 19m ago), still inside the 6h productive-work window. Per the 18:50Z orchestrator note ("archive the 14:19Z–15:21Z PR #95 chain once they exit the 6h window ~20:19Z onwards"), truncation is deferred to the next cycle (which will run after 20:19Z and can safely archive lines 19–197 covering 14:19Z–15:21Z PR #95 testing→review→merge spawns).
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-consecutive-quiet-period counter remains at 0. The last 2 orchestrator entries (18:50Z, this one) both spawned workers.
+
+**Next check (~30 min, ~19:49Z):**
+
+- If `007863ee` is `running` → log status, do nothing. Docs worker should finish in 10–25 min.
+- If `007863ee` is `finished` AND a docs commit lands on PR #97 AND CI stays green AND a "Documentation Updated" PR comment exists → spawn **testing worker** (initial). README will then be verifiable as documented behavior matches actual behavior.
+- If `007863ee` is `finished` but no docs commit appeared → investigate; may need a re-spawn with sharper scope.
+- If new PR commits arrive on `feat/fetch-loc-80` between now and next cycle that touch `.py` files (not just README) → re-route as needed (likely still docs-first if README still missing, then testing).
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO:** After 20:19Z, archive lines 19–197 (PR #95 chain 14:19Z–15:21Z) to `WORKLOG_ARCHIVE_2026-05-26.md` (currently 527 lines). Preserve the 16:00Z+ entries (still in window AND directly relevant to current #89/#80 work).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
