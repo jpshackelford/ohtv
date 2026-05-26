@@ -974,3 +974,94 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 21:49 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `450921e` | implementation | Issue #81 — Add velocity report command (priority:medium) | **NEW** (spawned 21:48:36Z, `execution_status=running`, `sandbox=RUNNING`) |
+
+**Spawned: Implementation Worker for Issue #81 (PR slot cleared by PR #97 merge; #81 is the highest-priority ready issue by ascending issue number among `priority:medium`)**
+
+- Issue: [#81 — Add velocity report command](https://github.com/jpshackelford/ohtv/issues/81) (`enhancement`, `ready`, `priority:medium`). Fully expanded with CLI surface, acceptance criteria, output formats (table + CSV), ISO-week caveat, `initial_prompt_source` rules, division-by-zero handling, and the `aggregate_velocity` row-shaping function explicitly required to be importable from `src/ohtv/reports/velocity.py` so issue #82 (charting) can reuse it.
+- Conversation: [`450921e9`](https://app.all-hands.dev/conversations/450921e90f8f457fa0a231421a65202f) (`selected_repository=jpshackelford/ohtv`, no `pr_number` because no PR exists yet).
+- Start task: `24307b63` → `READY` on first 5s poll → `app_conversation_id=450921e90f8f457fa0a231421a65202f`. Verified `GET /app-conversations?ids=…` returns `execution_status=running`, `sandbox_status=RUNNING` (the agent-active signal beyond just `READY`).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**Why #81 (decision-tree gates verified at 21:46–21:48Z):**
+
+- ✅ **Prior PR worker `03c344bf` (merge for PR #97) cleanly disposed:** `execution_status=null`, `sandbox=PAUSED`, `updated_at=2026-05-26T21:22:20Z`. Did exactly its scope in ~2 minutes (read diff + craft commit message + `gh pr merge --squash`).
+- ✅ **PR #97 merged + issue #80 closed:** `gh pr view 97` → `state=MERGED`, `mergedAt=2026-05-26T21:21:52Z`, `mergeCommit.oid=31917bea`. `gh issue view 80` → `state=CLOSED`, `closedAt=2026-05-26T21:21:54Z` (auto-closed via `Closes #80` in PR body). Squash subject correctly landed: `feat: add fetch-loc command to backfill LOC from GitHub API (#80)`.
+- ✅ **PR slot now empty:** `gh pr list --state open` → `[]`. Zero open PRs.
+- ✅ **6 ready issues, all expanded, no PR for any of them:**
+  - `priority:medium` (4): #81 (velocity report), #83 (conversation classification), #90 (`ohtv label` batch), #92 (weekly conversion counts CSV).
+  - `priority:low` (2): #82 (charting for velocity — depends on #81 being importable), #87 (manifest as full metadata cache).
+  - Tiebreaker (no priority sub-rule in skill): ascending issue number among the highest tier (`priority:medium`) → **#81**.
+- ✅ **#81 dependencies satisfied:** Per issue body's "Dependencies" section, only the schema from #76 is hard-required (merged days ago). #78/#79/#80 are useful for end-to-end verification on real data but the command is independently develop-able with seeded fixtures. #80 just merged, so all data-population issues for the velocity research are in main.
+- ✅ **#81 unblocks #82:** The issue body explicitly states "Unblocks #82 — chart generation reads the same aggregation; this command's row-shaping function should be importable so #82 can re-use it." Worker prompt encodes this as a non-negotiable: `aggregate_velocity()` must live in a non-CLI module.
+- ✅ **No issues need expansion:** `gh issue list --state open --json labels --jq '[.[]|select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]|length'` → 0. Expansion slot intentionally idle (nothing to do).
+- ✅ **No competing OH workers:** Network-wide `running` conversations at 21:46Z: only `5a2514b` (this orchestrator cycle, no repo binding) and the just-spawned `450921e9`. All prior PR-slot workers from the #97 chain are `PAUSED`.
+- ✅ **No new `## INSTRUCTION:` in WORKLOG.md.** Step 1 of orchestrate skill completed cleanly — `grep -n "^## INSTRUCTION:" WORKLOG.md` returned no matches; all "INSTRUCTION:" string occurrences are historical references in prior orchestrator narratives, not actionable directives.
+- ✅ **Decision tree match:** "No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue." Exact match. No `/assess-priority` run needed (priorities already assigned).
+
+**Implementation worker scope (prompt highlights):**
+
+- Branch: `feat/report-velocity-81` from latest `origin/main` (includes the just-merged #80 + migration 017).
+- New `report` Click group with first sub-command `velocity` — designed as a group so future report sub-commands (e.g., `report contributions`) slot in cleanly.
+- Module layout: `src/ohtv/reports/__init__.py` + `src/ohtv/reports/velocity.py` (the `aggregate_velocity(...)` entry point + `VelocityRow` dataclass — importable for #82) + thin Click wrapper in `cli.py`. Optional `formatters.py` if table/CSV rendering grows.
+- Hard requirements baked into prompt:
+  - ISO week label via Python `datetime.isocalendar()` (NOT SQLite `strftime('%W')` which is non-ISO).
+  - Aggregate `status='merged' AND change_type IN ('pr','direct_push')` only.
+  - DISTINCT-on-`conversation_id` per `change_ref_id` so a conversation across two PRs isn't double-counted.
+  - `initial_prompt_source` rules: `'human'` → `initial_prompt_words + followup_word_count`; `'automation'` → `followup_word_count`; `'unknown'` → counted as `'human'` (documented caveat).
+  - `Words/LOC` = `sum(Words) / sum(Total)` for totals row (NOT average of per-week ratios). `-` / empty for div-by-zero.
+  - Empty weeks omitted by default; `--include-empty` shows zero-rows.
+  - Reuse `ohtv.filters.parse_date_filter` and the existing repo-FQN normalization helper. No duplication.
+- Tests:
+  - `tests/unit/reports/test_velocity.py` — real in-memory SQLite with full migration replay; seeded `change_refs` + `conversation_contributions` + `conversation_human_input`. Covers happy path, NULL `lines_added`, all 3 `initial_prompt_source` values, DISTINCT conversation_id, ISO-week boundary at Sunday 23:59 vs Monday 00:00 UTC, `--include-empty`, `--repo` filter, division-by-zero.
+  - `tests/unit/test_cli_report_velocity.py` — Click `CliRunner` exercises all flags + `ohtv report --help` lists `velocity`.
+  - Target: existing 1577 tests still pass + new tests >80% coverage on new code.
+- Quality gates pre-push: `uv run pytest -x`, `uv run ruff check src tests`, manual smoke against seeded SQLite for both `--format table` and `--format csv`.
+- PR: DRAFT, titled `feat: add report velocity command (#81)`, with `Closes #81` + "Evidence" section showing actual command output + test counts. Move to ready only after CI green AND acceptance-criteria verified. Plugin loaded so downstream workflow gates apply.
+- `Co-authored-by: openhands <openhands@all-hands.dev>` trailer on every commit.
+
+**Explicit DO-NOTs encoded in prompt:**
+
+- Do NOT push to `main` directly.
+- Do NOT touch `WORKLOG.md` (orchestrator owns it).
+- Do NOT run docs-update, manual testing, or review (downstream workers' jobs).
+- Do NOT invent a new migration if a schema column is missing — comment + `blocked` label and exit.
+- Do NOT mock the DB — real in-memory SQLite with migration replay (per repo convention).
+- Do NOT exceed ~5 commits — logical splits (data layer / CLI / tests / docs).
+
+**PR slot:** Now occupied by `450921e9` (implementation on #81).
+**Expansion slot:** Idle (0 issues need expansion).
+
+**Current State (verified 21:46–21:48Z):**
+
+- **Open PRs:** 0 (PR #97 merged at 21:21:52Z, squash commit `31917bea` on main).
+- **Recently closed issues:** #80 (closed 21:21:54Z via PR #97 auto-close).
+- **Ready issues (6, all expanded, none in flight):** `priority:medium`: #81 (**now in implementation**), #83, #90, #92; `priority:low`: #82 (waits on #81's importable row-shaper), #87 (waits on Issue #86's manifest foundation, which is merged).
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** none competing — only `5a2514b` (this orchestrator cycle, no repo binding) and the just-spawned `450921e9`.
+
+**Sync note:** `ohtv sync --since … --quiet` succeeded (exit 0) under `OH_API_KEY=$OPENHANDS_API_KEY`. Cloud auth path remains stable.
+
+**Housekeeping (deferred again):** WORKLOG.md was 976 lines pre-cycle (this entry pushes it past ~1080). The skill's >300-line threshold is well exceeded, but the 6-hour productive-work preservation window (currently 15:49Z–21:49Z) STILL captures every entry currently in the file — the oldest non-archive entry is the 15:50Z orchestrator spawn of impl `5106f489` for #89 (5h 59m old, JUST inside the 6h boundary). One more cycle (~22:21Z if cron) and the 15:50Z + 16:00Z + 16:21Z entries (all part of the now-merged PR #96 chain for #89) will all clear the 6h boundary together, enabling a clean archive (saving ~150 lines: lines 1–108 → `WORKLOG_ARCHIVE_2026-05-26.md`). Tempting to archive the 15:50Z entry alone, but it pairs semantically with the 16:00Z impl-worker completion + 16:21Z docs spawn (all PR #96 chain) — archiving them as a group is cleaner and matches the strategy noted in the 20:51Z + 21:21Z entries.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Recent orchestrator entries (18:50Z, 19:19Z, 19:51Z, 20:21Z, 20:51Z, 21:21Z, this one at 21:49Z) have all been spawn cycles. Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min, ~22:21Z):**
+
+- If `450921e9` is `running` → log status, do nothing. Velocity-report implementation is a focused feature (1 module + 2 test files + small CLI plumbing + minimal docs); typical scope is 60–120 min including CI loop. May still be running at the next wake-up.
+- If `450921e9` is `finished` AND a draft PR is open for `feat/report-velocity-81` with `Closes #81` AND `pr-review` CI is `SUCCESS` AND the PR is marked ready → spawn **docs worker** (the issue adds a new CLI command group + sub-command + flags — clear "user-facing changes" trigger for the docs-before-testing gate).
+- If `450921e9` is `finished` AND PR is open but still draft (CI still running or fixing failures) → wait one more cycle.
+- If `450921e9` is `finished` AND NO PR was opened → investigate the conversation events. Likely blocked. May need a `## INSTRUCTION:` from the human (e.g., schema column missing, ambiguous spec, etc.).
+- If `450921e9` is `finished` AND PR is open BUT `pr-review` CI is failing → wait (the impl worker should still be trying to fix, unless it timed out). If 2+ cycles pass with red CI and no new commits, re-spawn impl with adjusted scope.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO (this cycle's deferred item, ready next cycle):** Archive lines 1–108 (19:58Z manual-test for #97 + 16:00Z impl completion for #89 + 15:50Z orchestrator spawn for #89 + 16:21Z docs spawn for #96) to `WORKLOG_ARCHIVE_2026-05-26.md`, saving ~108 lines while keeping the 16:50Z+ test/review/merge chain for #96 + the full 18:50Z–21:21Z #97 chain + this 21:49Z #81 spawn preserved. Wait — actually the 19:58Z manual-test for #97 is at line 1 (1h 51m old) and MUST be preserved. Re-stating: archive lines 16–108 (the 16:00Z + 15:50Z + 16:21Z entries) only, leaving line 1's 19:58Z manual-test in place. Re-verify line ranges before truncating.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
