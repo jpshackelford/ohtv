@@ -477,30 +477,29 @@ def _run_metadata_refresh(
                      result.total_changed, result.checked)
         return result
 
-    from rich.progress import (
-        BarColumn,
-        Progress,
-        SpinnerColumn,
-        TaskProgressColumn,
-        TextColumn,
-    )
+    from ohtv.progress import make_progress
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]Metadata refresh"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TextColumn("[dim]{task.fields[changed]} changed[/dim]"),
+    with make_progress(
         console=console,
-        transient=True,
+        show_rate=False,
+        show_remaining=False,
+        show_eta=False,
     ) as progress:
-        task = progress.add_task("Metadata refresh", total=None, changed=0)
+        task = progress.add_task("Metadata refresh", total=None)
         changed_count = [0]
 
         def on_progress(done: int, total: int) -> None:
             if progress.tasks[0].total != total:
                 progress.update(task, total=total)
-            progress.update(task, completed=done, changed=changed_count[0])
+            # Surface running "X changed" by piggy-backing on the
+            # description column, since the canonical layout has no
+            # dedicated "changed" field.
+            desc = (
+                "Metadata refresh"
+                if changed_count[0] == 0
+                else f"Metadata refresh ({changed_count[0]} changed)"
+            )
+            progress.update(task, completed=done, description=desc)
 
         # We can't know the per-iteration title_changed without peeking into
         # the result; recompute changed each tick by reading the running
@@ -512,7 +511,12 @@ def _run_metadata_refresh(
             on_progress=on_progress,
         )
         changed_count[0] = result.total_changed
-        progress.update(task, completed=result.checked, changed=result.total_changed)
+        final_desc = (
+            "Metadata refresh"
+            if changed_count[0] == 0
+            else f"Metadata refresh ({changed_count[0]} changed)"
+        )
+        progress.update(task, completed=result.checked, description=final_desc)
 
     _show_metadata_result(result, dry_run=dry_run)
     return result
@@ -1173,7 +1177,8 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
     """
     from pathlib import Path
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from ohtv.progress import make_progress
+    from ohtv.parallel import format_remaining
     from ohtv.db import get_connection
     from ohtv.db.stores import ConversationStore, EmbeddingStore
     from ohtv.filters import normalize_conversation_id
@@ -1250,6 +1255,7 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
         
         try:
             from ohtv.analysis.embeddings import (
+                estimate_cost,
                 generate_embeddings_only,
                 EmbeddingWriter,
                 get_embedding_model,
@@ -1263,6 +1269,7 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
             skipped_no_content = 0
             error_count = 0
             processed_count = 0
+            actual_tokens = 0  # accumulated tokens for live $cost column
             
             # Determine worker count based on model type
             model = get_embedding_model()
@@ -1346,20 +1353,26 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
             try:
                 if use_progress_bar:
                     # Large batch: Use progress bar with parallel processing
-                    with Progress(
-                        SpinnerColumn(),
-                        TextColumn("[bold blue]Embedding"),
-                        BarColumn(),
-                        TaskProgressColumn(),
-                        TextColumn("[dim]{task.fields[rate]}[/dim]"),
-                        console=console,
-                        transient=True,
-                    ) as progress:
+                    with make_progress(console=console, show_cost=True) as progress:
+                        total_to_embed = len(needs_embedding)
                         task = progress.add_task(
                             "Embedding",
-                            total=len(needs_embedding),
-                            rate="starting..."
+                            total=total_to_embed,
+                            remaining=format_remaining(total_to_embed, 0, 0),
+                            rate="starting...",
+                            cost=0.0,
                         )
+
+                        def _refresh_progress():
+                            progress.update(
+                                task,
+                                advance=1,
+                                remaining=format_remaining(
+                                    total_to_embed, processed_count, error_count
+                                ),
+                                rate=rate_tracker.get_rate_str(),
+                                cost=estimate_cost(actual_tokens, model),
+                            )
                         
                         if max_workers == 1:
                             # Sequential processing with progress bar
@@ -1372,8 +1385,10 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                                 error_count += err_d
                                 skipped_no_content += skip_d
                                 embedded_count += embed_d
-                                
-                                progress.update(task, advance=1, rate=rate_tracker.get_rate_str())
+                                if stats is not None:
+                                    actual_tokens += stats.total_tokens
+
+                                _refresh_progress()
                         else:
                             # Parallel processing with ThreadPoolExecutor
                             executor = ThreadPoolExecutor(max_workers=max_workers)
@@ -1405,8 +1420,10 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                                             error_count += err_d
                                             skipped_no_content += skip_d
                                             embedded_count += embed_d
-                                        
-                                        progress.update(task, advance=1, rate=rate_tracker.get_rate_str())
+                                            if stats is not None:
+                                                actual_tokens += stats.total_tokens
+
+                                        _refresh_progress()
                             finally:
                                 executor.shutdown(wait=True, cancel_futures=True)
                 else:
@@ -1599,7 +1616,7 @@ def _run_sync_with_progress(
         Tuple of (SyncResult, elapsed_seconds)
     """
     import signal
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+    from ohtv.progress import make_progress
     
     start_time = time.perf_counter()
     
@@ -1653,19 +1670,7 @@ def _run_sync_with_progress(
     
     try:
         # Layout: Syncing ━━━━━━━━━ 62% 190 left │ ETA 0:02:15 119/min
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]Syncing"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TextColumn("{task.fields[remaining]}"),
-            TextColumn("[dim]│[/dim]"),
-            TextColumn("[dim]ETA[/dim]"),
-            TimeRemainingColumn(),
-            TextColumn("[dim]{task.fields[rate]}[/dim]"),
-            console=console,
-            transient=True,
-        ) as progress:
+        with make_progress(console=console) as progress:
             task = progress.add_task(
                 "Syncing",
                 total=expected_total,
@@ -6700,19 +6705,17 @@ def _run_process_stage(stage: str, force: bool, conversation: str | None, verbos
             return
         
         # Process conversations with progress bar
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+        from ohtv.progress import make_progress
         
         processed = 0
         errors = 0
         
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TextColumn("[dim]{task.fields[current]}[/dim]"),
+        with make_progress(
             console=console,
-            transient=True,
+            show_rate=False,
+            show_remaining=False,
+            show_eta=False,
+            show_current=True,
         ) as progress:
             task = progress.add_task(
                 f"Processing '{stage}'",
@@ -6757,7 +6760,7 @@ def db_scan(force: bool, remove_missing: bool, verbose: bool) -> None:
     Use --force after restoring from backup or copying files, as these
     operations may change mtimes without changing content.
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from ohtv.progress import make_progress
     from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
     
     db_path = get_db_path()
@@ -6770,14 +6773,12 @@ def db_scan(force: bool, remove_missing: bool, verbose: bool) -> None:
         migrate(conn)
         
         # Use progress bar for scan
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]Scanning"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TextColumn("[dim]{task.fields[current]}[/dim]"),
+        with make_progress(
             console=console,
-            transient=True,
+            show_rate=False,
+            show_remaining=False,
+            show_eta=False,
+            show_current=True,
         ) as progress:
             task = progress.add_task("Scanning", total=None, current="discovering...")
             
@@ -6939,7 +6940,7 @@ def db_index_cache(verbose: bool) -> None:
     need analysis without reading event files.
     """
     from datetime import datetime
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from ohtv.progress import make_progress
     from ohtv.db import get_connection, migrate
     from ohtv.db.stores import AnalysisCacheStore, ConversationStore
     from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry, AnalysisSkipEntry
@@ -6964,14 +6965,12 @@ def db_index_cache(verbose: bool) -> None:
         summaries_updated = 0
         errors = 0
         
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]Indexing cache files"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TextColumn("[dim]{task.fields[current]}[/dim]"),
+        with make_progress(
             console=console,
-            transient=True,
+            show_rate=False,
+            show_remaining=False,
+            show_eta=False,
+            show_current=True,
         ) as progress:
             task = progress.add_task(
                 "Indexing",
@@ -7069,7 +7068,7 @@ def db_migrate_cache(delete_legacy: bool, dry_run: bool, verbose: bool) -> None:
     By default, files are copied (not moved) to avoid data loss. Use
     --delete-legacy to remove the original files after successful migration.
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from ohtv.progress import make_progress
     from ohtv.analysis.cache import (
         migrate_cache_file,
         delete_legacy_cache_file,
@@ -7112,14 +7111,12 @@ def db_migrate_cache(delete_legacy: bool, dry_run: bool, verbose: bool) -> None:
     deleted = 0
     errors = 0
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]Migrating cache files"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TextColumn("[dim]{task.fields[current]}[/dim]"),
+    with make_progress(
         console=console,
-        transient=True,
+        show_rate=False,
+        show_remaining=False,
+        show_eta=False,
+        show_current=True,
     ) as progress:
         task = progress.add_task(
             "Migrating",
@@ -7223,7 +7220,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
       ohtv db embed --force        # Rebuild all embeddings
       ohtv db embed --estimate     # Show cost estimate without embedding
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+    from ohtv.progress import make_progress
     from rich.prompt import Confirm
     from ohtv.db import get_connection, get_db_path, migrate
     from ohtv.db.stores import ConversationStore, EmbeddingStore
@@ -7279,14 +7276,12 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         total_embeddings = 0
         valid_convs = []
         
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]Estimating"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TextColumn("[dim]{task.fields[current]}[/dim]"),
+        with make_progress(
             console=console,
-            transient=True,
+            show_rate=False,
+            show_remaining=False,
+            show_eta=False,
+            show_current=True,
         ) as progress:
             task = progress.add_task(
                 "Estimating",
@@ -7451,25 +7446,14 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
         
         try:
             # Layout: Embedding ━━━━━━━━━ 62% 190 left │ ETA 0:02:15 119/min
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[bold blue]Embedding"),
-                BarColumn(),
-                TaskProgressColumn(),
-                TextColumn("{task.fields[remaining]}"),
-                TextColumn("[dim]│[/dim]"),
-                TextColumn("[dim]ETA[/dim]"),
-                TimeRemainingColumn(),
-                TextColumn("[dim]{task.fields[rate]}[/dim]"),
-                console=console,
-                transient=True,
-            ) as progress:
+            with make_progress(console=console, show_cost=True) as progress:
                 total_to_embed = len(valid_convs)
                 task = progress.add_task(
                     "Embedding",
                     total=total_to_embed,
                     remaining=_format_remaining(total_to_embed, 0, 0),
-                    rate=""
+                    rate="",
+                    cost=0.0,
                 )
                 
                 if max_workers == 1:
@@ -7493,10 +7477,11 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                         
                         elapsed = time.perf_counter() - start_time
                         progress.update(
-                            task, 
-                            advance=1, 
+                            task,
+                            advance=1,
                             remaining=_format_remaining(total_to_embed, processed_count, errors),
-                            rate=_format_rate(processed_count, elapsed)
+                            rate=_format_rate(processed_count, elapsed),
+                            cost=estimate_cost(actual_tokens, model),
                         )
                 else:
                     # Parallel processing with ThreadPoolExecutor
@@ -7541,12 +7526,14 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
                                     # Capture values inside lock for consistent display
                                     remaining_str = _format_remaining(total_to_embed, processed_count, errors)
                                     rate_str = _format_rate(processed_count, elapsed)
+                                    cost_val = estimate_cost(actual_tokens, model)
                                 
                                 progress.update(
-                                    task, 
-                                    advance=1, 
+                                    task,
+                                    advance=1,
                                     remaining=remaining_str,
-                                    rate=rate_str
+                                    rate=rate_str,
+                                    cost=cost_val,
                                 )
                     finally:
                         executor.shutdown(wait=False, cancel_futures=True)
@@ -8000,7 +7987,8 @@ def _run_batch_objectives_analysis(
     This is the batch/summary mode, ported from the legacy `summary` command.
     Uses minimal context + brief detail by default for token efficiency.
     """
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+    from ohtv.progress import make_progress
+    from ohtv.parallel import format_remaining
 
     _init_logging(verbose=verbose)
     config = Config.from_env()
@@ -8236,17 +8224,11 @@ def _run_batch_objectives_analysis(
     # Show progress for LLM analysis (skip if all cached)
     # Note: --quiet only suppresses final output, not progress bar or confirmation
     show_progress = uncached_count > 0
-    progress_ctx = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TextColumn("[green]$[/green]{task.fields[cost]:.4f}"),
-        TextColumn("[dim]{task.fields[rate]}[/dim]"),
-        TimeRemainingColumn(),
-        console=console,
-        transient=True,
-    ) if show_progress else nullcontext()
+    progress_ctx = (
+        make_progress(console=console, show_cost=True)
+        if show_progress
+        else nullcontext()
+    )
 
     with progress_ctx as progress:
         task = None
@@ -8254,6 +8236,7 @@ def _run_batch_objectives_analysis(
             task = progress.add_task(
                 f"Analyzing {uncached_count} conversations...",
                 total=uncached_count,
+                remaining=format_remaining(uncached_count, 0, 0),
                 cost=0.0,
                 rate="-- conv/min",
             )
@@ -8268,7 +8251,15 @@ def _run_batch_objectives_analysis(
                 if error_tuple:
                     errors.append(error_tuple)
                     if task is not None:
-                        progress.advance(task)
+                        progress.update(
+                            task,
+                            advance=1,
+                            remaining=format_remaining(
+                                uncached_count,
+                                processed_count + len(errors),
+                                len(errors),
+                            ),
+                        )
                 elif result_dict:
                     results.append(result_dict)
                     if not from_cache:
@@ -8281,6 +8272,11 @@ def _run_batch_objectives_analysis(
                                 advance=1,
                                 cost=total_cost,
                                 rate=_format_rate(processed_count, elapsed),
+                                remaining=format_remaining(
+                                    uncached_count,
+                                    processed_count + len(errors),
+                                    len(errors),
+                                ),
                             )
         else:
             # Parallel processing with ThreadPoolExecutor
@@ -8335,6 +8331,11 @@ def _run_batch_objectives_analysis(
                                 advance=1,
                                 cost=total_cost,
                                 rate=_format_rate(processed_count, elapsed),
+                                remaining=format_remaining(
+                                    uncached_count,
+                                    processed_count + len(errors),
+                                    len(errors),
+                                ),
                             )
     
     # Restore original signal handlers
@@ -8725,7 +8726,7 @@ def _run_aggregate_job(
 ) -> None:
     """Run an aggregate analysis job."""
     from datetime import date
-    from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+    from ohtv.progress import make_progress
     from rich.table import Table
     
     from ohtv.analysis import (
@@ -8847,14 +8848,16 @@ def _run_aggregate_job(
     results: list[tuple[PeriodInfo | None, dict, int, float, bool]] = []
     total_cost = populate_cost
     
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
+    with make_progress(
         console=console,
+        show_rate=False,
+        show_remaining=False,
+        show_eta=False,
+        show_current=True,
     ) as progress:
-        task = progress.add_task("Processing periods...", total=len(periods))
+        task = progress.add_task(
+            "Processing periods...", total=len(periods), current=""
+        )
         
         for period in periods:
             period_label = period.label if period else "All conversations"

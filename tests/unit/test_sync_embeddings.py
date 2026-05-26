@@ -175,14 +175,15 @@ class TestParallelProcessingStructure:
         assert "ThreadPoolExecutor" in source
     
     def test_progress_bar_components(self):
-        """Verify all progress bar components are imported."""
+        """Verify the shared make_progress helper is used (issue #91)."""
         import inspect
         source = inspect.getsource(_run_post_sync_embeddings)
-        
-        assert "SpinnerColumn" in source
-        assert "BarColumn" in source
-        assert "TaskProgressColumn" in source
-        assert "TextColumn" in source
+
+        # After #91 the embed flow uses the shared helper rather than
+        # individual Rich columns built inline.
+        assert "make_progress(" in source
+        # And no longer imports rich.progress directly here
+        assert "from rich.progress import" not in source
 
 
 class TestGracefulShutdownHandling:
