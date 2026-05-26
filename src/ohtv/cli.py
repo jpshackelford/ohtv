@@ -7653,19 +7653,26 @@ def prompts(action: str | None, name: str | None, reset_all: bool) -> None:
     if action == "show":
         if not name:
             console.print("[red]Error:[/red] Please specify a prompt name.")
-            console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
-            return
-        if name not in PROMPT_NAMES:
-            console.print(f"[red]Error:[/red] Unknown prompt: {name}")
-            console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+            console.print(
+                "[dim]Use [bold]ohtv prompts list[/bold] to see available prompts.[/dim]"
+            )
             return
         try:
-            content = get_prompt(name)
-            console.print(f"[bold]Prompt: {name}[/bold]")
-            console.print()
-            console.print(content)
-        except FileNotFoundError as e:
+            family, variant = _resolve_prompt_ref(name)
+        except ValueError as e:
             console.print(f"[red]Error:[/red] {e}")
+            console.print(
+                "[dim]Use [bold]ohtv prompts list[/bold] to see available prompts.[/dim]"
+            )
+            return
+        try:
+            meta = resolve_prompt(family, variant)
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return
+        console.print(f"[bold]Prompt: {family}/{variant}[/bold]")
+        console.print()
+        console.print(meta.content)
         return
     
     if action == "reset":
@@ -7674,19 +7681,14 @@ def prompts(action: str | None, name: str | None, reset_all: bool) -> None:
         
         if name:
             # Reset specific prompt - support both "variant" and "family/variant" formats
-            if "/" in name:
-                family, variant = name.split("/", 1)
-            elif name in PROMPT_NAMES:
-                family, variant = "objs", name
-            else:
-                # Try to find it in discovered prompts
-                try:
-                    meta = resolve_prompt("objs", name)
-                    family, variant = "objs", name
-                except ValueError:
-                    console.print(f"[red]Error:[/red] Unknown prompt: {name}")
-                    console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
-                    return
+            try:
+                family, variant = _resolve_prompt_ref(name)
+            except ValueError as e:
+                console.print(f"[red]Error:[/red] {e}")
+                console.print(
+                    "[dim]Use [bold]ohtv prompts list[/bold] to see available prompts.[/dim]"
+                )
+                return
             
             user_path = user_dir / family / f"{variant}.md"
             if not user_path.exists():
@@ -7730,6 +7732,44 @@ def prompts(action: str | None, name: str | None, reset_all: bool) -> None:
             console.print("[yellow]Specify a prompt name or use --all to reset all.[/yellow]")
             console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
         return
+
+
+def _resolve_prompt_ref(name: str) -> tuple[str, str]:
+    """Resolve a user-supplied prompt name to a ``(family, variant)`` pair.
+
+    Accepts both ``family/variant`` (current convention) and bare
+    ``variant`` (legacy ``objs/<variant>`` shorthand). This is the same
+    resolution ``prompts reset`` uses; ``prompts show`` shares it so the
+    two commands stay symmetric (the previous asymmetry is what caused
+    ``ohtv prompts show titles/default`` to fail on PR #96).
+
+    Raises:
+        ValueError: If ``name`` cannot be resolved to a known prompt.
+    """
+    from ohtv.prompts import PROMPT_NAMES
+    from ohtv.prompts.discovery import resolve_prompt
+
+    if "/" in name:
+        family, variant = name.split("/", 1)
+        # Validate the pair — let resolve_prompt raise a useful message
+        # on unknown family/variant.
+        resolve_prompt(family, variant)
+        return family, variant
+
+    if name in PROMPT_NAMES:
+        return "objs", name
+
+    # Last-ditch: try to find the bare variant in the objs/ family
+    # (resolve_prompt will raise on miss).
+    try:
+        resolve_prompt("objs", name)
+    except ValueError:
+        raise ValueError(
+            f"Unknown prompt: {name}. "
+            f"Use 'family/variant' (e.g. 'titles/default') or a legacy "
+            f"objs/ variant name."
+        )
+    return "objs", name
 
 
 def _show_prompts_family_structure() -> None:
