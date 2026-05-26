@@ -705,3 +705,96 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 16:00 UTC - OpenHands implementation worker (issue #89)
+
+**Implemented [#89](https://github.com/jpshackelford/ohtv/issues/89) — `ohtv gen titles` auto-rename for placeholder-titled cloud conversations.** Draft PR opened, then promoted to ready: **[#96](https://github.com/jpshackelford/ohtv/pull/96)**.
+
+- Cloud-source-only command with the placeholder regex `^Conversation [0-9a-f]{5,32}$` as the default selector; `--all-titled` overrides.
+- Reuses the `gen objs` filter surface (`--day/--week/--since/--until/--pr/--repo/--label/-n/--all/--offset/--reverse`) plus title-specific flags (`--all-titled`, `--dry-run`, `--workers`, `--batch-size`, `--model`).
+- Cache probe picks the best-available analysis variant (`detailed_assess > detailed > standard_assess > standard > brief_assess > brief`); cache-miss conversations are skipped before any LLM call.
+- Batched LLM (default 25/chunk) with single-conv retry on chunk parse failure and a length re-prompt + hard-truncate fallback for overlong titles.
+- Parallel PATCH via the new `CloudClient.update_conversation(id, *, title=...)`, routed through the existing `_request_with_retry` so `Retry-After` headers are honoured (default 5 workers, hard-capped at 50).
+- Local writeback rewrites the manifest title in place (no `last_sync_at` advance) and calls `ConversationStore.update_metadata(id, title=...)` from PR #94 / Issue #86. **No widening** of the metadata column set — that's #87.
+- Both progress bars (`Generating titles`, `Applying to cloud`) route through the `make_progress(...)` helper from PR #95; `tests/unit/test_progress_lint.py` continues to enforce this.
+- Customizable prompt lives at `src/ohtv/prompts/titles/default.md` (user override at `~/.ohtv/prompts/titles/default.md`).
+- **62 new tests** (45 unit + 9 integration-style + 7 cloud-client); full suite green: **1521 passed**.
+
+Acceptance criteria from #89 all satisfied. Out-of-scope follow-ups (#87 column-set widening) explicitly NOT touched.
+
+---
+
+### 2026-05-26 15:50 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `5106f48` | implementation | Issue #89 — `gen titles` command | **NEW** (spawned 15:50Z, `execution_status: running`, `sandbox: RUNNING` confirmed) |
+
+**Spawned: Implementation Worker (PR slot was empty after PR #95 merge; #91 dep landed; per acknowledged 10:50Z `## INSTRUCTION:` "handle #91 before #89, then resume normal routing")**
+
+- Issue: [#89 — Add `gen titles` to auto-rename poorly-titled cloud conversations from cached gen objs analyses](https://github.com/jpshackelford/ohtv/issues/89) (priority:medium, expanded)
+- Conversation: [`5106f489`](https://app.all-hands.dev/conversations/5106f48953a74388b291f9bcbbc0c79d) (`selected_repository=jpshackelford/ohtv`)
+- Start task: `d915fdb4d22a4410ad3ab5d2b952bc0c` → `READY` on first 6s poll → `app_conversation_id=5106f48953a74388b291f9bcbbc0c79d`. Verified `GET /app-conversations?ids=…` returns `execution_status: running`, `sandbox_status: RUNNING`.
+- Plugin loaded: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Model: `litellm_proxy/claude-opus-4-7`.
+
+**Why now (decision-tree gates):**
+
+- ✅ **PR #95 merged:** `state: MERGED`, `mergedAt: 2026-05-26T15:23:16Z`, squash commit `c594d923ed86778bd04c89aa47de8ea33db62417`. Verified on `main`: `git log --oneline -1` → `c594d92 feat: standardize progress bars via shared make_progress helper (#91)`.
+- ✅ **Issue #91 closed:** `state: CLOSED`, `closedAt: 2026-05-26T15:23:18Z` (auto-closed by `Closes #91` in PR description).
+- ✅ **No open PRs:** `gh pr list --state open` → `[]`. PR slot empty.
+- ✅ **Prior PR worker `ff08a0b` (merge for PR #95) cleanly disposed:** `execution_status: null`, `sandbox: PAUSED`, `updated_at: 15:23:09Z`, `accumulated_cost: $2.35` over 2.5M prompt tokens. Did exactly its scope.
+- ✅ **#89 is the next routed item per the acknowledged 10:50Z `## INSTRUCTION:`** ("handle #91 before #89, then resume normal routing"). Hard dep #91 is now satisfied.
+- ✅ **No competing ohtv workers:** `ohtv list --repo ohtv --since 4h --idle 15` shows all 6 recent cloud conversations green (≥26m idle); the running `5106f48` is the one I just spawned.
+- ✅ **No competing orchestrator cycle:** Only other non-ohtv `RUNNING` conversation is `8ef326a3` (no `selected_repository`, just-spawned, likely this orchestrator cycle itself).
+
+**Implementation worker scope (prompt highlights):**
+
+- Verify `main` includes commit `c594d923…` (the `make_progress` helper) before branching.
+- Read issue #89 body + comments — they specify the full pipeline: placeholder selector (regex `^Conversation [0-9a-f]{5,32}$` by default, `--all-titled` override), reuse of `gen objs` flag surface (`--day/--week/--since/--until/--pr/--repo/--label/-n/--all/--offset/--reverse`), plus new flags `--dry-run/--workers/--batch-size/--model`.
+- Pipeline: probe cache (detailed > standard > brief variant) → batch LLM `[{id, description}] → [{id, title}]` (chunk default 25, single-conv retry on parse failure) → parallel PATCH `/app-conversations/{id}` via `parallel.run_parallel` with progress bar → local writeback via `ConversationStore.update_metadata(conv_id, title=...)` (from #86 — do NOT widen its column set, that's #87) + in-place manifest title rewrite (do NOT advance `last_sync_at`).
+- **Progress bars MUST use the new `make_progress(verb=..., show_rate=True, show_remaining=True, show_eta=True)` helper from PR #95** — the lint guard from #91 will fail CI otherwise.
+- Add a customizable prompt template under `src/ohtv/prompts/titles.md` (follows existing `prompts/*.md` convention; reuse the `ohtv/prompts/__init__.py` loader).
+- Title constraints (LLM-prompt enforced): ≤50 chars including optional leading emoji, imperative Title Case phrase, no trailing punctuation.
+- Cloud-source only: local CLI conversations silently skipped with a single end-of-run note.
+- Tests: placeholder regex selector, LLM-response parser (incl. parse-failure → single-conv retry), `update_metadata` writeback (no network — patch CloudClient PATCH), `--dry-run` produces no PATCH calls and no DB writes. Target >80% coverage on new code.
+- Branch `feat/gen-titles-89`; PR title `feat: add gen titles to auto-rename placeholder-titled cloud conversations (#89)`; body must include `Closes #89`.
+- Open as DRAFT, monitor CI green, then move to ready (triggers review bot). Exit after that — docs/testing/review/merge are separate orchestrator-spawned conversations.
+- Explicit DO-NOTs: widening `update_metadata` column set (that's #87), unrelated refactors, running test/review/merge phases inline.
+
+**Prior worker disposition (sweep):**
+
+- `ff08a0b` (merge, PR #95) — `execution_status: null`, `sandbox: PAUSED` at 15:23:09Z. PR #95 merged at 15:23:16Z; issue #91 closed at 15:23:18Z. Cleanly executed scope.
+- `857518e` (review, PR #95) — `sandbox: PAUSED` since 14:52Z. No longer relevant.
+- `c493bbf`, `bba7f97`, `e10e07*`, `a119ddf` — all `sandbox: PAUSED`, not consuming slots.
+
+**PR slot:** Now occupied by `5106f489` (impl on #89).
+**Expansion slot:** Idle — all 8 remaining open `ready` issues are already expanded; no `needs-info` / `needs-split`; no unlabeled issues. Per `gh issue list --state open --json labels --jq '[.[] | select(.labels | map(.name) | (contains(["ready"]) or contains(["hold"])) | not)]'` → `[]`. Nothing to expand.
+
+**Current State (verified 15:45–15:50Z):**
+
+- **Open PRs:** 0 (PR #95 merged; no successor PR yet — `5106f489` will open one).
+- **Ready issues (8, all expanded):** `priority:medium`: #80, #81, #83, **#89 (now being implemented)**, #90, #92; `priority:low`: #82, #87.
+- **Closed in this cycle:** #91 (auto-closed by PR #95 merge).
+- **Needs expansion:** 0. **On hold:** #26 (`hold` label). **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations (non-ohtv):** `8ef326a3` (no `selected_repository`, just spawned — this orchestrator cycle itself). No competing orchestrator.
+
+**Housekeeping:** WORKLOG.md was at 520 lines pre-cycle (this entry pushes it past 580). The skill's >300-line threshold is well exceeded. However, the 6-hour productive-work preservation window currently spans ~09:50Z–15:50Z, which captures every entry currently in the file (oldest non-archive entry is the 10:50Z `## INSTRUCTION:` at line 3). Truncation right now would not remove anything. **Deferring archive to the next cycle** — by then the 10:50Z instruction, 11:19Z PR #94 merge, and 12:21Z–13:21Z impl/spawn entries for #91 will all be past the 6-hour window and can be safely archived, while the 14:21Z+ test/review/merge chain for #95 and today's 15:50Z spawn for #89 stay preserved.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-quiet-period counter remains at 0.
+
+**Next check (~30 min):**
+
+- If `5106f489` is `running` → log status, do nothing. Implementation typically takes 20-60 min depending on test scaffolding work.
+- If `5106f489` is `finished` AND `gh pr list --state open` shows 1 PR → check whether it's DRAFT or READY:
+  - DRAFT with green CI → likely worker exited before promoting; spawn a small **finish-up worker** to flip to ready (or treat as the impl worker still needing to mark ready).
+  - READY with green CI and `## Manual Test Results` absent → spawn **docs worker** first if README needs updating (new CLI command `gen titles` → docs update is **required** per the workflow's docs-before-test rule). After docs, spawn **testing worker**.
+  - READY with green CI and docs already updated → spawn **testing worker**.
+- If `5106f489` is `finished` AND no PR was opened → investigate the conversation's last events; likely the worker was blocked. May need a `## INSTRUCTION:` from the human.
+- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+- Truncation candidate: once #89's PR enters review (probably 2-3 cycles from now), archive entries ≤14:20Z.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
