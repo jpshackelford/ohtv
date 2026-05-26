@@ -455,3 +455,66 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 15:21 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `ff08a0b` | merge | PR #95 — `make_progress` helper (#91) | **NEW** (spawned 15:20Z, `execution_status: running`, `sandbox: RUNNING` at 15:21Z) |
+
+**Spawned: Merge Worker (PR slot was empty; review worker `857518e` finished at 14:52Z; PR #95 ready to land)**
+
+- PR: [#95 — feat: standardize progress bars via shared `make_progress` helper (#91)](https://github.com/jpshackelford/ohtv/pull/95)
+- Conversation: [`ff08a0b1`](https://app.all-hands.dev/conversations/ff08a0b147b044f08ce360b2b27d0a49) (`selected_repository=jpshackelford/ohtv`, `pr_number=[95]`)
+- Spawn API: `POST /api/v1/app-conversations` → start-task `a3fb7c2a…` reached `READY` after one 8s poll (sandbox `3W0EV6LU2N4Q11n0ZWdSGP`, `app_conversation_id=ff08a0b147b044f08ce360b2b27d0a49`). Verified `GET /app-conversations?ids=…` shows `execution_status: running`, `sandbox_status: RUNNING`.
+
+**Why merge (not re-test, not another review):** Per the workflow decision tree — `"PR exists, ready, CI green, test results valid, good rating, docs valid → Spawn merge worker"`. All gates pass:
+
+- ✅ **CI green:** 1/1 checks passing (`PR Review by OpenHands/pr-review`, 4m38s).
+- ✅ **PR ready** (not draft): `gh pr ready 95` was re-run by the review worker at the end of its cycle. State: `MERGEABLE`, `mergeStateStatus: CLEAN`, `reviewDecision: ""`, head `2c6d3999f129c83937f63b9f8292df46391b76e9`.
+- ✅ **All review threads resolved:** Thread `PRRT_kwDOR9seq86EzwcZ` (pr-review bot's "misleading comment" 🟡 suggestion on `cli.py:504-508`) is now `isResolved: true`. The review worker replied with a description of how the comment was rewritten, then resolved.
+- ✅ **Test results valid** (no re-test needed): Manual test 🟢 GREEN from `c493bbf` at 14:24Z was on head `638e7092`. Only commit since is `2c6d3999` ("docs: clarify metadata-refresh progress comment per review") — a **comment-only** edit (7+/5- in a single comment block in `src/ohtv/cli.py`, lines 501-513). Per the workflow's re-test heuristics, `"comments or docstrings changed"` is explicitly on the do-NOT-retest list.
+- ✅ **Docs valid** (no spot-check needed): This PR is an internal refactor — no new CLI commands, flags, defaults, env vars, or output-format changes. The testing worker confirmed "README correctly omitted (refactor only)" in its 🟢 verdict. No further docs work required pre-merge.
+
+**Merge worker scope (prompt highlights):**
+- Holistic review of the 11-site migration to `make_progress(...)`; verify helper signature matches issue #91 spec (`verb`, `show_rate`, `show_remaining`, `show_eta`).
+- Update PR description if needed.
+- Squash-merge with conventional subject `feat: standardize progress bars via shared make_progress helper (#91)` + body including `Closes #91`.
+- Verify `state: MERGED`, `mergedAt` populated, and issue #91 auto-closed.
+- Note in summary that #89 is now unblocked (per the 10:50Z `## INSTRUCTION:`) — but do NOT spawn the impl worker; next orchestrator cycle will pick it up.
+- Explicit DO-NOTs: no WORKLOG edits, no spawning, no code modifications, no touching unrelated PRs/issues.
+- Safety valve: if merge would be unsafe (e.g., new untested commits appear, CI regresses), STOP and post a finding comment.
+
+**Prior worker disposition:**
+- `857518e` (review, PR #95) — `execution_status: finished` at 14:52Z. Pushed commit `2c6d3999` (comment-only edit to `cli.py`), replied + resolved the unresolved thread, re-ran `gh pr ready 95`. Cleanly executed scope.
+- `c493bbf` (testing, PR #95) — `sandbox: PAUSED`, not a slot consumer.
+- `bba7f97` (impl, #91) — `sandbox: PAUSED`.
+- `e10e0707` (merge, PR #94) — `sandbox: PAUSED`; PR #94 already merged (SHA `03657ed`).
+- `a119ddf` (failed-spawn impl, #91 from 12:48Z) — `sandbox: PAUSED`, 0 events, not consuming resources.
+
+**PR slot:** Now occupied by `ff08a0b` (merge on PR #95).
+**Expansion slot:** Idle — all 9 open `ready` issues are expanded; no `needs-info` / `needs-split`. Per the acknowledged 10:50Z `## INSTRUCTION`, #89 stays parked until #91 (PR #95) merges. After merge, #89 becomes the next impl candidate (it already has the `make_progress`-binding acceptance criterion baked into its body from the 11:19Z amendment). No expansion work to dispatch.
+
+**Current State (verified 15:18–15:21Z):**
+
+- **Open PRs:** 1 — PR #95 (READY, `MERGEABLE`/`CLEAN`, head `2c6d3999`, 1/1 CI ✓, 0 unresolved review threads).
+- **Ready issues (9, all expanded):** `priority:medium`: #80, #81, #83, #89 *(unblocks once #95 merges)*, #90, **#91 (about to merge — PR #95)**, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26 (`hold` label). **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations (non-ohtv):** `8a37f7b8` (no `selected_repository`) — unrelated. No competing orchestrator cycle.
+
+**Housekeeping:** WORKLOG.md was at 457 lines pre-cycle (this entry pushes it past 510). The skill's >300-line threshold is well exceeded; the productive-work preservation window (last 6 hours) currently covers from the 11:19Z entry forward — i.e., everything currently in the file. Per the prior orchestrator's note (14:46Z entry), deferring archive until after PR #95 lands so the testing/review/merge sequence stays grouped in one readable chunk. **Next cycle will be a strong truncation candidate** once the merge entry settles: the 11:19Z merge entry for PR #94 and the 12:21Z / 13:21Z impl/spawn entries will be safely past the 6-hour window, while the 14:21Z+ test/review/merge chain for PR #95 stays preserved.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-quiet-period counter remains at 0.
+
+**Next check (~30 min):**
+
+- If `ff08a0b` is `finished` AND `gh pr view 95 --json state` shows `MERGED` AND `gh issue view 91 --json state` shows `CLOSED` → 🎉 #91 done. Next action: per the acknowledged 10:50Z `## INSTRUCTION:`, **spawn implementation worker for #89** (`gen titles` to auto-rename poorly-titled cloud conversations). The issue body already specifies the `make_progress(...)` binding (per the 11:19Z amendment), and #91 — its hard dep — is now landed.
+- If `ff08a0b` finished but PR is still OPEN (merge failed or worker stopped early) → investigate the conversation's last events / any PR comments; may need a re-merge worker with adjusted scope.
+- If `ff08a0b` is still `running` → log status, do nothing.
+- If new commits appeared on the PR branch after spawn (unexpected) → treat as a state change and re-route (likely need re-test).
+- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
