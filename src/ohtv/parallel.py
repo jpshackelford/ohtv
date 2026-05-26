@@ -30,6 +30,41 @@ def format_rate(count: int, elapsed_seconds: float, unit: str = "items") -> str:
     return f"{rate:.1f} {unit}/min"
 
 
+
+def format_remaining(total: int | None, processed: int, failed: int = 0) -> str:
+    """Format the "N left" counter used by canonical progress bars.
+
+    Renders Rich markup, so this string should be fed directly into
+    a ``TextColumn("{task.fields[remaining]}")`` column without
+    further wrapping.
+
+    Args:
+        total: Total work units, or ``None`` if unknown. When unknown,
+            the function instead reports completed counts.
+        processed: Total items already processed (succeeded + failed).
+        failed: Subset of ``processed`` that failed. ``0`` is rendered
+            without an error suffix.
+
+    Returns:
+        Rich-markup-bearing string suitable for direct display. Returns
+        an empty string when nothing remains (``total - processed <= 0``
+        with no failures), so the column collapses to whitespace.
+    """
+    if total is None:
+        # Unknown total - surface progress instead of remaining.
+        if failed > 0:
+            successes = processed - failed
+            return f"[green]{successes}[/green] ok [red]{failed}[/red] err"
+        return f"[green]{processed}[/green] ok"
+
+    remaining = total - processed
+    if remaining <= 0 and failed <= 0:
+        return ""
+    if failed > 0:
+        return f"[dim]{remaining}[/dim] left [red]{failed}[/red] err"
+    return f"[dim]{remaining}[/dim] left"
+
+
 @dataclass
 class ParallelResult:
     """Results from parallel processing."""

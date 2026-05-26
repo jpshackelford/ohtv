@@ -3,9 +3,8 @@
 import threading
 import time
 
-import pytest
 
-from ohtv.parallel import format_rate, RateTracker, run_parallel
+from ohtv.parallel import format_rate, format_remaining, RateTracker, run_parallel
 
 
 class TestFormatRate:
@@ -32,6 +31,47 @@ class TestFormatRate:
         # 5 items in 30 seconds = 10/min
         result = format_rate(5, 30.0)
         assert result == "10.0 items/min"
+
+
+class TestFormatRemaining:
+    """Tests for format_remaining function."""
+
+    def test_basic_remaining(self):
+        # 30 of 100 done, no failures
+        assert format_remaining(100, 30) == "[dim]70[/dim] left"
+
+    def test_with_failures(self):
+        assert format_remaining(100, 30, 5) == "[dim]70[/dim] left [red]5[/red] err"
+
+    def test_zero_remaining_returns_blank(self):
+        # Per AC: "shows X left when > 0, blank when 0"
+        assert format_remaining(100, 100) == ""
+
+    def test_negative_remaining_returns_blank(self):
+        # Defensive: more processed than total
+        assert format_remaining(100, 110) == ""
+
+    def test_zero_remaining_with_failures_still_renders(self):
+        # When failures occurred, the error suffix is still useful
+        assert (
+            format_remaining(100, 100, 3)
+            == "[dim]0[/dim] left [red]3[/red] err"
+        )
+
+    def test_unknown_total_shows_ok_count(self):
+        assert format_remaining(None, 50) == "[green]50[/green] ok"
+
+    def test_unknown_total_with_failures(self):
+        assert (
+            format_remaining(None, 50, 7)
+            == "[green]43[/green] ok [red]7[/red] err"
+        )
+
+    def test_default_failed_is_zero(self):
+        # `failed` parameter is optional and defaults to 0
+        assert format_remaining(10, 3) == "[dim]7[/dim] left"
+
+
 
 
 class TestRateTracker:

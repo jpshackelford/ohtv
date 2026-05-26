@@ -540,17 +540,16 @@ def ensure_db_ready(
     # Run maintenance with optional progress display
     if show_progress:
         from rich.console import Console
-        from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-        
+
+        from ohtv.progress import make_progress
+
         console = Console()
-        
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold blue]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+
+        with make_progress(
             console=console,
-            transient=True,
+            show_rate=False,
+            show_remaining=False,
+            show_eta=False,
         ) as progress:
             current_task_id = None
             
