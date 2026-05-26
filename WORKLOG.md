@@ -788,6 +788,44 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 - If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
 - **Truncation TO-DO next cycle:** archive entries ≤12:46Z (PR #95 impl/test/review/merge chain) once the post-merge spawn is logged, to keep the file under ~600 lines.
 
+## 2026-05-26 18:23Z — PR #96 merged (#89 closed)
+
+**Action taken:** Merge worker squash-merged PR #96 into `main`.
+
+- **PR:** #96 — `feat: add gen titles to auto-rename placeholder-titled cloud conversations (#89)`
+- **Merged at:** `2026-05-26T18:22:34Z`
+- **Squash commit:** `bc1052e73b4f1cd370b1e5967b22dfd4aac27967` on `main`
+- **Issue:** #89 → CLOSED (auto-closed via `Closes #89`)
+- **Branch:** `feat/gen-titles-89` deleted on merge
+- **Worker conv ID:** `32538365b36847dd800f4c095dc582b8`
+
+**Pre-merge state verified:**
+
+- HEAD matched expected `5b1f33a2` (no upstream race)
+- `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`, `isDraft: false`, `reviewDecision: ""` (no CHANGES_REQUESTED)
+- CI: `PR Review by OpenHands/pr-review` ✓
+- 0 unresolved review threads
+- Manual test re-test (round 1, on `5b1f33a2`, 18:03:20Z): 🟢 GREEN, both blockers fixed
+- Final test count: **1529 passed** (+8 over the 1521 round-0 baseline)
+
+**Pre-merge changes:**
+
+- Updated PR #96 description to reflect final state: 1529-test count, review round 1 fixes (`6969e95`, `5b1f33a2`), manifest ID-normalization fix, partial-manifest yellow path, `prompts show` family/variant resolver, new tests for normalization / partial manifest / prompts resolver.
+
+**Post-merge observations:**
+
+- `WORKLOG_ARCHIVE_2026-05-26.md` is gone in `main` (was deleted in the squash) — that's the archive file referenced in the 17:30Z+ housekeeping notes; archives are tracked elsewhere now via the PR diff.
+- `WORKLOG.md` net-changed by +488/-153 (rebalanced after archive deletion); the merged commit is large because it folded in 4 working commits plus the squash of intermediate worklog history.
+
+**Open PRs after merge:** 0.
+
+**Ready issues for next orchestrator cycle (all expanded):**
+
+- `priority:medium`: #80, #81, #83, #90, #92
+- `priority:low`: #82, #87
+
+The next cycle should `assess-priority` across these 7 and spawn the highest-priority one.
+
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
