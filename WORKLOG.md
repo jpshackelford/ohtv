@@ -1080,3 +1080,84 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 **Next Check:** Next cron tick (~30 min). On wake-up, expect to see PR #98 merged, issue #81 auto-closed, and a fresh implementation slot ready for the next priority:medium ready issue (#83, #90, or #92).
 
 ---
+
+### 2026-05-26 23:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `10d3c12d` | testing | PR #99 — `feat: add ohtv classify command (#83)` | **NEW** (spawned 23:51:03Z, `execution_status=running`, `sandbox=RUNNING`) |
+
+**Spawned: Testing Worker for PR #99** — implementation worker `3f1844ae` (off-orchestrator-cycle spawn, see "Gap-fill note" below) finished cleanly at 23:37Z with PR #99 open + ready + CI green + README updated. Docs-before-test gate already satisfied, so testing is the next step.
+
+- PR: [#99 — feat: add ohtv classify command (#83)](https://github.com/jpshackelford/ohtv/pull/99) on branch `feat/classify-83`.
+- Conversation: [`10d3c12d`](https://app.all-hands.dev/conversations/10d3c12dab5e4f01954bf3b281e50bf5) (`selected_repository=jpshackelford/ohtv`, `pr_number=[99]`).
+- Start task: `815f95d7…` → `READY` on first 5s poll → `app_conversation_id=10d3c12dab5e4f01954bf3b281e50bf5`. Verified `GET /app-conversations?ids=…` returns `execution_status=running`, `sandbox_status=RUNNING`.
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**Why testing (decision-tree gates verified at 23:47–23:51Z):**
+
+- ✅ **Prior PR slot cleared:** Merge worker `235b7713` from the 22:51Z cycle → `execution_status=null`, `sandbox=PAUSED`, `updated_at=22:52:20Z`. Did exactly its scope in ~1 minute (squash merge PR #98).
+- ✅ **PR #98 merged + issue #81 closed:** `gh pr view 98` → `state=MERGED`, `mergedAt=2026-05-26T22:52:19Z`, `mergeCommit.oid=fd9f84e9bfbcbeb65184ac7baa9f075a7d16cdfc`. `gh issue view 81` → `state=CLOSED`, `closedAt=2026-05-26T22:52:20Z`.
+- ✅ **PR #99 exists, ready, CI green:** `gh pr view 99` → `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`. `pr-review` CI conclusion=SUCCESS. `lxa pr list jpshackelford/ohtv#99` → `oR green ready 💬3 / 11m / 8m ago` (the 💬3 is the 3 auto-AI-reviewer threads, not human review).
+- ✅ **README.md in PR diff:** `gh pr diff 99 --name-only` lists `README.md`, `src/ohtv/classify.py`, `src/ohtv/cli.py`, `tests/unit/test_classify.py`, `tests/unit/test_cli_classify.py`. The impl worker correctly bundled docs with the implementation, satisfying the **docs-before-testing** gate — no separate docs worker needed.
+- ✅ **No manual test results yet:** `gh pr view 99 --comments` → 0 PR-level comments (only inline auto-AI review threads). No `## Manual Test Results` header anywhere.
+- ✅ **3 unresolved review threads are auto-AI nits, not human change requests:** All 3 are from `github-actions` and flag the same character-encoding issue (en-dash vs `--` in docstrings) at 3 lines in `classify.py`. Per the orchestrate skill's decision tree: "Even if this PR already has review comments, testing is still required. Testing gates the review process — reviewers need to see what was tested before approving." Encoding nits are explicitly handed to the future review worker, not the testing worker.
+- ✅ **Decision tree match:** "PR exists, ready, CI green, **docs updated**, **no manual test results** → Spawn **testing worker**." Exact match.
+- ✅ **No competing OH workers:** Recent ohtv-repo conversations queried via `search?selected_repository=jpshackelford/ohtv`. Only running entry pre-spawn was `eca3c65e` (this orchestrator cycle, no `pr_number`). All prior PR-slot workers (`3f1844ae`, `235b7713`, `37a6ba32`, `450921e9`, `03c344bf`) are `finished` or `paused`.
+- ✅ **Expansion slot intentionally idle:** `gh issue list … --jq '[.[] | select(no ready/hold)]'` → empty. All 5 remaining open ready issues (#82, #83 in PR #99, #87, #90, #92) are already expanded. Only `#26` is on hold.
+- ✅ **No new `## INSTRUCTION:` in WORKLOG.md:** `grep -n '^## INSTRUCTION:' WORKLOG.md` → 0 matches. Step 1 of orchestrate skill completed cleanly.
+
+**Gap-fill note: missed orchestrator entry around 23:16–23:22Z.**
+
+The 22:51Z orchestrator entry is the previous one on main. Between then and now:
+- A cron-scheduled orchestrator at `c911d90e` woke up at 23:16:18Z (zero-duration; `sandbox=MISSING` now) — apparent shape of a normal orchestrator cycle.
+- An implementation worker `3f1844ae` was spawned at 23:22:28Z, targeting issue #83 (the highest-priority `priority:medium` ready issue after #81 closed); it finished at 23:37:06Z with PR #99 open + ready + CI green + README updated.
+- **However:** `git log origin/main` shows ZERO commits between `05adff5` (22:51Z worklog update) and now. So either:
+  1. The 23:16Z orchestrator cycle (`c911d90e`) spawned the impl worker but failed to commit its WORKLOG.md entry to main (likely — its sandbox is `MISSING` now, suggesting it terminated abruptly).
+  2. OR the impl worker was spawned outside the orchestrator loop (e.g., by a human or by a different automation).
+
+Either way, the impl worker did exactly the right thing — picked the next-highest-priority ready issue (#83, `priority:medium`, ascending issue number among the medium tier was #81→#83 by issue body's "Unblocks #82/#85" note), opened a draft, ran CI to green, marked ready, updated README. This cycle picks up cleanly from where it left off.
+
+**No corrective action needed** — the workflow is on the rails. Just noting the gap for traceability. If `c911d90e` is investigated later and shows a meaningful failure mode, that's a separate `## INSTRUCTION:` from the human.
+
+**Testing worker scope (prompt highlights):**
+
+- Setup: clone, checkout `feat/classify-83`, `uv sync`, read PR diff + issue #83 + updated README.
+- **12 numbered blackbox tests** covering: `classify --help` flag completeness, single-conv override (`human`/`automation`/`unknown`), idempotency, read-only/`--dry-run` ZERO-write verification, `--confirm` bulk happy-path on `--since 7d`, `--repo` filter, date filter semantics via `parse_date_filter`, `--source unknown` explicit, re-classification (update not insert), migration 016 schema sanity, error/edge cases (unknown short ID, empty selector, conflicting flags), and **integration with `ohtv report velocity`** (the just-merged #81 — closes the loop on the whole reason #83 exists).
+- **Unit suite:** `uv run pytest -x` (expect prior 1617 + new classify tests, all green) + targeted `tests/unit/test_classify.py tests/unit/test_cli_classify.py -v`.
+- **Lint:** `uv run ruff check src tests`.
+- **Output:** PR comment with `## Manual Test Results` header (orchestrator scans for this), test matrix with ✅/❌/⚠️, AC coverage map from issue #83, bugs-found list (the 3 auto-AI encoding-nit threads go here as **nit** — explicitly handed to the review worker, NOT fixed by tester), unit-test counts + runtime, recommendation verdict, AI-disclosure footer.
+
+**Explicit DO-NOTs encoded in prompt:** no draft-switch, no code changes (even for the 3 encoding nits — those are review-worker territory), no `WORKLOG.md` touch, no review-thread resolution, no approve / merge, no skipping the full pytest run.
+
+**PR slot:** Now occupied by `10d3c12d` (testing on PR #99).
+**Expansion slot:** Idle (0 issues need expansion).
+
+**Current State (verified 23:47–23:51Z):**
+
+- **Open PRs:** 1 — [PR #99](https://github.com/jpshackelford/ohtv/pull/99) (ready, CI green, 0 manual test comments, 3 auto-AI-review threads about docstring encoding).
+- **Recently closed:** PR #98 + issue #81 (merged/closed 22:52:19Z, this cycle's prior-state input).
+- **Ready issues (5, all expanded):** `priority:medium`: #83 (**now in PR #99 testing**), #90, #92; `priority:low`: #82 (waits on #81 — now merged, so technically unblocked), #87 (waits on #86 — already merged).
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** `eca3c65e` (this orchestrator cycle, no repo binding) + `10d3c12d` (just-spawned testing worker).
+
+**Sync note:** `ohtv sync --since … --quiet` succeeded under `OH_API_KEY=$OPENHANDS_API_KEY` (same env-var bridge as the 22:20Z cycle). The 22:51Z note about "sync 401" was specific to that cycle's shell environment and does not reproduce here.
+
+**Housekeeping (deferred again):** WORKLOG.md was 1082 lines pre-cycle (this entry pushes it past ~1180). The 6-hour productive-work preservation window (currently 17:51Z–23:51Z) STILL captures the oldest line-1 entry (the 19:58Z manual-test for PR #97 is now ~3h 53m old; the 16:21Z + 16:50Z + 17:51Z + 18:50Z entries are all 5h–7h 30m old). Truncation candidates: the 16:21Z + 16:50Z entries (PR #96 chain — fully merged) are >7h old and safe to archive. Deferred this cycle to keep the change minimal alongside a productive spawn; will revisit when the worklog crosses 1500 lines or at the next quiet cycle (whichever comes first).
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Recent orchestrator entries (18:50Z, 19:19Z, 19:51Z, 20:21Z, 20:51Z, 21:21Z, 21:49Z, 22:20Z, 22:51Z, this one at 23:51Z) have all been spawn cycles. Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min, ~00:21Z):**
+
+- If `10d3c12d` is `running` → log status, do nothing. Testing typically takes 30–90 min for a 12-test matrix + real-data exercises + full pytest run.
+- If `10d3c12d` is `finished` AND a `## Manual Test Results` comment is on PR #99 with ✅ Ready verdict AND no blocker bugs AND the 3 auto-AI encoding threads are still unresolved → spawn **review worker** (the threads need a response: either accept and fix the encoding, or explain why `--` is correct in those contexts; either way, threads must be addressed before merge).
+- If `10d3c12d` is `finished` AND test report exists with ❌ blocker bugs → spawn **impl/fix worker** (re-implement / fix) on the same PR branch. Update worklog with bug summary.
+- If `10d3c12d` is `finished` AND test report exists with ⚠️ minor bugs only → spawn **review worker** (folds in minor fixes + addresses the 3 auto-AI encoding threads in one round).
+- If `10d3c12d` is `finished` BUT no test comment was posted → investigate the conversation events; may need a `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO (deferred):** Archive the 16:21Z + 16:50Z PR #96 entries to `WORKLOG_ARCHIVE_2026-05-26.md` (saves ~80 lines), since both are >7h old and PR #96 is fully merged.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
