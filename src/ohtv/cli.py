@@ -10075,5 +10075,204 @@ def _display_aggregate_results_table(
     console.print(table)
 
 
+# =============================================================================
+# Reports — weekly aggregates for research analysis (Issue #81+)
+# =============================================================================
+
+
+@main.group()
+def report() -> None:
+    """Generate periodic reports (velocity, etc.).
+
+    These commands read from the existing ``~/.ohtv/index.db`` index
+    and emit human-friendly tables or CSV. They do not invoke the LLM
+    and do not consume tokens.
+    """
+
+
+@report.command("velocity")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["table", "csv"]),
+    default="table",
+    help="Output format (default: table)",
+)
+@click.option(
+    "--since",
+    "since_str",
+    help="Lower bound on merged_at; YYYY-MM-DD or relative (7d, 2w, 1m)",
+)
+@click.option(
+    "--until",
+    "until_str",
+    help="Upper bound on merged_at; YYYY-MM-DD",
+)
+@click.option(
+    "--repo",
+    "repo_filter",
+    help="Restrict to one repo (URL, owner/repo, or short name)",
+)
+@click.option(
+    "--include-empty",
+    is_flag=True,
+    help="Emit weeks with zero merged PRs (default: omit)",
+)
+@click.option(
+    "--no-totals",
+    is_flag=True,
+    help="Suppress the totals row (table format only; CSV never has one)",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Show the rendered SQL and per-week row counts")
+def report_velocity(
+    fmt: str,
+    since_str: str | None,
+    until_str: str | None,
+    repo_filter: str | None,
+    include_empty: bool,
+    no_totals: bool,
+    verbose: bool,
+) -> None:
+    """Show merged PRs / direct-pushes aggregated by ISO week.
+
+    Joins ``change_refs`` × ``conversation_contributions`` ×
+    ``conversation_human_input`` (see migration 016/017). The ISO week
+    label ``YYYY-Www`` is computed in Python (SQLite's ``%W`` is not
+    ISO-compliant). LOC cells render ``-`` (table) or empty (CSV)
+    when ``lines_added`` is NULL for every row in the bucket.
+
+    Caveat: rows with ``initial_prompt_source = 'unknown'`` (currently
+    100% of rows until issue #83 lands) are treated as if they were
+    ``'human'``.
+
+    \b
+    Examples:
+      ohtv report velocity
+      ohtv report velocity --format csv > velocity.csv
+      ohtv report velocity --since 2024-01-01 --repo jpshackelford/ohtv
+      ohtv report velocity --since 12w --include-empty
+    """
+    from ohtv.db import ensure_db_ready, get_connection, get_db_path
+    from ohtv.filters import parse_date_filter
+    from ohtv.reports.velocity import (
+        aggregate_velocity,
+        format_csv,
+        format_table,
+    )
+
+    _init_logging(verbose=verbose)
+
+    since_dt = None
+    if since_str:
+        since_dt = parse_date_filter(since_str)
+        if since_dt is None:
+            console.print(
+                f"[red]Error:[/red] could not parse --since {since_str!r}. "
+                "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
+            )
+            raise SystemExit(2)
+
+    until_dt = None
+    if until_str:
+        until_dt = parse_date_filter(until_str)
+        if until_dt is None:
+            console.print(
+                f"[red]Error:[/red] could not parse --until {until_str!r}. "
+                "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
+            )
+            raise SystemExit(2)
+
+    # Open the DB and confirm there is something to aggregate before
+    # we run the join (lets us print the friendly empty-state hint).
+    db_path = get_db_path()
+    if not db_path.exists():
+        if fmt == "csv":
+            import sys
+
+            format_csv([], sys.stdout)
+        else:
+            console.print(
+                "[dim]No index database found. Run "
+                "`ohtv db scan && ohtv db process all` first.[/dim]"
+            )
+        return
+
+    with get_connection(db_path) as conn:
+        ensure_db_ready(conn, show_progress=False)
+
+        # If there are no change_refs at all, point the user at the
+        # producer commands and exit 0 (graceful missing-deps state).
+        any_change_refs = conn.execute(
+            "SELECT 1 FROM change_refs LIMIT 1"
+        ).fetchone()
+        if any_change_refs is None:
+            if fmt == "csv":
+                import sys
+
+                format_csv([], sys.stdout)
+            else:
+                console.print(
+                    "[yellow]No change_refs rows found.[/yellow]\n"
+                    "  - Run [cyan]ohtv db process all[/cyan] to populate "
+                    "PR / push contribution records (issues #78 / #79).\n"
+                    "  - Run [cyan]ohtv fetch-loc[/cyan] to backfill "
+                    "lines-added / lines-removed from GitHub (issue #80)."
+                )
+            return
+
+        try:
+            report_data = aggregate_velocity(
+                conn=conn,
+                since=since_dt,
+                until=until_dt,
+                repo=repo_filter,
+                include_empty=include_empty,
+            )
+        except LookupError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise SystemExit(2) from None
+
+    if verbose:
+        console.print("[dim]-- SQL --[/dim]")
+        console.print(report_data.metadata["sql"].strip())
+        console.print(f"[dim]params: {report_data.metadata['params']}[/dim]")
+        console.print(
+            f"[dim]raw rows fetched: {report_data.metadata['raw_row_count']}, "
+            f"buckets: {report_data.metadata['bucket_count']}, "
+            f"buckets-with-partial-LOC: "
+            f"{sum(1 for r in report_data.rows if r.partial_loc)}, "
+            f"PRs missing LOC: {report_data.metadata['missing_loc_total']}[/dim]"
+        )
+        for row in report_data.rows:
+            flag = " [partial LOC]" if row.partial_loc else ""
+            console.print(
+                f"[dim]  {row.week}: {row.prs_merged} PRs"
+                f"{flag} (missing_loc={row.missing_loc_count})[/dim]"
+            )
+
+    # No matching merged PRs at all → friendly empty state.
+    productive = [r for r in report_data.rows if r.prs_merged > 0]
+    if not productive and not include_empty:
+        if fmt == "csv":
+            import sys
+
+            format_csv([], sys.stdout)
+        else:
+            console.print("[dim]No merged PRs in range.[/dim]")
+        return
+
+    if fmt == "csv":
+        import sys
+
+        format_csv(report_data.rows, sys.stdout)
+    else:
+        format_table(
+            report_data.rows,
+            report_data.totals,
+            console,
+            show_totals=not no_totals,
+        )
+
+
 if __name__ == "__main__":
     main()
