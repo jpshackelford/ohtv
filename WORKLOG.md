@@ -639,3 +639,84 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-26 17:49 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `8750de9` | re-testing | PR [#96](https://github.com/jpshackelford/ohtv/pull/96) — `gen titles` (#89) after review round 1 | **NEW** (spawned 17:49Z, `execution_status: running`, `sandbox: RUNNING`) |
+
+**Spawned: Re-Testing Worker (PR slot was empty after review worker `e009b928` finished)**
+
+- PR: [#96 — `feat: add gen titles to auto-rename placeholder-titled cloud conversations (#89)`](https://github.com/jpshackelford/ohtv/pull/96)
+- Conversation: [`8750de99`](https://app.all-hands.dev/conversations/8750de999ad3418b84bf2a2933c1ac5f) (`selected_repository=jpshackelford/ohtv`, `pr_number=[96]`)
+- Start task: `8e81ec5c` → `STARTING_CONVERSATION` on first 5s poll → `READY` on second poll → `app_conversation_id=8750de999ad3418b84bf2a2933c1ac5f`, `sandbox=CRB8IHZjon6DZLxoFpDlf`. Verified `GET /app-conversations?ids=…` returns `execution_status: running`, `sandbox_status: RUNNING`.
+- Plugin loaded: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**Why re-testing — decision-tree gates:**
+
+- ✅ **Prior review worker `e009b928` finished cleanly:** `execution_status: finished`, last update 17:40:16Z. Pushed two fix commits and posted a structured `## Review round 1 — fixes for manual-test findings` reply on the manual-test comment with explicit blocker → commit-SHA mapping.
+- ✅ **PR is READY + MERGEABLE/CLEAN:** `isDraft: false`, `state: OPEN`, `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`, head `5b1f33a2e4a4ed6ff06f583981314bb568823fb1`. The review worker correctly flipped back to ready after fixes.
+- ✅ **CI green:** `gh pr checks 96` → "All checks were successful" (1 successful: `PR Review by OpenHands/pr-review` in 3m46s on the README commit; the project's pr-review bot is the only configured check and does not re-trigger on every commit — expected behavior, not a regression).
+- ✅ **0 review threads:** GraphQL `reviewThreads(first:20).nodes | length` → 0. Review worker addressed the manual-test report via reply comment, not inline threads (there were no inline threads from the testing worker either).
+- ✅ **Test results outdated (re-test heuristic):** Last manual test ran on `066ba27e` (16:25Z). HEAD is now `5b1f33a2` (17:38Z). Two non-test source commits landed in between:
+  - `6969e959 fix(prompts): teach 'prompts show' to accept family/variant paths` — touches `src/ohtv/cli.py`
+  - `5b1f33a2 fix(gen-titles): normalize dashed conv ids in manifest writeback` — touches `src/ohtv/cli.py` (and likely `src/ohtv/analysis/titles.py` / `src/ohtv/sources/cloud.py` per the PR's changed-files list)
+  
+  Files in PR (sanity check): `src/ohtv/cli.py`, `src/ohtv/analysis/titles.py`, `src/ohtv/sources/cloud.py`, `src/ohtv/analysis/__init__.py`, `src/ohtv/prompts/titles/default.md` (non-test source), plus README/AGENTS/tests. **Re-test required** per the heuristic ("non-test `.py` files changed since last test").
+
+**Re-testing worker scope (prompt highlights):**
+
+- Clone + checkout `feat/gen-titles-89` at `5b1f33a2` + `uv sync`. Read `066ba27e..5b1f33a2` diff for exactly what changed since the last test.
+- Read both the original `## Manual Test Results` (17:12Z, on `066ba27e`) and the review worker's `## Review round 1 — fixes for manual-test findings` reply to anchor on the two blockers.
+- **Both blockers must be re-verified end-to-end (not just trust the unit tests):**
+  - **Blocker a (manifest ID-normalization):** Construct dashed-id scenario; verify `_apply_local_title_writeback` finds manifest entry; verify `Manifest updated: N/M` row appears in BOTH live and dry-run summaries; confirm `tests/unit/test_cli_gen_titles.py` covers dashed-id case.
+  - **Blocker b (`prompts show` family/variant):** Run `ohtv prompts show titles/default` (must succeed and print body); verify legacy flat-name path still works (asymmetry was fixed by lifting/sharing the resolver); confirm `tests/unit/test_prompts.py` has the family/variant case.
+- Targeted regression coverage: help/discoverability, `--dry-run` safety (zero PATCH + zero DB writes), placeholder selector default vs `--all-titled`, shared `gen objs` filter surface, title-specific flags (`--workers` cap 50, `--batch-size`, `--model`/`-m`), cache-probe order, cloud-source-only scoping. Live `gen titles -n 1` if cloud auth works (cloud sync was green this cycle), else skip with note.
+- Full unit suite via `uv run python -m pytest tests/ -q` — expect 1523+ tests (pre-fix was 1521 + 2 new test cases from the review worker).
+- Post ONE new PR comment titled `## Manual Test Results — Re-test (round 1)` so the orchestrator's detector treats it as a fresh report; structured per `/manual-test` skill. Append, don't edit the prior report.
+- Explicit DO-NOTs: no commits to the PR branch (bugs → in the report); ONE comment; no continue-to-review/merge; no WORKLOG edits; no PR draft toggle; no overwrite of prior reports.
+
+**Prior worker disposition (sweep):**
+
+- `e009b928` (review, PR #96) — `execution_status: finished`, last update 17:40:16Z. Cleanly executed the two-fix scope per the 17:30Z prompt; pushed `6969e959` + `5b1f33a2`; left structured reply with SHA mapping; flipped PR ready→draft→ready; no scope violations observed.
+- `5dc3a672` (testing, PR #96) — finished earlier today; manual-test report still pinned on PR #96 as 17:12Z comment. Not consuming a slot.
+- `dd70b780` (docs, PR #96) — finished earlier today; docs comment + `066ba27e` commit shipped. Not consuming a slot.
+- `5106f489` (impl, PR #96) — finished earlier today. Not consuming a slot.
+- All other recent conversations (`ff08a0b1`, `857518e`, `c493bbf`, `bba7f97`, `e10e07*`, `a119ddf`, `3f5aacd`, `6b3c4c9`) — paused, not consuming slots.
+- Network-wide `running` conversations w/ `selected_repository=jpshackelford/ohtv`: just the new `8750de99` (plus this orchestrator `05608f84`, which doesn't count).
+
+**PR slot:** Now occupied by `8750de99` (re-testing on PR #96).
+**Expansion slot:** Idle — `gh issue list --jq '[.[] | select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]'` → `[]`. Zero issues need expansion. All open ready issues already have priority labels. Nothing to expand or re-prioritize.
+
+**Current State (verified 17:45–17:49Z):**
+
+- **Open PRs:** 1 — PR #96 (READY, MERGEABLE/CLEAN, head `5b1f33a2`, README in diff, docs comment posted, 0 review threads, 1 prior manual-test comment now superseded by review fixes — being re-tested).
+- **Ready issues (8 remaining if #89 lands, all expanded):** `priority:medium`: #80, #81, #83, #90, #92; `priority:low`: #82, #87. (`#89` itself is in-flight via PR #96.)
+- **In-flight:** #89 via PR #96 (will close on merge via `Closes #89`).
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+
+**Sync note:** `ohtv sync --since … --quiet` returned cleanly (exit 0, no output) using `OPENHANDS_API_KEY`. Cloud auth path stable for this cycle.
+
+**Housekeeping:** WORKLOG.md was 641 lines pre-cycle (this entry pushes it past 720). The 17:30Z entry's "truncation candidate next cycle: archive entries ≤11:21Z" is no longer applicable — those entries were already archived in the 17:30Z cycle (file dropped from 748 → ~620 lines then). The current 6-hour productive-work window is ~11:50Z–17:50Z, which captures the 12:21Z+ PR #95 impl/test/review/merge chain (oldest preserved entry ~12:21Z, ~5h 28m old). Truncation deferred — by the next wake-up (~18:20Z if cron), the 12:21Z–12:46Z PR #95 entries will exit the window and can be archived together with the early-#96 entries.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-quiet-period counter remains at 0.
+
+**Next check (~30 min):**
+
+- If `8750de99` is `running` → log status, do nothing. Re-tests are typically faster than initial tests (15–30 min) since the scope is narrower.
+- If `8750de99` is `finished` AND a `## Manual Test Results — Re-test (round 1)` comment is on PR #96:
+  - **🟢 GREEN verdict + 0 new review threads + 0 new commits** → spawn **merge worker** (CI green, docs current, both blockers verified fixed, tests green, no review feedback pending; the pr-review bot already approved on `394fd635` and the project doesn't gate on bot re-approval after fix commits).
+  - **🟢 GREEN verdict + significant doc-impacting changes from review fixes** → spawn **docs spot-check worker** first, then merge worker on next cycle. (Unlikely — the review fixes were narrow CLI/prompts fixes that the docs worker's README section already implicitly covers; quick sanity check on the merge worker's first step would be enough.)
+  - **🟡 YELLOW verdict (cosmetic/non-blocking)** → assess severity in-cycle: if just minor observations, spawn **merge worker** with the caveats noted; if substantive, spawn **review worker** for round 2.
+  - **🔴 RED verdict** → spawn **review worker** for round 2 with the new findings; another re-test cycle will follow.
+- If `8750de99` is `finished` AND no `## Manual Test Results — Re-test` comment → investigate conversation events; possibly re-spawn with adjusted scope or human `## INSTRUCTION:`.
+- If `8750de99` pushed code to the PR branch — flag as scope violation; reset and re-spawn cleanly (the prompt explicitly forbids commits from the testing worker).
+- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+- **Truncation candidate next cycle:** archive entries ≤12:46Z (PR #95 impl/test/review/merge chain) once they exit the 6h productive-work window.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
