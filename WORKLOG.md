@@ -304,3 +304,38 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 13:55 UTC - Implementation Worker (#91)
+
+**Completed: Implementation of [#91 — Standardize progress bars on the `ohtv sync` layout via a shared `make_progress` helper](https://github.com/jpshackelford/ohtv/issues/91)** → PR [#95](https://github.com/jpshackelford/ohtv/pull/95) (DRAFT → READY)
+
+**What landed:**
+- `src/ohtv/progress.py` — `make_progress(*, console, show_rate=True, show_remaining=True, show_eta=True, show_current=False, show_cost=False, transient=True)`. Default args reproduce the canonical `ohtv sync` 9-column layout byte-identically (verified by snapshot test).
+- `src/ohtv/parallel.py` — added `format_remaining(total, processed, failed=0)` next to `format_rate` per expansion note #2.
+- Migrated all **11 call sites**: cli.py x10 (sync canonical, sync `--update-metadata`, db scan, db process, db migrate-cache, db index-cache, db embed estimate, db embed, gen objs, gen run periods) + db/maintenance.py.
+- `db embed` now feeds live `cost=estimate_cost(actual_tokens, model)` into the bar on both sequential and parallel branches (`show_cost=True`). `gen objs` already had cost; converted to the helper.
+- Single-import lint guard (`tests/unit/test_progress_lint.py`) walks `src/ohtv/`, fails if anything outside `progress.py` imports from `rich.progress`.
+
+**Tests added: 35**
+- 24 in `test_progress.py` (column shape per flag, separator logic, cost/current positions, live updates, rendered snapshots).
+- 8 in `test_parallel.py::TestFormatRemaining` (all AC cases: > 0, blank at 0, errors, unknown total).
+- 1 lint guard.
+- 2 byte-identical sync snapshot regressions (`test_sync_progress_snapshot.py`) — rebuild the pre-migration 9-column layout, assert `make_progress()` produces identical rendered bytes at task state 68/200 + 24.5s elapsed.
+- Existing `test_embedding_progress.py` and `test_sync_embeddings.py` updated to assert the new helper-based pattern.
+
+**Full unit suite: 1411 passed.** No new lint errors in `cli.py`/`maintenance.py` (pre-existing counts unchanged).
+
+**Follow-up items noted in the PR reflection comment:**
+1. The local `_format_remaining` closures in `db embed` and `sync` are *not* swapped to `parallel.format_remaining` — they have a subtly different zero-state contract (`[dim]0[/dim] left` vs `""`). Mid-run output is identical, so byte-identical AC is met; a deliberate zero-state decision can remove the locals in a follow-up.
+2. `show_current` defaults to `False` so the canonical sync layout is unchanged; sites needing the current-item tail explicitly opt-in.
+3. `gen objs` parallel branch reads `processed_count + len(errors)` without holding the lock for the `remaining=` value — cosmetic only; bar advance is still 1-per-item.
+
+**Status:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `bba7f97` | implementation (#91) | PR #95 | **READY** (was DRAFT) |
+
+PR #95 is marked ready for review. The next cycle should pick it up via the standard review/docs/test workflow.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
