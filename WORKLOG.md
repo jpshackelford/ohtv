@@ -170,7 +170,7 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ### 2026-05-26 10:50 UTC - User (@jpshackelford via OpenHands)
 
-## INSTRUCTION: auth resolved — handle #91 before #89, then resume normal routing
+## INSTRUCTION: auth resolved — handle #91 before #89, then resume normal routing [ACKNOWLEDGED]
 
 **Cloud API auth issue from the 2026-05-22 11:50Z cycle is resolved.** Treat orchestration as unblocked and pick up where the queue left off, with two specific ordering overrides before normal prioritization resumes:
 
@@ -267,6 +267,48 @@ Audit-trail comment posted: <https://github.com/jpshackelford/ohtv/issues/89#iss
 - If `3f5aacd` is still **running** → log status, do nothing.
 - If `3f5aacd` aborted (e.g. new commit appeared, or a fresh `CHANGES_REQUESTED` review landed) → re-evaluate the PR state and dispatch the appropriate worker (review / re-test / re-merge).
 - If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-26 11:21 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `3f5aacd` | merge | PR #94 (#79) | running (spawned 11:19Z by sibling cycle) |
+| `6b3c4c9` | merge | PR #94 (#79) | **aborting** (duplicate — sent stop message) |
+
+**Cycle outcome: duplicate-spawn race detected and mitigated.**
+
+This cycle started while a sibling orchestrator cycle (the one that pushed `0b45b97` at 11:19Z) had already (a) spawned merge worker `3f5aacd` for PR #94 and (b) amended issue #89 with the `make_progress`-binding acceptance criterion. The 10:50Z `## INSTRUCTION:` is therefore satisfied for this cycle's actionable parts — both per-instruction tasks already executed by `0b45b97`. I marked the instruction `[ACKNOWLEDGED]` in-place.
+
+By the time I'd verified state (PR #94 CLEAN/MERGEABLE at HEAD `3fc5292`, manual test 🟢 valid, 0 review threads) and POSTed `/api/v1/app-conversations`, I had already spawned `6b3c4c9` as a second merge worker. Pulling `main` immediately after the spawn surfaced the sibling's commit and the duplicate.
+
+**Mitigation:**
+
+1. Sent abort message to `6b3c4c9` via `POST /app-conversations/{id}/send-message`: instructed it not to clone, not to merge, not to touch WORKLOG.md, and to post a single PR comment on #94 *only if the PR is still open* explaining the abort and yielding to `3f5aacd`. The conversation acknowledged (HTTP 200, sandbox RUNNING).
+2. PR #94 was still `OPEN / MERGEABLE / CLEAN` at 11:21Z when I sent the abort, so the race window for `3f5aacd` is real. The abort message should reach `6b3c4c9` before it executes `gh pr merge`. If both nonetheless try, GitHub's merge-by-squash is idempotent (the second call will get a 422 / "Pull request is not mergeable" and exit).
+3. I am NOT deleting the duplicate conversation via `DELETE /app-conversations/{id}` so the audit trail (and the API-200 abort acknowledgment) is preserved for review.
+
+**Root cause:** Two `/orchestrate` cycles fired close together (likely the conversations `7133dba` and `964efac` I observed in `running` state at the start of this cycle, plus my own). The orchestrator's "active workers" check parses WORKLOG.md, but a sibling cycle that hadn't yet pushed its log entry was invisible. Documenting here so a future cycle can add a short-lived spawn-intent lock (e.g. an *unpushed* marker file on a side branch, or a `gh issue lock`-style sentinel) — out of scope for this cycle.
+
+**Current State (re-confirming sibling cycle's snapshot):**
+
+- **Open PRs:** 1 — [PR #94](https://github.com/jpshackelford/ohtv/pull/94), being merged by `3f5aacd`.
+- **Ready issues (9, all expanded):** `priority:medium`: #80, #81, #83, #89 (now bound to #91 via `make_progress` AC), #90, **#91 (next up after #94 merges)**, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked:** none.
+
+**Auto-disable check:** Not applicable (this cycle is corrective, not "All quiet").
+
+**Next check (~30 min):**
+
+- If `3f5aacd` has merged PR #94 → both merge workers exit → spawn **implementation worker for #91** (per the user's instruction's Cycle +1).
+- If `3f5aacd` is still running and `6b3c4c9` honoured the abort → log status, do nothing.
+- If `6b3c4c9` ignored the abort and merged first (best-effort race won) → outcome is still correct; just log it and move on.
+- If both somehow committed conflicting worklog entries to main → resolve by hand on next cycle.
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
