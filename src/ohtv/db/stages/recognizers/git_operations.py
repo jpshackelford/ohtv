@@ -25,6 +25,18 @@ PUSH_BRANCH_PATTERN = re.compile(
     r"(?:[a-f0-9.]+|\*\s+\[new branch\])\s+([^\s]+)\s+->\s+([^\s]+)"
 )
 
+# Pattern to extract a commit-range update from git push output.
+# Captures: old_sha, separator, new_sha, local_branch, remote_branch.
+# Handles both fast-forward updates (``oldsha..newsha``) and force-push
+# updates (``oldsha...newsha``, typically prefixed with ``+`` and suffixed
+# with ``(forced update)``).
+# Example lines (the leading ``To <remote>`` line is ignored):
+#   ``   418680a..6ecae71  main -> main``
+#   `` + 418680a...6ecae71  main -> main (forced update)``
+PUSH_RANGE_PATTERN = re.compile(
+    r"([a-f0-9]{7,40})(\.{2,3})([a-f0-9]{7,40})\s+(\S+)\s+->\s+(\S+)"
+)
+
 # Pattern to extract branch from git push command
 # Matches: git push origin branch-name, git push -u origin branch-name
 PUSH_COMMAND_BRANCH_PATTERN = re.compile(
@@ -130,6 +142,7 @@ def recognize_git_operations(
             push_target = _extract_push_target(output)
             branch = _extract_push_branch(command, output)
             repo_info = _extract_repo_from_push_target(push_target)
+            push_info = extract_push_info(output)
             
             # If no branch found from push, try to infer from prior checkout
             inferred_from_checkout = False
@@ -152,6 +165,13 @@ def recognize_git_operations(
                 metadata["repo"] = repo_info["repo"]
             if inferred_from_checkout:
                 metadata["branch_inferred"] = True
+            if push_info is not None:
+                metadata["commit_range"] = push_info["commit_range"]
+                metadata["base_commit"] = push_info["base_commit"]
+                metadata["head_commit"] = push_info["head_commit"]
+                metadata["remote_branch"] = push_info["remote_branch"]
+                if push_info["force"]:
+                    metadata["force"] = True
             
             actions.append(
                 ConversationAction(
@@ -202,6 +222,63 @@ def _extract_push_branch(command: str, output: str) -> str | None:
         return match.group(1).strip()
     
     return None
+
+
+def extract_push_info(terminal_output: str) -> dict | None:
+    """Extract commit range and branch info from git push output.
+
+    Parses the per-ref update line emitted by ``git push`` for both
+    fast-forward and force-push updates::
+
+        ``   418680a..6ecae71  main -> main``           (fast-forward)
+        `` + 418680a...6ecae71  main -> main (forced update)``  (force)
+
+    The returned ``commit_range`` is always normalized to use the literal
+    separator from the output (``..`` or ``...``), so a force push is not
+    accidentally de-duplicated against a non-force push with identical
+    base/head SHAs. Push output that creates a new branch (``[new branch]``)
+    or reports ``Everything up-to-date`` has no commit range and yields
+    ``None``.
+
+    Args:
+        terminal_output: Raw output of the ``git push`` command.
+
+    Returns:
+        A dict with ``base_commit``, ``head_commit``, ``commit_range``,
+        ``local_branch``, ``remote_branch``, and ``force`` (bool), or
+        ``None`` if no commit range is present.
+    """
+    if not terminal_output:
+        return None
+    match = PUSH_RANGE_PATTERN.search(terminal_output)
+    if not match:
+        return None
+    base_commit, separator, head_commit, local_branch, remote_branch = match.groups()
+    # A force-push line either uses the three-dot range separator or has a
+    # leading ``+`` flag before the SHAs. Detect both.
+    force = separator == "..." or _line_starts_with_force_marker(
+        terminal_output, match.start()
+    )
+    return {
+        "base_commit": base_commit,
+        "head_commit": head_commit,
+        "commit_range": f"{base_commit}{separator}{head_commit}",
+        "local_branch": local_branch,
+        "remote_branch": remote_branch,
+        "force": force,
+    }
+
+
+def _line_starts_with_force_marker(text: str, match_start: int) -> bool:
+    """Return True if the push-update line at ``match_start`` is prefixed by ``+``.
+
+    git marks force-push update lines with a leading ``+`` (after any
+    indentation). This helper walks back from the regex match to the
+    start of the current line and checks for that marker.
+    """
+    line_start = text.rfind("\n", 0, match_start) + 1
+    prefix = text[line_start:match_start].lstrip()
+    return prefix.startswith("+")
 
 
 def _extract_repo_from_push_target(push_target: str | None) -> dict | None:

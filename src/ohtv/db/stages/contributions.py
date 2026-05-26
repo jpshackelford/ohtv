@@ -67,6 +67,13 @@ _PR_URL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"https://bitbucket\.org/([^/]+)/([^/]+)/pull-requests/(\d+)"), "bitbucket.org"),
 ]
 
+# Default branches that indicate a "direct push" (a push that lands changes
+# without going through a PR). Comparison is case-sensitive: virtually all
+# real-world projects use lowercase ``main`` / ``master``, and matching
+# lowercase only avoids spurious hits on unrelated branches that happen to
+# share a case-insensitive prefix.
+_DIRECT_PUSH_BRANCHES: frozenset[str] = frozenset({"main", "master"})
+
 
 @dataclass(frozen=True)
 class _PrIdent:
@@ -147,6 +154,7 @@ def process_contributions(
             _handle_git_push(
                 action,
                 conversation.id,
+                repo_store,
                 contributions_store,
                 active_pr_per_branch,
                 orphan_push_branches,
@@ -289,14 +297,22 @@ def _handle_merge_pr(
 def _handle_git_push(
     action: ConversationAction,
     conversation_id: str,
+    repo_store: RepoStore,
     contributions_store: ContributionsStore,
     active_pr_per_branch: dict[str, int],
     orphan_push_branches: set[str],
 ) -> None:
-    """Attribute a GIT_PUSH action to its branch's PR, when possible.
+    """Attribute a GIT_PUSH action to a contribution.
 
-    If no PR has yet been opened on the branch (within this conversation)
-    the push is queued as an orphan for the backward pass.
+    Two paths:
+
+    1. **Direct push to main/master**: if the remote branch is ``main`` or
+       ``master`` and we have a commit range from the push output, create
+       (or reuse) a ``direct_push`` ``change_ref`` with ``status="merged"``
+       and record a ``pushed`` contribution. Direct pushes never participate
+       in the PR-link backward pass because they have already landed.
+    2. **Push to feature branch**: link to the active PR on that branch
+       (forward pass) or queue as an orphan for the backward pass.
     """
     if not action.metadata:
         return
@@ -307,6 +323,37 @@ def _handle_git_push(
         # Conservative: don't guess across repos.
         return
 
+    # --- Direct push to main/master ---------------------------------------
+    # Prefer the remote branch (what was actually updated on the server) but
+    # fall back to the local branch name, which the recognizer records as
+    # ``branch`` for backwards compatibility.
+    remote_branch = action.metadata.get("remote_branch") or branch
+    commit_range = action.metadata.get("commit_range")
+    if remote_branch in _DIRECT_PUSH_BRANCHES and commit_range:
+        # The push-target recognizer currently only emits owner/repo for
+        # github.com, so we hard-code the host here. If/when GitLab and
+        # Bitbucket push targets are recognized, ``_extract_repo_from_push_target``
+        # should grow a ``host`` field and this call should consume it.
+        repo_id = repo_store.upsert(
+            Repository(
+                id=None,
+                canonical_url=f"https://github.com/{owner}/{repo}",
+                fqn=f"{owner}/{repo}",
+                short_name=repo,
+            )
+        )
+        change_ref_id = contributions_store.get_or_create_direct_push_change_ref(
+            repo_id,
+            commit_range,
+            branch=remote_branch,
+            status="merged",
+        )
+        contributions_store.record_contribution(
+            conversation_id, change_ref_id, "pushed"
+        )
+        return
+
+    # --- Push to feature branch (existing PR-link path) -------------------
     branch_key = _branch_key(owner, repo, branch)
     if branch_key is None:
         return

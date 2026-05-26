@@ -775,6 +775,332 @@ class TestProcessContributions:
 
 
 # ---------------------------------------------------------------------------
+# Direct-push-to-main detection (issue #79)
+# ---------------------------------------------------------------------------
+
+
+def _push_metadata(
+    *,
+    branch: str,
+    remote_branch: str | None = None,
+    commit_range: str | None = "418680a..6ecae71",
+    owner: str = "acme",
+    repo: str = "widgets",
+    force: bool = False,
+) -> dict:
+    """Build GIT_PUSH metadata as the recognizer would emit it."""
+    meta: dict = {"branch": branch, "owner": owner, "repo": repo}
+    if remote_branch is not None:
+        meta["remote_branch"] = remote_branch
+    if commit_range is not None:
+        meta["commit_range"] = commit_range
+        # base/head are surfaced by the recognizer but the contributions
+        # stage only consumes commit_range; we still set them so the
+        # fixture stays close to real-world metadata.
+        base, _sep, head = commit_range.partition("..")
+        if not head:
+            base, _sep, head = commit_range.partition("...")
+        meta["base_commit"] = base
+        meta["head_commit"] = head
+    if force:
+        meta["force"] = True
+    return meta
+
+
+class TestDirectPushDetection:
+    """Issue #79 acceptance criteria: detect direct pushes to main/master."""
+
+    def test_push_to_main_creates_direct_push_change_ref(self, db_conn):
+        """Acceptance: change_ref with change_type='direct_push', status='merged'."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.GIT_PUSH,
+            target="https://github.com/acme/widgets.git",
+            metadata=_push_metadata(
+                branch="main", remote_branch="main", commit_range="418680a..6ecae71"
+            ),
+        )
+
+        process_contributions(db_conn, conv)
+
+        store = ContributionsStore(db_conn)
+        contributions = store.get_contributions_for_conversation(conv.id)
+        assert [c.contribution_type for c in contributions] == ["pushed"]
+
+        change_ref = store.get_change_ref(contributions[0].change_ref_id)
+        assert change_ref is not None
+        assert change_ref.change_type == "direct_push"
+        assert change_ref.status == "merged"
+        assert change_ref.commit_range == "418680a..6ecae71"
+        assert change_ref.branch == "main"
+        assert change_ref.pr_number is None
+
+    def test_push_to_master_also_detected(self, db_conn):
+        """Both ``main`` and ``master`` count as direct-push targets."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.GIT_PUSH,
+            target="https://github.com/acme/widgets.git",
+            metadata=_push_metadata(
+                branch="master",
+                remote_branch="master",
+                commit_range="aaa1111..bbb2222",
+            ),
+        )
+
+        process_contributions(db_conn, conv)
+
+        store = ContributionsStore(db_conn)
+        contributions = store.get_contributions_for_conversation(conv.id)
+        assert len(contributions) == 1
+        change_ref = store.get_change_ref(contributions[0].change_ref_id)
+        assert change_ref is not None
+        assert change_ref.change_type == "direct_push"
+        assert change_ref.branch == "master"
+
+    def test_push_to_feature_branch_does_not_create_direct_push(self, db_conn):
+        """Pushes to non-main branches must not create direct_push change_refs."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.GIT_PUSH,
+            target="https://github.com/acme/widgets.git",
+            metadata=_push_metadata(
+                branch="feature/x",
+                remote_branch="feature/x",
+                commit_range="abc1234..def5678",
+            ),
+        )
+
+        process_contributions(db_conn, conv)
+
+        cursor = db_conn.execute(
+            "SELECT COUNT(*) FROM change_refs WHERE change_type = 'direct_push'"
+        )
+        assert cursor.fetchone()[0] == 0
+
+    def test_push_to_main_without_commit_range_is_ignored(self, db_conn):
+        """Without a commit range we cannot deduplicate; skip silently."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.GIT_PUSH,
+            target="https://github.com/acme/widgets.git",
+            metadata=_push_metadata(
+                branch="main", remote_branch="main", commit_range=None
+            ),
+        )
+
+        process_contributions(db_conn, conv)
+
+        assert (
+            ContributionsStore(db_conn).get_contributions_for_conversation(conv.id)
+            == []
+        )
+
+    def test_duplicate_pushes_within_conversation_share_change_ref(self, db_conn):
+        """Acceptance: dedup change_refs on (repo_id, commit_range)."""
+        conv = _register_conversation(db_conn)
+        for _ in range(2):
+            _insert_action(
+                db_conn,
+                conv.id,
+                ActionType.GIT_PUSH,
+                target="https://github.com/acme/widgets.git",
+                metadata=_push_metadata(
+                    branch="main",
+                    remote_branch="main",
+                    commit_range="418680a..6ecae71",
+                ),
+            )
+
+        process_contributions(db_conn, conv)
+
+        cursor = db_conn.execute(
+            "SELECT COUNT(*) FROM change_refs "
+            "WHERE change_type = 'direct_push' AND commit_range = '418680a..6ecae71'"
+        )
+        assert cursor.fetchone()[0] == 1
+
+    def test_duplicate_pushes_across_conversations_share_change_ref(self, db_conn):
+        """Two conversations pushing the same range share one change_ref."""
+        conv_a = _register_conversation(db_conn, conv_id="conv-a")
+        conv_b = _register_conversation(db_conn, conv_id="conv-b")
+        for conv in (conv_a, conv_b):
+            _insert_action(
+                db_conn,
+                conv.id,
+                ActionType.GIT_PUSH,
+                target="https://github.com/acme/widgets.git",
+                metadata=_push_metadata(
+                    branch="main",
+                    remote_branch="main",
+                    commit_range="418680a..6ecae71",
+                ),
+            )
+            process_contributions(db_conn, conv)
+
+        cursor = db_conn.execute(
+            "SELECT COUNT(*) FROM change_refs WHERE change_type = 'direct_push'"
+        )
+        assert cursor.fetchone()[0] == 1
+
+        # Both conversations are credited.
+        cursor = db_conn.execute(
+            "SELECT DISTINCT conversation_id FROM conversation_contributions "
+            "WHERE contribution_type = 'pushed'"
+        )
+        assert {row[0] for row in cursor.fetchall()} == {"conv-a", "conv-b"}
+
+    def test_links_repo_correctly(self, db_conn):
+        """Acceptance: change_ref's repo_id resolves to the pushed repo."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.GIT_PUSH,
+            target="https://github.com/acme/widgets.git",
+            metadata=_push_metadata(
+                branch="main",
+                remote_branch="main",
+                commit_range="418680a..6ecae71",
+                owner="acme",
+                repo="widgets",
+            ),
+        )
+
+        process_contributions(db_conn, conv)
+
+        cursor = db_conn.execute(
+            """
+            SELECT r.fqn, r.canonical_url
+            FROM change_refs cr
+            JOIN repositories r ON cr.repo_id = r.id
+            WHERE cr.change_type = 'direct_push'
+            """
+        )
+        rows = cursor.fetchall()
+        assert len(rows) == 1
+        assert rows[0]["fqn"] == "acme/widgets"
+        assert rows[0]["canonical_url"] == "https://github.com/acme/widgets"
+
+    def test_force_push_to_main_records_distinct_change_ref(self, db_conn):
+        """Force-push (``...`` separator) is a separate commit_range from ff-push."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.GIT_PUSH,
+            target="https://github.com/acme/widgets.git",
+            metadata=_push_metadata(
+                branch="main",
+                remote_branch="main",
+                commit_range="aaa1111..bbb2222",
+            ),
+        )
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.GIT_PUSH,
+            target="https://github.com/acme/widgets.git",
+            metadata=_push_metadata(
+                branch="main",
+                remote_branch="main",
+                commit_range="bbb2222...ccc3333",
+                force=True,
+            ),
+        )
+
+        process_contributions(db_conn, conv)
+
+        cursor = db_conn.execute(
+            "SELECT commit_range FROM change_refs "
+            "WHERE change_type = 'direct_push' ORDER BY commit_range"
+        )
+        ranges = [row[0] for row in cursor.fetchall()]
+        assert ranges == ["aaa1111..bbb2222", "bbb2222...ccc3333"]
+
+    def test_push_to_main_without_owner_metadata_is_ignored(self, db_conn):
+        """Without owner/repo we can't link to a repository; skip conservatively."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.GIT_PUSH,
+            target=None,
+            metadata={
+                "branch": "main",
+                "remote_branch": "main",
+                "commit_range": "418680a..6ecae71",
+            },
+        )
+
+        process_contributions(db_conn, conv)
+
+        cursor = db_conn.execute("SELECT COUNT(*) FROM change_refs")
+        assert cursor.fetchone()[0] == 0
+
+    def test_remote_branch_metadata_takes_precedence_over_local_branch(self, db_conn):
+        """When local and remote differ, the remote branch decides direct-push status."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.GIT_PUSH,
+            target="https://github.com/acme/widgets.git",
+            metadata=_push_metadata(
+                branch="hotfix",  # local
+                remote_branch="main",  # actually pushing to main
+                commit_range="418680a..6ecae71",
+            ),
+        )
+
+        process_contributions(db_conn, conv)
+
+        cursor = db_conn.execute(
+            "SELECT change_type, branch FROM change_refs"
+        )
+        rows = cursor.fetchall()
+        assert len(rows) == 1
+        assert rows[0]["change_type"] == "direct_push"
+        # The recorded branch reflects what was actually updated on remote.
+        assert rows[0]["branch"] == "main"
+
+    def test_reprocessing_direct_push_preserves_change_ref(self, db_conn):
+        """Reprocessing clears contributions but reuses the existing change_ref."""
+        conv = _register_conversation(db_conn)
+        _insert_action(
+            db_conn,
+            conv.id,
+            ActionType.GIT_PUSH,
+            target="https://github.com/acme/widgets.git",
+            metadata=_push_metadata(
+                branch="main",
+                remote_branch="main",
+                commit_range="418680a..6ecae71",
+            ),
+        )
+
+        process_contributions(db_conn, conv)
+        process_contributions(db_conn, conv)  # replay
+
+        cursor = db_conn.execute(
+            "SELECT COUNT(*) FROM change_refs WHERE change_type = 'direct_push'"
+        )
+        assert cursor.fetchone()[0] == 1
+        contributions = ContributionsStore(
+            db_conn
+        ).get_contributions_for_conversation(conv.id)
+        assert len(contributions) == 1
+
+
+# ---------------------------------------------------------------------------
 # Stage registry
 # ---------------------------------------------------------------------------
 
