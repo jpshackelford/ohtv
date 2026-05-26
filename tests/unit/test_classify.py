@@ -1,0 +1,461 @@
+"""Unit tests for :mod:`ohtv.classify` (issue #83).
+
+Test plan mapping (numbering matches the technical-approach comment on
+issue #83):
+
+* test #1 — :class:`TestCountMatching.test_count_matching_no_followups`
+* test #2 — :class:`TestCountMatching.test_count_matching_has_followups`
+* test #3 — :class:`TestCountMatching.test_count_matching_with_repo_filter`
+* test #4 — :class:`TestApplyClassification.test_apply_classification_idempotent`
+* test #5 — :class:`TestApplyClassification.test_apply_classification_only_touches_unknowns`
+* test #6 — :class:`TestSetSingle.test_set_single_conversation`
+* test #7 — :class:`TestSetSingle.test_set_single_conversation_missing_row`
+* test #8 — :class:`TestListUnknown.test_list_unknown_with_repo_filter`
+
+Acceptance criterion mapping (issue body checklist → test):
+
+* AC1 (single-conv override, no --confirm) → test #6
+* AC2 (single-conv idempotency) → also test #6
+  (CLI smoke #13 covers the no-confirm path end-to-end)
+* AC3 (--list-unknown + --repo + machine-readable) → test #8
+* AC4 (bulk preview, no writes) → CLI smoke #11
+* AC5 (bulk apply --confirm) → test #5 + CLI smoke #12
+* AC6 (--has-followups --confirm) → test #2 + extension of test #5
+* AC7 (--repo narrows both bulk and --list-unknown) → test #3 + test #8
+* AC8 (missing conversation_human_input row handled gracefully) → test #7
+* AC9 (invalid --source rejected) → CLI smoke #10
+* AC10 (heuristic SQL + --confirm gate covered by tests) → all of the above
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from datetime import datetime, timezone
+
+import pytest
+
+from ohtv.classify import (
+    FILTER_HAS_FOLLOWUPS,
+    FILTER_NO_FOLLOWUPS,
+    InvalidSourceError,
+    MissingHumanInputRowError,
+    apply_classification,
+    count_matching,
+    list_unknown,
+    set_single,
+)
+from ohtv.db.migrations import migrate
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def conn() -> sqlite3.Connection:
+    """In-memory DB with the full migration chain replayed.
+
+    This is the same pattern used by tests/unit/db/stages/test_human_input.py
+    and is the repo convention — we do NOT mock the database.
+    """
+    c = sqlite3.connect(":memory:")
+    c.row_factory = sqlite3.Row
+    c.execute("PRAGMA foreign_keys = ON")
+    migrate(c)
+    yield c
+    c.close()
+
+
+def _insert_conversation(
+    conn: sqlite3.Connection,
+    conv_id: str,
+    *,
+    title: str = "test conv",
+    created_at: str | None = None,
+    location: str = "/tmp/fake",
+    event_count: int = 1,
+) -> None:
+    """Insert a row into ``conversations``. ID is stored normalised."""
+    if created_at is None:
+        created_at = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO conversations (id, location, event_count, title, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (conv_id, location, event_count, title, created_at),
+    )
+
+
+def _insert_human_input(
+    conn: sqlite3.Connection,
+    conv_id: str,
+    *,
+    initial_prompt_words: int = 5,
+    followup_word_count: int = 0,
+    followup_message_count: int = 0,
+    initial_prompt_source: str = "unknown",
+    event_count: int = 1,
+) -> None:
+    """Insert a row into ``conversation_human_input``."""
+    conn.execute(
+        """
+        INSERT INTO conversation_human_input (
+            conversation_id,
+            initial_prompt_words,
+            initial_prompt_source,
+            followup_word_count,
+            followup_message_count,
+            processed_at,
+            event_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            conv_id,
+            initial_prompt_words,
+            initial_prompt_source,
+            followup_word_count,
+            followup_message_count,
+            "2024-06-01T12:00:00+00:00",
+            event_count,
+        ),
+    )
+
+
+def _insert_repo(
+    conn: sqlite3.Connection,
+    *,
+    canonical_url: str,
+    fqn: str,
+    short_name: str,
+) -> int:
+    """Insert a repository and return its id."""
+    cur = conn.execute(
+        "INSERT INTO repositories (canonical_url, fqn, short_name) "
+        "VALUES (?, ?, ?) RETURNING id",
+        (canonical_url, fqn, short_name),
+    )
+    return cur.fetchone()[0]
+
+
+def _link_conv_to_repo(
+    conn: sqlite3.Connection,
+    conv_id: str,
+    repo_id: int,
+    *,
+    link_type: str = "write",
+) -> None:
+    conn.execute(
+        "INSERT INTO conversation_repos (conversation_id, repo_id, link_type) "
+        "VALUES (?, ?, ?)",
+        (conv_id, repo_id, link_type),
+    )
+
+
+def _seed_simple_followups_mix(conn: sqlite3.Connection) -> None:
+    """Three convs with 0 followups, two with >=1 followup.
+
+    Used by both ``count_matching`` test #1 and #2 to keep the fixture
+    minimal and the expected counts obvious.
+    """
+    # 0 followups (3 convs)
+    for i in range(3):
+        cid = f"nofu{i:028d}"
+        _insert_conversation(conn, cid, title=f"no-fu {i}")
+        _insert_human_input(conn, cid, followup_message_count=0)
+    # >=1 followup (2 convs)
+    for i in range(2):
+        cid = f"hasfu{i:027d}"
+        _insert_conversation(conn, cid, title=f"has-fu {i}")
+        _insert_human_input(conn, cid, followup_message_count=i + 1)
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+class TestCountMatching:
+    """Tests #1, #2, #3."""
+
+    def test_count_matching_no_followups(self, conn):
+        """Test #1: filter='no_followups' counts the 0-followup unknowns."""
+        _seed_simple_followups_mix(conn)
+        assert count_matching(conn, filter_=FILTER_NO_FOLLOWUPS) == 3
+
+    def test_count_matching_has_followups(self, conn):
+        """Test #2: filter='has_followups' counts the >=1-followup unknowns."""
+        _seed_simple_followups_mix(conn)
+        assert count_matching(conn, filter_=FILTER_HAS_FOLLOWUPS) == 2
+
+    def test_count_matching_with_repo_filter(self, conn):
+        """Test #3: --repo narrows the bulk count.
+
+        Three no-followup convs exist; only one is linked to ``foo/bar``,
+        so ``--repo foo/bar`` should report 1.
+        """
+        _seed_simple_followups_mix(conn)
+        repo_id = _insert_repo(
+            conn,
+            canonical_url="https://github.com/foo/bar",
+            fqn="foo/bar",
+            short_name="bar",
+        )
+        # Link only the first no-followup conv to foo/bar.
+        _link_conv_to_repo(conn, "nofu" + "0".zfill(28), repo_id)
+
+        assert (
+            count_matching(conn, filter_=FILTER_NO_FOLLOWUPS, repo="foo/bar") == 1
+        )
+        # And by short name too:
+        assert (
+            count_matching(conn, filter_=FILTER_NO_FOLLOWUPS, repo="bar") == 1
+        )
+        # An unknown repo yields 0, not "all rows".
+        assert (
+            count_matching(conn, filter_=FILTER_NO_FOLLOWUPS, repo="ghost/repo") == 0
+        )
+
+    def test_count_matching_skips_already_classified(self, conn):
+        """Bulk count must only see ``initial_prompt_source = 'unknown'`` rows.
+
+        Belt-and-suspenders for test #5 — guarantees the preview shown to
+        the user matches what an apply would actually change.
+        """
+        _seed_simple_followups_mix(conn)
+        # Flip one of the 3 no-fu rows to 'human' manually.
+        conn.execute(
+            "UPDATE conversation_human_input SET initial_prompt_source = 'human' "
+            "WHERE conversation_id = ?",
+            ("nofu" + "0".zfill(28),),
+        )
+        assert count_matching(conn, filter_=FILTER_NO_FOLLOWUPS) == 2
+
+
+class TestApplyClassification:
+    """Tests #4 and #5."""
+
+    def test_apply_classification_idempotent(self, conn):
+        """Test #4: second apply with the same source reports 0 changed."""
+        _seed_simple_followups_mix(conn)
+
+        first = apply_classification(
+            conn, filter_=FILTER_NO_FOLLOWUPS, source="automation"
+        )
+        second = apply_classification(
+            conn, filter_=FILTER_NO_FOLLOWUPS, source="automation"
+        )
+
+        assert first == 3
+        assert second == 0  # nothing left at 'unknown' matching the predicate.
+
+    def test_apply_classification_only_touches_unknowns(self, conn):
+        """Test #5: must not clobber manual overrides.
+
+        Pre-mark one of the no-followup rows as 'human'. A bulk apply
+        with --source automation must leave that row alone.
+        """
+        _seed_simple_followups_mix(conn)
+        manual_id = "nofu" + "0".zfill(28)
+        conn.execute(
+            "UPDATE conversation_human_input SET initial_prompt_source = 'human' "
+            "WHERE conversation_id = ?",
+            (manual_id,),
+        )
+
+        changed = apply_classification(
+            conn, filter_=FILTER_NO_FOLLOWUPS, source="automation"
+        )
+
+        assert changed == 2  # the other two no-followup rows
+
+        # The manually-flagged row is still 'human'.
+        row = conn.execute(
+            "SELECT initial_prompt_source FROM conversation_human_input "
+            "WHERE conversation_id = ?",
+            (manual_id,),
+        ).fetchone()
+        assert row["initial_prompt_source"] == "human"
+
+        # The has-followups rows are untouched (still 'unknown').
+        leftover = conn.execute(
+            "SELECT COUNT(*) AS n FROM conversation_human_input "
+            "WHERE initial_prompt_source = 'unknown'"
+        ).fetchone()["n"]
+        assert leftover == 2
+
+    def test_apply_classification_has_followups_path(self, conn):
+        """Symmetric to test #5: --has-followups --source human only flips unknowns.
+
+        Locks in AC6 (``--has-followups --source human --confirm`` works).
+        """
+        _seed_simple_followups_mix(conn)
+        changed = apply_classification(
+            conn, filter_=FILTER_HAS_FOLLOWUPS, source="human"
+        )
+        assert changed == 2
+
+        sources = {
+            row["conversation_id"]: row["initial_prompt_source"]
+            for row in conn.execute(
+                "SELECT conversation_id, initial_prompt_source "
+                "FROM conversation_human_input"
+            )
+        }
+        # has-fu now human, no-fu still unknown.
+        assert sources["hasfu" + "0".zfill(27)] == "human"
+        assert sources["hasfu" + "1".zfill(27)] == "human"
+        assert sources["nofu" + "0".zfill(28)] == "unknown"
+
+    def test_apply_classification_rejects_invalid_source(self, conn):
+        _seed_simple_followups_mix(conn)
+        with pytest.raises(InvalidSourceError):
+            apply_classification(
+                conn, filter_=FILTER_NO_FOLLOWUPS, source="bogus"  # type: ignore[arg-type]
+            )
+
+    def test_apply_classification_with_repo_filter(self, conn):
+        """AC7: --repo narrows the bulk update."""
+        _seed_simple_followups_mix(conn)
+        repo_id = _insert_repo(
+            conn,
+            canonical_url="https://github.com/foo/bar",
+            fqn="foo/bar",
+            short_name="bar",
+        )
+        only_linked = "nofu" + "0".zfill(28)
+        _link_conv_to_repo(conn, only_linked, repo_id)
+
+        changed = apply_classification(
+            conn,
+            filter_=FILTER_NO_FOLLOWUPS,
+            source="automation",
+            repo="foo/bar",
+        )
+        assert changed == 1
+
+        # The unlinked no-fu rows should still be 'unknown'.
+        still_unknown = conn.execute(
+            "SELECT COUNT(*) AS n FROM conversation_human_input "
+            "WHERE initial_prompt_source = 'unknown' "
+            "AND followup_message_count = 0"
+        ).fetchone()["n"]
+        assert still_unknown == 2
+
+
+class TestSetSingle:
+    """Tests #6 and #7."""
+
+    def test_set_single_conversation(self, conn):
+        """Test #6: set one row, no others change. Idempotent re-run."""
+        _seed_simple_followups_mix(conn)
+        target = "hasfu" + "0".zfill(27)
+
+        result = set_single(conn, conversation_id=target, source="human")
+        assert result.changed is True
+        assert result.previous_source == "unknown"
+        assert result.new_source == "human"
+
+        rows = {
+            r["conversation_id"]: r["initial_prompt_source"]
+            for r in conn.execute(
+                "SELECT conversation_id, initial_prompt_source "
+                "FROM conversation_human_input"
+            )
+        }
+        assert rows[target] == "human"
+        # No others flipped.
+        for cid, src in rows.items():
+            if cid == target:
+                continue
+            assert src == "unknown"
+
+        # Second call with the same source: no change.
+        second = set_single(conn, conversation_id=target, source="human")
+        assert second.changed is False
+
+    def test_set_single_accepts_dashed_id(self, conn):
+        """AGENTS.md item #14: dashed IDs are normalised before lookup."""
+        # Stored without dashes.
+        cid = "abcdef12345678901234567890abcdef"
+        _insert_conversation(conn, cid)
+        _insert_human_input(conn, cid)
+
+        dashed = (
+            "abcdef12-3456-7890-1234-567890abcdef"
+        )  # equivalent UUID-style form
+        result = set_single(conn, conversation_id=dashed, source="automation")
+        assert result.changed is True
+        assert result.conversation_id == cid
+
+    def test_set_single_can_flip_already_classified(self, conn):
+        """The single-conv override path explicitly CAN flip non-unknowns."""
+        cid = "humanrow" + "1".zfill(24)
+        _insert_conversation(conn, cid)
+        _insert_human_input(conn, cid, initial_prompt_source="automation")
+
+        result = set_single(conn, conversation_id=cid, source="human")
+        assert result.changed is True
+        assert result.previous_source == "automation"
+        assert result.new_source == "human"
+
+    def test_set_single_conversation_missing_row(self, conn):
+        """Test #7 / AC8: refuse on missing human-input row with clear message."""
+        cid = "missrow" + "1".zfill(25)
+        _insert_conversation(conn, cid)  # conversation exists,
+        # but no row in conversation_human_input.
+
+        with pytest.raises(MissingHumanInputRowError) as exc:
+            set_single(conn, conversation_id=cid, source="human")
+
+        msg = str(exc.value)
+        assert cid in msg
+        assert "ohtv db process human_input" in msg
+
+
+class TestListUnknown:
+    """Test #8."""
+
+    def test_list_unknown_with_repo_filter(self, conn):
+        """Test #8 + AC3 + AC7: --list-unknown narrows by --repo."""
+        # Two unknowns, one classified.
+        _insert_conversation(conn, "unkA" + "1".zfill(28), title="A")
+        _insert_human_input(conn, "unkA" + "1".zfill(28))
+        _insert_conversation(conn, "unkB" + "1".zfill(28), title="B")
+        _insert_human_input(conn, "unkB" + "1".zfill(28))
+        _insert_conversation(conn, "hum1" + "1".zfill(28), title="H")
+        _insert_human_input(
+            conn, "hum1" + "1".zfill(28), initial_prompt_source="human"
+        )
+
+        # Link only conv A to foo/bar.
+        repo_id = _insert_repo(
+            conn,
+            canonical_url="https://github.com/foo/bar",
+            fqn="foo/bar",
+            short_name="bar",
+        )
+        _link_conv_to_repo(conn, "unkA" + "1".zfill(28), repo_id)
+
+        # Unfiltered: both unknowns.
+        unfiltered = list_unknown(conn)
+        assert {r.short_id for r in unfiltered} == {"unkA0000", "unkB0000"}
+
+        # Filtered: only A.
+        filtered = list_unknown(conn, repo="foo/bar")
+        assert [r.short_id for r in filtered] == ["unkA0000"]
+        assert filtered[0].repo == "foo/bar"
+        assert filtered[0].title == "A"
+
+    def test_list_unknown_respects_limit(self, conn):
+        for i in range(5):
+            cid = f"limit{i:027d}"
+            _insert_conversation(conn, cid, title=f"row{i}")
+            _insert_human_input(conn, cid)
+
+        assert len(list_unknown(conn, limit=2)) == 2
+
+    def test_list_unknown_excludes_classified(self, conn):
+        cid = "done1" + "0".zfill(27)
+        _insert_conversation(conn, cid)
+        _insert_human_input(conn, cid, initial_prompt_source="automation")
+        assert list_unknown(conn) == []
