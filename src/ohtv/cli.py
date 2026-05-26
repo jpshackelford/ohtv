@@ -7843,6 +7843,288 @@ def _show_prompts_status(prompts_list: list[dict], user_dir) -> None:
 
 
 # =============================================================================
+# fetch-loc — backfill LOC for change_refs from GitHub (Issue #80)
+# =============================================================================
+
+
+def _error_no_github_token() -> None:
+    """Surface a friendly error when GITHUB_TOKEN is missing.
+
+    Never logs the token value itself. Points the user at the two
+    common ways to populate it (``gh auth token`` and direct export).
+    """
+    console.print(
+        "[red]Error:[/red] GITHUB_TOKEN is required to call the GitHub API.\n"
+        "  - If you have the GitHub CLI: "
+        "[cyan]export GITHUB_TOKEN=$(gh auth token)[/cyan]\n"
+        "  - Or create a fine-grained token at "
+        "https://github.com/settings/tokens?type=beta and "
+        "[cyan]export GITHUB_TOKEN=...[/cyan]"
+    )
+    raise SystemExit(1)
+
+
+@main.command("fetch-loc")
+@click.option("--repo", "repo_filter", help="Restrict to one repo (URL, owner/repo, or short name)")
+@click.option("--force", is_flag=True, help="Re-fetch even if lines_added is already populated")
+@click.option("--dry-run", is_flag=True, help="Show what would be fetched without making API calls")
+@click.option("--limit", type=int, help="Cap rows processed this run (default: unlimited)")
+@click.option("--quiet", "-q", is_flag=True, help="Minimal output (no progress bar)")
+@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+def fetch_loc_cmd(
+    repo_filter: str | None,
+    force: bool,
+    dry_run: bool,
+    limit: int | None,
+    quiet: bool,
+    verbose: bool,
+) -> None:
+    """Backfill lines-added / lines-removed for ``change_refs`` from the GitHub API.
+
+    Reads pending ``change_refs`` rows produced by the contributions
+    stages (#78 / #79), calls the GitHub REST API (``/pulls`` for PRs,
+    ``/compare`` for direct pushes), and updates the row in place.
+    Idempotent by default: rows already fully populated are skipped on
+    subsequent runs (use ``--force`` to refresh).
+
+    \b
+    Requires GITHUB_TOKEN in env (e.g. ``export GITHUB_TOKEN=$(gh auth token)``).
+    Never logs or prints the token value.
+
+    \b
+    Examples:
+      ohtv fetch-loc                          # Fetch all pending across all repos
+      ohtv fetch-loc --repo jpshackelford/ohtv
+      ohtv fetch-loc --dry-run                # Preview only
+      ohtv fetch-loc --force --repo foo/bar   # Refresh stale data
+    """
+    import os
+
+    _init_logging(verbose=verbose)
+    _run_fetch_loc(
+        repo_filter=repo_filter,
+        force=force,
+        dry_run=dry_run,
+        limit=limit,
+        quiet=quiet,
+        token=os.environ.get("GITHUB_TOKEN"),
+    )
+
+
+def _run_fetch_loc(
+    *,
+    repo_filter: str | None,
+    force: bool,
+    dry_run: bool,
+    limit: int | None,
+    quiet: bool,
+    token: str | None,
+    client_factory=None,
+) -> None:
+    """Core ``fetch-loc`` pipeline. Split out for testability.
+
+    ``client_factory`` is an optional ``Callable[[str], GitHubClient]``
+    test hook. When ``None`` we build a real :class:`GitHubClient`.
+    """
+    from ohtv.db import ensure_db_ready, get_connection
+    from ohtv.db.stores import RepoStore
+    from ohtv.github_api import GitHubClient, RateLimitExceededError
+
+    if not dry_run and not token:
+        _error_no_github_token()
+
+    # Resolve repo filter (if any) to a single repo_id. We accept the
+    # same shapes as the `list` / `refs` filters: URL, FQN, short name.
+    repo_id: int | None = None
+    repo_label: str | None = None
+    with get_connection() as conn:
+        ensure_db_ready(conn, show_progress=not quiet)
+        if repo_filter:
+            repo_store = RepoStore(conn)
+            target = repo_filter.strip()
+            repo = None
+            if "://" in target:
+                repo = repo_store.get_by_url(target)
+            if repo is None:
+                candidates = list(repo_store.search_by_name(target))
+                if len(candidates) == 1:
+                    repo = candidates[0]
+                elif len(candidates) > 1:
+                    console.print(
+                        f"[red]Error:[/red] --repo {target!r} matched "
+                        f"{len(candidates)} repos: "
+                        + ", ".join(c.fqn for c in candidates[:5])
+                    )
+                    raise SystemExit(2)
+            if repo is None:
+                console.print(
+                    f"[red]Error:[/red] --repo {target!r} did not match any "
+                    "known repository. Run `ohtv db scan` first."
+                )
+                raise SystemExit(2)
+            repo_id = repo.id
+            repo_label = repo.fqn
+
+        # Build the client (or pull from the factory in tests). The
+        # factory is the dependency-injection seam for `pytest-httpx`.
+        if client_factory is not None:
+            client = client_factory(token or "")
+        elif dry_run and not token:
+            client = None  # No HTTP will happen anyway.
+        else:
+            client = GitHubClient(token or "")
+
+        try:
+            result = _execute_fetch_loc(
+                conn,
+                client=client,
+                repo_id=repo_id,
+                repo_label=repo_label,
+                force=force,
+                dry_run=dry_run,
+                limit=limit,
+                quiet=quiet,
+            )
+        except RateLimitExceededError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise SystemExit(1) from exc
+        finally:
+            if client is not None and hasattr(client, "close"):
+                client.close()
+
+    _print_fetch_loc_summary(result, dry_run=dry_run, quiet=quiet)
+    if result.exit_code != 0:
+        raise SystemExit(result.exit_code)
+
+
+def _execute_fetch_loc(
+    conn,
+    *,
+    client,
+    repo_id: int | None,
+    repo_label: str | None,
+    force: bool,
+    dry_run: bool,
+    limit: int | None,
+    quiet: bool,
+):
+    """Run the orchestrator with (or without) a progress bar."""
+    from ohtv.fetch_loc import fetch_loc
+    from ohtv.parallel import format_rate, format_remaining
+
+    # Dry-run path: no HTTP, no DB writes. Skip the progress bar to
+    # match other commands' UX (we have nothing meaningful to animate).
+    if dry_run:
+        return fetch_loc(
+            conn,
+            client=client,  # may be None — fetch_loc never calls in dry-run
+            repo_id=repo_id,
+            force=force,
+            dry_run=True,
+            limit=limit,
+        )
+
+    if quiet:
+        return fetch_loc(
+            conn,
+            client=client,
+            repo_id=repo_id,
+            force=force,
+            dry_run=False,
+            limit=limit,
+        )
+
+    from ohtv.progress import make_progress
+
+    bar_label = "Fetching LOC"
+    if repo_label:
+        bar_label = f"Fetching LOC ({repo_label})"
+
+    import time
+
+    with make_progress(
+        console=console,
+        show_rate=True,
+        show_remaining=True,
+        show_eta=True,
+        show_current=True,
+    ) as progress:
+        task = progress.add_task(
+            bar_label,
+            total=0,
+            remaining="",
+            rate="",
+            current="",
+        )
+        start_time = time.monotonic()
+        last_total = [0]
+
+        def on_progress(completed: int, total: int, message: str) -> None:
+            if last_total[0] != total:
+                progress.update(task, total=total)
+                last_total[0] = total
+            elapsed = time.monotonic() - start_time
+            progress.update(
+                task,
+                completed=completed,
+                remaining=format_remaining(total, completed),
+                rate=format_rate(completed, elapsed, unit="rows"),
+                current=message[:40],
+            )
+
+        return fetch_loc(
+            conn,
+            client=client,
+            repo_id=repo_id,
+            force=force,
+            dry_run=False,
+            limit=limit,
+            on_progress=on_progress,
+        )
+
+
+def _print_fetch_loc_summary(result, *, dry_run: bool, quiet: bool) -> None:
+    """Render a one-block summary after the run."""
+    if quiet:
+        # Even quiet mode emits one line so cron jobs see something.
+        log.info(
+            "fetch-loc: candidates=%d fetched=%d failed=%d "
+            "skipped_cached=%d skipped_non_github=%d still_open=%d",
+            result.total_candidates,
+            result.fetched,
+            result.failed,
+            result.skipped_cached,
+            result.skipped_non_github,
+            result.still_open,
+        )
+        return
+
+    console.print()
+    if dry_run:
+        console.print(
+            f"[yellow]Dry-run:[/yellow] would fetch {result.total_candidates} row(s)"
+        )
+        if result.repo_names:
+            sample = ", ".join(result.repo_names[:5])
+            more = "" if len(result.repo_names) <= 5 else f" (+ {len(result.repo_names) - 5} more)"
+            console.print(f"  Repos: {sample}{more}")
+        return
+
+    console.print("[green]fetch-loc complete:[/green]")
+    console.print(f"  Candidates:        {result.total_candidates}")
+    console.print(f"  Fetched:           {result.fetched}")
+    console.print(f"  Failed:            {result.failed}")
+    console.print(f"  Skipped (cached):  {result.skipped_cached}")
+    console.print(f"  Skipped (non-GH):  {result.skipped_non_github}")
+    if result.skipped_unparseable:
+        console.print(f"  Skipped (bad data):{result.skipped_unparseable}")
+    if result.still_open:
+        console.print(f"  PRs still open:    {result.still_open}")
+    if result.closed_unmerged:
+        console.print(f"  PRs closed unmerged: {result.closed_unmerged}")
+
+
+# =============================================================================
 # Gen Commands (new unified interface)
 # =============================================================================
 
