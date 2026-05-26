@@ -355,6 +355,102 @@ def _mark_tried(conn: sqlite3.Connection, row_id: int, now: str) -> None:
     )
 
 
+def _process_pr_row(
+    conn: sqlite3.Connection,
+    client: GitHubClientProtocol,
+    row: _CandidateRow,
+    owner: str,
+    repo: str,
+    now_iso: str,
+    result: FetchResult,
+) -> tuple[str | None, str | None]:
+    """Process a single ``change_type='pr'`` row.
+
+    Returns ``(msg, new_status)`` where ``msg`` is the progress label to
+    display (or ``None`` if the row was skipped before any HTTP call) and
+    ``new_status`` is the post-update PR status (or ``None`` on 404).
+
+    Behavior mirrors the original inline branch in :func:`fetch_loc`:
+    missing ``pr_number`` is logged + counted as ``skipped_unparseable``
+    and returns ``(None, None)`` so the caller does not emit a progress
+    update. May raise ``httpx.HTTPStatusError`` (handled by the caller).
+    """
+    if row.pr_number is None:
+        log.warning(
+            "fetch-loc: PR row %d missing pr_number — skipping",
+            row.id,
+        )
+        result.skipped_unparseable += 1
+        return None, None
+
+    msg = f"{owner}/{repo}#{row.pr_number}"
+    pr_data = client.get_pr(owner, repo, row.pr_number)
+    if pr_data is None:
+        _mark_tried(conn, row.id, now_iso)
+        result.failed += 1
+        log.warning("fetch-loc: %s returned 404 — marked tried", msg)
+        return msg, None
+
+    new_status = _update_pr_row(conn, row.id, pr_data, now_iso)
+    result.fetched += 1
+    if new_status == "open":
+        result.still_open += 1
+    elif new_status == "closed":
+        result.closed_unmerged += 1
+    return msg, new_status
+
+
+def _process_push_row(
+    conn: sqlite3.Connection,
+    client: GitHubClientProtocol,
+    row: _CandidateRow,
+    owner: str,
+    repo: str,
+    now_iso: str,
+    result: FetchResult,
+) -> tuple[str | None, str | None]:
+    """Process a single ``change_type='direct_push'`` row.
+
+    Returns ``(msg, new_status)``. ``new_status`` is always ``None`` for
+    direct pushes (there is no PR-style status to surface) but is
+    included for symmetry with :func:`_process_pr_row`.
+
+    Skips (missing ``commit_range`` or malformed range) return
+    ``(None, None)`` so the caller does not emit a progress update,
+    matching the pre-refactor ``continue`` behavior. May raise
+    ``httpx.HTTPStatusError`` (handled by the caller).
+    """
+    if row.commit_range is None:
+        log.warning(
+            "fetch-loc: direct_push row %d missing commit_range",
+            row.id,
+        )
+        result.skipped_unparseable += 1
+        return None, None
+
+    shas = split_commit_range(row.commit_range)
+    if shas is None:
+        log.warning(
+            "fetch-loc: malformed commit_range %r — skipping",
+            row.commit_range,
+        )
+        result.skipped_unparseable += 1
+        return None, None
+
+    base, head = shas
+    msg = f"{owner}/{repo} {base[:7]}..{head[:7]}"
+    cmp_data = client.get_compare(owner, repo, base, head)
+    if cmp_data is None:
+        _mark_tried(conn, row.id, now_iso)
+        result.failed += 1
+        log.warning("fetch-loc: %s returned 404 — marked tried", msg)
+        return msg, None
+
+    _update_compare_row(conn, row.id, cmp_data, now_iso)
+    result.fetched += 1
+    return msg, None
+
+
 # ---------------------------------------------------------------------------
 # Public orchestrator
 # ---------------------------------------------------------------------------
@@ -448,58 +544,17 @@ def fetch_loc(
 
         try:
             if row.change_type == "pr":
-                if row.pr_number is None:
-                    log.warning(
-                        "fetch-loc: PR row %d missing pr_number — skipping",
-                        row.id,
-                    )
-                    result.skipped_unparseable += 1
-                    continue
-                msg = f"{owner}/{repo}#{row.pr_number}"
-                pr_data = client.get_pr(owner, repo, row.pr_number)
-                if pr_data is None:
-                    _mark_tried(conn, row.id, now_iso)
-                    result.failed += 1
-                    log.warning("fetch-loc: %s returned 404 — marked tried", msg)
-                else:
-                    new_status = _update_pr_row(conn, row.id, pr_data, now_iso)
-                    result.fetched += 1
-                    if new_status == "open":
-                        result.still_open += 1
-                    elif new_status == "closed":
-                        result.closed_unmerged += 1
-                if on_progress is not None:
+                msg, _ = _process_pr_row(
+                    conn, client, row, owner, repo, now_iso, result
+                )
+                if msg and on_progress is not None:
                     on_progress(index, total, msg)
-
             elif row.change_type == "direct_push":
-                if row.commit_range is None:
-                    log.warning(
-                        "fetch-loc: direct_push row %d missing commit_range",
-                        row.id,
-                    )
-                    result.skipped_unparseable += 1
-                    continue
-                shas = split_commit_range(row.commit_range)
-                if shas is None:
-                    log.warning(
-                        "fetch-loc: malformed commit_range %r — skipping",
-                        row.commit_range,
-                    )
-                    result.skipped_unparseable += 1
-                    continue
-                base, head = shas
-                msg = f"{owner}/{repo} {base[:7]}..{head[:7]}"
-                cmp_data = client.get_compare(owner, repo, base, head)
-                if cmp_data is None:
-                    _mark_tried(conn, row.id, now_iso)
-                    result.failed += 1
-                    log.warning("fetch-loc: %s returned 404 — marked tried", msg)
-                else:
-                    _update_compare_row(conn, row.id, cmp_data, now_iso)
-                    result.fetched += 1
-                if on_progress is not None:
+                msg, _ = _process_push_row(
+                    conn, client, row, owner, repo, now_iso, result
+                )
+                if msg and on_progress is not None:
                     on_progress(index, total, msg)
-
             else:  # pragma: no cover — schema CHECK constraint prevents this
                 log.warning(
                     "fetch-loc: unknown change_type %r — skipping",
