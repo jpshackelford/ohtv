@@ -821,3 +821,80 @@ Documentation updated for `ohtv fetch-loc`: new command + options + GITHUB_TOKEN
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 19:51 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `ebc3363` | testing | PR #97 — `ohtv fetch-loc` manual test | **NEW** (spawned 19:51:04Z, `execution_status: running`, `sandbox: RUNNING`) |
+
+**Spawned: Testing Worker (initial) for PR #97 (docs worker `007863ee` finished; docs commit landed; "Documentation Updated" PR comment posted; no manual test results yet)**
+
+- PR: [#97 — feat: add fetch-loc command to backfill LOC from GitHub API (#80)](https://github.com/jpshackelford/ohtv/pull/97) (`isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, no CI workflows configured on branch → empty `statusCheckRollup`)
+- Conversation: [`ebc3363b`](https://app.all-hands.dev/conversations/ebc3363b31de4cf2867ffb2ac60806a2) (`selected_repository=jpshackelford/ohtv`, `pr_number=[97]`)
+- Start task: `dbe74fce` → polled twice (5s interval) → `STARTING_CONVERSATION` → `READY` → `app_conversation_id=ebc3363b31de4cf2867ffb2ac60806a2`. Verified via `GET /app-conversations?ids=…`: `execution_status=running`, `sandbox_status=RUNNING` (per the 13:23Z operational lesson — `READY` alone only confirms sandbox came up).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**Why decision-tree gates pass for spawning the testing worker:**
+
+- ✅ **Docs worker `007863ee` finished:** Cloud API shows `sandbox_status=PAUSED` (agent exited cleanly). The 19:23Z PR comment "Documentation Updated" was posted by the docs worker and a `docs:` commit (`79b2c6d2` at 19:21:28Z) landed on the PR branch.
+- ✅ **CI green:** No CI workflows configured on this branch — `gh pr checks 97` returns "no checks reported". PR remains `MERGEABLE`. Don't block on absent checks.
+- ✅ **Docs updated (was the gating condition):** `grep "fetch-loc" README.md` now finds the documented command section (per the docs worker's PR comment listing the user-facing changes documented). The docs commit landed AFTER the bot review, so the test report this worker produces is exactly what the bot's 19:13Z "missing runtime evidence" note flagged.
+- ✅ **No manual test results yet:** `gh pr view 97 --json comments` shows only the docs-update comment (jpshackelford, 19:23:30Z) — no `## Manual Test Results` header anywhere.
+- ✅ **No competing PR worker:** Network-wide `running` conversations: only `60d3781e` (this orchestrator cycle, no repo binding) and the just-spawned `ebc3363b`. All earlier PR-slot workers (`007863ee` docs, `6a10472a` impl, `32538365` merge of PR #96, full PR #95/PR #94 chains) all paused.
+- ✅ **Testing precedes review:** Per the orchestrate skill's decision tree, "Review comments (💬 > 0) but NO manual test results → Spawn testing worker (docs first if missing)". The bot left a `COMMENTED` review at 19:13Z ("🟡 Acceptable — missing runtime evidence") — that does NOT skip the testing gate; it makes testing more urgent.
+
+**Testing worker scope (prompt highlights):**
+
+- Clone, checkout `feat/fetch-loc-80`, `uv sync`.
+- Blackbox exercises mapping to issue #80's 13 ACs:
+  - `--help` discoverability + option list parity with README.
+  - Missing `GITHUB_TOKEN` → clear non-zero exit.
+  - `--dry-run` → zero HTTP + zero DB writes (verify via `db status` before/after).
+  - Real run on seeded `change_refs` → populates `lines_added/lines_removed/files_changed/merged_at/status`.
+  - Idempotent 2nd run → zero HTTP.
+  - `--force` re-fetches.
+  - `--repo` filter restricts rows; unknown repo exits non-zero.
+  - Non-GitHub `canonical_url` rows skipped.
+  - Token value never appears in stdout/stderr/logs.
+- Full `uv run pytest -x` should be 1577/1577 (PR body baseline).
+- Run the README's documented `fetch-loc` examples verbatim — verify copy-pasteable accuracy.
+- Post `## Manual Test Results` PR comment via `/manual-test` skill format; rate Pass / Pass with concerns / Fail.
+
+**Explicit DO-NOTs encoded in prompt:**
+
+- Do NOT address the github-actions bot review feedback inline (review worker's job in a later cycle).
+- Do NOT continue to review after posting the test report — EXIT.
+- Do NOT modify code or docs — testing is observe-only.
+- Do NOT block on missing CI checks — there are no workflows on the branch by design.
+
+**PR slot:** Now occupied by `ebc3363b` (testing on PR #97).
+**Expansion slot:** Idle — `gh issue list --jq '[.[]|select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]|length'` → 0. All 7 open issues are `ready` + priority-labeled. Nothing to expand.
+
+**Current State (verified 19:45–19:51Z):**
+
+- **Open PRs:** [PR #97](https://github.com/jpshackelford/ohtv/pull/97) (`ready`, no-CI by config / MERGEABLE, docs landed, no test results yet, 1 bot review at 19:13Z `COMMENTED 🟡 Acceptable`).
+- **Ready issues (7, all expanded):** `priority:medium`: #80 (in PR #97), #81, #83, #90, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** none competing (only `60d3781e` this cycle, no repo binding; `b0b6992f` previous orchestrator is MISSING/done).
+
+**Sync note:** `ohtv sync --since … --quiet` succeeded (exit 0) using `OPENHANDS_API_KEY`. Cloud auth path stable.
+
+**Housekeeping (truncation still deferred):** WORKLOG.md was 823 lines pre-cycle (this entry pushes it past ~880). Per the 19:19Z orchestrator's stated plan, the 14:19Z–15:21Z PR #95 chain becomes archive-eligible only after 20:19Z. Current time is 19:51Z, so wait one more cycle. The next orchestrator wake-up (~20:21Z if cron) will be able to safely archive lines 19–197 (PR #95 test/review/merge chain) to `WORKLOG_ARCHIVE_2026-05-26.md`, saving ~180 lines.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-consecutive-quiet-period counter remains at 0. Recent orchestrator entries (18:50Z, 19:19Z, 19:51Z) have all spawned workers.
+
+**Next check (~30 min, ~20:21Z):**
+
+- If `ebc3363b` is `running` → log status, do nothing. Manual testing typically takes 20–45 min for a CLI command with 13 ACs.
+- If `ebc3363b` is `finished` AND a `## Manual Test Results` PR comment appears with **good rating** (Pass / Pass with concerns) AND the bot review (💬 > 0) has not been addressed → spawn **review worker** to address the 19:13Z bot feedback.
+- If `ebc3363b` is `finished` AND the test report rates **Fail** or surfaces blocking issues → spawn a **review worker** (which sets PR back to draft and addresses both bot feedback and test findings).
+- If `ebc3363b` is `finished` but no test-results comment appeared → investigate the conversation events; possibly re-spawn with sharper scope.
+- If new commits land on `feat/fetch-loc-80` between now and next cycle → re-evaluate: docs commit only → still testing; `.py` changes → outdated test results (re-test).
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO:** After 20:19Z, archive lines 19–197 (PR #95 14:19Z–15:21Z chain) to `WORKLOG_ARCHIVE_2026-05-26.md` (currently 527 lines, will grow to ~707).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
