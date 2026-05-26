@@ -28,6 +28,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from ohtv.cli import _WritebackResult
 from ohtv.sources.base import ConversationInfo
 
 
@@ -303,7 +304,7 @@ class TestApplyPath:
 
         with (
             patch("ohtv.cli._apply_conversation_filters", return_value=filter_result),
-            patch("ohtv.cli._apply_local_title_writeback", return_value=1) as wb,
+            patch("ohtv.cli._apply_local_title_writeback", return_value=_WritebackResult(1, 1, 1)) as wb,
             patch(
                 "ohtv.cli._find_conversation_dir",
                 return_value=(isolated_env / "fake-conv-dir", True),
@@ -376,7 +377,7 @@ class TestSelectorBehavior:
 
         with (
             patch("ohtv.cli._apply_conversation_filters", return_value=filter_result),
-            patch("ohtv.cli._apply_local_title_writeback", return_value=1),
+            patch("ohtv.cli._apply_local_title_writeback", return_value=_WritebackResult(1, 1, 1)),
             patch(
                 "ohtv.cli._find_conversation_dir",
                 return_value=(isolated_env / "fake", True),
@@ -446,7 +447,7 @@ class TestSelectorBehavior:
 
         with (
             patch("ohtv.cli._apply_conversation_filters", return_value=filter_result),
-            patch("ohtv.cli._apply_local_title_writeback", return_value=2),
+            patch("ohtv.cli._apply_local_title_writeback", return_value=_WritebackResult(2, 2, 2)),
             patch(
                 "ohtv.cli._find_conversation_dir",
                 return_value=(isolated_env / "fake", True),
@@ -558,7 +559,7 @@ class TestSelectorBehavior:
         # load_all_analyses returns empty dict → cache miss
         with (
             patch("ohtv.cli._apply_conversation_filters", return_value=filter_result),
-            patch("ohtv.cli._apply_local_title_writeback", return_value=0),
+            patch("ohtv.cli._apply_local_title_writeback", return_value=_WritebackResult(0, 0, 0)),
             patch(
                 "ohtv.cli._find_conversation_dir",
                 return_value=(isolated_env / "fake", True),
@@ -602,19 +603,29 @@ class TestLocalWriteback:
     def test_writeback_updates_manifest_and_db(
         self, isolated_env: Path
     ) -> None:
-        """``_apply_local_title_writeback`` updates manifest title and DB row."""
+        """``_apply_local_title_writeback`` updates manifest title and DB row.
+
+        Real-world key shape: the sync manifest keys conversations on
+        the normalized (no-dashes) id, matching what ``ohtv sync``
+        actually writes. The DB also stores normalized ids (AGENTS.md
+        #25 / migration 012). The CloudConversation id arrives dashed —
+        the helper must normalize at the lookup site.
+        """
         from ohtv.cli import _apply_local_title_writeback
         from ohtv.config import Config, get_manifest_path
         from ohtv.sync import SyncManifest
 
-        # Seed manifest with a placeholder-titled conv
-        conv_id = "aaaaaaaa-1111-2222-3333-444444444444"
+        # Dashed id (the shape CloudConversation hands us).
+        conv_id_dashed = "aaaaaaaa-1111-2222-3333-444444444444"
+        normalized = conv_id_dashed.replace("-", "")
+
+        # Manifest is keyed on the NORMALIZED id (matches sync's writer).
         manifest_path = get_manifest_path()
         manifest = SyncManifest(
             last_sync_at=None,
             sync_count=0,
             conversations={
-                conv_id: {
+                normalized: {
                     "title": "Conversation aaaaa",
                     "updated_at": "2024-06-01T13:00:00+00:00",
                     "event_count": 10,
@@ -626,12 +637,11 @@ class TestLocalWriteback:
         manifest.save(manifest_path)
         original_last_sync = manifest.last_sync_at
 
-        # Seed DB with a matching row
+        # Seed DB with a matching row.
         from ohtv.db import get_db_path, migrate
 
         db_path = get_db_path()
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        normalized = conv_id.replace("-", "")
         conn = sqlite3.connect(db_path)
         migrate(conn)
         conn.execute(
@@ -643,29 +653,156 @@ class TestLocalWriteback:
         conn.close()
 
         config = Config.from_env()
-        updated = _apply_local_title_writeback(
+        # Caller passes the DASHED id — the helper must normalize.
+        result = _apply_local_title_writeback(
             config,
-            renamed_id_to_title={conv_id: "✨ Real New Title"},
+            renamed_id_to_title={conv_id_dashed: "✨ Real New Title"},
         )
 
-        # Manifest write happened
+        # Manifest write happened on the normalized key.
         manifest_after = SyncManifest.load(manifest_path)
-        assert manifest_after.conversations[conv_id]["title"] == "✨ Real New Title"
-        # last_sync_at must NOT have advanced (issue requirement)
+        assert manifest_after.conversations[normalized]["title"] == "✨ Real New Title"
+        # last_sync_at must NOT have advanced (issue requirement).
         assert manifest_after.last_sync_at == original_last_sync
 
-        # DB row updated
+        # DB row updated.
         conn = sqlite3.connect(db_path)
         row = conn.execute(
             "SELECT title FROM conversations WHERE id = ?", (normalized,)
         ).fetchone()
         conn.close()
         assert row[0] == "✨ Real New Title"
-        assert updated == 1
+
+        # Result reports both writes succeeded — this is the new
+        # ``Manifest updated: 1/1`` signal in the end-of-run summary.
+        assert result.db_updated == 1
+        assert result.manifest_updated == 1
+        assert result.manifest_total == 1
+
+    def test_writeback_normalizes_dashed_conv_id_for_manifest_lookup(
+        self, isolated_env: Path
+    ) -> None:
+        """Regression test for the PR #96 manifest-writeback bug.
+
+        Caller hands the helper a dashed ``CloudConversation.id`` but
+        the manifest is keyed without dashes. The lookup MUST strip
+        dashes; otherwise the writeback is silently a no-op and the
+        manifest goes stale while the DB stays correct.
+        """
+        from ohtv.cli import _apply_local_title_writeback
+        from ohtv.config import Config, get_manifest_path
+        from ohtv.sync import SyncManifest
+
+        # Two conversations, both passed in dashed form.
+        conv_a_dashed = "5dc3a672-3c9d-48f8-9df3-5b07b5c69850"
+        conv_b_dashed = "60659a20-e61f-4a09-a388-2acfa607477b"
+        conv_a_norm = conv_a_dashed.replace("-", "")
+        conv_b_norm = conv_b_dashed.replace("-", "")
+
+        # Manifest keyed on normalized ids (real-world shape).
+        manifest_path = get_manifest_path()
+        SyncManifest(
+            last_sync_at=None,
+            sync_count=0,
+            conversations={
+                conv_a_norm: {
+                    "title": "Conversation 5dc3a",
+                    "updated_at": "2026-05-26T00:00:00+00:00",
+                    "event_count": 10,
+                    "downloaded_at": "2026-05-26T00:00:01+00:00",
+                    "labels": None,
+                },
+                conv_b_norm: {
+                    "title": "Conversation 60659",
+                    "updated_at": "2026-05-26T00:00:00+00:00",
+                    "event_count": 10,
+                    "downloaded_at": "2026-05-26T00:00:01+00:00",
+                    "labels": None,
+                },
+            },
+        ).save(manifest_path)
+
+        # No DB row for conv_b — we want to prove the manifest is
+        # updated independently of the DB success path.
+        from ohtv.db import get_db_path, migrate
+
+        db_path = get_db_path()
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        migrate(conn)
+        conn.execute(
+            "INSERT INTO conversations (id, title, source, location) "
+            "VALUES (?, ?, ?, ?)",
+            (conv_a_norm, "Conversation 5dc3a", "cloud", "/fake/a"),
+        )
+        conn.commit()
+        conn.close()
+
+        result = _apply_local_title_writeback(
+            Config.from_env(),
+            renamed_id_to_title={
+                conv_a_dashed: "✅ New Title A",
+                conv_b_dashed: "🔧 New Title B",
+            },
+        )
+
+        # Both manifest entries updated despite dashed input ids.
+        manifest_after = SyncManifest.load(manifest_path)
+        assert manifest_after.conversations[conv_a_norm]["title"] == "✅ New Title A"
+        assert manifest_after.conversations[conv_b_norm]["title"] == "🔧 New Title B"
+
+        # Summary surfaces full coverage (the failure-mode guardrail).
+        assert result.manifest_updated == 2
+        assert result.manifest_total == 2
+        # DB only had a row for conv_a, so db_updated == 1.
+        assert result.db_updated == 1
+
+    def test_writeback_reports_partial_manifest_when_entry_missing(
+        self, isolated_env: Path
+    ) -> None:
+        """Missing manifest entry shows as partial (K < M) in result.
+
+        This is the surface the summary block uses to warn the user
+        in yellow when the manifest writeback is incomplete.
+        """
+        from ohtv.cli import _apply_local_title_writeback
+        from ohtv.config import Config, get_manifest_path
+        from ohtv.sync import SyncManifest
+
+        # Only one of the two convs has a manifest entry.
+        present = "11111111-2222-3333-4444-555555555555"
+        absent = "99999999-8888-7777-6666-555555555555"
+        present_norm = present.replace("-", "")
+
+        manifest_path = get_manifest_path()
+        SyncManifest(
+            last_sync_at=None,
+            sync_count=0,
+            conversations={
+                present_norm: {
+                    "title": "Old Title",
+                    "updated_at": "2026-05-26T00:00:00+00:00",
+                    "event_count": 10,
+                    "downloaded_at": "2026-05-26T00:00:01+00:00",
+                    "labels": None,
+                },
+            },
+        ).save(manifest_path)
+
+        result = _apply_local_title_writeback(
+            Config.from_env(),
+            renamed_id_to_title={
+                present: "✅ New Title",
+                absent: "🚫 Missing Title",
+            },
+        )
+
+        assert result.manifest_total == 2
+        assert result.manifest_updated == 1  # partial
 
     def test_writeback_is_noop_when_empty(self, isolated_env: Path) -> None:
         from ohtv.cli import _apply_local_title_writeback
         from ohtv.config import Config
 
         config = Config.from_env()
-        assert _apply_local_title_writeback(config, {}) == 0
+        assert _apply_local_title_writeback(config, {}) == _WritebackResult(0, 0, 0)

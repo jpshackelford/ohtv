@@ -13,7 +13,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import click
 from click import Context, HelpFormatter
@@ -8950,6 +8950,11 @@ def _run_gen_titles(
     _print_title_diff(title_diffs, dry_run=dry_run)
 
     if dry_run:
+        # Preview the manifest writeback to expose any id-shape mismatch
+        # the same way the live path does — using the same normalization.
+        manifest_preview_found, manifest_preview_total = _preview_manifest_writeback(
+            conv.id for conv, _, _ in title_diffs
+        )
         _print_titles_summary(
             console,
             selected=len(cloud_convs),
@@ -8958,6 +8963,8 @@ def _run_gen_titles(
             renamed=0,
             failed=0,
             db_updated=0,
+            manifest_updated=manifest_preview_found,
+            manifest_total=manifest_preview_total,
             elapsed_seconds=0.0,
             llm_cost=gen_result.cost,
             local_skipped=local_skipped,
@@ -9041,7 +9048,7 @@ def _run_gen_titles(
     apply_elapsed = time.perf_counter() - apply_start
 
     # ----- 8. Local writeback (manifest + DB) -----------------------------
-    db_updated = _apply_local_title_writeback(
+    writeback = _apply_local_title_writeback(
         config,
         renamed_id_to_title={
             conv.id: new_title
@@ -9057,7 +9064,9 @@ def _run_gen_titles(
         cache_misses=len(cache_miss_convs),
         renamed=len(renamed_ids),
         failed=len(rename_failures),
-        db_updated=db_updated,
+        db_updated=writeback.db_updated,
+        manifest_updated=writeback.manifest_updated,
+        manifest_total=writeback.manifest_total,
         elapsed_seconds=apply_elapsed,
         llm_cost=gen_result.cost,
         local_skipped=local_skipped,
@@ -9203,13 +9212,22 @@ def _print_titles_summary(
     renamed: int,
     failed: int,
     db_updated: int,
+    manifest_updated: int,
+    manifest_total: int,
     elapsed_seconds: float,
     llm_cost: float,
     local_skipped: int,
     missing_titles: int,
     dry_run: bool,
 ) -> None:
-    """Print the final ``gen titles complete`` summary block."""
+    """Print the final ``gen titles complete`` summary block.
+
+    The ``Manifest updated`` row is always shown when there's something
+    to write back (live mode) or something to preview (dry-run). It uses
+    an ``N/M`` shape so an asymmetry between the DB write and the
+    manifest write (the failure mode that hid behind PR #96's
+    ID-normalization bug) is impossible to miss.
+    """
     if dry_run:
         console_obj.print("\n[bold]gen titles dry-run complete:[/bold]")
     else:
@@ -9221,6 +9239,19 @@ def _print_titles_summary(
         console_obj.print(f"  Renamed in cloud:      {renamed}")
         console_obj.print(f"  Failed:                {failed}")
         console_obj.print(f"  Local DB updated:      {db_updated}")
+        if manifest_total > 0:
+            label = "  Manifest updated:     "
+            value = f"{manifest_updated}/{manifest_total}"
+            # Highlight partial coverage in yellow — the failure mode the
+            # manual-test report flagged is exactly this asymmetry.
+            if manifest_updated < manifest_total:
+                value = f"[yellow]{value}[/yellow]"
+            console_obj.print(f"{label} {value}")
+    else:
+        if manifest_total > 0:
+            console_obj.print(
+                f"  Manifest entries found: {manifest_updated}/{manifest_total}"
+            )
     if missing_titles:
         console_obj.print(f"  LLM omitted:           {missing_titles}")
     if local_skipped:
@@ -9231,24 +9262,82 @@ def _print_titles_summary(
         console_obj.print(f"  LLM cost:              [green]${llm_cost:.4f}[/green]")
 
 
+def _preview_manifest_writeback(conv_ids) -> tuple[int, int]:
+    """Preview how many candidate ids exist in the manifest.
+
+    Mirrors the lookup in :func:`_apply_local_title_writeback` so that
+    the dry-run summary surfaces the same N/M shape the live path would
+    report. This is the assertion that catches id-shape regressions.
+
+    Returns:
+        ``(found, total)`` — ``found`` is the count of candidate ids
+        present in the manifest after normalization; ``total`` is the
+        number of candidate ids we were asked about.
+    """
+    ids = [c.replace("-", "") for c in conv_ids]
+    total = len(ids)
+    if total == 0:
+        return (0, 0)
+    try:
+        from ohtv.config import get_manifest_path
+        from ohtv.sync import SyncManifest
+
+        manifest = SyncManifest.load(get_manifest_path())
+    except Exception as e:  # pragma: no cover - defensive
+        log.debug("Manifest preview unavailable: %s", e)
+        return (0, total)
+    found = sum(1 for cid in ids if cid in manifest.conversations)
+    return (found, total)
+
+
+class _WritebackResult(NamedTuple):
+    """Counts returned by :func:`_apply_local_title_writeback`.
+
+    Fields:
+        db_updated: Number of DB rows successfully updated.
+        manifest_updated: Number of manifest entries in sync with the new
+            title afterward (either updated by us, or already correct).
+        manifest_total: Number of conversations we attempted to write back
+            to the manifest (== ``len(renamed_id_to_title)``).
+    """
+
+    db_updated: int
+    manifest_updated: int
+    manifest_total: int
+
+
 def _apply_local_title_writeback(
     config: Config,
     renamed_id_to_title: dict[str, str],
-) -> int:
+) -> _WritebackResult:
     """Persist the renamed titles to the local manifest + DB.
 
     Manifest is rewritten in-place (only the ``title`` field changes;
     ``last_sync_at`` is NOT advanced). DB writes go through
     :meth:`ConversationStore.update_metadata` from PR #94 / Issue #86.
 
+    ID normalization: :class:`CloudConversation` ids arrive dashed
+    (``aaaaaaaa-1111-2222-…``) while the sync manifest and the DB key
+    on the *normalized* form without dashes (AGENTS.md #25, migration
+    012). We strip dashes once at the top so every downstream lookup
+    sees the canonical form.
+
     Returns:
-        Number of conversations whose DB row was updated successfully.
+        :class:`_WritebackResult` with DB and manifest write counts.
         Manifest failures and DB failures are logged but do not raise —
         the cloud-side rename has already happened, and we don't want a
         local-write hiccup to lose that fact.
     """
     if not renamed_id_to_title:
-        return 0
+        return _WritebackResult(0, 0, 0)
+
+    # Normalize once at the top so it's hard to regress on the manifest
+    # key shape (AGENTS.md #25 / migration 012).
+    normalized_renames = {
+        conv_id.replace("-", ""): new_title
+        for conv_id, new_title in renamed_id_to_title.items()
+    }
+    manifest_total = len(normalized_renames)
 
     from ohtv.config import get_manifest_path
     from ohtv.sync import SyncManifest
@@ -9256,23 +9345,32 @@ def _apply_local_title_writeback(
     manifest_path = get_manifest_path()
     manifest = SyncManifest.load(manifest_path)
     manifest_changed = False
-    for conv_id, new_title in renamed_id_to_title.items():
+    manifest_updated = 0
+    for conv_id, new_title in normalized_renames.items():
         entry = manifest.conversations.get(conv_id)
         if entry is None:
             log.debug("No manifest entry for %s; skipping manifest writeback", conv_id)
             continue
         if entry.get("title") == new_title:
+            # Already in sync — count it so the summary reflects "manifest
+            # consistent with cloud" rather than a silent zero.
+            manifest_updated += 1
             continue
         entry["title"] = new_title
         manifest_changed = True
+        manifest_updated += 1
 
     if manifest_changed:
         try:
             manifest.save(manifest_path)
         except Exception as e:
             log.warning("Manifest writeback failed: %s", e)
+            # Be honest in the summary: the in-memory updates didn't land.
+            manifest_updated = 0
 
-    # DB writeback
+    # DB writeback. ``ConversationStore.update_metadata`` already
+    # normalizes IDs internally (AGENTS.md #25), but we pass the
+    # normalized form for consistency with the manifest path above.
     db_updated = 0
     try:
         import sqlite3
@@ -9280,21 +9378,21 @@ def _apply_local_title_writeback(
         from ohtv.db.stores import ConversationStore
     except Exception as e:  # pragma: no cover - import-time defensive
         log.info("DB module unavailable, skipping DB title writes: %s", e)
-        return 0
+        return _WritebackResult(0, manifest_updated, manifest_total)
 
     db_path = get_db_path()
     if not db_path.exists():
-        return 0
+        return _WritebackResult(0, manifest_updated, manifest_total)
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
     except Exception as e:
         log.info("Could not open DB for title writeback: %s", e)
-        return 0
+        return _WritebackResult(0, manifest_updated, manifest_total)
     try:
         store = ConversationStore(conn)
-        for conv_id, new_title in renamed_id_to_title.items():
+        for conv_id, new_title in normalized_renames.items():
             try:
                 if store.update_metadata(conv_id, title=new_title):
                     db_updated += 1
@@ -9309,7 +9407,7 @@ def _apply_local_title_writeback(
             conn.close()
         except Exception:  # pragma: no cover - best effort
             pass
-    return db_updated
+    return _WritebackResult(db_updated, manifest_updated, manifest_total)
 
 
 # =============================================================================
