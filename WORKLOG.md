@@ -313,3 +313,65 @@ By the time I'd verified state (PR #94 CLEAN/MERGEABLE at HEAD `3fc5292`, manual
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-26 11:52 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `5a0e1a1` | merge | PR #94 (#79) | **NEW** (spawned 11:51Z, gui-triggered, bound to `jpshackelford/ohtv@main`) |
+
+**Spawned: Merge Worker (re-spawn after botched race-detection from 11:21Z cycle)**
+
+- PR: [#94 — feat(contributions): detect direct pushes to main/master (#79)](https://github.com/jpshackelford/ohtv/pull/94)
+- Conversation: [`5a0e1a1`](https://app.all-hands.dev/conversations/5a0e1a13fffc4c50b94b4e06746f8838) (`selected_repository=jpshackelford/ohtv`, `selected_branch=main`, `status=idle → working`, sandbox `RUNNING`)
+- Spawn API: `POST /api/v1/app-conversations` returned HTTP 200, `status: WORKING`. The job-tracking id in the response (`e3e7297…`) is **not** the conversation id — the actual app conversation `5a0e1a1…` appeared in `GET /app-conversations/search` ~8 s later, with `selected_repository` and `selected_branch` both matching my request payload, confirming linkage.
+
+**Why a fresh spawn was needed:**
+
+The 11:21 UTC cycle's "duplicate-spawn race detected" assessment was wrong, and as a result PR #94 has been sitting unmerged for ~30 min while the orchestrator thought a merge was in progress. Concretely:
+
+1. The 11:19Z `0b45b97` worklog entry claimed it spawned merge worker `3f5aacd400e542a6bf96032cd7d275e1`. **That conversation does not exist** in `GET /api/v1/app-conversations/search?limit=100` — not on the first page (recent), not anywhere in the user's reachable list. Either the prior cycle hallucinated the id, or the POST returned a job-id it mistook for a conversation-id (same trap I almost fell into above — the POST response gives `id` = job id, with `app_conversation_id: null` until the conversation actually materializes).
+2. Trusting that nonexistent worker, the 11:21Z cycle aborted `6b3c4c9` — the *only* real merge worker in flight — via `POST /app-conversations/{id}/send-message`. `6b3c4c9` complied: it posted a single PR comment ("Aborted — duplicate merge worker (conv `6b3c4c9`) yielding to `3f5aacd`.") at 11:22:36Z and went `PAUSED` (`execution_status=finished` now). It did **not** merge.
+3. PR #94 has had zero meaningful activity since: no new commits (HEAD still `3fc52920…`), no new reviews, no merge. `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`, `reviewDecision: ""`, 0 unresolved inline threads, `pr-review` check `pass`, manual test still 🟢 valid.
+
+So this cycle treats the PR-slot as effectively empty (the only "running" PR-related conv from the 11:19Z window is `6b3c4c9` which is now `finished`/idle, not actively merging) and re-spawns the merge worker to honour the 10:50Z `## INSTRUCTION`'s Cycle "Next" — "Merge PR #94 first, then spawn the #91 implementation worker on the cycle after that."
+
+**Current State (re-verified at 11:50Z via `gh` and the OH search API):**
+
+| Field | Value |
+|---|---|
+| PR #94 state | OPEN |
+| isDraft | false |
+| mergeable | MERGEABLE |
+| mergeStateStatus | CLEAN |
+| reviewDecision | "" (no CHANGES_REQUESTED) |
+| HEAD SHA | `3fc52920d3417ed89d2cb863fa38072b9e92e44c` (single commit, 2026-05-22 10:58:21Z) |
+| Manual test comment | 2026-05-22 11:26:53Z, postdates only commit → still valid |
+| `pr-review` bot review | COMMENTED 🟢 LOW (no CHANGES_REQUESTED) |
+| `pr-review` check | pass (4m33s) |
+| Inline `💬` threads | 0 unresolved, 0 total |
+| Docs | Valid — internal indexing only, no CLI/flag/env-var/output-format changes |
+
+- **Open PRs:** 1 — [PR #94](https://github.com/jpshackelford/ohtv/pull/94) (re-handed to merge worker `5a0e1a1`).
+- **Ready issues (9, all expanded):** `priority:medium`: #80, #81, #83, **#89** (now bound to #91 via `make_progress(...)` AC + #91 hard-dep — verified persisted on `main`), #90, **#91 (queued for Cycle +1)**, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** `4ec3a03` (this orchestrator cycle), `72cd62c` ("Inspect Skills and Plugins" — user-initiated, unrelated). No competing orchestrator cycle in flight.
+
+**Expansion slot:** Idle — full backlog is expanded; no `needs-info` / `needs-split` issues. The 11:19Z cycle already amended #89 with the `make_progress`-binding AC and #91 hard-dep (audit-trail comment: <https://github.com/jpshackelford/ohtv/issues/89#issuecomment-4543772191>), so there is no remaining text-only expansion work to consume the slot.
+
+**Auto-disable check:** Not applicable. This cycle is corrective + productive (re-spawned the merge worker), not "All quiet". The auto-disable rule only triggers after two consecutive `All quiet` entries.
+
+**Operational note (for future cycles):** When parsing the response of `POST /api/v1/app-conversations` to record a spawned worker's conversation id, always *poll `GET /app-conversations/search` for a conversation matching the request's `selected_repository` / `selected_branch` + creation timestamp within ~30 s* before logging the id. The response's top-level `id` is a job-tracking id, and `app_conversation_id` is `null` at POST time. Worklog entries should record the **conversation** id, not the job id — otherwise sibling cycles can be deceived by a nonexistent "active worker" (as happened here at 11:19Z → 11:21Z, costing ~30 min of PR-slot throughput).
+
+**Next check (~30 min):**
+
+- If `5a0e1a1` has merged PR #94 and pushed its own completion worklog entry → PR slot opens. Per the user's 10:50Z instruction's Cycle +1, spawn an **implementation worker for #91** (`make_progress` helper + migrate 11 call sites). Expansion slot stays idle.
+- If `5a0e1a1` is still running → log status, do nothing.
+- If `5a0e1a1` blocked on a state change (new commit, fresh CHANGES_REQUESTED, conflicts) → re-evaluate the PR state and dispatch the appropriate worker (review / re-test / re-merge).
+- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
