@@ -720,3 +720,75 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 18:18 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `3253836` | merge | PR [#96](https://github.com/jpshackelford/ohtv/pull/96) — `gen titles` (#89) | **NEW** (spawned 18:17Z, `execution_status: running`, `sandbox: RUNNING`) |
+
+**Spawned: Merge Worker (re-test passed 🟢 GREEN, PR slot was empty)**
+
+- PR: [#96 — `feat: add gen titles to auto-rename placeholder-titled cloud conversations (#89)`](https://github.com/jpshackelford/ohtv/pull/96)
+- Conversation: [`32538365`](https://app.all-hands.dev/conversations/32538365b36847dd800f4c095dc582b8) (`selected_repository=jpshackelford/ohtv`, `selected_branch=main`, `pr_number=[96]`, sandbox `7YgWx9vGRMv5wJeXpo87K`)
+- Start task: `56f7bc50` → `READY` on first 5s poll, `app_conversation_id=32538365b36847dd800f4c095dc582b8`. Verified `GET /app-conversations?ids=…` returns `execution_status: running`, `sandbox_status: RUNNING`.
+- Plugin loaded: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**Why merge — every decision-tree gate is satisfied:**
+
+| Gate | Required | Observed |
+|---|---|---|
+| PR state | OPEN, !draft, MERGEABLE/CLEAN | ✅ OPEN, isDraft=false, mergeable=MERGEABLE, mergeStateStatus=CLEAN |
+| Review decision | not CHANGES_REQUESTED | ✅ `""` (no formal request-for-changes); pr-review bot LOW |
+| CI | green | ✅ `gh pr checks 96` → "All checks were successful" (`PR Review by OpenHands/pr-review` ✓ 3m46s) |
+| Unresolved review threads | 0 | ✅ `reviewThreads.isResolved==false` → `[]` |
+| Docs | updated | ✅ commit `066ba27e` ("docs: document gen titles command in README") + `## Documentation updated` PR comment 16:26:54Z |
+| Manual test | 🟢 GREEN, current | ✅ Re-test round 1 comment at 18:03:20Z verdict `🟢 GREEN` on HEAD `5b1f33a2` — both round-0 🔴 blockers verified fixed |
+| New commits since re-test | 0 | ✅ HEAD still `5b1f33a2` (last commit 17:38:27Z, predates 18:03:20Z re-test) |
+
+**Re-test verdict highlights (full report on PR #96):** both blockers fixed end-to-end (not just unit tests):
+- **Blocker A — manifest writeback ID-normalization** verified via isolated repro: dashed-id input → both manifest and DB updated under normalized key; live summary shows `Manifest updated: 1/1`, dry-run shows `Manifest entries found: 3/3`; new `_WritebackResult` NamedTuple + `_preview_manifest_writeback()` helper; pre-existing test corrected to use normalized keys.
+- **Blocker B — `prompts show titles/default`** verified working; legacy flat names (`brief`, `objs/standard`) still resolve; unknown variants yield useful errors. Resolver lifted into shared `_resolve_prompt_ref()` for `show`/`reset` symmetry.
+- **Unit suite:** 1529 passed (+8 over the 1521 baseline). New tests cover normalization, partial-manifest yellow path, and the `prompts show` resolver.
+- **Docs:** unchanged since the 16:25Z docs-worker commit; review fixes were narrow CLI/prompts fixes that make the README example work as written — no docs spot-check needed (covered by the merge worker's first step as a sanity check anyway).
+
+**Prior worker disposition (sweep at 18:14–18:17Z):**
+
+- `8750de99` (re-testing, PR #96) — `execution_status: finished`, last update 18:03:50Z. Cleanly executed scope: one new manual-test comment (`## Manual Test Results — Re-test (round 1)`) appended at 18:03:20Z, verdict 🟢 GREEN, no code pushes, no thread/draft toggles. No scope violations.
+- `e009b928` (review round 1, PR #96) — finished 17:40:16Z; pushed `6969e959` + `5b1f33a2`, posted SHA-mapped reply. Not consuming a slot.
+- `5dc3a672` (initial testing, PR #96) — finished; round-0 report at 17:12:50Z preserved.
+- `dd70b780` (docs, PR #96) — finished; `066ba27e` + comment shipped.
+- `5106f489` (impl, PR #96) — finished.
+- All older conversations from earlier cycles — paused / finished, not consuming slots.
+- Network-wide `running` w/ `selected_repository=jpshackelford/ohtv`: just `32538365` (merge worker, just spawned) plus this orchestrator. No competing PR-slot worker.
+
+**PR slot:** Now occupied by `32538365` (merge worker on PR #96).
+**Expansion slot:** Idle — `gh issue list --jq '[.[] | select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)] | length'` → 0. Zero issues need expansion. All open ready issues already have priority labels. Nothing to expand or re-prioritize.
+
+**Current State (verified 18:14–18:17Z):**
+
+- **Open PRs:** 1 — PR #96 (READY/MERGEABLE/CLEAN, head `5b1f33a2`, re-test 🟢 GREEN, being merged).
+- **Ready issues (7 remaining post-merge, all expanded):** `priority:medium`: #80, #81, #83, #90, #92; `priority:low`: #82, #87. (Issue #89 will close on merge via `Closes #89`.)
+- **In-flight:** PR #96 → merge worker.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+
+**Sync note:** `ohtv sync --since … --quiet` returned cleanly (exit 0) using `OPENHANDS_API_KEY`. Cloud auth path stable.
+
+**Housekeeping:** WORKLOG.md was 722 lines pre-cycle; this entry pushes it past 780. The 17:49Z entry's "truncation candidate next cycle: archive entries ≤12:46Z" is still valid — the PR #95 impl/test/review/merge chain (12:21Z–12:46Z) has exited the 6h productive-work window. Deferred this cycle because spawning the merge worker was the urgent action; next orchestrator cycle (post-merge) should run `/truncate-worklog` before logging.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-quiet-period counter remains at 0.
+
+**Next check (~30 min):**
+
+- If `32538365` is `finished` AND PR #96 `state: MERGED` AND issue #89 `state: CLOSED` → 🎉 #89 done. PR slot opens. Next action: spawn **implementation worker** for the highest-priority remaining ready issue. With 5 `priority:medium` issues (#80, #81, #83, #90, #92) and 2 `priority:low` (#82, #87), need to run `/assess-priority` (or rely on issue-number tiebreak: oldest first → **#80** "Add GitHub API LOC fetching command"). Confirm priority order via the assess-priority skill before spawning.
+- If `32538365` is `finished` but PR is still OPEN (merge failed / conflict surfaced / CI regressed) → investigate the conversation events and any new PR comments; likely re-spawn merge with adjusted scope, or escalate via `## INSTRUCTION:` if a human decision is needed.
+- If `32538365` is still `running` → log status, do nothing.
+- If new commits appeared on the PR branch after spawn (someone else pushed) → treat as a state change: invalidate the re-test, post a finding comment, do NOT merge. Likely re-spawn re-test worker.
+- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO next cycle:** archive entries ≤12:46Z (PR #95 impl/test/review/merge chain) once the post-merge spawn is logged, to keep the file under ~600 lines.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
