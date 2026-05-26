@@ -165,6 +165,14 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - **Direct DB write**: `ConversationStore.update_metadata(conv_id, *, title, labels)` writes only the `title` and `labels` columns; uses a sentinel to distinguish "leave unchanged" from "clear" and normalizes empty-dict labels to NULL (matching `parse_conversation_info`).
     - **#87 / #89 follow-ups**: This is the foundational metadata-refresh path. Issue #87 extends the manifest to cache `selected_repository`/`selected_branch`/`created_at` and widens `ConversationStore.update_metadata`. Issue #89's `gen titles` command will PATCH back to the cloud API and then reuse this same write path.
 
+28. **Reports module (`ohtv.reports`, Issue #81)**: The `report` Click group hosts read-only aggregate reports built on top of `~/.ohtv/index.db`. Each report is split into a pure-Python module (no Click imports) plus a thin CLI wrapper in `cli.py`, so downstream consumers (e.g. issue #82 charting) can import the row-shaping function directly.
+    - **First report**: `report velocity` joins `change_refs` × `conversation_contributions` × `conversation_human_input` and buckets by ISO week.
+    - **ISO week rule**: SQLite's `strftime('%W', ...)` is GNU/POSIX, not ISO 8601. The SQL fetches per-`change_ref` rows; Python computes the bucket key with `datetime.isocalendar()` and formats `f"{year}-W{week:02d}"`. Regression-tested via `test_iso_week_boundary_2024_12_30` (2024-12-30 → `2025-W01`, not `2024-W53`).
+    - **DISTINCT (change_ref, conv) sub-select**: One conversation contributing as `created` + `pushed` + `merged` to the same PR would otherwise triple-count its human words. The query collapses `conversation_contributions` to DISTINCT `(change_ref_id, conversation_id)` pairs before joining `conversation_human_input`.
+    - **`initial_prompt_source` policy**: `human` and `unknown` both include the initial prompt + followups; `automation` excludes the initial prompt (and the implicit `+1` initial message). `unknown` is the optimistic default until issue #83 lands proper classification.
+    - **LOC NULL handling**: All-NULL bucket → `-` (table) / empty (CSV). Mixed → sum knowns + `partial_loc=True` (surfaced by `--verbose`). Words/LOC denominator zero → `-` / empty.
+    - **Reusable surface**: `ohtv.reports.velocity.aggregate_velocity(conn=..., since=..., until=..., repo=..., include_empty=...)` returns a `VelocityReport(rows, totals, metadata)` and is the entry point that issue #82 should consume.
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input
