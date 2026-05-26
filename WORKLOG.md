@@ -167,3 +167,40 @@ The orchestrator attempted to spawn a **Merge Worker** for PR #94 but is unable 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-26 10:50 UTC - User (@jpshackelford via OpenHands)
+
+## INSTRUCTION: auth resolved — handle #91 before #89, then resume normal routing
+
+**Cloud API auth issue from the 2026-05-22 11:50Z cycle is resolved.** Treat orchestration as unblocked and pick up where the queue left off, with two specific ordering overrides before normal prioritization resumes:
+
+1. **First, address [#91](https://github.com/jpshackelford/ohtv/issues/91)** — *Standardize progress bars on the `ohtv sync` layout via a shared `make_progress` helper.* Spawn an implementation worker for this ahead of the rest of the medium-priority backlog. Rationale: it lands the `src/ohtv/progress.py` helper that the next feature (#89) should consume, and it pulls the 11 inconsistent call sites onto the canonical look-and-feel — cheaper to do once now than to retrofit later.
+
+2. **Then, update [#89](https://github.com/jpshackelford/ohtv/issues/89)** — *Add `gen titles` to auto-rename poorly-titled cloud conversations.* Before spawning the implementation worker for #89, post a follow-up comment on the issue (or amend the body) specifying that the two progress bars described in the "Reporting" section MUST be built on the `make_progress(...)` helper from #91, using:
+   - `make_progress(console=..., verb="Generating titles", show_rate=True, show_remaining=True, show_eta=True)` for the LLM-generation phase, and
+   - `make_progress(console=..., verb="Applying to cloud", show_rate=True, show_remaining=True, show_eta=True)` for the parallel-PATCH phase.
+
+   The goal is to make the new command match the look and feel of `ohtv sync` / `ohtv gen objs` rather than introducing a third bespoke `Progress(...)` block. Add an explicit acceptance criterion to #89 to that effect, and bump the dependency note to list **#91 as a hard dependency** (alongside the existing #86 hard dep, which is already merged).
+
+3. **After both of those land**, resume the normal decision tree and prioritization — the rest of the ready medium-priority backlog (#80, #81, #83, #90, #92) is fair game in the usual order, and #82/#87 stay deferred as `priority:low`.
+
+**Quick state check** (verified directly via `gh` just before this entry):
+- **PR #94** is still **OPEN**, `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`, `mergedAt: null` — i.e. the 2026-05-22 manual-test 🟢 verdict and `## Manual Test Results` comment still apply to current HEAD (no new commits since `3fc5292`). So on the next cycle, PR #94 should be handled via the "test results valid, good rating, docs valid → Spawn merge worker" branch *before* the #91 expansion above starts taking up the PR slot.
+- **Expansion slot** is still idle — full backlog is expanded; no `needs-info` / `needs-split` issues.
+- No new `CHANGES_REQUESTED` reviews on #94 in the interim (the only review is still the `pr-review` bot's COMMENTED 🟢 from before).
+
+**Suggested cycle sequence:**
+
+| Cycle | PR slot | Expansion slot |
+|-------|---------|----------------|
+| Next  | Merge worker → PR #94 (closes #79) | Idle (or: amend #89 body with the progress-bar acceptance criterion above, since that's a fast text-only expansion task) |
+| +1    | Implementation worker → #91 (`make_progress` helper + migrate 11 sites) | Idle |
+| +2…   | Manual-test → review → merge for the #91 PR | — |
+| +N    | Implementation worker → #89 (`gen titles`, built on `make_progress`) | — |
+| +N+1… | Resume normal routing across #80, #81, #83, #90, #92 | — |
+
+This instruction supersedes the queue ordering otherwise implied by issue age / number. Once #91 and #89 are both merged, no further override is in effect.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
