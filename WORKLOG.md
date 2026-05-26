@@ -813,3 +813,11 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-05-26T19:23Z — PR #97 (#80 fetch-loc) — README updated
+
+Documentation updated for `ohtv fetch-loc`: new command + options + GITHUB_TOKEN requirement + behavioral notes + examples. CI green (no docs-triggering workflows on the repo; bot review check from the previous head is still ✓ and the PR is MERGEABLE). PR ready for testing worker.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
