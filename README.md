@@ -41,6 +41,9 @@ ohtv sync
 # Build embeddings for search (requires LLM_API_KEY)
 ohtv db embed
 
+# Backfill PR/push LOC from GitHub (requires GITHUB_TOKEN)
+GITHUB_TOKEN=$(gh auth token) ohtv fetch-loc
+
 # Search conversations semantically
 ohtv search "fix authentication bugs"
 
@@ -1192,6 +1195,58 @@ ohtv db embed --yes
 
 ---
 
+### `ohtv fetch-loc` - Backfill PR/Push LOC from GitHub
+
+Reads pending `change_refs` rows produced by `db process contributions` (PR creations, PR merges, and direct pushes) and calls the GitHub REST API to populate `lines_added`, `lines_removed`, `files_changed`, `merged_at`, and `status`. This is the network-bound, cached, idempotent backfill that powers velocity and human-words-per-LOC reports.
+
+Requires a `GITHUB_TOKEN` (a read-only PAT or the output of `gh auth token`) on non-dry-run invocations. The token is read from the environment and is never logged or printed.
+
+`fetch-loc` slots in after the indexing pipeline once the `actions` and `contributions` stages have populated `change_refs`:
+
+```
+sync → db scan → db process all → fetch-loc → db embed
+```
+
+```bash
+# Preview which rows would be fetched (no token required, no HTTP, no DB writes)
+ohtv fetch-loc --dry-run
+
+# Real run — populate LOC for every pending change_ref across all repos
+GITHUB_TOKEN=$(gh auth token) ohtv fetch-loc
+
+# Restrict to a single repo (same FQN-aware matcher as `list` / `refs`)
+GITHUB_TOKEN=$(gh auth token) ohtv fetch-loc --repo myorg/myrepo
+
+# Re-fetch rows that are already populated (e.g. after a schema fix)
+GITHUB_TOKEN=$(gh auth token) ohtv fetch-loc --repo myorg/myrepo --force
+
+# Cap work per invocation (useful for first-time backfills on large indexes)
+GITHUB_TOKEN=$(gh auth token) ohtv fetch-loc --limit 50
+
+# Quiet mode for cron jobs (no progress bar, no summary)
+GITHUB_TOKEN=$(gh auth token) ohtv fetch-loc --quiet
+```
+
+**Options:**
+| Flag | Description |
+|------|-------------|
+| `--repo TEXT` | Restrict to one repo (URL, `owner/repo`, or short name — same matcher as `list` / `refs`) |
+| `--force` | Re-fetch rows even if `lines_added` is already populated |
+| `--dry-run` | Show what would be fetched without making API calls or DB writes |
+| `--limit N` | Cap rows processed this run (default: unlimited) |
+| `-q, --quiet` | Minimal output (no progress bar, no end-of-run summary) |
+| `-v, --verbose` | Show debug output |
+
+**Behavioral notes:**
+- **Idempotent by default.** Rows where `lines_added` and `fetched_at` are both populated are skipped on subsequent runs. Use `--force` to override.
+- **Open-PR cache window.** Rows with `status='open'` are re-fetched after a 1 h cache window so they can transition to `merged` or `closed`. Open and closed-unmerged PRs update `status` only — no LOC numbers are written.
+- **Rate-limit aware.** Honors `Retry-After`, falls back to `X-RateLimit-Reset`, then exponential backoff + jitter capped at 60 s. Warns when `X-RateLimit-Remaining < 100`.
+- **Graceful per-row errors.** A 401, 404, or 5xx on a single row marks that row as "tried" (`fetched_at = now()`) and the run continues. The command only exits non-zero when *every* attempt failed.
+- **Non-GitHub repos skipped.** `change_refs` whose canonical URL points at GitLab / Bitbucket / etc. are logged and skipped — only GitHub is supported in v1.
+- **Missing token.** On a non-dry-run, if `GITHUB_TOKEN` is unset the command exits non-zero with a pointer to `gh auth token`. The token value is never written to logs.
+
+---
+
 ### `ohtv search` - Semantic Search
 
 Searches conversations using embedding-based semantic search or keyword matching. Finds conversations by concept/intent rather than exact matches.
@@ -1421,6 +1476,7 @@ Investigation mode is useful for:
 | `LLM_BASE_URL` | Custom LLM base URL | Provider default |
 | `LLM_TIMEOUT` | LLM request timeout in seconds | `300` |
 | `EMBEDDING_MODEL` | Model for embeddings (`db embed`, `search`) | `openai/text-embedding-3-small` |
+| `GITHUB_TOKEN` | GitHub PAT (read-only is fine) or `gh auth token` output | Required for `fetch-loc` (non-dry-run) |
 
 ## Data Directories
 
