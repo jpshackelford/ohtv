@@ -722,3 +722,24 @@ Tie-breaking rules applied: "Prefer issues that unblock others" → #80 and #83 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-05-26T19:10Z — Issue #80 (`ohtv fetch-loc`) — PR #97 opened (READY)
+
+**Branch:** `feat/fetch-loc-80` → PR [#97](https://github.com/jpshackelford/ohtv/pull/97) (ready for review)
+
+**What landed:**
+
+- New top-level command `ohtv fetch-loc` — backfills `change_refs.lines_added/lines_removed/files_changed/merged_at/status` from GitHub REST API (`/pulls/{n}` for `change_type='pr'`, `/compare/{base}...{head}` for `change_type='direct_push'`). Idempotent by default, `--force` re-fetches, `--dry-run` makes zero HTTP calls / zero DB writes.
+- New modules `src/ohtv/github_api.py` (thin `httpx.Client` wrapper + rate-limit handling) and `src/ohtv/fetch_loc.py` (pure-Python orchestrator).
+- Progress bar via `make_progress(...)` — passes `test_progress_lint.py`.
+- **One small schema migration (#017):** widens `change_refs.status` CHECK to include `'open'` (required by AC #11 and the cache predicate; PR #76 missed it). Uses the canonical create-new / copy / drop / rename pattern so FKs in `conversation_contributions` are not disturbed. Called out explicitly in the PR body for reviewer scrutiny.
+
+**Tests:** 48 new (1529 → 1577 total, all passing). HTTP mocked via `pytest-httpx` at the boundary (no production-code mocks). Coverage on new modules: `github_api.py` 82%, `fetch_loc.py` 86% — both above AC #13's 80% bar. All 13 ACs mapped to specific tests in the PR body.
+
+**Out of scope (deferred):** concurrency, GitLab / Bitbucket support, velocity report (#81), re-classifying PRs as direct_push when PR records are deleted.
+
+**Next orchestrator action:** with PR #97 marked ready, the `pr-review` workflow will run. If green and the docs require an update (new top-level command → `ohtv fetch-loc` likely belongs in README's command reference table), spawn a **docs worker** before the testing worker.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
