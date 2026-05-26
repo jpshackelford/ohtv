@@ -13,201 +13,9 @@
 - **62 new tests** (45 unit + 9 integration-style + 7 cloud-client); full suite green: **1521 passed**.
 
 Acceptance criteria from #89 all satisfied. Out-of-scope follow-ups (#87 column-set widening) explicitly NOT touched.
-### 2026-05-26 11:52 UTC - Orchestrator
-
-**Active Workers:**
-
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `5a0e1a1` | merge | PR #94 (#79) | **NEW** (spawned 11:51Z, gui-triggered, bound to `jpshackelford/ohtv@main`) |
-
-**Spawned: Merge Worker (re-spawn after botched race-detection from 11:21Z cycle)**
-
-- PR: [#94 — feat(contributions): detect direct pushes to main/master (#79)](https://github.com/jpshackelford/ohtv/pull/94)
-- Conversation: [`5a0e1a1`](https://app.all-hands.dev/conversations/5a0e1a13fffc4c50b94b4e06746f8838) (`selected_repository=jpshackelford/ohtv`, `selected_branch=main`, `status=idle → working`, sandbox `RUNNING`)
-- Spawn API: `POST /api/v1/app-conversations` returned HTTP 200, `status: WORKING`. The job-tracking id in the response (`e3e7297…`) is **not** the conversation id — the actual app conversation `5a0e1a1…` appeared in `GET /app-conversations/search` ~8 s later, with `selected_repository` and `selected_branch` both matching my request payload, confirming linkage.
-
-**Why a fresh spawn was needed:**
-
-The 11:21 UTC cycle's "duplicate-spawn race detected" assessment was wrong, and as a result PR #94 has been sitting unmerged for ~30 min while the orchestrator thought a merge was in progress. Concretely:
-
-1. The 11:19Z `0b45b97` worklog entry claimed it spawned merge worker `3f5aacd400e542a6bf96032cd7d275e1`. **That conversation does not exist** in `GET /api/v1/app-conversations/search?limit=100` — not on the first page (recent), not anywhere in the user's reachable list. Either the prior cycle hallucinated the id, or the POST returned a job-id it mistook for a conversation-id (same trap I almost fell into above — the POST response gives `id` = job id, with `app_conversation_id: null` until the conversation actually materializes).
-2. Trusting that nonexistent worker, the 11:21Z cycle aborted `6b3c4c9` — the *only* real merge worker in flight — via `POST /app-conversations/{id}/send-message`. `6b3c4c9` complied: it posted a single PR comment ("Aborted — duplicate merge worker (conv `6b3c4c9`) yielding to `3f5aacd`.") at 11:22:36Z and went `PAUSED` (`execution_status=finished` now). It did **not** merge.
-3. PR #94 has had zero meaningful activity since: no new commits (HEAD still `3fc52920…`), no new reviews, no merge. `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`, `reviewDecision: ""`, 0 unresolved inline threads, `pr-review` check `pass`, manual test still 🟢 valid.
-
-So this cycle treats the PR-slot as effectively empty (the only "running" PR-related conv from the 11:19Z window is `6b3c4c9` which is now `finished`/idle, not actively merging) and re-spawns the merge worker to honour the 10:50Z `## INSTRUCTION`'s Cycle "Next" — "Merge PR #94 first, then spawn the #91 implementation worker on the cycle after that."
-
-**Current State (re-verified at 11:50Z via `gh` and the OH search API):**
-
-| Field | Value |
-|---|---|
-| PR #94 state | OPEN |
-| isDraft | false |
-| mergeable | MERGEABLE |
-| mergeStateStatus | CLEAN |
-| reviewDecision | "" (no CHANGES_REQUESTED) |
-| HEAD SHA | `3fc52920d3417ed89d2cb863fa38072b9e92e44c` (single commit, 2026-05-22 10:58:21Z) |
-| Manual test comment | 2026-05-22 11:26:53Z, postdates only commit → still valid |
-| `pr-review` bot review | COMMENTED 🟢 LOW (no CHANGES_REQUESTED) |
-| `pr-review` check | pass (4m33s) |
-| Inline `💬` threads | 0 unresolved, 0 total |
-| Docs | Valid — internal indexing only, no CLI/flag/env-var/output-format changes |
-
-- **Open PRs:** 1 — [PR #94](https://github.com/jpshackelford/ohtv/pull/94) (re-handed to merge worker `5a0e1a1`).
-- **Ready issues (9, all expanded):** `priority:medium`: #80, #81, #83, **#89** (now bound to #91 via `make_progress(...)` AC + #91 hard-dep — verified persisted on `main`), #90, **#91 (queued for Cycle +1)**, #92; `priority:low`: #82, #87.
-- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
-- **Other running OH conversations:** `4ec3a03` (this orchestrator cycle), `72cd62c` ("Inspect Skills and Plugins" — user-initiated, unrelated). No competing orchestrator cycle in flight.
-
-**Expansion slot:** Idle — full backlog is expanded; no `needs-info` / `needs-split` issues. The 11:19Z cycle already amended #89 with the `make_progress`-binding AC and #91 hard-dep (audit-trail comment: <https://github.com/jpshackelford/ohtv/issues/89#issuecomment-4543772191>), so there is no remaining text-only expansion work to consume the slot.
-
-**Auto-disable check:** Not applicable. This cycle is corrective + productive (re-spawned the merge worker), not "All quiet". The auto-disable rule only triggers after two consecutive `All quiet` entries.
-
-**Operational note (for future cycles):** When parsing the response of `POST /api/v1/app-conversations` to record a spawned worker's conversation id, always *poll `GET /app-conversations/search` for a conversation matching the request's `selected_repository` / `selected_branch` + creation timestamp within ~30 s* before logging the id. The response's top-level `id` is a job-tracking id, and `app_conversation_id` is `null` at POST time. Worklog entries should record the **conversation** id, not the job id — otherwise sibling cycles can be deceived by a nonexistent "active worker" (as happened here at 11:19Z → 11:21Z, costing ~30 min of PR-slot throughput).
-
-**Next check (~30 min):**
-
-- If `5a0e1a1` has merged PR #94 and pushed its own completion worklog entry → PR slot opens. Per the user's 10:50Z instruction's Cycle +1, spawn an **implementation worker for #91** (`make_progress` helper + migrate 11 call sites). Expansion slot stays idle.
-- If `5a0e1a1` is still running → log status, do nothing.
-- If `5a0e1a1` blocked on a state change (new commit, fresh CHANGES_REQUESTED, conflicts) → re-evaluate the PR state and dispatch the appropriate worker (review / re-test / re-merge).
-- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
 
-### 2026-05-26 12:22 UTC - Merge Worker
-
-**Worker:** `e10e070` (merge)
-
-✅ **PR #94 merged** — `feat(contributions): detect direct pushes to main/master (#79)`
-
-- Merge SHA: [`03657ed`](https://github.com/jpshackelford/ohtv/commit/03657edb152a45ee0e476af73de37c93f6fc2d4c)
-- Squash-merged at 2026-05-26T12:22:05Z
-- HEAD prior to merge: `3fc5292` (single commit, all CI green, 0 unresolved threads, manual test 🟢)
-- Closes #79
-
-**Unblocks:** next orchestrator cycle should spawn the implementation worker for issue #91 (per human INSTRUCTION on 2026-05-26 10:50 UTC).
-
----
-
-### 2026-05-26 12:48 UTC - Orchestrator
-
-**Active Workers:**
-
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `a119ddf` | implementation | Issue #91 - `make_progress` helper | **NEW** (spawned 12:48Z, status `idle → working`) |
-
-**Spawned: Implementation Worker (per 10:50Z `## INSTRUCTION` Cycle "Next")**
-
-- Issue: [#91 — Standardize progress bars on the `ohtv sync` layout via a shared `make_progress` helper](https://github.com/jpshackelford/ohtv/issues/91) (`priority:medium`, `ready`)
-- Conversation: [`a119ddf`](https://app.all-hands.dev/conversations/a119ddf6b7cd49b588cef925ce2d6305) (`selected_repository=jpshackelford/ohtv`, `selected_branch=main`)
-- Spawn API: `POST /api/v1/app-conversations` → HTTP 200, job-id `f55d39a2…`. Polled `GET /app-conversations/search` ~15 s later and matched a fresh conversation with the correct `selected_repository` / `selected_branch` and `created_at=2026-05-26T12:48:25Z`. Recording the **conversation** id (`a119ddf6…`), not the job id — per the operational note from the 11:52Z cycle.
-- Worker tasked with: create `src/ohtv/progress.py` (helper using `{task.description}` column per expansion edge-case #1); optionally consolidate `format_remaining` into `parallel.py`; migrate all 11 audit-table call sites (cli.py 1144, 1451, 6503, 6568, 6762, 6910, 7077, 7249, 8034, 8645 + `db/maintenance.py:547`); surface live `$cost` on both embed paths; add unit tests + byte-identical sync snapshot + the single-import lint check; open a DRAFT PR with `Fixes #91`; promote to ready when CI is green; append a brief completion entry to `WORKLOG.md` on main using the rebase-safe pattern.
-
-**PR #94 merge confirmation:** ✅ Merged 12:22:05Z as squash `03657ed` by merge worker `e10e070` (commit on main from the merge worker's own WORKLOG entry). PR slot is empty as of this cycle. `gh pr list --repo jpshackelford/ohtv --state open` returns `[]`, confirming no concurrent PR work.
-
-**Why #91 next (not #89 or by-priority-order):** The 10:50Z `## INSTRUCTION` from @jpshackelford ordered "handle #91 before #89". #89's body was amended in the 11:19Z cycle to add `#91` as a *hard* dependency (the `make_progress(...)` AC binds #89 to the helper this PR introduces) — so #89 cannot start until #91 lands. After #91 merges and #94's follow-ups are clear, prioritization resumes from the `priority:medium` queue (#80, #81, #83, #89, #90, #92).
-
-**Current State (verified 12:47Z):**
-
-- **Open PRs:** 0 (#94 merged at 12:22Z).
-- **Ready issues (9, all expanded):** `priority:medium`: #80, #81, #83, #89 *(blocked on #91)*, #90, **#91 (in progress as of this cycle)**, #92; `priority:low`: #82, #87.
-- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
-- **Other OH conversations:** `72cd62c0` (user-initiated "Inspect Skills and Plugins", unrelated). No competing orchestrator cycle in flight.
-
-**Expansion slot:** Idle — full backlog is expanded; no `needs-info` / `needs-split` issues.
-
-**Housekeeping:** WORKLOG.md was 392 lines pre-cycle; archived the four 2026-05-22 entries (lines 3–170) to a new `WORKLOG_ARCHIVE_2026-05-26.md`. Active worklog now starts at the 10:50Z `## INSTRUCTION` entry. The 11:19/11:21/11:52Z race-detection cycle entries are retained for the operational lesson they document (job-id vs conversation-id parsing) until next cycle's productive activity pushes them past the 6-hour window.
-
-**Auto-disable check:** Not applicable — this cycle is productive (spawned a worker + archived old entries).
-
-**Next check (~30 min):**
-
-- If `a119ddf` has opened a PR for #91 and pushed its own worklog entry → PR slot is occupied; expansion slot stays idle. Log status, do nothing.
-- If `a119ddf` is still running → log status, do nothing.
-- If `a119ddf` has finished and the PR is in `ready` state with no manual test results → spawn docs/test/review per the workflow sequence. (No README updates are needed for this PR per the expansion comment — but the docs detector should confirm that against the actual diff.)
-- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-26 13:23 UTC - Orchestrator
-
-**Active Workers:**
-
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `bba7f97` | implementation | Issue #91 — `make_progress` helper | **NEW** (spawned 13:23:08Z, execution_status `running` at 13:23:37Z) |
-
-**Re-spawned: Implementation Worker for #91 (previous spawn stalled at 0 events)**
-
-- Issue: [#91 — Standardize progress bars on the `ohtv sync` layout via a shared `make_progress` helper](https://github.com/jpshackelford/ohtv/issues/91) (`priority:medium`, `ready`)
-- Conversation: [`bba7f97`](https://app.all-hands.dev/conversations/bba7f97a5ef141989083943b94dca1d0) (`selected_repository=jpshackelford/ohtv`)
-- Spawn API: `POST /api/v1/app-conversations` with `initial_message.content[0].text` + `run: true` → start-task `5b3affd9…` progressed `WORKING → STARTING_CONVERSATION → READY` at 13:23:14Z, returning `app_conversation_id=bba7f97a5ef141989083943b94dca1d0`. Verified `GET /app-conversations?ids=…` shows `execution_status: running`, `sandbox_status: RUNNING` at 13:23:37Z.
-
-**Why re-spawned:** The 12:48Z cycle recorded `a119ddf` as spawned for #91, but the fetched events show that conversation has **`execution_status: idle`, 0 events** — i.e., the conversation record was created but the agent never received an initial user message, so it never started executing. Root cause is most likely that the prior `POST /app-conversations` body omitted `initial_message` (or set `run: false`). The agent has been idle for ~35 min consuming neither tokens nor wall-clock, but it has also produced zero progress on #91. Treating it as a failed spawn.
-
-**Operational lesson (extends 11:52Z note):** Past the job-id-vs-conversation-id pitfall, **always also verify `execution_status == "running"` via `GET /app-conversations?ids=<conv_id>` after the start-task hits `READY`** before logging a spawn as successful. A `READY` start-task only confirms the sandbox + repo + skills came up; the agent itself can still sit at `idle` if the POST body did not include a valid `initial_message`.
-
-**PR slot:** Now occupied by `bba7f97` (impl on #91).
-**Expansion slot:** Idle — full backlog is expanded; no `needs-info` / `needs-split` issues.
-
-**Current State (verified 13:23Z):**
-
-- **Open PRs:** 0.
-- **Ready issues (9, all expanded):** `priority:medium`: #80, #81, #83, #89 *(blocked on #91)*, #90, **#91 (in progress as of this cycle)**, #92; `priority:low`: #82, #87.
-- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
-- **Dead conversation `a119ddf6b7cd49b588cef925ce2d6305`:** Left untouched (it consumes no resources at `idle`; the API does not offer a stop endpoint for `idle` conversations in this orchestrator's skill toolkit). No worklog action required.
-
-**Auto-disable check:** Not applicable — this cycle is corrective + productive (re-spawned the stalled #91 impl worker).
-
-**Next check (~30 min):**
-
-- If `bba7f97` has opened a PR for #91 and pushed its own worklog entry → log status, do nothing (PR slot occupied).
-- If `bba7f97` is still `running` → log status, do nothing.
-- If `bba7f97` has finished with the PR in `ready` state, no manual test results, README unchanged → spawn **docs worker** first per the workflow sequence (test what's documented).
-- If `bba7f97` has finished with the PR in `ready` state and README *was* updated → spawn **testing worker**.
-- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-26 13:55 UTC - Implementation Worker (#91)
-
-**Completed: Implementation of [#91 — Standardize progress bars on the `ohtv sync` layout via a shared `make_progress` helper](https://github.com/jpshackelford/ohtv/issues/91)** → PR [#95](https://github.com/jpshackelford/ohtv/pull/95) (DRAFT → READY)
-
-**What landed:**
-- `src/ohtv/progress.py` — `make_progress(*, console, show_rate=True, show_remaining=True, show_eta=True, show_current=False, show_cost=False, transient=True)`. Default args reproduce the canonical `ohtv sync` 9-column layout byte-identically (verified by snapshot test).
-- `src/ohtv/parallel.py` — added `format_remaining(total, processed, failed=0)` next to `format_rate` per expansion note #2.
-- Migrated all **11 call sites**: cli.py x10 (sync canonical, sync `--update-metadata`, db scan, db process, db migrate-cache, db index-cache, db embed estimate, db embed, gen objs, gen run periods) + db/maintenance.py.
-- `db embed` now feeds live `cost=estimate_cost(actual_tokens, model)` into the bar on both sequential and parallel branches (`show_cost=True`). `gen objs` already had cost; converted to the helper.
-- Single-import lint guard (`tests/unit/test_progress_lint.py`) walks `src/ohtv/`, fails if anything outside `progress.py` imports from `rich.progress`.
-
-**Tests added: 35**
-- 24 in `test_progress.py` (column shape per flag, separator logic, cost/current positions, live updates, rendered snapshots).
-- 8 in `test_parallel.py::TestFormatRemaining` (all AC cases: > 0, blank at 0, errors, unknown total).
-- 1 lint guard.
-- 2 byte-identical sync snapshot regressions (`test_sync_progress_snapshot.py`) — rebuild the pre-migration 9-column layout, assert `make_progress()` produces identical rendered bytes at task state 68/200 + 24.5s elapsed.
-- Existing `test_embedding_progress.py` and `test_sync_embeddings.py` updated to assert the new helper-based pattern.
-
-**Full unit suite: 1411 passed.** No new lint errors in `cli.py`/`maintenance.py` (pre-existing counts unchanged).
-
-**Follow-up items noted in the PR reflection comment:**
-1. The local `_format_remaining` closures in `db embed` and `sync` are *not* swapped to `parallel.format_remaining` — they have a subtly different zero-state contract (`[dim]0[/dim] left` vs `""`). Mid-run output is identical, so byte-identical AC is met; a deliberate zero-state decision can remove the locals in a follow-up.
-2. `show_current` defaults to `False` so the canonical sync layout is unchanged; sites needing the current-item tail explicitly opt-in.
-3. `gen objs` parallel branch reads `processed_count + len(errors)` without holding the lock for the `remaining=` value — cosmetic only; bar advance is still 1-per-item.
-
-**Status:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `bba7f97` | implementation (#91) | PR #95 | **READY** (was DRAFT) |
-
-PR #95 is marked ready for review. The next cycle should pick it up via the standard review/docs/test workflow.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
 ### 2026-05-26 14:19 UTC - Orchestrator
 
 **Active Workers:**
@@ -830,3 +638,87 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
 
+
+### 2026-05-26 18:50 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `6a10472` | implementation | Issue #80 — `ohtv fetch-loc` (GitHub API LOC backfill) | **NEW** (spawned 18:50Z, `execution_status: running`, `sandbox: RUNNING`) |
+
+**Spawned: Implementation Worker for #80 (PR slot was empty post #96 merge; assess-priority run inline; #80 selected as highest-priority unblocked)**
+
+- Issue: [#80 — Add GitHub API LOC fetching command](https://github.com/jpshackelford/ohtv/issues/80) (`priority:medium`, `ready`, 13 ACs spec'd)
+- Conversation: [`6a10472a`](https://app.all-hands.dev/conversations/6a10472ace3847ca9e816f9623fedcfe) (`selected_repository=jpshackelford/ohtv`, `selected_branch=main`)
+- Start task: `125a6e53` → `READY` on first 6s poll → `app_conversation_id=6a10472ace3847ca9e816f9623fedcfe`. Verified `GET /app-conversations?ids=…` returns `execution_status: running`, `sandbox_status: RUNNING` (per the 13:23Z operational lesson — `READY` only confirms sandbox came up, not that the agent received the initial message).
+- Plugin loaded: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Model: `litellm_proxy/claude-opus-4-7`.
+
+**Why #80 — `/assess-priority` ran inline:**
+
+| Issue | Priority | Dependencies | Tiebreak | Verdict |
+|---|---|---|---|---|
+| **#80** LOC fetching | medium | none upstream; **unblocks #81** | oldest unblocked | ⬅️ **NEXT** |
+| #81 velocity report | medium | blocked by #80 AND #83 | — | DEFER until #80, #83 land |
+| #83 conversation classification | medium | none upstream; unblocks #81 | newer than #80 | second pick |
+| #90 `ohtv label` | medium | leverages #86/#89 cloud-PATCH | self-contained | independent track |
+| #92 weekly conversion CSV | medium | independent | self-contained | independent track |
+| #82 charting script | low | blocked by #81 | — | defer |
+| #87 manifest cache extension | low | extends #86 | self-contained | defer |
+
+Tie-breaking rules applied: "Prefer issues that unblock others" → #80 and #83 both unblock #81. "Prefer older issues" → #80 wins (smaller number). The prior 18:18Z orchestrator entry pre-identified the same choice. No priority labels needed reassignment.
+
+**Why decision-tree gates pass for spawning impl:**
+
+- ✅ **No open PRs:** `gh pr list --state open` → `[]`. PR #96 merged 18:22:34Z (squash `bc1052e7`); branch `feat/gen-titles-89` auto-deleted; issue #89 closed via `Closes #89`.
+- ✅ **No competing PR worker:** Network-wide `running` conversations w/ `selected_repository=jpshackelford/ohtv`: only the new `6a10472a` (this spawn). The only other `running` conversation network-wide is `990702fb` — this orchestrator cycle itself (no repo binding). All prior PR workers (`32538365` merge, `e009b928` review, `8750de99` re-test, `5dc3a672` test, `dd70b780` docs, `5106f489` impl, full PR #95 chain `ff08a0b1`/`857518e`/`c493bbf`/`bba7f97`, full PR #94 chain `e10e070*`/`6b3c4c9`/`3f5aacd`, dead `a119ddf6`) → paused, not consuming slots.
+- ✅ **#80 is well-expanded:** 13 explicit acceptance criteria, full CLI interface design, endpoint mappings per `change_type`, rate-limit handling rules, test boundary (`pytest-httpx`). No `needs-info` / `needs-split` ambiguity.
+- ✅ **Upstream deps satisfied:** #76 (schema with `change_refs.lines_added/lines_removed/files_changed/fetched_at/status/merged_at`) merged long ago. #78/#79 (PR / direct-push contribution detection) merged on `main` (#79 came in via PR #94 / `c594d92`). The command can be developed and unit-tested independently of #78/#79 — only reads `change_refs` rows.
+
+**Implementation worker scope (prompt highlights):**
+
+- Branch `feat/fetch-loc-80` from current `main` (`908b606` "chore(worklog): record PR #96 merge / #89 close").
+- New CLI subcommand `ohtv fetch-loc` (Click, top-level — sibling to `gen`/`db`/`refs`). Wire into `src/ohtv/cli.py`.
+- HTTP boundary in new module (e.g. `src/ohtv/github_api.py`) using `httpx.Client` so `pytest-httpx` can mock cleanly.
+- Two code paths by `change_type`: `'pr'` → `GET /repos/{owner}/{repo}/pulls/{pr_number}`; `'direct_push'` → `GET /repos/{owner}/{repo}/compare/{base}...{head}` (sum `files[].additions/deletions`).
+- Rate-limit aware (Retry-After, X-RateLimit-Remaining/Reset; warn < 100 remaining); idempotent default (skip rows with both `fetched_at` and `lines_added` populated unless `--force`); `--dry-run` zero HTTP + zero DB writes; `--repo` filter via FQN normalization from `src/ohtv/filters.py`.
+- **Progress bar MUST use `make_progress(...)` from `src/ohtv/progress.py`** (PR #95). Lint guard `tests/unit/test_progress_lint.py` will fail CI otherwise.
+- Auth: `GITHUB_TOKEN` env var; missing → non-zero exit + clear message; never log the token value.
+- Graceful errors: 404 / 401 / 5xx → log warning, set `fetched_at = now()` to mark "tried", continue; exit 0 unless EVERY request failed.
+- Non-GitHub repos skipped via `repositories.canonical_url` check; PR open/closed-unmerged → update `status` without LOC.
+- Tests (`pytest-httpx`, ≥80% coverage on new module): cover all 13 ACs from the issue body, including idempotency (assert zero HTTP calls on 2nd run), `--force` re-fetches, rate-limit Retry-After/429, 404/401/5xx graceful, integration smoke with in-memory SQLite seeded with `change_refs` rows.
+- Open as DRAFT PR titled `feat: add fetch-loc command to backfill LOC from GitHub API (#80)`; body MUST include `Closes #80`. Monitor CI green, then `gh pr ready <n>` to trigger the review bot. Append a brief completion entry to `WORKLOG.md` on main using rebase-safe pattern. Exit. Docs / testing / review / merge are separate orchestrator-spawned conversations.
+- Explicit DO-NOTs: don't compute LOC from local trajectory events (whole point is GitHub-as-source-of-truth); don't add a new progress style; don't widen schema (if columns missing, STOP and post finding instead of writing a migration); don't log `GITHUB_TOKEN`; don't run testing/review/merge inline.
+
+**PR slot:** Now occupied by `6a10472a` (impl on #80).
+**Expansion slot:** Idle — `gh issue list --jq '[.[] | select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)] | length'` → 0. Zero issues need expansion. All open `ready` issues already have priority labels. Nothing to expand or re-prioritize.
+
+**Current State (verified 18:45–18:50Z):**
+
+- **Open PRs:** 0 pre-spawn; `6a10472a` will open one for #80.
+- **Ready issues (7, all expanded):** `priority:medium`: **#80 (in-flight)**, #81, #83, #90, #92; `priority:low`: #82, #87.
+- **Closed in last cycle:** #89 (auto-closed by PR #96 merge at 18:22:34Z, squash `bc1052e7`).
+- **Needs expansion:** 0. **On hold:** #26 (`hold` label). **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations (non-ohtv):** none. Only `990702fb` (this orchestrator cycle, no repo). No competing orchestrator.
+
+**Sync note:** `ohtv sync --since … --quiet` returned cleanly (exit 0) using `OPENHANDS_API_KEY`. Cloud auth path stable.
+
+**Housekeeping (archive performed this cycle):** WORKLOG.md was 832 lines pre-cycle — well past the >300-line threshold. Archived lines 16–210 (the 11:52Z–13:55Z PR #94 merge + PR #95 implementation chain, both fully landed >5h ago and outside the 6-hour productive-work window) to `WORKLOG_ARCHIVE_2026-05-26.md` under a `## Restored archive: 2026-05-26 11:52Z – 13:55Z` header. The archive file grew from 327 → 527 lines; WORKLOG.md shrank to 637 lines pre-this-entry. Preserved: the prepended 16:00Z #89 impl-completion entry (still in-window) and the full 14:19Z–18:23Z PR #95-test/review/merge + PR #96 full chain (test/review/re-test/merge), which are still within the 6h productive-work window AND directly relevant to the just-completed #89 work.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min):**
+
+- If `6a10472a` is `running` → log status, do nothing. Implementation typically takes 20–60 min depending on test scaffolding (and #80 has 13 ACs so likely closer to 60 min).
+- If `6a10472a` is `finished` AND `gh pr list --state open` shows 1 PR → check whether it's DRAFT or READY:
+  - DRAFT with green CI → likely worker exited before promoting; spawn a small **finish-up worker** to flip to ready.
+  - READY with green CI, **README not updated**, command introduces new top-level CLI → spawn **docs worker** first (new `ohtv fetch-loc` subcommand is on the docs-required list).
+  - READY with green CI, docs updated → spawn **testing worker**.
+- If `6a10472a` is `finished` AND no PR was opened → investigate the conversation events; likely the worker was blocked. May need a `## INSTRUCTION:` from the human.
+- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO next cycle:** archive the 14:19Z–15:21Z PR #95 test/review/merge spawn entries once they exit the 6h window (~20:19Z onwards). Today's 15:50Z+ PR #96 chain stays for at least the next 2 cycles.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
