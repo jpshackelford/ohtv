@@ -807,3 +807,88 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 20:51 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `6659ea4` | re-testing | PR #97 — `fetch-loc` after refactor (review round 1) | **NEW** (spawned 20:50:41Z, `execution_status=running`, `sandbox=RUNNING`) |
+
+**Spawned: Re-Testing Worker for PR #97 (review worker `e6daad01` finished cleanly; refactor commit pushed; thread resolved; bot re-reviewed positively — but source file churned 153 LOC, so the 19:58Z test results are formally outdated)**
+
+- PR: [#97 — feat: add fetch-loc command to backfill LOC from GitHub API (#80)](https://github.com/jpshackelford/ohtv/pull/97) (`isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, head `4bc71162`, no CI workflows on branch by design).
+- Conversation: [`6659ea43`](https://app.all-hands.dev/conversations/6659ea43398149ab9761e368b59524e4) (`selected_repository=jpshackelford/ohtv`, `pr_number=[97]`).
+- Start task: `394b32a3` → polled once after 10s → `READY` → `app_conversation_id=6659ea43398149ab9761e368b59524e4`. Verified `GET /app-conversations?ids=…`: `execution_status=running`, `sandbox_status=RUNNING` (satisfies the 13:23Z operational lesson — `READY` alone only confirms sandbox came up).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Model: default (`litellm_proxy/claude-opus-4-7` for the OH cloud agent; testing worker is observe-only so model choice is secondary).
+
+**Why re-test (decision-tree gates):**
+
+- ✅ **Review worker `e6daad01` finished cleanly:** Cloud API → `execution_status=finished`, `updated_at=2026-05-26T20:26:12Z`. Did its scope:
+  - Refactor commit `4bc71162` pushed at 20:23:44Z: `refactor(fetch-loc): extract _process_pr_row and _process_push_row to reduce nesting (#97)` — touches only `src/ohtv/fetch_loc.py` (+104/-49, 153 LOC churn).
+  - Round-summary comment `## Review Round 1 — Addressed pr-review bot feedback` posted at 20:26:05Z (jpshackelford / OpenHands agent).
+  - Review thread `PRRT_kwDOR9seq86E5m8-` (the nesting suggestion at `src/ohtv/fetch_loc.py:546`) → `isResolved=true`.
+  - PR description Evidence section added (visible in jpshackelford's `COMMENTED` review at 20:25:46Z that opened the round).
+- ✅ **Bot re-reviewed positively:** New github-actions review at 20:30:27Z: `state=COMMENTED`, body opens with 🟢 **"Good taste — Clean, pragmatic implementation with excellent engineering discipline. Recommended for approval."** No new unresolved threads created. The static reviewer is satisfied.
+- ✅ **No CI to gate on:** `gh pr view 97 --json statusCheckRollup` → empty. No workflows configured on the branch by design (consistent with prior #95/#96 testing rounds on this repo).
+- ✅ **Manual test results from 19:58Z are formally outdated:** Refactor commit (20:23Z) modified `src/ohtv/fetch_loc.py` only. Per the orchestrate skill's re-test heuristics:
+  - "Source files changed (`.py` excluding `*_test.py`, `test_*.py`)" → YES (the production module the command name comes from).
+  - "More than 50 lines of non-test code changed" → YES (153 LOC churn). Both heuristics trigger.
+- ✅ **Per decision tree:** `"PR exists, ready, CI green, test results outdated → Spawn re-testing worker"`. Exact match. Skipping to merge would let an unverified refactor slip through despite the workflow's explicit rule.
+- ✅ **No competing PR worker:** Network-wide `running` conversations at 20:46Z: only `9bd0a1a6` (this orchestrator cycle, no repo binding) plus the just-spawned `6659ea43`. All prior PR-slot workers (`e6daad01` review, `ebc3363b` testing, `007863ee` docs, `6a10472a` impl) are PAUSED.
+- ✅ **No new `## INSTRUCTION:` in WORKLOG.md.** Step 1 of the orchestrate skill completed cleanly — only historical references to past instructions, all already acknowledged.
+
+**Re-testing worker scope (prompt highlights):**
+
+- Clone, checkout `feat/fetch-loc-80`, confirm head SHA `4bc7116`, `uv sync`.
+- **Full unit suite first** — `uv run pytest -x` must be **1577/1577** to match the 19:58Z baseline. Regression here is a blocker.
+- **Targeted blackbox** focused on the two new private helpers (the refactor's only externally-visible surface):
+  - **PR-row helper** — real run against PR #95 (merged, has LOC) and PR #97 itself (open, `status='open'` no LOC), 404 path on a deleted PR (`_mark_tried` still called).
+  - **Push-row helper** — verify direct_push branch still works (seed minimally if no row exists locally).
+  - **Loop-level invariants the helpers thread through** — `--dry-run` zero-HTTP, idempotent 2nd run, `--force`, `--repo` filter (positive + unknown-value), token leak check (`grep -F "$GITHUB_TOKEN"` over stdout/stderr/`~/.ohtv/logs/ohtv.log`).
+  - Progress callback gating (helpers preserve `on_progress(...)`) and counter accumulation (`processed/errors/still_open/closed_unmerged/skipped_unparseable`).
+- Spot-check the six README `fetch-loc` examples (the docs commit `79b2c6d2` already validated at the initial test; only verify the one or two that exercise the PR/push branches).
+- Post a **NEW** PR comment `## Manual Test Results — Re-test after Review Round 1` (do NOT edit the 19:58Z one); cite head SHA `4bc7116`; explicit rating ✅/🟡/❌; AI disclosure footer.
+- **EXIT after posting.** Do NOT continue to merge.
+
+**Explicit DO-NOTs encoded in prompt:**
+
+- Do NOT modify code or docs — testing is observe-only.
+- Do NOT edit the 19:58Z test report — post a new comment.
+- Do NOT re-run the full 13-AC matrix from scratch (refactor is narrow; only PR-row, push-row, and loop invariants need re-verification).
+- Do NOT block on missing CI checks — no workflows configured on this branch.
+- Do NOT touch WORKLOG.md (orchestrator owns it).
+- Do NOT mark approved, do NOT merge.
+
+**Refactor-evaluation note (why I trusted the static reviewer enough to skip a deeper test scope):** The diff is mechanical extraction — two contiguous `if`/`elif` branches of the main loop body became two private functions with the same arguments and a `(msg, new_status)` return tuple. The bot's 20:30Z follow-up review independently inspected the post-refactor file and rated it 🟢 "Good taste — Recommended for approval", with zero new threads. The 153-LOC churn count is dominated by indentation/refactor scaffolding, not behavioral change. Even so, the workflow's heuristic is binary (`>50 LOC of non-test code → re-test`), and I'm honoring it rather than overriding on judgment.
+
+**PR slot:** Now occupied by `6659ea43` (re-testing on PR #97).
+**Expansion slot:** Idle. `gh issue list --state open --json labels --jq '[.[]|select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]|length'` → 0. All 7 open issues are `ready`+priority-labeled or `hold`. Nothing to expand.
+
+**Current State (verified 20:46–20:51Z):**
+
+- **Open PRs:** [PR #97](https://github.com/jpshackelford/ohtv/pull/97) (`ready`, no-CI by config / MERGEABLE, docs landed, manual test ✅ Pass at 19:58Z, **refactor commit `4bc7116` at 20:23Z**, review thread resolved, bot 20:30Z 🟢 recommended for approval, re-test pending).
+- **Ready issues (7, all expanded):** `priority:medium`: #80 (in PR #97), #81, #83, #90, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** none competing — only `9bd0a1a6` (this orchestrator cycle, no repo binding) and the just-spawned `6659ea43`.
+
+**Sync note:** `ohtv sync --since … --quiet` succeeded (exit 0) under `OH_API_KEY=$OPENHANDS_API_KEY`. Cloud auth path stable.
+
+**Housekeeping:** WORKLOG.md was 809 lines pre-cycle (this entry pushes it past ~880). The skill's >300-line threshold is well exceeded, but the 6-hour productive-work preservation window (currently ~14:51Z–20:51Z) still captures every entry currently in the file — the oldest preserved entry is the 15:50Z orchestrator spawn of impl `5106f489` for #89 (exactly at 5h 01m old) plus the 16:00Z impl-worker completion log for #89 (4h 51m). Both are still inside the 6h boundary, so archiving would violate the rule. **Truncation deferred** — by the next orchestrator wake-up (~21:21Z if cron / ~21:51Z if natural rhythm), the 15:50Z + 16:00Z + 16:21Z (docs spawn) entries will all be safely past 6h and can be archived together (saving ~150 lines: lines 19–~165 of current WORKLOG.md → `WORKLOG_ARCHIVE_2026-05-26.md`).
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-consecutive-quiet-period counter remains at 0. Recent orchestrator entries (18:50Z, 19:19Z, 19:51Z, 20:21Z, this one) have all been spawn cycles.
+
+**Next check (~30 min, ~21:21Z):**
+
+- If `6659ea43` is `running` → log status, do nothing. Re-test is narrow (full pytest + ~6 targeted CLI exercises + 1 PR comment); typical 15–35 min.
+- If `6659ea43` is `finished` AND a `## Manual Test Results — Re-test after Review Round 1` comment appears with **good rating** (✅ Pass / 🟡 Pass with concerns) → spawn **merge worker**. The workflow gates after re-test point to merge; docs are still valid (no doc-impacting changes in the refactor), no further review-round-2 was triggered, and the bot's static re-review is already 🟢 "Recommended for approval".
+- If `6659ea43` is `finished` AND test report rates **❌ Fail** or surfaces blocking regressions → spawn another **review worker** (which will set PR back to draft and fix the regression).
+- If `6659ea43` is `finished` AND no re-test comment appeared → investigate the conversation events; possibly re-spawn with sharper scope.
+- If new commits land on `feat/fetch-loc-80` between now and next cycle (e.g., a bot left another inline thread and the human asked someone to address it) → re-evaluate the test-results-still-valid gate.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO:** Next cycle (~21:21Z+), archive lines 19–~165 (15:50Z spawn + 16:00Z impl completion + 16:21Z docs spawn entries for the now-merged PR #96) to `WORKLOG_ARCHIVE_2026-05-26.md`, saving ~150 lines while keeping the 16:50Z+ test/review/merge chain for #96 plus today's full PR #97 chain (18:50Z onwards) preserved.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
