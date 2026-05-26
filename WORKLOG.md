@@ -339,3 +339,59 @@ PR #95 is marked ready for review. The next cycle should pick it up via the stan
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 14:19 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c493bbf` | testing | PR #95 — `make_progress` helper (#91) | **NEW** (spawned 14:19:03Z, `execution_status: running` at 14:19:11Z) |
+
+**Spawned: Testing Worker (per workflow sequence — PR slot was empty, PR #95 is ready & CI green with no manual test results yet)**
+
+- PR: [#95 — feat: standardize progress bars via shared `make_progress` helper (#91)](https://github.com/jpshackelford/ohtv/pull/95)
+- Conversation: [`c493bbf6`](https://app.all-hands.dev/conversations/c493bbf6520d4a93b7dddd5ee092a545) (`selected_repository=jpshackelford/ohtv`, `pr_number=[95]`)
+- Spawn API: `POST /api/v1/app-conversations` → start-task `1a67300b…` reached `READY` on the first poll (~6s), returning `app_conversation_id=c493bbf6520d4a93b7dddd5ee092a545`. Verified `GET /app-conversations?ids=…` shows `execution_status: running`, `sandbox_status: RUNNING` at 14:19:11Z — both checks pass per the 13:23Z operational lesson (job-id-vs-conv-id + idle-status verification).
+
+**Why testing (not docs) for #95:** The PR diff touches only `src/ohtv/{progress.py,cli.py,db/maintenance.py,parallel.py}` + 6 test files — no README. This is a pure refactor (introduces `make_progress(...)` helper, migrates 11 call sites, adds `format_remaining`) with explicit byte-identical sync snapshot test proving zero behavioral change. The cosmetic addition of live `$cost` on `db embed` is on an existing bar, not a new flag. Per the workflow's "Do NOT require docs update if only: internal refactoring, no user-facing changes" branch, README is correctly omitted — so we skip the docs slot and go straight to testing.
+
+**Why testing despite the pr-review bot review:** The bot left a `COMMENTED` review with a single inline doc-clarity nit (verdict 🟡 Acceptable, risk 🟢 LOW, "Worth merging"). Per the workflow: "Review comments (💬 > 0) but NO manual test results → Spawn testing worker (docs first if missing)". Docs aren't needed, so we test next. The bot's inline nit will be addressed by the review worker on a later cycle if needed; for now it's not blocking and not in scope for the tester.
+
+**Testing worker scope (prompt highlights):**
+- `uv sync` + full unit suite (`uv run python -m pytest tests/unit -q`); target 1411 passed per impl-worker claim.
+- Exercise as many of the 11 migrated bar sites as possible: `ohtv sync --status`, `db scan`, `db process all`, `db status`, `db migrate-cache`, `db index-cache`, `db embed --estimate`, plus a small `gen run` invocation if LLM keys available.
+- Confirm `test_sync_progress_snapshot.py` passes locally (byte-identical canonical 9-column layout).
+- Confirm `test_progress_lint.py` catches a deliberate violation (add `from rich.progress import Progress` to a non-progress file, then revert).
+- Post a single `## Manual Test Results` PR comment with the AI-disclosure footer; do NOT push code, do NOT reply to the bot's inline thread, do NOT update WORKLOG.md. Exit when posted.
+
+**Prior worker disposition:**
+- `bba7f97` (implementation, #91) — finished 13:55Z; PR #95 went READY at 13:50Z. Sandbox confirmed `PAUSED` / `execution_status=None` in `app-conversations/search` (line 4 of the verified list); not occupying a slot.
+- `e10e0707` (merge, #94) — completed 12:22Z (merge SHA `03657ed`); paused.
+- `a119ddf6` (failed-spawn impl, #91) — still `idle` / paused / 0 events; not consuming resources. Left untouched per the 13:23Z note.
+
+**PR slot:** Now occupied by `c493bbf` (testing on PR #95).
+**Expansion slot:** Idle — full backlog is expanded; no `needs-info` / `needs-split` issues. Per the 10:50Z `## INSTRUCTION`, #89 stays parked until #91 (PR #95) lands.
+
+**Current State (verified 14:18–14:19Z):**
+
+- **Open PRs:** 1 — PR #95 (READY, `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`, `reviewDecision: ""`, both `pr-review` checks COMPLETED/SUCCESS, head `638e7092` at 13:44:05Z).
+- **Ready issues (9, all expanded):** `priority:medium`: #80, #81, #83, #89 *(hard-blocked on #91 → PR #95)*, #90, **#91 (in review — PR #95)**, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other OH conversations:** `e1899e23` and `7f8e6dcb` are running but have no `selected_repository` → unrelated to ohtv. No competing orchestrator cycle.
+
+**Housekeeping:** WORKLOG.md is at 341 lines pre-cycle (this entry pushes it past 380). The skill's >300-line truncation threshold is exceeded, but every retained entry is within the last ~4 hours of productive work — i.e., still inside the 6-hour preservation window. Skipping archive this cycle; next cycle will be a good candidate once #95 testing + review/merge entries land and the early-day entries pass the 6-hour mark.
+
+**Auto-disable check:** Not applicable — this cycle is productive (spawned a worker).
+
+**Next check (~30 min):**
+
+- If `c493bbf` has posted a `## Manual Test Results` comment on PR #95 → evaluate verdict:
+  - 🟢 with no `CHANGES_REQUESTED` review → spawn **merge worker** (the bot's existing `COMMENTED` review with inline nit is non-blocking; merge worker can resolve/dismiss the thread inline as part of merge prep).
+  - 🟡/🔴 with concrete findings → spawn **review worker** to address before merging.
+- If `c493bbf` is still `running` → log status, do nothing.
+- If a new commit appears on the PR branch (e.g., the impl worker bouncing back) → treat as a state change and re-route.
+- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
