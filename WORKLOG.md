@@ -608,3 +608,70 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 16:21 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `dd70b78` | docs | PR #96 — README for `gen titles` (#89) | **NEW** (spawned 16:21Z, `execution_status: running`, `sandbox: RUNNING` confirmed) |
+
+**Spawned: Documentation Worker (PR slot was empty after impl worker `5106f489` finished and opened PR #96; README not yet updated for a brand-new user-facing CLI subcommand)**
+
+- PR: [#96 — `feat: add gen titles to auto-rename placeholder-titled cloud conversations (#89)`](https://github.com/jpshackelford/ohtv/pull/96)
+- Conversation: [`dd70b780`](https://app.all-hands.dev/conversations/dd70b7809c73438a96ffb3401f76f8cb) (`selected_repository=jpshackelford/ohtv`, `pr_number=[96]`)
+- Start task: `294b8299` → `STARTING_CONVERSATION` on first 6s poll → `READY` on second poll → `app_conversation_id=dd70b7809c73438a96ffb3401f76f8cb`. Verified `GET /app-conversations?ids=…` returns `execution_status: running`, `sandbox_status: RUNNING`.
+- Plugin loaded: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Model: `litellm_proxy/claude-opus-4-7`.
+
+**Why docs (not testing) — decision-tree gates:**
+
+- ✅ **PR #96 opened by `5106f489` at 16:10:32Z**, branch `feat/gen-titles-89`, head `394fd635`, base `main`. 2625+/0− across 9 files: `src/ohtv/cli.py` (new `gen titles` subcommand), `src/ohtv/analysis/titles.py` (new module — 1 file), `src/ohtv/prompts/titles/default.md` (new prompt template), `src/ohtv/sources/cloud.py` (cloud PATCH support), `src/ohtv/analysis/__init__.py`, plus 3 test files and `AGENTS.md` updates.
+- ✅ **PR is READY** (not draft), **`MERGEABLE`/CLEAN**, `reviewDecision: ""` (no review submitted yet), 0 review threads (pr-review bot left no inline comments — left an overall approval-shaped review).
+- ✅ **CI green:** 1 check (`PR Review by OpenHands/pr-review`) → `SUCCESS` in 3m58s. No other CI gates configured on this branch.
+- ❌ **README.md NOT in diff** — confirmed via `gh pr diff 96 --name-only | grep -i readme` → empty. Yet the PR introduces a brand-new top-level CLI subcommand (`ohtv gen titles`) with: (a) the placeholder-detection selector + `--all-titled` override; (b) the entire `gen objs` selector flag surface re-exposed; (c) four genuinely new flags `--dry-run`, `--workers`, `--batch-size`, `--model`; (d) a new prompt template under `src/ohtv/prompts/titles/default.md` reachable via the existing `ohtv prompts` machinery. Every one of those is on the workflow's "docs update REQUIRED" list (new CLI commands / new flags / new configuration / new env-derived defaults).
+- ❌ **No manual test results** — `gh pr view 96 --comments` returns zero comments. Testing has not started.
+- Per the explicit workflow rule: *"Documentation must be updated BEFORE testing"* — so docs is the correct next slot.
+
+**Docs worker scope (prompt highlights):**
+
+- Clone, checkout `feat/gen-titles-89`, `uv sync`.
+- Read PR diff + `cli.py` + `analysis/titles.py` + `gen titles --help` to document **what was built** (not just what the issue spec'd).
+- Update README.md adjacent to the existing `gen objs` section. Required coverage: synopsis, `gen objs` prerequisite, selector behavior (`^Conversation [0-9a-f]{5,32}$` default + `--all-titled`), shared selector flags (`--day/--week/--since/--until/--pr/--repo/--label/-n/--all/--offset/--reverse`), new flags (`--dry-run`, `--workers`, `--batch-size`, `--model`), cloud-source-only scope, ≥2 copy-pasteable examples, and prompt-customization pointer (`src/ohtv/prompts/titles/default.md` + `ohtv prompts`).
+- Single commit `docs: document gen titles command in README`. Push and watch CI. Post one PR comment summarizing the docs update.
+- Explicit DO-NOTs: no source file edits beyond `README.md` (except `--help` typo fixes if they block accurate docs), no WORKLOG edits, no draft toggle, no testing/merge work, no spawning sub-conversations.
+
+**Prior worker disposition (sweep):**
+
+- `5106f489` (impl, #89) — `execution_status: finished` at 16:11:59Z, `sandbox: RUNNING` (sandbox idle, not consuming a slot). `accumulated_cost: $20.19` over 31.9M prompt tokens (31.5M from cache). Cleanly executed scope: branched `feat/gen-titles-89`, implemented `gen titles` with placeholder selector + LLM batch + parallel PATCH + writeback, added prompt template, 3 test files, opened PR #96 in READY state with green CI. The 0-line README delta is the gap this orchestrator cycle is filling.
+- `ff08a0b1`, `857518e`, `c493bbf`, `bba7f97`, `e10e07*`, `a119ddf` — all `sandbox: PAUSED`, not consuming slots. PR #94/#95 chain is fully landed (both merged).
+- No other `running` conversations with `selected_repository=jpshackelford/ohtv`. Only competing `running` conversation network-wide is `66669ba2` (no repo, no PR — this orchestrator cycle itself).
+
+**PR slot:** Now occupied by `dd70b780` (docs on PR #96).
+**Expansion slot:** Idle — all 8 remaining open `ready` issues are already expanded; `gh issue list --jq '[.[] | select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]'` → `[]`. Nothing to expand.
+
+**Current State (verified 16:14–16:21Z):**
+
+- **Open PRs:** 1 — PR #96 (READY, `MERGEABLE`/CLEAN, head `394fd635`, 1/1 CI ✓, 0 review threads, 0 comments).
+- **Ready issues (8, all expanded):** `priority:medium`: #80, #81, #83, #90, #92; `priority:low`: #82, #87. (#89 is now in-flight via PR #96; will be closed by `Closes #89` in the PR body on merge.)
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+
+**Sync note:** `ohtv sync` failed this cycle with HTTP 401 (cloud auth). The `OH_API_KEY` env var is present but the value doesn't authenticate against the cloud sync endpoint. This is the same auth class the 2026-05-22 11:50Z `## INSTRUCTION:` flagged, though that one was marked resolved by 10:50Z today; the resolution may have only covered the writer side or has since regressed. **Not blocking:** all orchestration decisions this cycle were driven by GitHub API + OH cloud API directly (both green); `ohtv list` was not required because WORKLOG already names the right conv IDs. If this recurs over multiple cycles, the human may want to file a follow-up.
+
+**Housekeeping:** WORKLOG.md was at 610 lines pre-cycle (this entry pushes it past 690). The skill's >300-line threshold is well exceeded, but the 6-hour productive-work preservation window (currently ~10:21Z–16:21Z) still covers every entry in the file — the oldest preserved entry is the 10:50Z `## INSTRUCTION:` (5h 31m old). The 11:19/11:21Z PR #94 entries are 5h 02m old and will exit the window in ~1 hour. **Truncation deferred one more cycle** — the next orchestrator wake-up (~16:51Z if cron) or (~17:21Z if natural rhythm) will be able to safely archive everything ≤11:21Z while preserving the 12:21Z+ PR #95 impl/test/review/merge chain plus today's #89 impl/docs/test/review/merge chain.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-quiet-period counter remains at 0.
+
+**Next check (~30 min):**
+
+- If `dd70b780` is `running` → log status, do nothing. Docs work is typically 5–15 min including the CI wait.
+- If `dd70b780` is `finished` AND PR #96 has a new commit prefixed `docs:` AND a `## Documentation updated` comment AND CI is green → spawn **testing worker** for PR #96. The test plan should cover: `gen titles --dry-run` (no PATCH attempts, no DB writes), placeholder-regex selector behavior (vs `--all-titled`), batch-size + workers parallelism, prompt loader fallback to user override under `~/.ohtv/prompts/titles/`, and at least one live `gen titles -n 1` end-to-end run if cloud auth is working (else note as skipped due to the sync auth issue above).
+- If `dd70b780` is `finished` AND no docs commit appeared → investigate the conversation events; may need a re-spawn with adjusted scope or a `## INSTRUCTION:` from the human.
+- If `dd70b780` pushed code beyond README — flag as scope violation. The prompt allowed `--help`-string typo fixes only, called out as a separate commit. Anything more is a violation and the worker should be re-prompted (or replaced).
+- If new commits land on PR #96 after the docs commit (e.g., automated review bot kicks again) and they're substantive → testing must come before review per the docs-before-test rule already satisfied; re-test heuristic will determine if re-test is needed once tests exist.
+- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+- **Truncation candidate next cycle:** archive entries ≤11:21Z once they exit the 6h productive-work window.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
