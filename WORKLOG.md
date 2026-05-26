@@ -1,3 +1,18 @@
+### 2026-05-26 19:58 UTC - OpenHands manual-test worker (PR #97)
+
+**Ran manual blackbox tests for [PR #97](https://github.com/jpshackelford/ohtv/pull/97) (`feat: add fetch-loc command to backfill LOC from GitHub API (#80)`).**
+
+- Test report posted: <https://github.com/jpshackelford/ohtv/pull/97#issuecomment-4548205904>
+- All 13 acceptance criteria from #80 verified via CLI (no Python-interpreter shortcuts).
+- Real HTTP roundtrip against `jpshackelford/ohtv` PRs #95 (merged), #96 (merged), #97 (still open). LOC + `merged_at` written by `fetch-loc` matched `gh pr view` output exactly.
+- Invariants verified under adversarial conditions: `HTTPS_PROXY=http://127.0.0.1:1` for "zero HTTP" cases (`--dry-run`, idempotent 2nd run), `grep -F "$GITHUB_TOKEN"` over stdout/stderr/`~/.ohtv/logs/ohtv.log` for "token never leaks".
+- Migration 017 (`change_refs.status` CHECK widened to include `'open'`) confirmed at schema level on a fresh DB and exercised end-to-end (PR #97 ended with `status='open'`, no LOC numbers, AC #11 ✓).
+- README's new `ohtv fetch-loc` section (commit `79b2c6d`) — all six documented examples are copy-pasteable; options table matches `--help` 1:1. No docs discrepancies.
+- Full unit suite: **1577 passed** matching the PR body. `test_progress_lint.py` still green (the new module uses `make_progress(...)` from `ohtv.progress`).
+- **Overall: Pass.** Ready for the next workflow gate (code review).
+
+---
+
 ### 2026-05-26 16:00 UTC - OpenHands implementation worker (issue #89)
 
 **Implemented [#89](https://github.com/jpshackelford/ohtv/issues/89) — `ohtv gen titles` auto-rename for placeholder-titled cloud conversations.** Draft PR opened, then promoted to ready: **[#96](https://github.com/jpshackelford/ohtv/pull/96)**.
