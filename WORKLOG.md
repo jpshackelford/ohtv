@@ -1,3 +1,18 @@
+### 2026-05-26 16:00 UTC - OpenHands implementation worker (issue #89)
+
+**Implemented [#89](https://github.com/jpshackelford/ohtv/issues/89) — `ohtv gen titles` auto-rename for placeholder-titled cloud conversations.** Draft PR opened, then promoted to ready: **[#96](https://github.com/jpshackelford/ohtv/pull/96)**.
+
+- Cloud-source-only command with the placeholder regex `^Conversation [0-9a-f]{5,32}$` as the default selector; `--all-titled` overrides.
+- Reuses the `gen objs` filter surface (`--day/--week/--since/--until/--pr/--repo/--label/-n/--all/--offset/--reverse`) plus title-specific flags (`--all-titled`, `--dry-run`, `--workers`, `--batch-size`, `--model`).
+- Cache probe picks the best-available analysis variant (`detailed_assess > detailed > standard_assess > standard > brief_assess > brief`); cache-miss conversations are skipped before any LLM call.
+- Batched LLM (default 25/chunk) with single-conv retry on chunk parse failure and a length re-prompt + hard-truncate fallback for overlong titles.
+- Parallel PATCH via the new `CloudClient.update_conversation(id, *, title=...)`, routed through the existing `_request_with_retry` so `Retry-After` headers are honoured (default 5 workers, hard-capped at 50).
+- Local writeback rewrites the manifest title in place (no `last_sync_at` advance) and calls `ConversationStore.update_metadata(id, title=...)` from PR #94 / Issue #86. **No widening** of the metadata column set — that's #87.
+- Both progress bars (`Generating titles`, `Applying to cloud`) route through the `make_progress(...)` helper from PR #95; `tests/unit/test_progress_lint.py` continues to enforce this.
+- Customizable prompt lives at `src/ohtv/prompts/titles/default.md` (user override at `~/.ohtv/prompts/titles/default.md`).
+- **62 new tests** (45 unit + 9 integration-style + 7 cloud-client); full suite green: **1521 passed**.
+
+Acceptance criteria from #89 all satisfied. Out-of-scope follow-ups (#87 column-set widening) explicitly NOT touched.
 ### 2026-05-26 10:50 UTC - User (@jpshackelford via OpenHands)
 
 ## INSTRUCTION: auth resolved — handle #91 before #89, then resume normal routing [ACKNOWLEDGED]
