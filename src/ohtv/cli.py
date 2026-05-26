@@ -501,11 +501,13 @@ def _run_metadata_refresh(
             )
             progress.update(task, completed=done, description=desc)
 
-        # We can't know the per-iteration title_changed without peeking into
-        # the result; recompute changed each tick by reading the running
-        # result via a closure. The simpler path is to update changed only
-        # at the end, but a live counter is more useful — wrap the callback
-        # to grab the running result.
+        # ``manager.update_metadata`` does not yield intermediate "changed"
+        # counts, and ``on_progress`` only receives ``(done, total)``. We keep
+        # ``changed_count`` as a mutable closure so the callback's shape is
+        # uniform with other progress callbacks, but the count is only known
+        # once ``update_metadata`` returns — so the "(N changed)" suffix
+        # appears in the final ``progress.update`` call below, not during the
+        # run.
         result = manager.update_metadata(
             dry_run=dry_run,
             on_progress=on_progress,
