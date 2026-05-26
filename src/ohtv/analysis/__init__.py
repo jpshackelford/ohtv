@@ -27,6 +27,15 @@ from ohtv.analysis.objectives import (
     analyze_objectives,
     get_cached_analysis,
 )
+from ohtv.analysis.titles import (
+    DEFAULT_BATCH_SIZE as TITLES_DEFAULT_BATCH_SIZE,
+    MAX_TITLE_CHARS,
+    TitleGenerationResult,
+    description_from_analysis,
+    generate_titles_batch,
+    is_placeholder_title,
+    parse_titles_response,
+)
 from ohtv.analysis.periods import (
     PeriodInfo,
     iterate_periods,
@@ -66,6 +75,14 @@ __all__ = [
     "ObjectiveStatus",
     "analyze_objectives",
     "get_cached_analysis",
+    # Title generation
+    "MAX_TITLE_CHARS",
+    "TITLES_DEFAULT_BATCH_SIZE",
+    "TitleGenerationResult",
+    "description_from_analysis",
+    "generate_titles_batch",
+    "is_placeholder_title",
+    "parse_titles_response",
     # Period utilities
     "PeriodInfo",
     "iterate_periods",

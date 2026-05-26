@@ -125,6 +125,53 @@ class CloudClient:
         )
         return response.content
 
+    def update_conversation(
+        self,
+        conversation_id: str,
+        *,
+        title: str | None = None,
+        tags: dict[str, str] | None = None,
+    ) -> None:
+        """PATCH a conversation's editable metadata on the cloud.
+
+        Sends only the keys the caller explicitly supplied. Calling
+        with neither ``title`` nor ``tags`` is a no-op (and never
+        reaches the wire).
+
+        Reuses ``_request_with_retry`` so 429s and ``Retry-After``
+        responses are honored via the shared ``RateLimiter``. Persistent
+        non-429 HTTP failures raise ``httpx.HTTPStatusError`` via
+        ``response.raise_for_status()`` upstream — callers wrap this in
+        their own retry / error reporting.
+
+        Args:
+            conversation_id: Conversation id (cloud format, with or
+                without dashes — passed through verbatim in the URL).
+            title: New title. Pass ``None`` to leave unchanged. There
+                is intentionally no way to clear a title via this
+                method — the cloud API does not support an empty title.
+            tags: New tags / labels. Pass ``None`` to leave unchanged.
+                The keys-only-when-passed semantics protect against
+                accidentally clearing labels when only changing a title.
+
+        Raises:
+            httpx.HTTPStatusError: On non-429 HTTP failures.
+            RateLimitExceededError: When 429 retries are exhausted.
+        """
+        payload: dict[str, object] = {}
+        if title is not None:
+            payload["title"] = title
+        if tags is not None:
+            payload["tags"] = tags
+        if not payload:
+            log.debug("update_conversation called with no-op payload for %s", conversation_id)
+            return
+        self._request_with_retry(
+            "PATCH",
+            f"/api/v1/app-conversations/{conversation_id}",
+            json=payload,
+        )
+
     def _request_with_retry(
         self,
         method: str,

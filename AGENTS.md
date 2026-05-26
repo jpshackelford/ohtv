@@ -459,3 +459,31 @@ This happened with LXA (OpenHands desktop) conversations where `base_state.json`
    - Detailed: `primary_objectives` (nested structure)
 
 **Testing**: Run `ohtv sync` - the "skipped (no content)" count should be much smaller, representing only conversations that genuinely have no embeddable content (very short conversations with 0-4 events).
+
+## Completed: gen titles — Auto-rename Placeholder-titled Cloud Conversations (Issue #89)
+
+**PR**: feat/gen-titles-89 (PR #TBD)
+
+**Command**: `ohtv gen titles` retitles cloud conversations whose title matches `^Conversation [0-9a-f]{5,32}$` (or `--all-titled` for everything) using the best-available cached `gen objs` analysis. Reuses the full `gen objs` filter surface (`--day/--week/--since/--until/--pr/--repo/--label/-n/--all/--offset/--reverse`) plus title-specific flags `--all-titled`, `--dry-run`, `--workers`, `--batch-size`, `--model`.
+
+**Pipeline**:
+1. Filter → `_apply_conversation_filters` + cloud-only filter + placeholder predicate
+2. Cache probe: detailed_assess > detailed > standard_assess > standard > brief_assess > brief
+3. LLM: batched JSON-in / JSON-out (default 25/chunk). Chunk parse failure → single-conv retry. Overlong title → re-prompt then hard truncate at 50 chars.
+4. Cloud PATCH: `CloudClient.update_conversation(id, *, title=...)` (added in this PR) → `PATCH /api/v1/app-conversations/{id}` via `_request_with_retry` (honors Retry-After).
+5. Local writeback: manifest title rewrite (no `last_sync_at` advance) + `ConversationStore.update_metadata(id, title=...)` (from PR #94 / Issue #86).
+
+**Key files**:
+- `src/ohtv/prompts/titles/default.md` — LLM system prompt (Title Case, ≤50 chars, optional leading emoji, imperative)
+- `src/ohtv/analysis/titles.py` — `is_placeholder_title`, `description_from_analysis`, `parse_titles_response`, `generate_titles_batch`, `_load_titles_prompt`
+- `src/ohtv/sources/cloud.py` — `CloudClient.update_conversation(conv_id, *, title=None, tags=None)`
+- `src/ohtv/cli.py` — `gen titles` command + `_run_gen_titles` + `_apply_local_title_writeback` helpers
+
+**Hard guarantees**:
+- Progress bars go through `make_progress(...)` only (PR #95 helper) — guarded by `tests/unit/test_progress_lint.py`.
+- Local CLI conversations silently skipped (single end-of-run note).
+- Cache miss conversations skipped (no LLM call wasted).
+- `--dry-run` issues zero PATCHes and zero DB writes.
+- `ConversationStore.update_metadata` column set NOT widened — that's Issue #87's job.
+
+**Tests**: 62 new tests across `tests/unit/analysis/test_titles.py`, `tests/unit/test_cli_gen_titles.py`, `tests/unit/test_cloud_update_conversation.py`.

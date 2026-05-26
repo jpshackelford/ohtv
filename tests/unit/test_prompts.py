@@ -361,3 +361,77 @@ class TestPromptHashBackfillMaintenance:
         updated_data = json.loads(cache_file.read_text())
         analysis = updated_data["analyses"]["assess=True,context_level=default,detail_level=standard"]
         assert analysis["prompt_hash"] == get_prompt_hash("standard_assess")
+
+
+class TestPromptsShowCommand:
+    """Tests for ``ohtv prompts show`` CLI symmetry with ``prompts reset``.
+
+    The bug being guarded against: ``prompts show`` previously only
+    accepted legacy flat ``PROMPT_NAMES`` (``brief``, ``standard``…) so
+    the README-documented ``ohtv prompts show titles/default`` failed
+    with ``Error: Unknown prompt``. ``prompts reset`` already handled
+    the ``family/variant`` shape; ``prompts show`` now shares the same
+    resolver.
+    """
+
+    def test_resolve_prompt_ref_accepts_family_slash_variant(self):
+        from ohtv.cli import _resolve_prompt_ref
+
+        family, variant = _resolve_prompt_ref("titles/default")
+        assert family == "titles"
+        assert variant == "default"
+
+    def test_resolve_prompt_ref_accepts_legacy_objs_variant(self):
+        from ohtv.cli import _resolve_prompt_ref
+
+        family, variant = _resolve_prompt_ref("brief")
+        assert family == "objs"
+        assert variant == "brief"
+
+    def test_resolve_prompt_ref_rejects_unknown(self):
+        from ohtv.cli import _resolve_prompt_ref
+
+        with pytest.raises(ValueError, match="Unknown prompt"):
+            _resolve_prompt_ref("nonexistent/missing")
+
+    def test_resolve_prompt_ref_rejects_unknown_bare(self):
+        from ohtv.cli import _resolve_prompt_ref
+
+        with pytest.raises(ValueError):
+            _resolve_prompt_ref("definitely-not-a-prompt")
+
+    def test_prompts_show_titles_default_returns_body(self):
+        """The README example must work.
+
+        ``ohtv prompts show titles/default`` should return the prompt
+        body (the markdown content under the YAML frontmatter), not an
+        ``Unknown prompt`` error.
+        """
+        from click.testing import CliRunner
+        from ohtv.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["prompts", "show", "titles/default"])
+
+        assert result.exit_code == 0, result.output
+        # Header line
+        assert "Prompt: titles/default" in result.output
+        # Body content from src/ohtv/prompts/titles/default.md (a stable
+        # phrase that won't churn with prompt edits)
+        assert "concise" in result.output.lower()
+        # Frontmatter must NOT leak into the output — only the body.
+        assert "id: titles.default" not in result.output
+        # And the explicit failure mode must not occur.
+        assert "Unknown prompt" not in result.output
+
+    def test_prompts_show_legacy_brief_still_works(self):
+        """Backward compatibility: bare ``brief`` still resolves."""
+        from click.testing import CliRunner
+        from ohtv.cli import main
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["prompts", "show", "brief"])
+
+        assert result.exit_code == 0, result.output
+        assert "Prompt: objs/brief" in result.output
+        assert "Unknown prompt" not in result.output

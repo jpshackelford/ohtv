@@ -29,6 +29,9 @@ ohtv gen objs --day
 # Generate weekly reports across conversations (requires LLM_API_KEY)
 ohtv gen run reports.weekly --last 4
 
+# Auto-rename placeholder-titled cloud conversations (uses cached gen objs analyses)
+ohtv gen titles --week --dry-run
+
 # See what GitHub repos/PRs/issues were referenced
 ohtv refs <conversation_id>
 
@@ -632,6 +635,92 @@ Showing 2 of 150 (2/2 cached)
 | `-y, --yes` | Skip confirmation for large result sets (>20 conversations) |
 | `-q, --quiet` | Generate/cache summaries without displaying output |
 | `--verbose` | Show debug output |
+
+#### `ohtv gen titles` - Auto-Rename Placeholder-Titled Cloud Conversations
+
+Renames cloud conversations whose title still matches the OpenHands placeholder pattern (`^Conversation [0-9a-f]{5,32}$`) — plus empty/whitespace-only titles — by reading the best-available cached `gen objs` analysis, batching them through an LLM to produce concise Title Case titles (≤ 50 chars, optional leading emoji, no trailing punctuation), and PATCHing the new titles back to the OpenHands Cloud API in parallel.
+
+**Prerequisites:**
+- Cloud conversations must already be synced locally (`ohtv sync`).
+- Each selected conversation must have a cached `gen objs` analysis. Run `ohtv gen objs <filter>` first to seed the cache; conversations with no cache are skipped before the LLM call.
+- `LLM_API_KEY` (for the rename LLM call) and `OPENHANDS_API_KEY` / `OH_API_KEY` (for the PATCH back to cloud).
+
+**Cache lookup order:** The command probes cached analyses in descending detail order — `detailed_assess > detailed > standard_assess > standard > brief_assess > brief` — and uses the first one it finds.
+
+**Scope:**
+- **Cloud only.** Local CLI conversations are silently skipped (single end-of-run note) — the PATCH endpoint is cloud-only.
+- **Placeholder titles only by default.** Use `--all-titled` to retitle every selected conversation, including those already given a human-set title.
+
+```bash
+# DEFAULT: last 10 placeholder-titled cloud conversations
+ohtv gen titles
+
+# Preview only — no PATCH, no manifest/DB writeback
+ohtv gen titles --dry-run -n 20
+
+# Today's placeholder-titled cloud conversations
+ohtv gen titles --day
+
+# This week's, dry-run first
+ohtv gen titles --week --dry-run
+
+# Last 7 days, with 10 parallel PATCH workers (cap is 50)
+ohtv gen titles -D 7 --workers 10
+
+# Retitle EVERY conversation matching a label, even if already titled
+ohtv gen titles --all-titled --label experiment=t1
+
+# Skip the >5-conv confirmation prompt
+ohtv gen titles -y --workers 10
+
+# Use a cheaper / faster model for the renaming step
+ohtv gen titles -m haiku
+
+# Filter by repo or PR (uses indexed actions; run `ohtv db process all` first)
+ohtv gen titles --repo OpenPaw
+ohtv gen titles --pr OpenPaw#17
+```
+
+**How a run is structured:**
+
+1. **Selector** reuses the `gen objs` multi-conversation filter surface (`-D/--day`, `-W/--week`, `-S/--since`, `-U/--until`, `--pr`, `--repo`, `-L/--label`, `-n/--max`, `-A/--all`, `-k/--offset`, `--reverse`) plus a placeholder-title predicate; `--all-titled` disables that predicate.
+2. **Cache probe** picks the most detailed cached `gen objs` analysis available per conversation. No cache → conversation is skipped (no LLM call).
+3. **LLM** batched JSON-in / JSON-out (default 25 conversations per call, override with `--batch-size`). Falls back to single-conversation retry on chunk parse failure, and re-prompts (then hard-truncates) any titles that come back > 50 chars.
+4. **Parallel PATCH** through the existing cloud-client retry/`Retry-After` machinery. Default 5 workers (`--workers`, capped at 50).
+5. **Local writeback** rewrites the manifest title in place (without advancing `last_sync_at`) and updates the SQLite metadata via `ConversationStore.update_metadata`. `--dry-run` skips both the PATCH and the writeback.
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `-n, --max N` | Maximum conversations to consider (default: `10`) |
+| `-A, --all` | Consider all conversations (no limit) |
+| `-k, --offset N` | Skip first N conversations |
+| `-S, --since DATE` | Only conversations from DATE onwards (`YYYY-MM-DD`) |
+| `-U, --until DATE` | Only conversations up to DATE (`YYYY-MM-DD`) |
+| `-D, --day [VALUE]` | Filter by day: `-D` (today), `-D DATE`, or `-D N` (last N days) |
+| `-W, --week [VALUE]` | Filter by week: `-W` (this week), `-W DATE`, or `-W N` (last N weeks) |
+| `--pr PATTERN` | Filter by PR (URL, `owner/repo#N`, or `repo#N`) |
+| `--repo PATTERN` | Filter by repo (URL, `owner/repo`, or name) |
+| `-L, --label KEY=VALUE` | Filter by cloud-API label/tag |
+| `--reverse` | Process oldest first (default: newest first) |
+| `--all-titled` | Override the placeholder predicate and retitle every selected conversation |
+| `--dry-run` | Generate titles and print diff without PATCH or local writeback |
+| `--workers N` | Parallel PATCH workers (default: `5`, capped at `50`) |
+| `--batch-size N` | Conversations per LLM call (default: `25`) |
+| `-m, --model MODEL` | LLM model override (e.g. `haiku`) |
+| `-y, --yes` | Skip the >5-conversation confirmation prompt |
+| `--verbose` | Show debug output |
+
+**Customizing the prompt:**
+
+The prompt that turns `{id, description}` into a title lives at `src/ohtv/prompts/titles/default.md`. Override it per-user by copying it to `~/.ohtv/prompts/titles/default.md`:
+
+```bash
+ohtv prompts init                # copies all default prompts (incl. titles/default)
+ohtv prompts show titles/default # view the active titles prompt
+ohtv prompts reset titles/default
+```
 
 #### `ohtv gen run` - Run Aggregate Analysis Jobs
 

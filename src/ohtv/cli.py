@@ -13,7 +13,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import click
 from click import Context, HelpFormatter
@@ -7653,19 +7653,26 @@ def prompts(action: str | None, name: str | None, reset_all: bool) -> None:
     if action == "show":
         if not name:
             console.print("[red]Error:[/red] Please specify a prompt name.")
-            console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
-            return
-        if name not in PROMPT_NAMES:
-            console.print(f"[red]Error:[/red] Unknown prompt: {name}")
-            console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
+            console.print(
+                "[dim]Use [bold]ohtv prompts list[/bold] to see available prompts.[/dim]"
+            )
             return
         try:
-            content = get_prompt(name)
-            console.print(f"[bold]Prompt: {name}[/bold]")
-            console.print()
-            console.print(content)
-        except FileNotFoundError as e:
+            family, variant = _resolve_prompt_ref(name)
+        except ValueError as e:
             console.print(f"[red]Error:[/red] {e}")
+            console.print(
+                "[dim]Use [bold]ohtv prompts list[/bold] to see available prompts.[/dim]"
+            )
+            return
+        try:
+            meta = resolve_prompt(family, variant)
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] {e}")
+            return
+        console.print(f"[bold]Prompt: {family}/{variant}[/bold]")
+        console.print()
+        console.print(meta.content)
         return
     
     if action == "reset":
@@ -7674,19 +7681,14 @@ def prompts(action: str | None, name: str | None, reset_all: bool) -> None:
         
         if name:
             # Reset specific prompt - support both "variant" and "family/variant" formats
-            if "/" in name:
-                family, variant = name.split("/", 1)
-            elif name in PROMPT_NAMES:
-                family, variant = "objs", name
-            else:
-                # Try to find it in discovered prompts
-                try:
-                    meta = resolve_prompt("objs", name)
-                    family, variant = "objs", name
-                except ValueError:
-                    console.print(f"[red]Error:[/red] Unknown prompt: {name}")
-                    console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
-                    return
+            try:
+                family, variant = _resolve_prompt_ref(name)
+            except ValueError as e:
+                console.print(f"[red]Error:[/red] {e}")
+                console.print(
+                    "[dim]Use [bold]ohtv prompts list[/bold] to see available prompts.[/dim]"
+                )
+                return
             
             user_path = user_dir / family / f"{variant}.md"
             if not user_path.exists():
@@ -7730,6 +7732,44 @@ def prompts(action: str | None, name: str | None, reset_all: bool) -> None:
             console.print("[yellow]Specify a prompt name or use --all to reset all.[/yellow]")
             console.print(f"[dim]Available prompts: {', '.join(PROMPT_NAMES)}[/dim]")
         return
+
+
+def _resolve_prompt_ref(name: str) -> tuple[str, str]:
+    """Resolve a user-supplied prompt name to a ``(family, variant)`` pair.
+
+    Accepts both ``family/variant`` (current convention) and bare
+    ``variant`` (legacy ``objs/<variant>`` shorthand). This is the same
+    resolution ``prompts reset`` uses; ``prompts show`` shares it so the
+    two commands stay symmetric (the previous asymmetry is what caused
+    ``ohtv prompts show titles/default`` to fail on PR #96).
+
+    Raises:
+        ValueError: If ``name`` cannot be resolved to a known prompt.
+    """
+    from ohtv.prompts import PROMPT_NAMES
+    from ohtv.prompts.discovery import resolve_prompt
+
+    if "/" in name:
+        family, variant = name.split("/", 1)
+        # Validate the pair — let resolve_prompt raise a useful message
+        # on unknown family/variant.
+        resolve_prompt(family, variant)
+        return family, variant
+
+    if name in PROMPT_NAMES:
+        return "objs", name
+
+    # Last-ditch: try to find the bare variant in the objs/ family
+    # (resolve_prompt will raise on miss).
+    try:
+        resolve_prompt("objs", name)
+    except ValueError:
+        raise ValueError(
+            f"Unknown prompt: {name}. "
+            f"Use 'family/variant' (e.g. 'titles/default') or a legacy "
+            f"objs/ variant name."
+        )
+    return "objs", name
 
 
 def _show_prompts_family_structure() -> None:
@@ -8595,6 +8635,779 @@ def _run_objectives_analysis(
         
         if analysis_cost > 0:
             console.print(f"\n[dim]LLM cost: [green]${analysis_cost:.4f}[/green][/dim]")
+
+
+# =============================================================================
+# gen titles — rename placeholder-titled cloud conversations (Issue #89)
+# =============================================================================
+
+
+@gen.command("titles")
+# Multi-conversation filter surface (intentionally mirrors `gen objs`)
+@click.option("--max", "-n", "limit", type=int,
+              help="Maximum conversations to consider (default: 10)")
+@click.option("--all", "-A", "show_all", is_flag=True,
+              help="Consider all conversations (no limit)")
+@click.option("--offset", "-k", type=int, default=0, help="Skip first N conversations")
+@click.option("--since", "-S", "since_date",
+              help="Only conversations from DATE onwards (YYYY-MM-DD)")
+@click.option("--until", "-U", "until_date",
+              help="Only conversations up to DATE (YYYY-MM-DD)")
+@click.option("--day", "-D", "day_date", is_flag=False, flag_value="today", default=None,
+              help="Filter by day: -D (today), -D DATE, or -D N (last N days)")
+@click.option("--week", "-W", "week_date", is_flag=False, flag_value="today", default=None,
+              help="Filter by week: -W (this week), -W DATE, or -W N (last N weeks)")
+@click.option("--pr", "pr_filter", help="Filter by PR (URL, owner/repo#N, or repo#N)")
+@click.option("--repo", "repo_filter", help="Filter by repo (URL, owner/repo, or repo name)")
+@click.option("--label", "-L", "label_filter", help="Filter by label (key=value)")
+@click.option("--reverse", is_flag=True, help="Process oldest first (default: newest first)")
+# Title-specific options
+@click.option("--all-titled", is_flag=True,
+              help="Override placeholder predicate and retitle every selected conversation")
+@click.option("--dry-run", is_flag=True,
+              help="Generate titles and print diff without PATCH or local writeback")
+@click.option("--workers", type=int, default=5,
+              help="Parallel PATCH workers (default: 5)")
+@click.option("--batch-size", type=int, default=25,
+              help="Conversations per LLM call (default: 25)")
+@click.option("--model", "-m", help="LLM model override (e.g. haiku)")
+@click.option("--yes", "-y", is_flag=True,
+              help="Skip the >5-conv confirmation prompt")
+@click.option("--verbose", is_flag=True, help="Show debug output")
+def gen_titles_cmd(
+    limit: int | None,
+    show_all: bool,
+    offset: int,
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
+    pr_filter: str | None,
+    repo_filter: str | None,
+    label_filter: str | None,
+    reverse: bool,
+    all_titled: bool,
+    dry_run: bool,
+    workers: int,
+    batch_size: int,
+    model: str | None,
+    yes: bool,
+    verbose: bool,
+) -> None:
+    """Auto-rename placeholder-titled cloud conversations using cached ``gen objs`` analyses.
+
+    For each selected cloud conversation, pulls the best-available cached
+    ``gen objs`` analysis, batches them through the LLM to produce concise
+    titles (≤ 50 chars, Title Case, imperative, optional leading emoji),
+    and parallel-PATCHes the new titles back to the OpenHands Cloud API.
+
+    \b
+    Default selector:
+      Matches placeholder titles only — ``^Conversation [0-9a-f]{5,32}$``
+      and empty / whitespace-only titles. Use ``--all-titled`` to override.
+
+    \b
+    Examples:
+      ohtv gen titles                  # last 10 placeholder-titled
+      ohtv gen titles --day            # today's placeholder-titled
+      ohtv gen titles --week --dry-run
+      ohtv gen titles --all-titled --label experiment=t1
+      ohtv gen titles -y --workers 10  # apply without prompt, 10 PATCH workers
+
+    \b
+    Conversations without any cached ``gen objs`` analysis are skipped
+    (run ``ohtv gen objs <filter>`` first to seed the cache). Local CLI
+    conversations are silently skipped — only cloud conversations have a
+    PATCH endpoint.
+    """
+    _init_logging(verbose=verbose)
+    _run_gen_titles(
+        limit=limit,
+        show_all=show_all,
+        offset=offset,
+        since_date=since_date,
+        until_date=until_date,
+        day_date=day_date,
+        week_date=week_date,
+        pr_filter=pr_filter,
+        repo_filter=repo_filter,
+        label_filter=label_filter,
+        reverse=reverse,
+        all_titled=all_titled,
+        dry_run=dry_run,
+        workers=workers,
+        batch_size=batch_size,
+        model=model,
+        yes=yes,
+    )
+
+
+def _run_gen_titles(
+    *,
+    limit: int | None,
+    show_all: bool,
+    offset: int,
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
+    pr_filter: str | None,
+    repo_filter: str | None,
+    label_filter: str | None,
+    reverse: bool,
+    all_titled: bool,
+    dry_run: bool,
+    workers: int,
+    batch_size: int,
+    model: str | None,
+    yes: bool,
+    # Injection hooks (used by tests to bypass the live LLM + cloud client)
+    llm_call=None,
+    cloud_client=None,
+) -> None:
+    """Core ``gen titles`` pipeline. Split out for testability.
+
+    The two ``*_call`` / ``*_client`` injection hooks let unit tests bypass
+    the live LLM and HTTP layer without monkey-patching module globals.
+    """
+    from ohtv.analysis.cache import load_all_analyses
+    from ohtv.analysis.objectives import ObjectiveAnalysis
+    from ohtv.analysis.titles import (
+        description_from_analysis,
+        is_placeholder_title,
+    )
+    from ohtv.parallel import format_remaining, graceful_shutdown_handler, run_parallel
+    from ohtv.progress import make_progress
+    from ohtv.sources.cloud import CloudClient
+
+    config = Config.from_env()
+
+    if batch_size <= 0:
+        raise click.UsageError("--batch-size must be > 0")
+    if workers <= 0:
+        raise click.UsageError("--workers must be > 0")
+    # Sensible upper bound to avoid accidental DDoS of the cloud PATCH endpoint.
+    if workers > 50:
+        raise click.UsageError("--workers must be <= 50")
+
+    if not config.api_key:
+        console.print(
+            "[red]Error:[/red] Cloud API key not set. Export OPENHANDS_API_KEY or OH_API_KEY."
+        )
+        raise SystemExit(1)
+
+    # ----- 1. Select conversations using the gen objs filter surface ------
+    since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
+    filter_result = _apply_conversation_filters(
+        config,
+        since=since,
+        until=until,
+        pr_filter=pr_filter,
+        repo_filter=repo_filter,
+        action_filter=None,
+        label_filter=label_filter,
+        include_empty=False,
+        initial_show_all=show_all,
+    )
+    conversations = sorted(
+        filter_result.conversations,
+        key=lambda c: _normalize_datetime_for_sort(c.created_at),
+        reverse=not reverse,
+    )
+    if offset:
+        conversations = conversations[offset:]
+    if limit is not None:
+        conversations = conversations[:limit]
+    elif not filter_result.show_all:
+        conversations = conversations[:10]
+
+    # ----- 2. Cloud-only + placeholder predicate filter -------------------
+    local_skipped = sum(1 for c in conversations if c.source != "cloud")
+    cloud_convs = [c for c in conversations if c.source == "cloud"]
+
+    if not all_titled:
+        before_predicate = len(cloud_convs)
+        cloud_convs = [c for c in cloud_convs if is_placeholder_title(c.title)]
+        non_placeholder_skipped = before_predicate - len(cloud_convs)
+    else:
+        non_placeholder_skipped = 0
+
+    if not cloud_convs:
+        msg = "[dim]No cloud conversations matched the criteria"
+        if local_skipped:
+            msg += f" ({local_skipped} local conversation{'s' if local_skipped != 1 else ''} skipped)"
+        if non_placeholder_skipped and not all_titled:
+            msg += (
+                f"; {non_placeholder_skipped} already have a title "
+                "— use --all-titled to retitle them"
+            )
+        msg += ".[/dim]"
+        console.print(msg)
+        return
+
+    # ----- 3. Probe analysis cache (detailed > standard > brief) ----------
+    items_for_llm: list[tuple[str, str]] = []
+    convs_with_cache: list[ConversationInfo] = []
+    cache_miss_convs: list[ConversationInfo] = []
+
+    # Ordered by description quality. Keys are AnalysisCacheManager cache
+    # keys (assess=...,context_level=...,detail_level=...) — sorted form.
+    # We probe each conversation's cache file for the first key that
+    # parses into a non-empty description.
+    variant_preference = [
+        "detailed_assess",
+        "detailed",
+        "standard_assess",
+        "standard",
+        "brief_assess",
+        "brief",
+    ]
+
+    for conv in cloud_convs:
+        found = _find_conversation_dir(config, conv.lookup_id)
+        if not found:
+            cache_miss_convs.append(conv)
+            continue
+        conv_dir, _ = found
+        cached_analyses = load_all_analyses(conv_dir)
+        if not cached_analyses:
+            cache_miss_convs.append(conv)
+            continue
+
+        description = ""
+        for variant in variant_preference:
+            picked = _pick_analysis_variant(cached_analyses, variant)
+            if picked is None:
+                continue
+            try:
+                analysis = ObjectiveAnalysis.model_validate(picked)
+            except Exception as e:
+                log.debug("Skipping malformed cached analysis for %s: %s", conv.id, e)
+                continue
+            description = description_from_analysis(analysis)
+            if description.strip():
+                break
+
+        if not description.strip():
+            cache_miss_convs.append(conv)
+            continue
+        items_for_llm.append((conv.id, description))
+        convs_with_cache.append(conv)
+
+    if not items_for_llm:
+        console.print(
+            f"[yellow]No cached gen-objs analyses found "
+            f"for {len(cache_miss_convs)} selected conversation(s).[/yellow]"
+        )
+        console.print(
+            "[dim]Run [bold]ohtv gen objs[/bold] with the same filter first to seed the cache.[/dim]"
+        )
+        return
+
+    # ----- 4. Confirmation prompt (skipped on -y / --dry-run) -------------
+    if not dry_run and not yes and len(items_for_llm) > 5:
+        sample = items_for_llm[:5]
+        console.print(
+            f"[bold]About to retitle {len(items_for_llm)} cloud conversation(s).[/bold]"
+        )
+        console.print(
+            "[dim]Sample (first 5; titles are generated only after confirmation):[/dim]"
+        )
+        for conv_id, desc in sample:
+            short = conv_id.replace("-", "")[:8]
+            short_desc = desc[:60] + ("…" if len(desc) > 60 else "")
+            console.print(f"  [cyan]{short}[/cyan]  {short_desc}")
+        from rich.prompt import Confirm
+        if not Confirm.ask("Proceed?", console=console, default=False):
+            console.print("[dim]Cancelled.[/dim]")
+            return
+
+    # ----- 5. Generate titles ---------------------------------------------
+    gen_result = _generate_titles_with_progress(
+        items_for_llm,
+        model=model,
+        batch_size=batch_size,
+        llm_call=llm_call,
+    )
+
+    if not gen_result.titles:
+        console.print("[red]Error:[/red] LLM returned no usable titles.")
+        if gen_result.cost > 0:
+            console.print(f"[dim]Cost incurred: ${gen_result.cost:.4f}[/dim]")
+        raise SystemExit(1)
+
+    # Build the conv-by-id map and the diff table
+    conv_by_id = {c.id: c for c in convs_with_cache}
+    title_diffs: list[tuple[ConversationInfo, str, str]] = []
+    for conv_id, new_title in gen_result.titles.items():
+        conv = conv_by_id.get(conv_id)
+        if conv is None:
+            continue
+        old_title = conv.title or ""
+        title_diffs.append((conv, old_title, new_title))
+
+    # ----- 6. Always print the diff (full in dry-run, summary otherwise) --
+    _print_title_diff(title_diffs, dry_run=dry_run)
+
+    if dry_run:
+        # Preview the manifest writeback to expose any id-shape mismatch
+        # the same way the live path does — using the same normalization.
+        manifest_preview_found, manifest_preview_total = _preview_manifest_writeback(
+            conv.id for conv, _, _ in title_diffs
+        )
+        _print_titles_summary(
+            console,
+            selected=len(cloud_convs),
+            cache_hits=len(items_for_llm),
+            cache_misses=len(cache_miss_convs),
+            renamed=0,
+            failed=0,
+            db_updated=0,
+            manifest_updated=manifest_preview_found,
+            manifest_total=manifest_preview_total,
+            elapsed_seconds=0.0,
+            llm_cost=gen_result.cost,
+            local_skipped=local_skipped,
+            missing_titles=len(gen_result.missing_ids),
+            dry_run=True,
+        )
+        return
+
+    # ----- 7. Apply: parallel PATCH ---------------------------------------
+    if cloud_client is None:
+        cloud_client = CloudClient(config.cloud_api_url, config.api_key)
+        own_client = True
+    else:
+        own_client = False
+
+    apply_start = time.perf_counter()
+    rename_failures: list[tuple[str, str]] = []
+    renamed_ids: list[str] = []
+
+    shutdown_flag = [False]
+    rate_tracker_apply = _build_rate_tracker("conv")
+
+    def _patch_one(item: tuple[str, str]) -> str:
+        conv_id, new_title = item
+        cloud_client.update_conversation(conv_id, title=new_title)
+        return new_title
+
+    try:
+        with graceful_shutdown_handler(console, shutdown_flag):
+            patch_progress = make_progress(console=console)
+            with patch_progress as progress:
+                task = progress.add_task(
+                    "Applying to cloud",
+                    total=len(title_diffs),
+                    remaining=format_remaining(len(title_diffs), 0, 0),
+                    rate=rate_tracker_apply.get_rate_str(),
+                )
+
+                def _on_result(item, _result):
+                    rate_tracker_apply.increment()
+                    renamed_ids.append(item[0])
+                    progress.update(
+                        task,
+                        advance=1,
+                        remaining=format_remaining(
+                            len(title_diffs),
+                            len(renamed_ids) + len(rename_failures),
+                            len(rename_failures),
+                        ),
+                        rate=rate_tracker_apply.get_rate_str(),
+                    )
+
+                def _on_error(item, exc):
+                    rename_failures.append((item[0], str(exc)[:80]))
+                    progress.update(
+                        task,
+                        advance=1,
+                        remaining=format_remaining(
+                            len(title_diffs),
+                            len(renamed_ids) + len(rename_failures),
+                            len(rename_failures),
+                        ),
+                        rate=rate_tracker_apply.get_rate_str(),
+                    )
+
+                patch_items: list[tuple[str, str]] = [
+                    (conv.id, new_title) for conv, _, new_title in title_diffs
+                ]
+                run_parallel(
+                    items=patch_items,
+                    process_fn=_patch_one,
+                    max_workers=workers,
+                    on_result=_on_result,
+                    on_error=_on_error,
+                    shutdown_check=lambda: shutdown_flag[0],
+                )
+    finally:
+        if own_client:
+            cloud_client.close()
+
+    apply_elapsed = time.perf_counter() - apply_start
+
+    # ----- 8. Local writeback (manifest + DB) -----------------------------
+    writeback = _apply_local_title_writeback(
+        config,
+        renamed_id_to_title={
+            conv.id: new_title
+            for conv, _, new_title in title_diffs
+            if conv.id in renamed_ids
+        },
+    )
+
+    _print_titles_summary(
+        console,
+        selected=len(cloud_convs),
+        cache_hits=len(items_for_llm),
+        cache_misses=len(cache_miss_convs),
+        renamed=len(renamed_ids),
+        failed=len(rename_failures),
+        db_updated=writeback.db_updated,
+        manifest_updated=writeback.manifest_updated,
+        manifest_total=writeback.manifest_total,
+        elapsed_seconds=apply_elapsed,
+        llm_cost=gen_result.cost,
+        local_skipped=local_skipped,
+        missing_titles=len(gen_result.missing_ids),
+        dry_run=False,
+    )
+
+    if rename_failures:
+        console.print()
+        console.print("[red]Cloud PATCH failures:[/red]")
+        for conv_id, err in rename_failures[:10]:
+            console.print(f"  [cyan]{conv_id[:8]}[/cyan]  {err}")
+        if len(rename_failures) > 10:
+            console.print(f"  [dim]... and {len(rename_failures) - 10} more[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# gen titles helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_rate_tracker(unit: str):
+    """Local re-export to keep gen titles import block tight."""
+    from ohtv.parallel import RateTracker
+
+    return RateTracker(unit=unit)
+
+
+def _pick_analysis_variant(
+    cached_analyses: dict[str, dict],
+    variant: str,
+) -> dict | None:
+    """Find the first cached analysis matching a given detail+assess variant.
+
+    Cache keys are of the form ``assess=<bool>,context_level=<lvl>,detail_level=<detail>``;
+    we don't care about context level here, only detail + assess. ``variant``
+    is in the legacy combined form (``detailed_assess`` etc.).
+    """
+    if variant.endswith("_assess"):
+        detail = variant[: -len("_assess")]
+        wants_assess = True
+    else:
+        detail = variant
+        wants_assess = False
+
+    detail_marker = f"detail_level={detail}"
+    assess_marker = f"assess={'True' if wants_assess else 'False'}"
+
+    for key, payload in cached_analyses.items():
+        if detail_marker in key and assess_marker in key:
+            return payload
+    return None
+
+
+def _generate_titles_with_progress(
+    items: list[tuple[str, str]],
+    *,
+    model: str | None,
+    batch_size: int,
+    llm_call,
+):
+    """Wrap ``generate_titles_batch`` with the canonical generation progress bar.
+
+    Progress is approximated at the chunk granularity — the LLM batches
+    do not produce per-item callbacks. We advance the bar once per chunk
+    and let the rate tracker derive a chunks/min number.
+    """
+    from ohtv.analysis.titles import generate_titles_batch
+    from ohtv.parallel import format_remaining
+    from ohtv.progress import make_progress
+
+    total_chunks = max(1, (len(items) + batch_size - 1) // batch_size)
+    rate_tracker = _build_rate_tracker("chunk")
+
+    # We can't easily hook generate_titles_batch's internal loop to a
+    # progress callback without widening its API just for this CLI. So we
+    # render the progress bar around the entire call and update it once
+    # the result lands. This keeps the helper testable + the CLI
+    # responsive (the LLM call dominates wallclock anyway).
+    progress = make_progress(console=console)
+    with progress as bar:
+        task = bar.add_task(
+            "Generating titles",
+            total=total_chunks,
+            remaining=format_remaining(total_chunks, 0, 0),
+            rate=rate_tracker.get_rate_str(),
+        )
+        result = generate_titles_batch(
+            items,
+            model=model,
+            batch_size=batch_size,
+            llm_call=llm_call,
+        )
+        # Snap the bar to "done" — chunk granularity is fine here.
+        rate_tracker.increment(result.chunks_called)
+        bar.update(
+            task,
+            completed=total_chunks,
+            remaining=format_remaining(total_chunks, total_chunks, 0),
+            rate=rate_tracker.get_rate_str(),
+        )
+    return result
+
+
+def _print_title_diff(
+    diffs: list[tuple[ConversationInfo, str, str]],
+    *,
+    dry_run: bool,
+) -> None:
+    """Print the proposed ``old → new`` table.
+
+    In dry-run mode we show every diff. Otherwise we cap at the first
+    10 entries to keep the apply-phase progress bar visible without
+    scrolling the user's terminal.
+    """
+    if not diffs:
+        return
+    visible = diffs if dry_run else diffs[:10]
+    header = (
+        "[bold]Proposed renames (dry-run)[/bold]" if dry_run
+        else f"[bold]Proposed renames[/bold] (showing first {len(visible)} of {len(diffs)})"
+    )
+    console.print(header)
+    table = Table(show_header=True, header_style="bold dim")
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("Old title")
+    table.add_column("New title")
+    for conv, old, new in visible:
+        short = conv.id.replace("-", "")[:8]
+        old_disp = old if old else "[dim](empty)[/dim]"
+        table.add_row(short, old_disp, new)
+    console.print(table)
+    if not dry_run and len(diffs) > len(visible):
+        console.print(f"[dim]... plus {len(diffs) - len(visible)} more renames not shown[/dim]")
+
+
+def _print_titles_summary(
+    console_obj: Console,
+    *,
+    selected: int,
+    cache_hits: int,
+    cache_misses: int,
+    renamed: int,
+    failed: int,
+    db_updated: int,
+    manifest_updated: int,
+    manifest_total: int,
+    elapsed_seconds: float,
+    llm_cost: float,
+    local_skipped: int,
+    missing_titles: int,
+    dry_run: bool,
+) -> None:
+    """Print the final ``gen titles complete`` summary block.
+
+    The ``Manifest updated`` row is always shown when there's something
+    to write back (live mode) or something to preview (dry-run). It uses
+    an ``N/M`` shape so an asymmetry between the DB write and the
+    manifest write (the failure mode that hid behind PR #96's
+    ID-normalization bug) is impossible to miss.
+    """
+    if dry_run:
+        console_obj.print("\n[bold]gen titles dry-run complete:[/bold]")
+    else:
+        console_obj.print(f"\n[bold]gen titles complete in {elapsed_seconds:.1f}s:[/bold]")
+    console_obj.print(f"  Selected:              {selected}")
+    console_obj.print(f"  Cache hit (used):      {cache_hits}")
+    console_obj.print(f"  Cache miss (skipped):  {cache_misses}")
+    if not dry_run:
+        console_obj.print(f"  Renamed in cloud:      {renamed}")
+        console_obj.print(f"  Failed:                {failed}")
+        console_obj.print(f"  Local DB updated:      {db_updated}")
+        if manifest_total > 0:
+            label = "  Manifest updated:     "
+            value = f"{manifest_updated}/{manifest_total}"
+            # Highlight partial coverage in yellow — the failure mode the
+            # manual-test report flagged is exactly this asymmetry.
+            if manifest_updated < manifest_total:
+                value = f"[yellow]{value}[/yellow]"
+            console_obj.print(f"{label} {value}")
+    else:
+        if manifest_total > 0:
+            console_obj.print(
+                f"  Manifest entries found: {manifest_updated}/{manifest_total}"
+            )
+    if missing_titles:
+        console_obj.print(f"  LLM omitted:           {missing_titles}")
+    if local_skipped:
+        console_obj.print(
+            f"  [dim]Local CLI conversations skipped: {local_skipped}[/dim]"
+        )
+    if llm_cost > 0:
+        console_obj.print(f"  LLM cost:              [green]${llm_cost:.4f}[/green]")
+
+
+def _preview_manifest_writeback(conv_ids) -> tuple[int, int]:
+    """Preview how many candidate ids exist in the manifest.
+
+    Mirrors the lookup in :func:`_apply_local_title_writeback` so that
+    the dry-run summary surfaces the same N/M shape the live path would
+    report. This is the assertion that catches id-shape regressions.
+
+    Returns:
+        ``(found, total)`` — ``found`` is the count of candidate ids
+        present in the manifest after normalization; ``total`` is the
+        number of candidate ids we were asked about.
+    """
+    ids = [c.replace("-", "") for c in conv_ids]
+    total = len(ids)
+    if total == 0:
+        return (0, 0)
+    try:
+        from ohtv.config import get_manifest_path
+        from ohtv.sync import SyncManifest
+
+        manifest = SyncManifest.load(get_manifest_path())
+    except Exception as e:  # pragma: no cover - defensive
+        log.debug("Manifest preview unavailable: %s", e)
+        return (0, total)
+    found = sum(1 for cid in ids if cid in manifest.conversations)
+    return (found, total)
+
+
+class _WritebackResult(NamedTuple):
+    """Counts returned by :func:`_apply_local_title_writeback`.
+
+    Fields:
+        db_updated: Number of DB rows successfully updated.
+        manifest_updated: Number of manifest entries in sync with the new
+            title afterward (either updated by us, or already correct).
+        manifest_total: Number of conversations we attempted to write back
+            to the manifest (== ``len(renamed_id_to_title)``).
+    """
+
+    db_updated: int
+    manifest_updated: int
+    manifest_total: int
+
+
+def _apply_local_title_writeback(
+    config: Config,
+    renamed_id_to_title: dict[str, str],
+) -> _WritebackResult:
+    """Persist the renamed titles to the local manifest + DB.
+
+    Manifest is rewritten in-place (only the ``title`` field changes;
+    ``last_sync_at`` is NOT advanced). DB writes go through
+    :meth:`ConversationStore.update_metadata` from PR #94 / Issue #86.
+
+    ID normalization: :class:`CloudConversation` ids arrive dashed
+    (``aaaaaaaa-1111-2222-…``) while the sync manifest and the DB key
+    on the *normalized* form without dashes (AGENTS.md #25, migration
+    012). We strip dashes once at the top so every downstream lookup
+    sees the canonical form.
+
+    Returns:
+        :class:`_WritebackResult` with DB and manifest write counts.
+        Manifest failures and DB failures are logged but do not raise —
+        the cloud-side rename has already happened, and we don't want a
+        local-write hiccup to lose that fact.
+    """
+    if not renamed_id_to_title:
+        return _WritebackResult(0, 0, 0)
+
+    # Normalize once at the top so it's hard to regress on the manifest
+    # key shape (AGENTS.md #25 / migration 012).
+    normalized_renames = {
+        conv_id.replace("-", ""): new_title
+        for conv_id, new_title in renamed_id_to_title.items()
+    }
+    manifest_total = len(normalized_renames)
+
+    from ohtv.config import get_manifest_path
+    from ohtv.sync import SyncManifest
+
+    manifest_path = get_manifest_path()
+    manifest = SyncManifest.load(manifest_path)
+    manifest_changed = False
+    manifest_updated = 0
+    for conv_id, new_title in normalized_renames.items():
+        entry = manifest.conversations.get(conv_id)
+        if entry is None:
+            log.debug("No manifest entry for %s; skipping manifest writeback", conv_id)
+            continue
+        if entry.get("title") == new_title:
+            # Already in sync — count it so the summary reflects "manifest
+            # consistent with cloud" rather than a silent zero.
+            manifest_updated += 1
+            continue
+        entry["title"] = new_title
+        manifest_changed = True
+        manifest_updated += 1
+
+    if manifest_changed:
+        try:
+            manifest.save(manifest_path)
+        except Exception as e:
+            log.warning("Manifest writeback failed: %s", e)
+            # Be honest in the summary: the in-memory updates didn't land.
+            manifest_updated = 0
+
+    # DB writeback. ``ConversationStore.update_metadata`` already
+    # normalizes IDs internally (AGENTS.md #25), but we pass the
+    # normalized form for consistency with the manifest path above.
+    db_updated = 0
+    try:
+        import sqlite3
+        from ohtv.db import get_db_path
+        from ohtv.db.stores import ConversationStore
+    except Exception as e:  # pragma: no cover - import-time defensive
+        log.info("DB module unavailable, skipping DB title writes: %s", e)
+        return _WritebackResult(0, manifest_updated, manifest_total)
+
+    db_path = get_db_path()
+    if not db_path.exists():
+        return _WritebackResult(0, manifest_updated, manifest_total)
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+    except Exception as e:
+        log.info("Could not open DB for title writeback: %s", e)
+        return _WritebackResult(0, manifest_updated, manifest_total)
+    try:
+        store = ConversationStore(conn)
+        for conv_id, new_title in normalized_renames.items():
+            try:
+                if store.update_metadata(conv_id, title=new_title):
+                    db_updated += 1
+            except Exception as e:
+                log.warning("DB title write failed for %s: %s", conv_id, e)
+        try:
+            conn.commit()
+        except Exception as e:
+            log.warning("DB commit failed for title writeback: %s", e)
+    finally:
+        try:
+            conn.close()
+        except Exception:  # pragma: no cover - best effort
+            pass
+    return _WritebackResult(db_updated, manifest_updated, manifest_total)
 
 
 # =============================================================================
