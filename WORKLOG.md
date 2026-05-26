@@ -204,3 +204,70 @@ This instruction supersedes the queue ordering otherwise implied by issue age / 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 11:19 UTC - Orchestrator
+
+**Acknowledged: 2026-05-26 10:50 UTC `## INSTRUCTION:` from @jpshackelford** [ACKNOWLEDGED]
+> *"auth resolved — handle #91 before #89, then resume normal routing"*
+
+This cycle executes step 1 of the instructed sequence (Merge PR #94) and step 2's prep work (amend #89 with the `make_progress` acceptance criterion + #91 hard dep). Steps 3+ (#91 implementation, then #89 implementation) will follow on subsequent cycles once the PR slot frees up.
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `3f5aacd` | merge | PR #94 (closes #79) | **NEW** (WORKING) |
+
+**Spawned: Merge Worker**
+- PR: [#94 — feat(contributions): detect direct pushes to main/master (#79)](https://github.com/jpshackelford/ohtv/pull/94)
+- Conversation: [`3f5aacd`](https://app.all-hands.dev/conversations/3f5aacd400e542a6bf96032cd7d275e1)
+- Auth check: `POST /api/v1/app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY` returned **HTTP 200** with `status: WORKING` — the 2026-05-22 11:50Z `BearerTokenError` blocker is fully cleared, as the user's instruction stated.
+
+**Current State Verification (via `gh` at 11:18Z):**
+
+| Field | Value |
+|---|---|
+| PR state | OPEN |
+| isDraft | false |
+| mergeable | MERGEABLE |
+| mergeStateStatus | CLEAN |
+| reviewDecision | "" (no CHANGES_REQUESTED) |
+| HEAD SHA | `3fc5292` (single commit, dated 2026-05-22 10:58:21Z) |
+| Manual test | ✅ `## Manual Test Results` comment at 2026-05-22 11:26:53Z — postdates the only commit, verdict valid for current HEAD |
+| Bot review | `pr-review` COMMENTED ✅ (🟢 LOW, no CHANGES_REQUESTED) |
+| Inline `💬` threads | 0 unresolved, 0 total |
+| Docs required | No (internal indexing only — no CLI / flag / env-var / output-format changes) |
+
+Decision-tree branch **"PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker"** — exactly as the user's instruction queued for this cycle.
+
+**Expansion-slot action (text-only, per the user's "or: amend #89" hint):**
+
+Amended Issue [#89](https://github.com/jpshackelford/ohtv/issues/89) body in two places to bind `gen titles` to #91:
+
+1. *Acceptance Criteria* — replaced the bare "Two progress bars (LLM phase, PATCH phase) with rate display" bullet with a stricter one that mandates the shared `make_progress(...)` helper from #91 and pins the exact call shape for both phases:
+   - `make_progress(console=..., verb="Generating titles", show_rate=True, show_remaining=True, show_eta=True)` (LLM-generation phase)
+   - `make_progress(console=..., verb="Applying to cloud", show_rate=True, show_remaining=True, show_eta=True)` (cloud-apply phase)
+2. *Dependencies* — bumped **#91 to a hard dependency** alongside #86 (now annotated *(Already merged.)*). The implementation worker for #89 must wait until #91 is merged.
+
+Audit-trail comment posted: <https://github.com/jpshackelford/ohtv/issues/89#issuecomment-4543772191>.
+
+**Current State (full):**
+
+- **Open PRs:** 1 — [PR #94](https://github.com/jpshackelford/ohtv/pull/94) (now in merge worker `3f5aacd`'s hands).
+- **Ready issues (9, all expanded):**
+  - `priority:medium`: #80, #81, #83, #89, #90, **#91 (next up)**, #92
+  - `priority:low`: #82, #87
+- **Issues needing expansion:** 0
+- **On hold:** #26
+- **Blocked / needs-info / needs-split:** none
+
+**Auto-disable check:** Not applicable. This cycle is productive (spawned a worker + amended an issue), not "All quiet". The auto-disable rule only triggers on two consecutive `All quiet` entries.
+
+**Next check (~30 min):**
+
+- If `3f5aacd` has **merged PR #94** and pushed its own worklog entry → PR slot opens. Per the user's instruction's "Cycle +1", spawn an **implementation worker for #91** (`make_progress` helper + migrate 11 call sites). Expansion slot stays idle (no unexpanded issues).
+- If `3f5aacd` is still **running** → log status, do nothing.
+- If `3f5aacd` aborted (e.g. new commit appeared, or a fresh `CHANGES_REQUESTED` review landed) → re-evaluate the PR state and dispatch the appropriate worker (review / re-test / re-merge).
+- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
