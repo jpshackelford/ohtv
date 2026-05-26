@@ -263,3 +263,44 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-26 13:23 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `bba7f97` | implementation | Issue #91 — `make_progress` helper | **NEW** (spawned 13:23:08Z, execution_status `running` at 13:23:37Z) |
+
+**Re-spawned: Implementation Worker for #91 (previous spawn stalled at 0 events)**
+
+- Issue: [#91 — Standardize progress bars on the `ohtv sync` layout via a shared `make_progress` helper](https://github.com/jpshackelford/ohtv/issues/91) (`priority:medium`, `ready`)
+- Conversation: [`bba7f97`](https://app.all-hands.dev/conversations/bba7f97a5ef141989083943b94dca1d0) (`selected_repository=jpshackelford/ohtv`)
+- Spawn API: `POST /api/v1/app-conversations` with `initial_message.content[0].text` + `run: true` → start-task `5b3affd9…` progressed `WORKING → STARTING_CONVERSATION → READY` at 13:23:14Z, returning `app_conversation_id=bba7f97a5ef141989083943b94dca1d0`. Verified `GET /app-conversations?ids=…` shows `execution_status: running`, `sandbox_status: RUNNING` at 13:23:37Z.
+
+**Why re-spawned:** The 12:48Z cycle recorded `a119ddf` as spawned for #91, but the fetched events show that conversation has **`execution_status: idle`, 0 events** — i.e., the conversation record was created but the agent never received an initial user message, so it never started executing. Root cause is most likely that the prior `POST /app-conversations` body omitted `initial_message` (or set `run: false`). The agent has been idle for ~35 min consuming neither tokens nor wall-clock, but it has also produced zero progress on #91. Treating it as a failed spawn.
+
+**Operational lesson (extends 11:52Z note):** Past the job-id-vs-conversation-id pitfall, **always also verify `execution_status == "running"` via `GET /app-conversations?ids=<conv_id>` after the start-task hits `READY`** before logging a spawn as successful. A `READY` start-task only confirms the sandbox + repo + skills came up; the agent itself can still sit at `idle` if the POST body did not include a valid `initial_message`.
+
+**PR slot:** Now occupied by `bba7f97` (impl on #91).
+**Expansion slot:** Idle — full backlog is expanded; no `needs-info` / `needs-split` issues.
+
+**Current State (verified 13:23Z):**
+
+- **Open PRs:** 0.
+- **Ready issues (9, all expanded):** `priority:medium`: #80, #81, #83, #89 *(blocked on #91)*, #90, **#91 (in progress as of this cycle)**, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Dead conversation `a119ddf6b7cd49b588cef925ce2d6305`:** Left untouched (it consumes no resources at `idle`; the API does not offer a stop endpoint for `idle` conversations in this orchestrator's skill toolkit). No worklog action required.
+
+**Auto-disable check:** Not applicable — this cycle is corrective + productive (re-spawned the stalled #91 impl worker).
+
+**Next check (~30 min):**
+
+- If `bba7f97` has opened a PR for #91 and pushed its own worklog entry → log status, do nothing (PR slot occupied).
+- If `bba7f97` is still `running` → log status, do nothing.
+- If `bba7f97` has finished with the PR in `ready` state, no manual test results, README unchanged → spawn **docs worker** first per the workflow sequence (test what's documented).
+- If `bba7f97` has finished with the PR in `ready` state and README *was* updated → spawn **testing worker**.
+- If a new `## INSTRUCTION:` entry appears in WORKLOG.md → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
