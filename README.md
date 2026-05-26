@@ -44,6 +44,10 @@ ohtv db embed
 # Backfill PR/push LOC from GitHub (requires GITHUB_TOKEN)
 GITHUB_TOKEN=$(gh auth token) ohtv fetch-loc
 
+# Weekly velocity report (merged PRs x LOC x human input, grouped by ISO week)
+ohtv report velocity
+ohtv report velocity --format csv > velocity.csv
+
 # Search conversations semantically
 ohtv search "fix authentication bugs"
 
