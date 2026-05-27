@@ -181,6 +181,17 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - **No SQLite `strftime` for ISO week**: Same regression rule as #81 (test T-4: 2024-12-30 → `2025-W01`).
     - **Reusable surface**: `ohtv.reports.weekly_counts.fetch_rows(conn, ...)` + `aggregate_weekly_counts(rows, ...)` returns a `WeeklyCountsReport(rows, metadata)` and is the entry point that issue #82 should consume.
 
+30. **Velocity chart rendering (`ohtv.reports.charts`, Issue #82)**: Static 3-panel matplotlib figure (PR counts / diverging LOC ± / Words-per-LOC line) saved to a file. Consumes the same `list[VelocityRow]` that the #81 report produces — no DB code, no data-shape changes, no new aggregation path.
+    - **Optional dependency**: `matplotlib` lives in `[project.optional-dependencies] charts` and `[dependency-groups] dev`. The core install stays minimal; users install via `pip install ohtv[charts]`.
+    - **Lazy import (AC-7)**: `import ohtv.reports.charts` does NOT pull in matplotlib at module load. `plot_velocity` does `import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt` inside the function body. `ImportError` here is the user signal — the CLI catches it (including from the lazy call) and re-raises a friendly `click.UsageError("Charting requires the [charts] extra. Install with: pip install ohtv[charts]")`. Verified by `test_import_charts_does_not_pull_in_matplotlib` (synthetic `sys.modules["matplotlib"] = None`).
+    - **Extension drives format**: `.png`/`.svg`/`.pdf` are inferred from the output path. No `--format` flag — the original issue body had one and the technical-approach comment explicitly removed it as redundant. Unsupported extension → `ValueError`.
+    - **No pixel-diff snapshots**: Tests patch `Axes.bar` / `Axes.plot` / `Axes.axvline` / `Figure.savefig` and assert on the data passed in, plus file-magic-bytes checks for `.png`/`.svg`/`.pdf`. Pixel diffs are flaky across matplotlib/font versions and were rejected during issue planning.
+    - **No `plt.show()`**: Headless-only by design (no X11 / display dep). `bbox_inches="tight"`, DPI=300 for raster only.
+    - **Words/LOC gap handling**: `words_per_loc=None` rows are dropped from the line-plot data (gap in the line) rather than passing `None` to matplotlib, which would otherwise raise `TypeError`.
+    - **`mark_date`**: Converted to its ISO-week label and matched against the row index. Off-week dates fall to the midpoint between adjacent bucket indices; out-of-range dates clamp to the endpoints. `axvline` is drawn on all three panels.
+    - **CLI wiring**: `ohtv report velocity --chart PATH [--mark-date YYYY-MM-DD] [--title STR]`. All #81 filters (`--since`/`--until`/`--repo`/`--include-empty`) work identically. Empty-result paths print the same hint as the table path and exit 0 WITHOUT writing a file.
+    - **Secondary surface**: `scripts/chart_velocity.py` reads CSV (stdin or positional path) → `VelocityRow.from_csv_dict` (added on `VelocityRow` for this issue) → `plot_velocity`. ~50 LOC including argparse; deliberately thin.
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input

@@ -10471,6 +10471,27 @@ def report() -> None:
     is_flag=True,
     help="Suppress the totals row (table format only; CSV never has one)",
 )
+@click.option(
+    "--chart",
+    "chart_output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Write a 3-panel chart to PATH instead of a table/CSV. Extension "
+    "(.png/.svg/.pdf) drives the format. Requires the [charts] extra.",
+)
+@click.option(
+    "--mark-date",
+    "mark_date_str",
+    type=click.DateTime(["%Y-%m-%d"]),
+    help="Draw a vertical reference line at this date on every panel "
+    "(YYYY-MM-DD). Only meaningful with --chart.",
+)
+@click.option(
+    "--title",
+    "chart_title",
+    default="Development Velocity",
+    show_default=True,
+    help="Figure suptitle (only meaningful with --chart).",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show the rendered SQL and per-week row counts")
 def report_velocity(
     fmt: str,
@@ -10479,6 +10500,9 @@ def report_velocity(
     repo_filter: str | None,
     include_empty: bool,
     no_totals: bool,
+    chart_output: Path | None,
+    mark_date_str,
+    chart_title: str,
     verbose: bool,
 ) -> None:
     """Show merged PRs / direct-pushes aggregated by ISO week.
@@ -10534,7 +10558,12 @@ def report_velocity(
     # we run the join (lets us print the friendly empty-state hint).
     db_path = get_db_path()
     if not db_path.exists():
-        if fmt == "csv":
+        if chart_output is not None:
+            console.print(
+                "[dim]No index database found. Run "
+                "`ohtv db scan && ohtv db process all` first.[/dim]"
+            )
+        elif fmt == "csv":
             import sys
 
             format_csv([], sys.stdout)
@@ -10554,7 +10583,15 @@ def report_velocity(
             "SELECT 1 FROM change_refs LIMIT 1"
         ).fetchone()
         if any_change_refs is None:
-            if fmt == "csv":
+            if chart_output is not None:
+                console.print(
+                    "[yellow]No change_refs rows found.[/yellow]\n"
+                    "  - Run [cyan]ohtv db process all[/cyan] to populate "
+                    "PR / push contribution records (issues #78 / #79).\n"
+                    "  - Run [cyan]ohtv fetch-loc[/cyan] to backfill "
+                    "lines-added / lines-removed from GitHub (issue #80)."
+                )
+            elif fmt == "csv":
                 import sys
 
                 format_csv([], sys.stdout)
@@ -10601,12 +10638,39 @@ def report_velocity(
     # No matching merged PRs at all → friendly empty state.
     productive = [r for r in report_data.rows if r.prs_merged > 0]
     if not productive and not include_empty:
-        if fmt == "csv":
+        if chart_output is not None:
+            # AC-6: chart path mirrors the table-path hint, exits 0,
+            # writes NO file.
+            console.print("[dim]No merged PRs in range.[/dim]")
+        elif fmt == "csv":
             import sys
 
             format_csv([], sys.stdout)
         else:
             console.print("[dim]No merged PRs in range.[/dim]")
+        return
+
+    if chart_output is not None:
+        # matplotlib is an optional extra; the lazy import lives inside
+        # ``plot_velocity`` itself, so an ImportError can surface either
+        # from the module import here OR from the function call below.
+        # Catch both in one place and surface a single friendly hint.
+        try:
+            from ohtv.reports.charts import plot_velocity
+            mark_date_value = (
+                mark_date_str.date() if mark_date_str is not None else None
+            )
+            plot_velocity(
+                report_data.rows,
+                chart_output,
+                mark_date=mark_date_value,
+                title=chart_title,
+            )
+        except ImportError as exc:
+            raise click.UsageError(
+                "Charting requires the [charts] extra. "
+                "Install with: pip install ohtv[charts]"
+            ) from exc
         return
 
     if fmt == "csv":
