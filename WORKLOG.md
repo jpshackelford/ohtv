@@ -1,3 +1,12 @@
+### 2026-05-27 22:54 UTC - Issue #122 expanded
+
+- Issue: [Aggregate sub-conversations into their root for analysis and reporting](https://github.com/jpshackelford/ohtv/issues/122)
+- Approach: Denormalized `root_conversation_id` column (migration `019`) + `conversations_by_root` SQL view (display fields from root, time fields MIN/MAX, quantitative fields SUM across tree). Recommended over recursive-CTE-only path because the cluster (#123–#128) issues this query on every CLI invocation and B-tree indexes apply. Write-time population in `scanner.extract_metadata` walks parent's already-resolved root (handles N-level chains; 8-hop cap). `ConversationStore.list_roots(since/until/source/selected_repository)` API matches `list_by_date_range` shape (issue body's reference to `list_with_filters` was a phantom — flagged AC sharpening).
+- Cluster coordination: kept #123–#128 independent (each touches a distinct command surface — `report weekly-counts`, `report velocity`, `gen objs/titles/run`, `classify`, `list/refs`, `ask/search` — no collapse, no inter-dependency between them). Only ordering is #108 → #122 → {#123…#128 in any order}.
+- Dependency: blocked-by #108 (status: ready+priority:medium, OPEN, **no PR yet** — #122 has `ready` label for queue position but cannot start implementation until #108 ships migration 018 and the `parent_conversation_id` writeback).
+
+---
+
 ## INSTRUCTION: be aware of #122 and the dependency graph it implies — sequence work around it
 
 **Filed by @jpshackelford, 2026-05-27 22:45 UTC.**
