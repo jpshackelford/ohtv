@@ -1088,3 +1088,12 @@ _This follow-up was created by an AI agent (OpenHands) on behalf of @jpshackelfo
 **Housekeeping:** WORKLOG.md at 1306 lines pre-entry, still under the 1500-line custom truncation trigger. No archive action this cycle.
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+### 2026-05-27 22:24 UTC - Issue #121 expanded
+
+- Issue: [CLI logging: rename misleading --verbose, add --log-level/--log-file, stop swallowing batch errors](https://github.com/jpshackelford/ohtv/issues/121)
+- Type: Enhancement (CLI/UX refactor)
+- Status: Ready for implementation
+- Approach: Three-PR split — (1) new `setup_logging()` signature + `--log-level`/`--log-file`/`OHTV_LOG_LEVEL` env-var wiring; (2) audit + fix every batch-swallow site (`_analyze_one`, post-sync hooks, embedding writer, `parallel.run_parallel`) and make `--quiet` print a one-line stderr summary + exit non-zero across all formats; (3) deprecate `--verbose` (keep as alias for the 17 logging commands; rename to `--show-migrations`/`--explain` for the 2 commands where it's a domain flag) + docs. `analysis/titles.py` is the reference implementation. Documented `OHTV_LOG_LEVEL` env var is currently unimplemented — fixed in Phase A.
+
+---
