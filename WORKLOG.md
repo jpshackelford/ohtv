@@ -1,3 +1,53 @@
+### 2026-05-27 22:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `62277b1` | expansion | Issue #121 - CLI logging refactor | **NEW** running ([conv](https://app.all-hands.dev/conversations/62277b1c64ed49c58235dd8cda3a3a99)) |
+
+**Spawned: Expansion Worker**
+- Issue: [#121 — CLI logging: rename misleading --verbose, add --log-level/--log-file, stop swallowing batch errors](https://github.com/jpshackelford/ohtv/issues/121)
+- Conversation: [`62277b1`](https://app.all-hands.dev/conversations/62277b1c64ed49c58235dd8cda3a3a99)
+- Prompt covered: code-archaeology checklist (current `--verbose` wiring, existing `~/.ohtv/logs/ohtv.log` plumbing per AGENTS.md item #20, batch-error swallowing in `gen objs`/`gen titles`/`gen run`/`db embed`/`sync` per item #21) + 5 explicit gating questions (deprecation path, level vocabulary, default destination, fail-fast vs collect-and-summarize, scope enumeration). Block-on-`needs-info` rules included.
+
+**State delta vs 21:46Z entry:** Major change — **8 new issues filed between 21:54Z and 22:14Z**.
+- **#121** (21:54:57Z, `enhancement` label only): CLI logging refactor — independent of in-flight work → dispatched this cycle.
+- **#122** (22:14:13Z, no labels): "Aggregate sub-conversations into their root for analysis and reporting" — umbrella/architectural issue.
+- **#123–#128** (22:14:31Z–22:14:36Z, no labels): six concrete manifestations of the sub-conv aggregation gap — `report weekly-counts`, `report velocity`, `gen objs/titles/run`, `classify`, `list`/`refs`, `ask`/`search`. All sibling issues, filed within 5 seconds of #122.
+
+**Decision-tree trace:**
+- **Expansion slot:** OPEN (no prior worker per 21:46Z entry; verified via `/app-conversations/search` — only conv `30b4df2` = this orchestrator is `running`). Issues needing expansion (oldest-first, deferred-aware): **#114** (deferred — ordering-risk policy still holds: neither #111 nor #112 has merged), then **#121** → dispatch. Did NOT batch-dispatch the #122–#128 sub-conv cluster this cycle; one expansion at a time per workflow rules. Next quiet cycle picks up #122 (the umbrella) if still un-`ready`.
+- **PR slot:** PR #119 status unchanged (head still `3a05089`, `mergeStateStatus=UNKNOWN`, `reviewDecision=CHANGES_REQUESTED`, CI green) — Hypothesis-age policy gate (~2026-06-03; today is 2026-05-27, 7 days early) still in force. **Deferred.** PR #120 (`chore/release-automation-bootstrap`) remains human-driven / out-of-band. → no spawn.
+
+**Current State:**
+- [PR #119](https://github.com/jpshackelford/ohtv/pull/119): ready, CI green, CHANGES_REQUESTED, head `3a05089` — deferred (Hypothesis-age gate)
+- [PR #120](https://github.com/jpshackelford/ohtv/pull/120): out-of-band, human-driven
+- **Needs expansion (9):** #114 (deferred), **#121 (in flight)**, #122, #123, #124, #125, #126, #127, #128
+- **Ready w/ priority:** #108 (medium), #109 (medium), #110 (high — in flight via PR #119), #111 (medium), #112 (medium)
+- **Ready w/o priority:** #113, #116
+- **On hold:** #26, #90
+
+**Sub-conversation cluster note** (for next expansion cycles): #122 is the umbrella; #123–#128 are downstream. Expansion of #122 should produce a coordination plan / dependency graph that the per-feature issues can reference. The expansion worker handling #122 should be primed to consider whether #123–#128 collapse into "follow-on" comments on #122 vs. remain independent — that's a call for the expansion worker, not the orchestrator. **#121 was deliberately dispatched first** because it's thematically independent (logging UX, not sub-conv data model) and can be implemented in parallel without touching the cluster.
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → zero top-level matches. **Zero actionable.**
+
+**Auto-disable check:** Productive cycle (1 expansion worker dispatched) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Housekeeping:** WORKLOG.md at 1040 lines pre-entry (21:46Z entry already truncated 1141→1003 this same evening). Threshold per repo custom is ~1500. Deferred.
+
+**Sync note:** `OH_API_KEY="$OPENHANDS_API_KEY" ohtv sync --since 2026-05-27T18:18:39 --quiet` clean. `gh` API via `GH_TOKEN=$github_token` clean. Tools (`lxa`, `ohtv`) installed into per-run uv venv (`.venv`) — same pattern as recent cycles, not a regression.
+
+**Pre-commit forecast for next cycle (~22:50Z window):**
+- **If `62277b1` finishes** with `ready` on #121 → expansion slot reopens, next dispatch likely #122 (the sub-conv umbrella).
+- **If `62277b1` returns with `needs-info`/`needs-split`** → log the block, do not respawn, wait for human triage.
+- **If PR #111 or #112 merges before next wake-up** → #114 expansion unblocks (next dispatch candidate after #121 settles).
+- **If PR #119 head moves past `3a05089`** → re-test required (re-testing worker).
+- **If a new `## INSTRUCTION:` (outside fenced code) appears** → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 21:46 UTC - Orchestrator
 
 **Active Workers:**
