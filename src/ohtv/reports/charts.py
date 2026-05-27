@@ -135,6 +135,7 @@ def plot_velocity(
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
 
     weeks = [r.week for r in rows]
     x = list(range(len(rows)))
@@ -166,12 +167,30 @@ def plot_velocity(
     ax_prs.grid(True, axis="y", linestyle=":", alpha=0.4)
 
     # Panel 2 — Diverging LOC bars (added above zero, removed below).
-    ax_loc.bar(x, lines_added, color="#2ca02c", alpha=0.7, label="+Lines")
-    ax_loc.bar(x, lines_removed_neg, color="#d62728", alpha=0.7, label="-Lines")
+    # Hatched fill marks rows with `partial_loc=True` (issue #103) so the
+    # NULL-vs-zero distinction the table renderer preserves is visible
+    # here too. Fully-known rows render as solid bars.
+    loc_hatches = ["///" if r.partial_loc else None for r in rows]
+    ax_loc.bar(
+        x, lines_added, color="#2ca02c", alpha=0.7,
+        hatch=loc_hatches, label="+Lines",
+    )
+    ax_loc.bar(
+        x, lines_removed_neg, color="#d62728", alpha=0.7,
+        hatch=loc_hatches, label="-Lines",
+    )
     ax_loc.axhline(0, color="black", linewidth=0.6)
     ax_loc.set_ylabel("Lines changed")
     ax_loc.grid(True, axis="y", linestyle=":", alpha=0.4)
-    ax_loc.legend(loc="upper right", fontsize="small")
+    hatch_legend = Patch(
+        facecolor="white", edgecolor="black",
+        hatch="///", label="Partial LOC (NULL)",
+    )
+    handles, _labels = ax_loc.get_legend_handles_labels()
+    ax_loc.legend(
+        handles=[*handles, hatch_legend],
+        loc="upper right", fontsize="small",
+    )
 
     # Panel 3 — Words/LOC ratio (line + markers, gaps for None).
     ax_ratio.plot(ratio_x, ratio_y, marker="o", color="#9467bd")
