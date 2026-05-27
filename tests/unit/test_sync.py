@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ohtv.sync import (
+    MetadataDiff,
     MetadataRefreshResult,
     RepairResult,
     SyncManager,
@@ -15,6 +16,7 @@ from ohtv.sync import (
     SyncResult,
     _metadata_differs,
     _normalize_labels,
+    _read_selected_branch,
 )
 
 
@@ -801,54 +803,70 @@ class TestNormalizeLabels:
 
 
 class TestMetadataDiffers:
-    """Tests for _metadata_differs() (cloud listing entry vs manifest entry)."""
+    """Tests for _metadata_differs() (cloud listing entry vs manifest entry).
+
+    Issue #87 swapped the legacy ``(title_changed, labels_changed)`` tuple
+    return for a ``MetadataDiff`` struct that also tracks
+    ``selected_repository`` and ``created_at``. Existing tests assert on
+    the booleans only.
+    """
 
     def test_neither_changed(self):
         cloud = {"title": "Same", "tags": {"k": "v"}}
         manifest = {"title": "Same", "labels": {"k": "v"}}
-        assert _metadata_differs(cloud, manifest) == (False, False)
+        diff = _metadata_differs(cloud, manifest)
+        assert (diff.title_changed, diff.labels_changed) == (False, False)
+        assert diff.any_changed is False
 
     def test_title_only(self):
         cloud = {"title": "New", "tags": {"k": "v"}}
         manifest = {"title": "Old", "labels": {"k": "v"}}
-        assert _metadata_differs(cloud, manifest) == (True, False)
+        diff = _metadata_differs(cloud, manifest)
+        assert (diff.title_changed, diff.labels_changed) == (True, False)
 
     def test_labels_only(self):
         cloud = {"title": "Same", "tags": {"k": "v2"}}
         manifest = {"title": "Same", "labels": {"k": "v"}}
-        assert _metadata_differs(cloud, manifest) == (False, True)
+        diff = _metadata_differs(cloud, manifest)
+        assert (diff.title_changed, diff.labels_changed) == (False, True)
 
     def test_both_changed(self):
         cloud = {"title": "New", "tags": {"k": "v2"}}
         manifest = {"title": "Old", "labels": {"k": "v"}}
-        assert _metadata_differs(cloud, manifest) == (True, True)
+        diff = _metadata_differs(cloud, manifest)
+        assert (diff.title_changed, diff.labels_changed) == (True, True)
 
     def test_empty_dict_labels_equals_none(self):
         """{} from API must compare equal to None from manifest (no churn)."""
         cloud = {"title": "Same", "tags": {}}
         manifest = {"title": "Same", "labels": None}
-        assert _metadata_differs(cloud, manifest) == (False, False)
+        diff = _metadata_differs(cloud, manifest)
+        assert (diff.title_changed, diff.labels_changed) == (False, False)
 
     def test_none_labels_equals_missing(self):
         cloud = {"title": "Same"}  # No tags key at all
         manifest = {"title": "Same", "labels": None}
-        assert _metadata_differs(cloud, manifest) == (False, False)
+        diff = _metadata_differs(cloud, manifest)
+        assert (diff.title_changed, diff.labels_changed) == (False, False)
 
     def test_reordered_dict_keys_equal(self):
         cloud = {"title": "Same", "tags": {"a": "1", "b": "2"}}
         manifest = {"title": "Same", "labels": {"b": "2", "a": "1"}}
-        assert _metadata_differs(cloud, manifest) == (False, False)
+        diff = _metadata_differs(cloud, manifest)
+        assert (diff.title_changed, diff.labels_changed) == (False, False)
 
     def test_empty_title_equals_missing(self):
         """Empty string title collapses to None for comparison."""
         cloud = {"title": "", "tags": None}
         manifest = {"title": None, "labels": None}
-        assert _metadata_differs(cloud, manifest) == (False, False)
+        diff = _metadata_differs(cloud, manifest)
+        assert (diff.title_changed, diff.labels_changed) == (False, False)
 
     def test_missing_manifest_title_treated_as_none(self):
         cloud = {"title": "X", "tags": None}
         manifest = {}  # No title, no labels
-        assert _metadata_differs(cloud, manifest) == (True, False)
+        diff = _metadata_differs(cloud, manifest)
+        assert (diff.title_changed, diff.labels_changed) == (True, False)
 
 
 class TestMetadataRefreshResult:
@@ -1456,3 +1474,529 @@ class TestUpdateMetadataRealDB:
         ).fetchone()
         check_conn.close()
         assert row["title"] == "Old title"
+
+
+# =====================================================================
+# Issue #87: manifest as full cloud metadata cache
+# =====================================================================
+
+
+class TestReadSelectedBranch:
+    """Tests for the _read_selected_branch helper."""
+
+    def test_returns_branch_from_base_state(self, tmp_path):
+        (tmp_path / "base_state.json").write_text(json.dumps({
+            "selected_branch": "feat/foo",
+        }))
+        assert _read_selected_branch(tmp_path) == "feat/foo"
+
+    def test_returns_none_when_field_missing(self, tmp_path):
+        (tmp_path / "base_state.json").write_text(json.dumps({"title": "x"}))
+        assert _read_selected_branch(tmp_path) is None
+
+    def test_returns_none_when_base_state_missing(self, tmp_path):
+        # No base_state.json at all
+        assert _read_selected_branch(tmp_path) is None
+
+    def test_returns_none_when_base_state_corrupt(self, tmp_path):
+        (tmp_path / "base_state.json").write_text("not JSON {{")
+        assert _read_selected_branch(tmp_path) is None
+
+    def test_returns_none_for_empty_string_branch(self, tmp_path):
+        (tmp_path / "base_state.json").write_text(json.dumps({
+            "selected_branch": "",
+        }))
+        assert _read_selected_branch(tmp_path) is None
+
+    def test_returns_none_for_non_string_branch(self, tmp_path):
+        """A bizarre type sneaks in -> we don't crash, we return None."""
+        (tmp_path / "base_state.json").write_text(json.dumps({
+            "selected_branch": 42,
+        }))
+        assert _read_selected_branch(tmp_path) is None
+
+
+class TestUpdateManifestEntryIssue87:
+    """Tests for SyncManager._update_manifest_entry's #87 extensions.
+
+    The manifest entry must persist ``selected_repository`` (from the
+    listing payload), ``selected_branch`` (from the freshly-exported
+    ``base_state.json``), and ``created_at`` (from the listing payload).
+    """
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        config = MagicMock()
+        config.api_key = "test-key"
+        config.cloud_api_url = "https://example.com"
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.synced_conversations_dir.mkdir(parents=True)
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def _make_conv_dir(self, root: Path, conv_id: str, branch: str | None) -> Path:
+        conv_dir = root / conv_id
+        (conv_dir / "events").mkdir(parents=True)
+        if branch is not None:
+            (conv_dir / "base_state.json").write_text(json.dumps({
+                "selected_branch": branch,
+            }))
+        return conv_dir
+
+    def test_writes_all_three_new_fields(self, manager):
+        conv_dir = self._make_conv_dir(
+            manager.config.synced_conversations_dir, "convA", "feat/foo"
+        )
+        manager._update_manifest_entry(
+            conv={
+                "id": "convA",
+                "title": "Title",
+                "selected_repository": "org/repo",
+                "created_at": "2024-06-01T12:00:00Z",
+                "tags": None,
+            },
+            conv_id="convA",
+            cloud_updated_at="2024-06-02T00:00:00Z",
+            conv_dir=conv_dir,
+        )
+        entry = manager.manifest.conversations["convA"]
+        assert entry["selected_repository"] == "org/repo"
+        assert entry["selected_branch"] == "feat/foo"
+        assert entry["created_at"] == "2024-06-01T12:00:00Z"
+        # Legacy fields still present.
+        assert entry["title"] == "Title"
+        assert entry["updated_at"] == "2024-06-02T00:00:00Z"
+        assert "downloaded_at" in entry
+        assert "event_count" in entry
+
+    def test_handles_missing_base_state_branch_gracefully(self, manager):
+        """No base_state.json on disk → selected_branch stored as None."""
+        conv_dir = self._make_conv_dir(
+            manager.config.synced_conversations_dir, "convB", branch=None
+        )
+        manager._update_manifest_entry(
+            conv={"id": "convB", "title": "X", "selected_repository": "x/y"},
+            conv_id="convB",
+            cloud_updated_at="2024-06-02T00:00:00Z",
+            conv_dir=conv_dir,
+        )
+        entry = manager.manifest.conversations["convB"]
+        assert entry["selected_branch"] is None
+        # Other #87 fields still populated from the listing payload.
+        assert entry["selected_repository"] == "x/y"
+
+    def test_handles_missing_listing_fields_as_none(self, manager):
+        """Listing payload missing repo/created_at → manifest stores None."""
+        conv_dir = self._make_conv_dir(
+            manager.config.synced_conversations_dir, "convC", "main"
+        )
+        manager._update_manifest_entry(
+            conv={"id": "convC"},  # No selected_repository, no created_at
+            conv_id="convC",
+            cloud_updated_at="2024-06-02T00:00:00Z",
+            conv_dir=conv_dir,
+        )
+        entry = manager.manifest.conversations["convC"]
+        assert entry["selected_repository"] is None
+        assert entry["created_at"] is None
+        # selected_branch still extracted from base_state.json.
+        assert entry["selected_branch"] == "main"
+
+
+class TestMetadataDiffersIssue87:
+    """Tests for the Issue #87 extension of _metadata_differs.
+
+    The four-field comparison: title, labels, selected_repository,
+    created_at. selected_branch is explicitly NOT compared (not in
+    listing API).
+    """
+
+    def test_selected_repository_changed(self):
+        cloud = {"selected_repository": "new/repo"}
+        manifest = {"selected_repository": "old/repo"}
+        diff = _metadata_differs(cloud, manifest)
+        assert diff.selected_repository_changed is True
+        assert diff.new_selected_repository == "new/repo"
+
+    def test_selected_repository_unchanged(self):
+        cloud = {"selected_repository": "same/repo"}
+        manifest = {"selected_repository": "same/repo"}
+        diff = _metadata_differs(cloud, manifest)
+        assert diff.selected_repository_changed is False
+
+    def test_selected_repository_set_from_pre_87_manifest(self):
+        """Pre-#87 manifest has no key — cloud value counts as a change."""
+        cloud = {"selected_repository": "some/repo"}
+        manifest = {}  # No key
+        diff = _metadata_differs(cloud, manifest)
+        assert diff.selected_repository_changed is True
+
+    def test_created_at_changed(self):
+        cloud = {"created_at": "2024-06-01T12:00:00Z"}
+        manifest = {"created_at": "2024-01-01T00:00:00Z"}
+        diff = _metadata_differs(cloud, manifest)
+        assert diff.created_at_changed is True
+        assert diff.new_created_at == "2024-06-01T12:00:00Z"
+
+    def test_created_at_unchanged(self):
+        cloud = {"created_at": "2024-01-01T00:00:00Z"}
+        manifest = {"created_at": "2024-01-01T00:00:00Z"}
+        diff = _metadata_differs(cloud, manifest)
+        assert diff.created_at_changed is False
+
+    def test_selected_branch_never_compared(self):
+        """Diff struct intentionally has no selected_branch field."""
+        diff = _metadata_differs({}, {"selected_branch": "main"})
+        assert not hasattr(diff, "selected_branch_changed")
+
+    def test_any_changed_true_when_only_repo_differs(self):
+        cloud = {"selected_repository": "new/repo"}
+        manifest = {"selected_repository": "old/repo"}
+        diff = _metadata_differs(cloud, manifest)
+        assert diff.any_changed is True
+
+    def test_all_four_changed(self):
+        cloud = {
+            "title": "New",
+            "tags": {"k": "v"},
+            "selected_repository": "new/repo",
+            "created_at": "2024-06-01T12:00:00Z",
+        }
+        manifest = {
+            "title": "Old",
+            "labels": None,
+            "selected_repository": "old/repo",
+            "created_at": "2024-01-01T00:00:00Z",
+        }
+        diff = _metadata_differs(cloud, manifest)
+        assert diff.title_changed
+        assert diff.labels_changed
+        assert diff.selected_repository_changed
+        assert diff.created_at_changed
+        assert diff.any_changed
+
+
+class TestUpdateMetadataIssue87:
+    """Tests for SyncManager.update_metadata's #87 extensions."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        config = MagicMock()
+        config.api_key = "test-key"
+        config.cloud_api_url = "https://example.com"
+        config.synced_conversations_dir = tmp_path / "synced"
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_selected_repository_change_written_to_manifest(self, manager):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Same",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "event_count": 5,
+                "downloaded_at": "2024-01-02T00:00:00Z",
+                "labels": None,
+                "selected_repository": "old/repo",
+                "selected_branch": "main",
+                "created_at": "2024-01-01T00:00:00Z",
+            },
+        }
+        client = _RecordingCloudClient(
+            [{
+                "id": "abc",
+                "title": "Same",
+                "tags": None,
+                "selected_repository": "new/repo",
+                "created_at": "2024-01-01T00:00:00Z",
+            }]
+        )
+
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            result = manager.update_metadata(client=client)
+
+        assert client.download_calls == []
+        assert result.selected_repository_changed == 1
+        assert result.title_changed == 0
+        assert result.created_at_changed == 0
+        assert manager.manifest.conversations["abc"]["selected_repository"] == "new/repo"
+        # selected_branch preserved byte-for-byte (not refreshable here)
+        assert manager.manifest.conversations["abc"]["selected_branch"] == "main"
+
+    def test_created_at_change_written_to_manifest(self, manager):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Same",
+                "updated_at": "u",
+                "event_count": 5,
+                "downloaded_at": "d",
+                "labels": None,
+                "selected_repository": "x/y",
+                "selected_branch": "main",
+                "created_at": "2024-01-01T00:00:00Z",
+            },
+        }
+        client = _RecordingCloudClient(
+            [{
+                "id": "abc",
+                "title": "Same",
+                "tags": None,
+                "selected_repository": "x/y",
+                "created_at": "2024-06-01T12:00:00Z",
+            }]
+        )
+
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            result = manager.update_metadata(client=client)
+
+        assert result.created_at_changed == 1
+        assert manager.manifest.conversations["abc"]["created_at"] == "2024-06-01T12:00:00Z"
+
+    def test_does_not_refresh_selected_branch(self, manager):
+        """Manifest's selected_branch survives metadata refresh."""
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Same",
+                "updated_at": "u",
+                "event_count": 5,
+                "downloaded_at": "d",
+                "labels": None,
+                "selected_repository": "x/y",
+                "selected_branch": "feat/preserved",
+                "created_at": "2024-01-01T00:00:00Z",
+            },
+        }
+        # Cloud listing would never include selected_branch, but defensively
+        # add one to confirm it's still ignored.
+        client = _RecordingCloudClient(
+            [{
+                "id": "abc",
+                "title": "Same",
+                "tags": None,
+                "selected_repository": "x/y",
+                "selected_branch": "DIFFERENT-branch-from-listing",
+                "created_at": "2024-01-01T00:00:00Z",
+            }]
+        )
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            manager.update_metadata(client=client)
+        assert manager.manifest.conversations["abc"]["selected_branch"] == "feat/preserved"
+
+    def test_convs_changed_counts_distinct_convs(self, manager):
+        """A conv with title + repo both changed counts as 1 conv changed."""
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Old",
+                "updated_at": "u",
+                "event_count": 1,
+                "downloaded_at": "d",
+                "labels": None,
+                "selected_repository": "old/repo",
+                "selected_branch": "main",
+                "created_at": "2024-01-01T00:00:00Z",
+            },
+        }
+        client = _RecordingCloudClient(
+            [{
+                "id": "abc",
+                "title": "New",
+                "tags": None,
+                "selected_repository": "new/repo",
+                "created_at": "2024-01-01T00:00:00Z",
+            }]
+        )
+        with patch.object(manager, "_get_conversation_store", return_value=None):
+            result = manager.update_metadata(client=client)
+
+        assert result.title_changed == 1
+        assert result.selected_repository_changed == 1
+        assert result.convs_changed == 1
+        assert result.total_changed == 1  # post-#87 uses convs_changed
+
+    def test_db_update_called_with_new_fields(self, manager):
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Same",
+                "updated_at": "u",
+                "event_count": 1,
+                "downloaded_at": "d",
+                "labels": None,
+                "selected_repository": "old/repo",
+                "selected_branch": "main",
+                "created_at": "2024-01-01T00:00:00Z",
+            },
+        }
+        store = MagicMock()
+        store.conn = MagicMock()
+        with patch.object(manager, "_get_conversation_store", return_value=store):
+            client = _RecordingCloudClient(
+                [{
+                    "id": "abc",
+                    "title": "Same",
+                    "tags": None,
+                    "selected_repository": "new/repo",
+                    "created_at": "2024-06-01T12:00:00Z",
+                }]
+            )
+            manager.update_metadata(client=client)
+
+        # Both #87 fields propagated to the DB write.
+        call_args = store.update_metadata.call_args
+        assert call_args.kwargs.get("selected_repository") == "new/repo"
+        # created_at must be a datetime in the DB call.
+        assert isinstance(call_args.kwargs.get("created_at"), datetime)
+
+    def test_db_update_only_includes_changed_fields(self, manager):
+        """If only repo changed, title/labels/created_at must not be in the call."""
+        manager.manifest.conversations = {
+            "abc": {
+                "title": "Same",
+                "updated_at": "u",
+                "event_count": 1,
+                "downloaded_at": "d",
+                "labels": None,
+                "selected_repository": "old/repo",
+                "selected_branch": "main",
+                "created_at": "2024-01-01T00:00:00Z",
+            },
+        }
+        store = MagicMock()
+        store.conn = MagicMock()
+        with patch.object(manager, "_get_conversation_store", return_value=store):
+            client = _RecordingCloudClient(
+                [{
+                    "id": "abc",
+                    "title": "Same",
+                    "tags": None,
+                    "selected_repository": "new/repo",
+                    "created_at": "2024-01-01T00:00:00Z",
+                }]
+            )
+            manager.update_metadata(client=client)
+
+        call_args = store.update_metadata.call_args
+        # Only the diff'd field should be in kwargs.
+        assert "selected_repository" in call_args.kwargs
+        assert "title" not in call_args.kwargs
+        assert "labels" not in call_args.kwargs
+        assert "created_at" not in call_args.kwargs
+
+
+class TestRepairFromListingPayloadIssue87:
+    """Tests for SyncManager.repair's #87 cloud-listing rebuild path.
+
+    When fix=True picks up orphaned on-disk conversations, repair queries
+    the listing API once and rebuilds manifest entries with full #87
+    metadata (selected_repository, selected_branch, created_at).
+    """
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        config = MagicMock()
+        config.synced_conversations_dir = tmp_path / "synced"
+        config.synced_conversations_dir.mkdir(parents=True)
+        config.local_conversations_dir = tmp_path / "local"
+        config.extra_conversation_paths = []
+        config.api_key = "test-key"
+        config.cloud_api_url = "https://example.com"
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_rebuilds_orphan_with_full_cloud_metadata(self, manager):
+        # Build an orphaned on-disk conversation
+        conv_dir = manager.config.synced_conversations_dir / "convX"
+        events_dir = conv_dir / "events"
+        events_dir.mkdir(parents=True)
+        (conv_dir / "base_state.json").write_text(json.dumps({
+            "selected_branch": "feat/orphan",
+        }))
+
+        # Cloud listing has the conv with all the listing-API fields
+        listing_entry = {
+            "id": "convX",
+            "title": "Recovered title",
+            "tags": {"qa": "smoke"},
+            "selected_repository": "org/recovered",
+            "created_at": "2024-06-01T12:00:00Z",
+            "updated_at": "2024-06-02T00:00:00Z",
+        }
+
+        with patch.object(
+            manager,
+            "_fetch_cloud_listing_for_repair",
+            return_value={"convX": listing_entry},
+        ):
+            result = manager.repair(fix=True, check_cloud=True)
+
+        assert result.added_to_manifest == 1
+        entry = manager.manifest.conversations["convX"]
+        # Listing-derived fields
+        assert entry["title"] == "Recovered title"
+        assert entry["labels"] == {"qa": "smoke"}
+        assert entry["selected_repository"] == "org/recovered"
+        assert entry["created_at"] == "2024-06-01T12:00:00Z"
+        assert entry["updated_at"] == "2024-06-02T00:00:00Z"
+        # selected_branch from base_state.json on disk
+        assert entry["selected_branch"] == "feat/orphan"
+
+    def test_rebuilds_orphan_fallback_when_listing_empty(self, manager):
+        """No cloud listing match -> nulls except event_count and selected_branch."""
+        conv_dir = manager.config.synced_conversations_dir / "convY"
+        events_dir = conv_dir / "events"
+        events_dir.mkdir(parents=True)
+        (conv_dir / "base_state.json").write_text(json.dumps({
+            "selected_branch": "fallback-branch",
+        }))
+
+        with patch.object(manager, "_fetch_cloud_listing_for_repair", return_value={}):
+            result = manager.repair(fix=True, check_cloud=True)
+
+        assert result.added_to_manifest == 1
+        entry = manager.manifest.conversations["convY"]
+        assert entry["title"] is None
+        assert entry["updated_at"] is None
+        assert entry["selected_repository"] is None
+        assert entry["created_at"] is None
+        assert entry["selected_branch"] == "fallback-branch"
+
+    def test_repair_does_not_fetch_when_no_api_key(self, manager):
+        """No API key -> repair falls back to null-filled entries."""
+        manager.config.api_key = None
+        conv_dir = manager.config.synced_conversations_dir / "convZ"
+        events_dir = conv_dir / "events"
+        events_dir.mkdir(parents=True)
+
+        with patch.object(manager, "_fetch_cloud_listing_for_repair") as fetch_mock:
+            result = manager.repair(fix=True, check_cloud=True)
+            fetch_mock.assert_not_called()
+
+        assert result.added_to_manifest == 1
+        entry = manager.manifest.conversations["convZ"]
+        assert entry["title"] is None
+        assert entry["selected_repository"] is None
+
+    def test_repair_does_not_fetch_when_no_orphans(self, manager):
+        """Empty orphan list -> no listing fetch (perf)."""
+        with patch.object(manager, "_fetch_cloud_listing_for_repair") as fetch_mock:
+            manager.repair(fix=True, check_cloud=True)
+            fetch_mock.assert_not_called()
+
+
+class TestMetadataDiffDataclass:
+    """Tests for the MetadataDiff dataclass struct itself."""
+
+    def test_default_no_changes(self):
+        diff = MetadataDiff()
+        assert diff.any_changed is False
+        assert diff.title_changed is False
+        assert diff.selected_repository_changed is False
+        assert diff.created_at_changed is False
+
+    def test_any_changed_true_when_one_field_changed(self):
+        for kwarg in [
+            "title_changed",
+            "labels_changed",
+            "selected_repository_changed",
+            "created_at_changed",
+        ]:
+            diff = MetadataDiff(**{kwarg: True})
+            assert diff.any_changed is True, f"any_changed False for {kwarg}"

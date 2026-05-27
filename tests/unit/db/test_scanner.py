@@ -589,3 +589,297 @@ class TestExtractMetadataManifestTitlePreference:
         manifest_map = {"conv1": {"title": None, "labels": {}}}
         meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
         assert meta["labels"] is None
+
+
+# =====================================================================
+# Issue #87: manifest as full cloud metadata cache
+# =====================================================================
+
+
+class TestLoadManifestMetadataIssue87:
+    """Tests for the Issue #87 fields loaded from the manifest."""
+
+    def test_carries_new_fields_when_present(self, tmp_path, monkeypatch):
+        manifest_path = tmp_path / "manifest.json"
+        manifest_path.write_text(json.dumps({
+            "conversations": {
+                "conv1": {
+                    "title": "x",
+                    "labels": None,
+                    "selected_repository": "org/repo",
+                    "selected_branch": "main",
+                    "created_at": "2024-01-01T00:00:00Z",
+                },
+            }
+        }))
+        monkeypatch.setattr(
+            "ohtv.db.scanner.get_manifest_path", lambda: manifest_path
+        )
+        m = load_manifest_metadata()
+        assert m["conv1"]["selected_repository"] == "org/repo"
+        assert m["conv1"]["selected_branch"] == "main"
+        assert m["conv1"]["created_at"] == "2024-01-01T00:00:00Z"
+
+    def test_omits_new_fields_when_absent_pre_87_manifest(self, tmp_path, monkeypatch):
+        """Pre-#87 manifest entries lack the new keys entirely."""
+        manifest_path = tmp_path / "manifest.json"
+        manifest_path.write_text(json.dumps({
+            "conversations": {
+                "conv1": {"title": "x", "labels": None},
+            }
+        }))
+        monkeypatch.setattr(
+            "ohtv.db.scanner.get_manifest_path", lambda: manifest_path
+        )
+        m = load_manifest_metadata()
+        # Keys MUST be absent so extract_metadata can fall back to
+        # base_state.json instead of treating None as authoritative.
+        assert "selected_repository" not in m["conv1"]
+        assert "selected_branch" not in m["conv1"]
+        assert "created_at" not in m["conv1"]
+
+    def test_present_with_none_distinguishable_from_missing(self, tmp_path, monkeypatch):
+        """An explicit ``None`` value is carried (key present, value None)."""
+        manifest_path = tmp_path / "manifest.json"
+        manifest_path.write_text(json.dumps({
+            "conversations": {
+                "conv1": {
+                    "title": "x",
+                    "labels": None,
+                    "selected_repository": None,
+                    "selected_branch": None,
+                    "created_at": None,
+                },
+            }
+        }))
+        monkeypatch.setattr(
+            "ohtv.db.scanner.get_manifest_path", lambda: manifest_path
+        )
+        m = load_manifest_metadata()
+        assert "selected_repository" in m["conv1"]
+        assert m["conv1"]["selected_repository"] is None
+        assert "selected_branch" in m["conv1"]
+        assert m["conv1"]["selected_branch"] is None
+        assert "created_at" in m["conv1"]
+        assert m["conv1"]["created_at"] is None
+
+
+class TestExtractMetadataManifestIssue87:
+    """Tests for extract_metadata's manifest precedence over base_state.json.
+
+    The contract:
+      - cloud conv + manifest entry has ALL three #87 keys -> skip base_state.json
+      - cloud conv + manifest entry missing any #87 key -> read base_state.json
+      - cloud conv + no manifest entry -> read base_state.json (legacy)
+      - local conv -> always read base_state.json (unchanged)
+    """
+
+    def _make_cloud_conv(
+        self,
+        base: Path,
+        conv_id: str,
+        *,
+        base_state_repo: str | None = "from-base",
+        base_state_branch: str | None = "branch-from-base",
+        base_state_created_at: str | None = "2020-01-01T00:00:00Z",
+    ) -> Path:
+        conv_dir = base / conv_id
+        (conv_dir / "events").mkdir(parents=True)
+        (conv_dir / "base_state.json").write_text(json.dumps({
+            "title": "From base_state",
+            "selected_repository": base_state_repo,
+            "selected_branch": base_state_branch,
+            "created_at": base_state_created_at,
+            "updated_at": "2020-01-02T00:00:00Z",
+        }))
+        return conv_dir
+
+    def test_manifest_repo_overrides_base_state(self, tmp_path):
+        conv_dir = self._make_cloud_conv(tmp_path, "conv1")
+        manifest_map = {
+            "conv1": {
+                "title": None,
+                "labels": {},
+                "selected_repository": "manifest/repo",
+                "selected_branch": "manifest-branch",
+                "created_at": "2024-06-01T12:00:00Z",
+            }
+        }
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+        assert meta["selected_repository"] == "manifest/repo"
+
+    def test_manifest_created_at_overrides_base_state(self, tmp_path):
+        conv_dir = self._make_cloud_conv(tmp_path, "conv1")
+        manifest_map = {
+            "conv1": {
+                "title": None,
+                "labels": {},
+                "selected_repository": "x/y",
+                "selected_branch": "main",
+                "created_at": "2024-06-01T12:00:00Z",
+            }
+        }
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+        # Comparing the year/month/day is enough; the events overrides
+        # don't fire because the conv has no event files.
+        assert meta["created_at"] is not None
+        assert meta["created_at"].year == 2024
+        assert meta["created_at"].month == 6
+
+    def test_falls_back_to_base_state_when_field_missing(self, tmp_path):
+        """Pre-#87 manifest entry (only title/labels) -> read base_state.json."""
+        conv_dir = self._make_cloud_conv(tmp_path, "conv1")
+        manifest_map = {"conv1": {"title": None, "labels": {}}}
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+        assert meta["selected_repository"] == "from-base"
+
+    def test_no_manifest_entry_reads_base_state(self, tmp_path):
+        conv_dir = self._make_cloud_conv(tmp_path, "conv1")
+        meta = extract_metadata(conv_dir, "cloud", manifest_map={})
+        assert meta["selected_repository"] == "from-base"
+
+    def test_local_source_always_reads_base_state(self, tmp_path):
+        """Local CLI convs are unchanged — base_state.json remains canonical."""
+        conv_dir = self._make_cloud_conv(tmp_path, "conv1")
+        manifest_map = {
+            "conv1": {
+                "title": None,
+                "labels": {},
+                "selected_repository": "manifest/repo",
+                "selected_branch": "main",
+                "created_at": "2024-06-01T12:00:00Z",
+            }
+        }
+        meta = extract_metadata(conv_dir, "local", manifest_map=manifest_map)
+        # Local convs ignore manifest #87 fields entirely (issue scope).
+        assert meta["selected_repository"] == "from-base"
+
+    def test_explicit_none_repo_in_manifest_overrides_base_state(self, tmp_path):
+        """Manifest knows the repo is None (cloud just unset it)."""
+        conv_dir = self._make_cloud_conv(
+            tmp_path, "conv1", base_state_repo="stale/repo"
+        )
+        manifest_map = {
+            "conv1": {
+                "title": None,
+                "labels": {},
+                "selected_repository": None,
+                "selected_branch": None,
+                "created_at": None,
+            }
+        }
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+        assert meta["selected_repository"] is None
+
+
+class TestExtractMetadataNoBaseStateOpensIssue87:
+    """Regression: cold-start cloud scan with full manifest opens 0 base_state.json files."""
+
+    def test_full_manifest_cloud_does_not_open_base_state(self, tmp_path, monkeypatch):
+        # Build a cloud conv with a present-but-poisoned base_state.json
+        # so that any access triggers a JSONDecodeError we can spot.
+        conv_dir = tmp_path / "convA"
+        (conv_dir / "events").mkdir(parents=True)
+        base_state = conv_dir / "base_state.json"
+        base_state.write_text("INTENTIONALLY-BROKEN-JSON")
+
+        # Wire Path.read_text to record any open of this exact file.
+        opens: list[str] = []
+        original_read_text = Path.read_text
+
+        def tracking_read_text(self, *args, **kwargs):
+            opens.append(str(self))
+            return original_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", tracking_read_text)
+
+        manifest_map = {
+            "convA": {
+                "title": "Manifest title",
+                "labels": {},
+                "selected_repository": "org/repo",
+                "selected_branch": "main",
+                "created_at": "2024-01-01T00:00:00Z",
+            }
+        }
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+
+        # Field values came from the manifest, not the (poisoned) base_state.json
+        assert meta["title"] == "Manifest title"
+        assert meta["selected_repository"] == "org/repo"
+
+        # And critically: no read of THIS conv's base_state.json happened.
+        cloud_base_state_opens = [p for p in opens if p == str(base_state)]
+        assert cloud_base_state_opens == [], (
+            f"Issue #87 regression: cloud base_state.json was opened "
+            f"{len(cloud_base_state_opens)} times for a fully-populated "
+            f"manifest entry (opens={opens})"
+        )
+
+    def test_local_source_still_opens_base_state(self, tmp_path, monkeypatch):
+        """Local convs are NOT affected by Issue #87."""
+        conv_dir = tmp_path / "convB"
+        (conv_dir / "events").mkdir(parents=True)
+        base_state = conv_dir / "base_state.json"
+        base_state.write_text(json.dumps({
+            "title": "Local title",
+            "selected_repository": "local/repo",
+        }))
+
+        opens: list[str] = []
+        original_read_text = Path.read_text
+
+        def tracking_read_text(self, *args, **kwargs):
+            opens.append(str(self))
+            return original_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", tracking_read_text)
+
+        # Even with a fully-populated manifest, local convs still read
+        # base_state.json (they're the SDK's native artifact for the
+        # `execution_status` field this issue is explicitly out of scope
+        # for).
+        manifest_map = {
+            "convB": {
+                "title": "Manifest title",
+                "labels": {},
+                "selected_repository": "manifest/repo",
+                "selected_branch": "main",
+                "created_at": "2024-01-01T00:00:00Z",
+            }
+        }
+        extract_metadata(conv_dir, "local", manifest_map=manifest_map)
+
+        local_base_state_opens = [p for p in opens if p == str(base_state)]
+        assert len(local_base_state_opens) >= 1, (
+            f"Local source should still read base_state.json (opens={opens})"
+        )
+
+    def test_partial_manifest_falls_back_to_base_state(self, tmp_path, monkeypatch):
+        """Manifest with title/labels but missing #87 keys -> read base_state.json."""
+        conv_dir = tmp_path / "convC"
+        (conv_dir / "events").mkdir(parents=True)
+        base_state = conv_dir / "base_state.json"
+        base_state.write_text(json.dumps({
+            "title": "Base title",
+            "selected_repository": "org/repo",
+        }))
+
+        opens: list[str] = []
+        original_read_text = Path.read_text
+
+        def tracking_read_text(self, *args, **kwargs):
+            opens.append(str(self))
+            return original_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", tracking_read_text)
+
+        # Pre-#87 manifest entry — only title/labels carried.
+        manifest_map = {"convC": {"title": "Manifest title", "labels": {}}}
+        meta = extract_metadata(conv_dir, "cloud", manifest_map=manifest_map)
+
+        # base_state.json WAS opened (no Issue #87 keys present).
+        cloud_base_state_opens = [p for p in opens if p == str(base_state)]
+        assert len(cloud_base_state_opens) >= 1
+        # And selected_repository falls through to the base_state value.
+        assert meta["selected_repository"] == "org/repo"

@@ -541,6 +541,16 @@ def _show_metadata_result(result: MetadataRefreshResult, *, dry_run: bool) -> No
     console.print(f"  Title changed:     {result.title_changed}")
     console.print(f"  Labels changed:    {result.labels_changed}")
     console.print(f"  Both changed:      {result.both_changed}")
+    # Issue #87 fields (only show when nonzero to keep output compact for
+    # the steady-state case where only title/labels drift).
+    if result.selected_repository_changed:
+        console.print(
+            f"  Repository changed:{result.selected_repository_changed:>4}"
+        )
+    if result.created_at_changed:
+        console.print(
+            f"  Created_at changed:{result.created_at_changed:>4}"
+        )
     console.print(f"  Unchanged:         {result.unchanged}")
     if result.new_on_cloud:
         console.print(

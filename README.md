@@ -1032,8 +1032,9 @@ ohtv sync --status
 ohtv sync --repair --dry-run  # Check only
 ohtv sync --repair            # Fix inconsistencies
 
-# Refresh cached title + labels for already-synced conversations
-# (picks up cloud-side renames or tag edits — no re-download)
+# Refresh cached cloud metadata (title, labels, selected_repository,
+# created_at) for already-synced conversations — picks up cloud-side
+# renames, tag edits, or repo reassignments without re-downloading.
 ohtv sync --update-metadata
 ohtv sync --update-metadata --dry-run  # Preview diffs without writing
 
@@ -1049,25 +1050,32 @@ ohtv sync --quiet
 | `--dry-run` | Show what would sync without downloading |
 | `-s, --status` | Show sync status |
 | `--repair` | Check and fix sync state (manifest vs disk vs cloud) |
-| `--update-metadata` | Refresh cached title + labels for already-synced cloud conversations **without** re-downloading. Mutually exclusive with `--force`, `--since`, `--max-new`, `--repair`, `--status`. |
+| `--update-metadata` | Refresh cached cloud metadata (`title`, `labels`, `selected_repository`, `created_at`) for already-synced cloud conversations **without** re-downloading. Mutually exclusive with `--force`, `--since`, `--max-new`, `--repair`, `--status`. |
 | `-p, --process` | Run all processing stages after sync |
 | `-q, --quiet` | Minimal output for cron jobs |
 
 #### Metadata refresh (`--update-metadata`)
 
-Cloud-side edits to a conversation's title or labels (via the
-`PATCH /app-conversations/{id}` API or the cloud UI) are not picked up
-by the normal incremental sync because the API may not bump `updated_at`
+Cloud-side edits to a conversation's title, labels, or `selected_repository`
+(via the `PATCH /app-conversations/{id}` API or the cloud UI) are not picked
+up by the normal incremental sync because the API may not bump `updated_at`
 on a metadata-only change. Run `ohtv sync --update-metadata` to refresh
-cached titles and labels for every already-synced conversation without
-re-downloading any trajectories.
+the cached cloud-derived metadata fields for every already-synced
+conversation without re-downloading any trajectories.
 
 Behavior:
 - Lists all cloud conversations (unfiltered by `updated_at`) and diffs
-  each manifest entry's `title`/`labels` against the cloud listing.
-- Rewrites only the `title` and `labels` fields in the manifest and the
-  matching DB row; `updated_at`, `event_count`, and `downloaded_at` are
-  preserved.
+  each manifest entry's `title`, `labels`, `selected_repository`, and
+  `created_at` against the cloud listing.
+- Rewrites only those four fields in the manifest and the matching DB row
+  where they differ; `updated_at`, `event_count`, `downloaded_at`, and
+  `selected_branch` are preserved byte-for-byte.
+- **`selected_branch` is cached in the manifest** by the normal sync
+  path (read from the freshly-extracted `base_state.json`, which the
+  exporter mirrors from the trajectory ZIP's `meta.json`), but it is
+  **not refreshed by `--update-metadata`** — the cloud listing endpoint
+  does not return it, so it can only change via a full trajectory
+  re-download (e.g. `ohtv sync --force`).
 - Never downloads trajectory ZIPs — the cost is one paged listing call.
 - Does **not** advance `last_sync_at` or increment `sync_count`; this is
   an out-of-band metadata-only pass.
@@ -1078,6 +1086,12 @@ Behavior:
 - A normal `ohtv sync` auto-runs this refresh **only when** at least one
   new or updated conversation was actually downloaded. It never fires
   on `--dry-run`, `--force`, `--repair`, or `--status`.
+
+Output rows: the summary always shows `Title changed`, `Labels changed`,
+`Both changed`, and `Unchanged`. The newer `Repository changed` and
+`Created_at changed` rows are shown **only when their count is nonzero**,
+keeping the steady-state output compact for the common case where only
+title/labels drift.
 
 ---
 

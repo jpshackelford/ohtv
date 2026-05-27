@@ -75,7 +75,10 @@ class MetadataRefreshResult:
     checked: int = 0
     title_changed: int = 0
     labels_changed: int = 0
-    both_changed: int = 0
+    both_changed: int = 0  # legacy: convs where BOTH title AND labels differ
+    selected_repository_changed: int = 0   # Issue #87
+    created_at_changed: int = 0            # Issue #87
+    convs_changed: int = 0                 # convs with >=1 field change (Issue #87)
     unchanged: int = 0
     new_on_cloud: int = 0       # In cloud listing but not in manifest (count only)
     missing_on_cloud: int = 0   # In manifest but not in cloud listing (count only)
@@ -84,11 +87,16 @@ class MetadataRefreshResult:
 
     @property
     def total_changed(self) -> int:
-        """Number of manifest entries that received at least one change."""
-        # both_changed counts a single conv whose title and labels both differ.
-        # title_changed and labels_changed are individual field counters; their
-        # sum minus both_changed (which we counted in BOTH columns) gives the
-        # number of entries touched at least once.
+        """Number of manifest entries that received at least one change.
+
+        Post-#87 this is exposed directly as ``convs_changed`` (set by the
+        refresh loop). We retain the property for backward compat with
+        existing callers; it returns ``convs_changed`` when populated, else
+        falls back to the legacy two-field inclusion-exclusion formula.
+        """
+        if self.convs_changed:
+            return self.convs_changed
+        # Legacy formula (used by pre-#87 result objects in tests).
         return self.title_changed + self.labels_changed - self.both_changed
 
     @property
@@ -548,17 +556,29 @@ class SyncManager:
         cloud_updated_at: str,
         conv_dir: Path,
     ) -> None:
-        """Update the manifest with new conversation info."""
+        """Update the manifest with new conversation info.
+
+        Issue #87 extension: persist ``selected_repository``,
+        ``selected_branch``, and ``created_at`` so the manifest becomes
+        the complete cache of cloud-derived metadata. ``selected_branch``
+        is read from the freshly-extracted ``base_state.json`` (mirrored
+        from the trajectory ZIP's ``meta.json`` by the exporter) — it is
+        NOT in the cloud listing payload.
+        """
         # Extract labels/tags from API response (may be empty dict or None)
         tags = conv.get("tags")
         labels = tags if tags and isinstance(tags, dict) and len(tags) > 0 else None
-        
+
         self.manifest.conversations[conv_id] = {
             "title": conv.get("title"),
             "updated_at": cloud_updated_at,
             "event_count": count_events(conv_dir),
             "downloaded_at": _format_datetime(datetime.now(timezone.utc)),
             "labels": labels,
+            # Issue #87: full cloud metadata cache.
+            "selected_repository": conv.get("selected_repository"),
+            "selected_branch": _read_selected_branch(conv_dir),
+            "created_at": conv.get("created_at"),
         }
 
     def _update_result(self, result: SyncResult, action: str) -> None:
@@ -693,27 +713,79 @@ class SyncManager:
             for ghost_id in result.ghost_entries:
                 del self.manifest.conversations[ghost_id]
                 result.removed_from_manifest += 1
-            
-            # Add orphaned files to manifest
+
+            # Issue #87: rebuild orphan manifest entries from the listing
+            # API payload when possible (one fetch shared across all
+            # orphans). Falls back to null-filled entries when we don't
+            # have an API key or the listing query fails.
+            cloud_by_id: dict[str, dict] = {}
+            if result.orphaned_files and check_cloud and self.config.api_key:
+                cloud_by_id = self._fetch_cloud_listing_for_repair()
+
             for orphan_id in result.orphaned_files:
                 conv_dir = self._find_conversation_dir(orphan_id)
                 if conv_dir:
-                    self.manifest.conversations[orphan_id] = {
-                        "title": None,  # Unknown - could fetch from cloud if needed
-                        "updated_at": None,
-                        "event_count": count_events(conv_dir),
-                        "downloaded_at": _format_datetime(datetime.now(timezone.utc)),
-                    }
+                    self.manifest.conversations[orphan_id] = (
+                        self._build_repaired_manifest_entry(
+                            orphan_id, conv_dir, cloud_by_id
+                        )
+                    )
                     result.added_to_manifest += 1
-            
+
             if result.removed_from_manifest > 0 or result.added_to_manifest > 0:
                 self.manifest.save(self.manifest_path)
                 log.info(
                     "Repair applied: removed %d ghost entries, added %d orphaned files",
                     result.removed_from_manifest, result.added_to_manifest
                 )
-        
+
         return result
+
+    def _fetch_cloud_listing_for_repair(self) -> dict[str, dict]:
+        """Pull the full cloud listing keyed by id, for ``repair`` to
+        rebuild orphaned manifest entries from. Returns an empty dict on
+        any error so ``repair`` can fall back to a null-filled entry.
+        """
+        try:
+            with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
+                items = client.search_all_conversations(updated_since=None)
+                return {item["id"]: item for item in items if "id" in item}
+        except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as e:
+            log.warning("Repair: could not fetch cloud listing for orphan rebuild: %s", e)
+            return {}
+
+    def _build_repaired_manifest_entry(
+        self,
+        conv_id: str,
+        conv_dir: Path,
+        cloud_by_id: dict[str, dict],
+    ) -> dict:
+        """Construct a manifest entry for an orphaned on-disk conversation.
+
+        Uses the cloud listing payload (when available) so we don't write
+        nulls for fields that the API knows about. Reads
+        ``selected_branch`` from the existing ``base_state.json`` since it
+        is not in the listing.
+
+        Note: this is the ONE place ``repair`` reads ``base_state.json`` —
+        it's necessary because ``selected_branch`` lives only in
+        ``meta.json`` (now mirrored into ``base_state.json`` by the
+        exporter) and is not in the listing API.
+        """
+        cloud_conv = cloud_by_id.get(conv_id) or {}
+        tags = cloud_conv.get("tags")
+        labels = tags if tags and isinstance(tags, dict) and len(tags) > 0 else None
+        return {
+            "title": cloud_conv.get("title"),
+            "updated_at": cloud_conv.get("updated_at"),
+            "event_count": count_events(conv_dir),
+            "downloaded_at": _format_datetime(datetime.now(timezone.utc)),
+            "labels": labels,
+            # Issue #87: full cloud metadata cache.
+            "selected_repository": cloud_conv.get("selected_repository"),
+            "selected_branch": _read_selected_branch(conv_dir),
+            "created_at": cloud_conv.get("created_at"),
+        }
 
     # ------------------------------------------------------------------ #
     # Metadata-only refresh (Issue #86)
@@ -795,24 +867,27 @@ class SyncManager:
             for i, conv_id in enumerate(in_both):
                 cloud_conv = cloud_by_id[conv_id]
                 manifest_entry = self.manifest.conversations[conv_id]
-                title_changed, labels_changed = _metadata_differs(cloud_conv, manifest_entry)
+                diff = _metadata_differs(cloud_conv, manifest_entry)
 
                 result.checked += 1
-                if not (title_changed or labels_changed):
+                if not diff.any_changed:
                     result.unchanged += 1
                 else:
-                    if title_changed:
+                    if diff.title_changed:
                         result.title_changed += 1
-                    if labels_changed:
+                    if diff.labels_changed:
                         result.labels_changed += 1
-                    if title_changed and labels_changed:
+                    if diff.title_changed and diff.labels_changed:
                         result.both_changed += 1
+                    if diff.selected_repository_changed:
+                        result.selected_repository_changed += 1
+                    if diff.created_at_changed:
+                        result.created_at_changed += 1
+                    result.convs_changed += 1
 
                     if not dry_run:
-                        new_title = cloud_conv.get("title") if title_changed else manifest_entry.get("title")
-                        new_labels = _normalize_labels(cloud_conv.get("tags")) if labels_changed else _normalize_labels(manifest_entry.get("labels"))
                         if self._update_metadata_with_error_handling(
-                            conv_id, new_title, new_labels, store, result,
+                            conv_id, diff, manifest_entry, store, result,
                         ):
                             any_change_applied = True
 
@@ -845,9 +920,13 @@ class SyncManager:
         result.elapsed_seconds = _time.perf_counter() - start
         log.info(
             "Metadata refresh complete: checked=%d title_changed=%d labels_changed=%d "
-            "both_changed=%d unchanged=%d new_on_cloud=%d missing_on_cloud=%d errors=%d",
-            result.checked, result.title_changed, result.labels_changed, result.both_changed,
-            result.unchanged, result.new_on_cloud, result.missing_on_cloud, len(result.errors),
+            "both_changed=%d repo_changed=%d created_at_changed=%d "
+            "convs_changed=%d unchanged=%d new_on_cloud=%d missing_on_cloud=%d "
+            "errors=%d",
+            result.checked, result.title_changed, result.labels_changed,
+            result.both_changed, result.selected_repository_changed,
+            result.created_at_changed, result.convs_changed, result.unchanged,
+            result.new_on_cloud, result.missing_on_cloud, len(result.errors),
         )
         return result
 
@@ -897,27 +976,56 @@ class SyncManager:
     def _update_metadata_with_error_handling(
         self,
         conv_id: str,
-        new_title: str | None,
-        new_labels: dict[str, str] | None,
+        diff: "MetadataDiff",
+        manifest_entry: dict,
         store,
         result: "MetadataRefreshResult",
     ) -> bool:
-        """Apply title + labels updates to manifest and (if open) DB.
+        """Apply changed metadata fields to manifest and (if open) DB.
 
-        Flattens what would otherwise be a 6-level-nested try/except in the
+        Flattens what would otherwise be a deeply nested try/except in the
         main refresh loop. Manifest write is attempted first; if it fails,
         the DB write is skipped to preserve "manifest is source of truth"
         ordering. DB failures are recorded but never roll back the manifest
         change.
+
+        Issue #87: ``selected_repository`` and ``created_at`` are written
+        only when ``diff`` reports them changed (sentinel-vs-clear via
+        ``ConversationStore.update_metadata``'s ``_UNSET`` semantics).
+        ``selected_branch`` is never refreshed here — it's not in the
+        listing API.
 
         Returns:
             True if the manifest write succeeded (caller should treat the
             row as updated, e.g. set ``any_change_applied``). False if the
             manifest write failed.
         """
+        # Build "new" values for fields that changed; preserve existing
+        # manifest values for fields that didn't (so the manifest entry
+        # converges on the canonical cloud snapshot without churn).
+        new_title = diff.new_title if diff.title_changed else manifest_entry.get("title")
+        if diff.labels_changed:
+            new_labels = diff.new_labels
+        else:
+            new_labels = _normalize_labels(manifest_entry.get("labels"))
+        new_repo = (
+            diff.new_selected_repository
+            if diff.selected_repository_changed
+            else manifest_entry.get("selected_repository")
+        )
+        new_created_at = (
+            diff.new_created_at
+            if diff.created_at_changed
+            else manifest_entry.get("created_at")
+        )
+
         try:
             self._write_manifest_metadata(
-                conv_id, title=new_title, labels=new_labels,
+                conv_id,
+                title=new_title,
+                labels=new_labels,
+                selected_repository=new_repo,
+                created_at=new_created_at,
             )
         except Exception as e:
             log.warning("Failed to update manifest metadata for %s: %s", conv_id, e)
@@ -925,13 +1033,27 @@ class SyncManager:
             return False
 
         if store is not None:
-            try:
-                store.update_metadata(
-                    conv_id, title=new_title, labels=new_labels,
-                )
-            except Exception as e:
-                log.warning("Failed to update DB metadata for %s: %s", conv_id, e)
-                result.errors.append((conv_id, f"db: {e}"))
+            # Only push fields that actually changed to the DB so we don't
+            # rewrite unchanged columns (sentinel-driven WHERE-IS semantics
+            # in ConversationStore.update_metadata).
+            db_kwargs: dict = {}
+            if diff.title_changed:
+                db_kwargs["title"] = new_title
+            if diff.labels_changed:
+                db_kwargs["labels"] = new_labels
+            if diff.selected_repository_changed:
+                db_kwargs["selected_repository"] = new_repo
+            if diff.created_at_changed:
+                # Parse the ISO 8601 string into a datetime for the DB write.
+                # _parse_datetime returns None on malformed input — fall
+                # through with None which the store will write as NULL.
+                db_kwargs["created_at"] = _parse_datetime(new_created_at)
+            if db_kwargs:
+                try:
+                    store.update_metadata(conv_id, **db_kwargs)
+                except Exception as e:
+                    log.warning("Failed to update DB metadata for %s: %s", conv_id, e)
+                    result.errors.append((conv_id, f"db: {e}"))
         return True
 
     def _write_manifest_metadata(
@@ -940,17 +1062,26 @@ class SyncManager:
         *,
         title: str | None,
         labels: dict[str, str] | None,
+        selected_repository: str | None = None,
+        created_at: str | None = None,
     ) -> None:
-        """Rewrite ONLY title + labels on the manifest entry.
+        """Rewrite refreshable metadata fields on the manifest entry.
 
-        Preserves ``updated_at``, ``event_count``, and ``downloaded_at``
-        byte-for-byte — only the two metadata fields are touched.
+        Issue #86 wrote only ``title``/``labels``. Issue #87 extends to
+        ``selected_repository`` and ``created_at`` so the manifest entry
+        converges on the canonical cloud snapshot.
+
+        Preserves ``updated_at``, ``event_count``, ``downloaded_at``, and
+        ``selected_branch`` (which can only be refreshed via a full
+        trajectory download) byte-for-byte.
         """
         entry = self.manifest.conversations.get(conv_id)
         if entry is None:  # pragma: no cover - guarded by caller
             return
         entry["title"] = title
         entry["labels"] = labels
+        entry["selected_repository"] = selected_repository
+        entry["created_at"] = created_at
 
     # ------------------------------------------------------------------ #
     # End metadata-only refresh
@@ -1101,17 +1232,50 @@ def _normalize_labels(value: object) -> dict[str, str] | None:
     return None
 
 
+@dataclass
+class MetadataDiff:
+    """Per-conversation diff between cloud listing and manifest entry.
+
+    Carries which fields changed AND the canonical new values so the
+    update path doesn't have to re-normalize. Issue #87 extends
+    Issue #86's two-bool tuple into a struct that also tracks
+    ``selected_repository`` and ``created_at`` deltas.
+    """
+
+    title_changed: bool = False
+    labels_changed: bool = False
+    selected_repository_changed: bool = False
+    created_at_changed: bool = False
+
+    new_title: str | None = None
+    new_labels: dict[str, str] | None = None
+    new_selected_repository: str | None = None
+    new_created_at: str | None = None  # ISO 8601 string from listing
+
+    @property
+    def any_changed(self) -> bool:
+        return (
+            self.title_changed
+            or self.labels_changed
+            or self.selected_repository_changed
+            or self.created_at_changed
+        )
+
+
 def _metadata_differs(
     cloud_conv: dict,
     manifest_entry: dict,
-) -> tuple[bool, bool]:
-    """Compare cloud listing entry vs manifest entry on title+labels.
+) -> MetadataDiff:
+    """Compare cloud listing entry vs manifest entry on refreshable fields.
 
-    Both fields are normalized before comparison:
+    All fields are normalized before comparison:
     - ``title``: missing/empty strings collapse to ``None``.
     - ``labels``: empty dict ``{}`` collapses to ``None`` (same rule as
       ``parse_conversation_info``); key order is irrelevant since we
       compare dicts directly.
+    - ``selected_repository``: missing/empty strings collapse to ``None``.
+    - ``created_at``: compared as ISO 8601 strings (the listing API
+      returns them as strings; the manifest stores them as strings).
 
     Args:
         cloud_conv: Conversation dict from the cloud listing
@@ -1122,7 +1286,13 @@ def _metadata_differs(
             time by ``_update_manifest_entry``).
 
     Returns:
-        ``(title_changed, labels_changed)`` booleans.
+        ``MetadataDiff`` with per-field booleans and the new values.
+
+    Note:
+        ``selected_branch`` is NOT compared — the cloud listing API
+        does not return that field (only ``meta.json`` inside the
+        trajectory ZIP carries it), so it cannot be refreshed without
+        a full download. Documented in Issue #87.
     """
     cloud_title = cloud_conv.get("title") or None
     manifest_title = manifest_entry.get("title") or None
@@ -1132,4 +1302,45 @@ def _metadata_differs(
     manifest_labels = _normalize_labels(manifest_entry.get("labels"))
     labels_changed = cloud_labels != manifest_labels
 
-    return title_changed, labels_changed
+    cloud_repo = cloud_conv.get("selected_repository") or None
+    # Pre-#87 manifests don't have the key. Treat missing as None — a
+    # cloud value of None matches that and is a no-op; a cloud value of
+    # a real string DOES count as a change (caller will write it,
+    # populating the field on first refresh).
+    manifest_repo = manifest_entry.get("selected_repository") or None
+    selected_repository_changed = cloud_repo != manifest_repo
+
+    cloud_created_at = cloud_conv.get("created_at") or None
+    manifest_created_at = manifest_entry.get("created_at") or None
+    created_at_changed = cloud_created_at != manifest_created_at
+
+    return MetadataDiff(
+        title_changed=title_changed,
+        labels_changed=labels_changed,
+        selected_repository_changed=selected_repository_changed,
+        created_at_changed=created_at_changed,
+        new_title=cloud_title,
+        new_labels=cloud_labels,
+        new_selected_repository=cloud_repo,
+        new_created_at=cloud_created_at,
+    )
+
+
+def _read_selected_branch(conv_dir: Path) -> str | None:
+    """Read ``selected_branch`` from a freshly-exported ``base_state.json``.
+
+    The exporter writes ``base_state.json`` from the trajectory ZIP's
+    ``meta.json``; ``selected_branch`` lives there but NOT in the cloud
+    listing API. Returns ``None`` on any read/parse failure — manifest
+    just won't carry the field for that conv, and the scanner will fall
+    back to ``base_state.json`` as before.
+    """
+    base_state = conv_dir / "base_state.json"
+    if not base_state.exists():
+        return None
+    try:
+        data = json.loads(base_state.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    value = data.get("selected_branch")
+    return value if isinstance(value, str) and value else None

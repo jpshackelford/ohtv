@@ -1,5 +1,9 @@
 """Unit tests for ConversationStore."""
 
+from datetime import datetime, timezone
+
+import pytest
+
 from ohtv.db.models import Conversation
 
 
@@ -273,3 +277,180 @@ class TestUpdateMetadata:
         cursor = db_conn.execute("SELECT title FROM conversations WHERE id = ?", ("conv1",))
         row = cursor.fetchone()
         assert row[0] == "New"
+
+
+class TestUpdateMetadataIssue87:
+    """Tests for the Issue #87 extension of ConversationStore.update_metadata().
+
+    Adds ``selected_repository`` and ``created_at`` keyword args with the
+    same _UNSET sentinel semantics as ``title``/``labels``.
+    """
+
+    def test_updates_selected_repository_only(self, conversation_store, db_conn):
+        conversation_store.upsert(
+            Conversation(
+                id="conv1",
+                location="/p",
+                title="Same",
+                selected_repository="old/repo",
+            )
+        )
+        db_conn.commit()
+
+        conversation_store.update_metadata(
+            "conv1", selected_repository="new/repo"
+        )
+        db_conn.commit()
+
+        result = conversation_store.get("conv1")
+        assert result.selected_repository == "new/repo"
+        # Title untouched
+        assert result.title == "Same"
+
+    def test_clears_selected_repository_when_passed_none(
+        self, conversation_store, db_conn
+    ):
+        conversation_store.upsert(
+            Conversation(
+                id="conv1",
+                location="/p",
+                selected_repository="old/repo",
+            )
+        )
+        db_conn.commit()
+
+        conversation_store.update_metadata("conv1", selected_repository=None)
+        db_conn.commit()
+
+        result = conversation_store.get("conv1")
+        assert result.selected_repository is None
+
+    def test_updates_created_at(self, conversation_store, db_conn):
+        original = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        new = datetime(2024, 6, 15, 12, 0, tzinfo=timezone.utc)
+        conversation_store.upsert(
+            Conversation(id="conv1", location="/p", created_at=original)
+        )
+        db_conn.commit()
+
+        conversation_store.update_metadata("conv1", created_at=new)
+        db_conn.commit()
+
+        result = conversation_store.get("conv1")
+        assert result.created_at == new
+
+    def test_clears_created_at_when_passed_none(
+        self, conversation_store, db_conn
+    ):
+        original = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        conversation_store.upsert(
+            Conversation(id="conv1", location="/p", created_at=original)
+        )
+        db_conn.commit()
+
+        conversation_store.update_metadata("conv1", created_at=None)
+        db_conn.commit()
+
+        result = conversation_store.get("conv1")
+        assert result.created_at is None
+
+    def test_updates_all_four_fields_together(self, conversation_store, db_conn):
+        conversation_store.upsert(
+            Conversation(
+                id="conv1",
+                location="/p",
+                title="Old",
+                selected_repository="old/repo",
+                created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+            )
+        )
+        db_conn.commit()
+
+        new_created = datetime(2024, 6, 15, tzinfo=timezone.utc)
+        conversation_store.update_metadata(
+            "conv1",
+            title="New",
+            labels={"team": "platform"},
+            selected_repository="new/repo",
+            created_at=new_created,
+        )
+        db_conn.commit()
+
+        result = conversation_store.get("conv1")
+        assert result.title == "New"
+        assert result.labels == {"team": "platform"}
+        assert result.selected_repository == "new/repo"
+        assert result.created_at == new_created
+
+    def test_skips_unset_fields(self, conversation_store, db_conn):
+        """Fields not passed must remain unchanged (sentinel semantics)."""
+        original = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        conversation_store.upsert(
+            Conversation(
+                id="conv1",
+                location="/p",
+                title="Original title",
+                selected_repository="org/repo",
+                created_at=original,
+            )
+        )
+        db_conn.commit()
+
+        # Touch only labels — everything else must remain intact.
+        conversation_store.update_metadata("conv1", labels={"x": "y"})
+        db_conn.commit()
+
+        result = conversation_store.get("conv1")
+        assert result.title == "Original title"
+        assert result.selected_repository == "org/repo"
+        assert result.created_at == original
+        assert result.labels == {"x": "y"}
+
+    def test_rejects_string_for_created_at(
+        self, conversation_store, db_conn
+    ):
+        """created_at must be a datetime — refuse strings to prevent silent
+        ISO-format mismatches between callers.
+        """
+        conversation_store.upsert(
+            Conversation(id="conv1", location="/p")
+        )
+        db_conn.commit()
+        with pytest.raises(TypeError, match="created_at must be datetime"):
+            conversation_store.update_metadata(
+                "conv1", created_at="2024-01-01T00:00:00Z"
+            )
+
+    def test_normalizes_dashed_id_for_new_fields(
+        self, conversation_store, db_conn
+    ):
+        """Dashed UUIDs must be normalized when writing #87 fields too."""
+        conversation_store.upsert(
+            Conversation(
+                id="abc123def4561234567890123456abcd",  # 32 chars, normalized
+                location="/p",
+                selected_repository="old/repo",
+            )
+        )
+        db_conn.commit()
+
+        # Pass with dashes (UUID format)
+        conversation_store.update_metadata(
+            "abc123de-f456-1234-5678-90123456abcd",
+            selected_repository="new/repo",
+        )
+        db_conn.commit()
+
+        result = conversation_store.get("abc123def4561234567890123456abcd")
+        assert result.selected_repository == "new/repo"
+
+    def test_returns_true_when_noop_with_unset_fields(
+        self, conversation_store, db_conn
+    ):
+        """All four fields unset + row exists → True (matches pre-#87 noop semantics)."""
+        conversation_store.upsert(
+            Conversation(id="conv1", location="/p")
+        )
+        db_conn.commit()
+        # All four args unset.
+        assert conversation_store.update_metadata("conv1") is True
