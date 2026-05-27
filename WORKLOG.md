@@ -1,3 +1,49 @@
+### 2026-05-27 06:54 UTC - Merge Worker (PR #104)
+
+**PR merged ✅**
+
+- PR: [#104 — feat: manifest as full cloud metadata cache (#87)](https://github.com/jpshackelford/ohtv/pull/104) (state=MERGED, mergedAt=2026-05-27T06:54:41Z, branch `feat/manifest-full-cache-87` deleted)
+- Squash commit: [`d3d3f9cc`](https://github.com/jpshackelford/ohtv/commit/d3d3f9ccd028b5c1d32830b319f40c4d044fac60) — `feat(sync): manifest as full cloud metadata cache (#87)`
+- Issue [#87 — Manifest as full cloud metadata cache](https://github.com/jpshackelford/ohtv/issues/87) **closed** at 06:54:42Z (auto-closed by `Closes #87` in squash-commit footer).
+
+**Pre-merge verification:**
+
+- ✅ HEAD drift check: `gh pr view 104 --json headRefOid --jq .headRefOid` → `0d8be6204b01c323e284ef678f83a17f558016fa` (matched expected, no drift). Re-checked immediately before invoking `gh pr merge` — still matched.
+- ✅ Mergeable: `state=OPEN` / `mergeable=MERGEABLE` / `isDraft=false`.
+- ✅ Manual test report (06:27:44Z, [comment 4551614957](https://github.com/jpshackelford/ohtv/pull/104#issuecomment-4551614957) by testing worker `5ecbdb7`): all 8 Issue #87 ACs satisfied including the headline cold-start zero-read property (verified both by `Path.read_text` monkeypatch unit test and a blackbox poisoned-JSON scan); 1738/1738 pytest pass (1688 baseline + 50 new); 0 unresolved review threads.
+- ✅ AI code-review bot (05:46:42Z): COMMENTED (positive informational, not CHANGES_REQUESTED).
+- ✅ Docs in-diff: README.md (+26/-12) and AGENTS.md (+7/-4) updated; docs-update follow-up comment by @jpshackelford at 05:59:11Z.
+
+**Squash-merge commit body** (delivered via `--body`, not co-author trailer per instructions):
+
+> - Extends sync_manifest entries with `selected_repository`, `selected_branch`, and `created_at` (additive schema; pre-#87 manifests still load).
+> - Cold-start scanner skips `base_state.json` entirely for cloud convs whose manifest entry is fully populated; local CLI convs unchanged. Regression test asserts zero `Path.read_text` calls on the file.
+> - `sync --update-metadata` refreshes the new fields except `selected_branch` — the cloud listing API does not return it; it can only change via a full trajectory re-download.
+> - `sync --repair --fix` rebuilds orphaned manifest entries from one shared cloud-listing fetch with null-filled fallback when there is no API key or the listing call fails.
+> - Widens `ConversationStore.update_metadata` to accept `selected_repository` and `created_at` with `_UNSET` sentinel semantics distinguishing "leave unchanged" from "clear". `created_at` requires `datetime` (or `None`); raw strings raise `TypeError`.
+> - Introduces `MetadataDiff` dataclass replacing the legacy `(title_changed, labels_changed)` tuple; carries per-field booleans and new values to avoid re-normalization in the update path.
+> - +50 new tests across scanner / store / sync (1688 → 1738 green); 8/8 AC verified including the headline cold-start zero-read property.
+>
+> Closes #87
+
+**Priority labels applied to remaining ready follow-ups** (per orchestrator pre-commitment):
+
+- [#102 — chore(charts): wrap ValueError as click.UsageError](https://github.com/jpshackelford/ohtv/issues/102) → added `priority:low`. Labels now: `ready`, `priority:low`.
+- [#103 — docs(charts): document NULL-vs-zero LOC bar convention OR hatch partial_loc bars](https://github.com/jpshackelford/ohtv/issues/103) → added `priority:low`. Labels now: `ready`, `priority:low`.
+
+Both are minor cosmetic follow-ups to the merged PR #101 charting work; neither is on the critical path for any upcoming PR.
+
+**Non-blocking notes from the test report (deliberately not addressed in this PR):**
+
+- 🟡 Pre-existing ruff debt on touched files (80 errors; `origin/main` has 81 — PR fixed 1). Mostly `F401` unused-imports in `cli.py`.
+- 🟡 Click `--help` text for `--update-metadata` still says "title + labels"; README + AGENTS.md are fully updated. Per orchestrator instructions, this is left as a future follow-up — **no new issue filed** (no `ready` label per worker rules; expansion worker can pick this up if desired in a later cycle).
+
+**Anomalies:** None. Clean merge.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 05:55 UTC - Impl Worker (#87)
 
 Implemented Issue [#87 — manifest as full cloud metadata cache](https://github.com/jpshackelford/ohtv/issues/87) as a direct follow-up to PR #94 / Issue #86. Extends the manifest schema with `selected_repository`/`selected_branch`/`created_at`; `db scanner.extract_metadata` now skips `base_state.json` for cloud convs with fully-populated manifest entries (regression test enforces zero opens); `sync --update-metadata` refreshes the new fields (except `selected_branch`, which is not in the listing API); `sync --repair --fix` rebuilds orphans from listing payload. Widened `ConversationStore.update_metadata` with `selected_repository`/`created_at` kwargs (sentinel semantics). 1738 tests green (+50). PR [#104 — feat: manifest as full cloud metadata cache (#87)](https://github.com/jpshackelford/ohtv/pull/104) opened, marked ready.
