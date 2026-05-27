@@ -1,3 +1,50 @@
+### 2026-05-27 20:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `6c47d56` | expansion | Issue #116 — Centralize DB migration entry point | **NEW** running |
+
+**Verification (corrected-lesson posture from 20:22Z applied):** start-task `802ad634e292464d9a85e2e11807d7d2` accepted with `initial_message.content[0].text` populated (4527-byte prompt, not omitted). Polled `/app-conversations/search` once at +73s: `6c47d56f` shows `execution_status=running` + `sandbox_status=RUNNING` + `updated_at (20:51:32Z) > created_at (20:50:38Z)`. All three signals positive — not a dead spawn. Will still verify via artifact (issue #116 `ready` label OR new WORKLOG entry by the worker) before declaring expansion-slot reopen next cycle. The start-tasks GET-search endpoint returned HTML (route deprecated or method-mismatch); skipped that polling path and went directly to `/app-conversations/search` — cheaper and authoritative.
+
+**Decision-tree trace:**
+- **Expansion slot:** Opened when `bfafacb` finished #113 at 20:27:09Z (verified at 20:48Z: #113 has `ready` label, expansion comment posted at 16:50–20:26Z window, and a WORKLOG entry "Issue #113 expanded" prepended at top of file). → Spawn for **#116** per 20:22Z pre-commit forecast (orthogonal cleanup, no dependency pressure on #111/#112/#114 ordering).
+- **PR slot:** PR #119 unchanged since 20:22Z — head `3a05089`, `mergeStateStatus=CLEAN`, `reviewDecision=CHANGES_REQUESTED`, 💬2, CI green (one SKIPPED + one SUCCESS `pr-review`). Hypothesis-age policy gate (~2026-06-03) still in force per testing-worker comment + multiple prior cycles. **Deferred.** PR #120 still human-driven, out-of-band, not part of orchestrator workflow.
+
+**Spawned: 1 worker (expansion slot only).**
+
+1. **Expansion Worker** — `6c47d56f0b1643c88b12f1e8e0ac4216` ([conv](https://app.all-hands.dev/conversations/6c47d56f0b1643c88b12f1e8e0ac4216))
+   - Issue: [#116 — Centralize DB migration into a single 'ensure ready' entry point](https://github.com/jpshackelford/ohtv/issues/116)
+   - Scope handed to worker: verify the ~16 `migrate(conn)` call sites claim (file:line list); evaluate whether existing `ensure_db_ready()` (per AGENTS.md #25) is the canonical entry point or a renamed/expanded shape is required; map dependency posture vs. #108/#110/#111/#112/#113/#114 (especially: does centralizing migration affect the contract #111/#112 implementers rely on for `start_snapshot` / `CloudListingStore` migrations?); rewrite body with Problem / Current State / Proposed Solution / AC / Implementation Plan / Files Affected / Test Strategy / Out-of-scope; post technical-approach comment with refactor sequence + coordination notes; apply `ready`; prepend WORKLOG entry; exit.
+   - Explicit DO-NOTs: no `src/` or `tests/` edits, no PR, no other-issue label changes, no PR #119/#120 touches, no data-mutating `ohtv` runs against `~/.ohtv`.
+   - Why #116 (not #114): #114 ("two sources of truth") depends on #111+#112+#113 all landing — expansion now would over-couple to in-flight work whose contracts will shift. #116 is purely internal refactor; can land any time after #109 (already landed in PR #117).
+
+**Pre-commit forecast for next cycle (~21:15–21:25Z window):**
+- **If `6c47d56` is `running` AND #116 still has no `ready` label** → expansion slot stays filled, log status. Expansion of a refactor issue with this many call sites + cross-issue dependency mapping is plausibly 25–45 min.
+- **If `6c47d56` looks finished (`PAUSED`/`null` or `finished`) AND #116 has artifacts (`ready` label OR comment OR new WORKLOG entry)** → expansion slot reopens. Next expansion target: **#114** only if at least one of #111/#112 has been merged; otherwise log "no expansion work without ordering risk" and leave slot idle. (#114's body still claims "two sources of truth = manifest + DB" — that gets reshaped by #111+#112's set-diff work, so expanding it now risks rewriting it later.)
+- **If `6c47d56` looks finished AND #116 has NO artifacts** → apply the dead-spawn protocol: check the conversation's event stream + agent message count via `ohtv show 6c47d56 --messages`; if 0 user/agent messages → respawn with same prompt; if non-zero → investigate why no artifact landed (possible mid-task failure).
+- **If `6c47d56` adds `needs-info`/`needs-split`/`blocked` to #116** → expansion slot reopens; only #114 remains unexpanded and it has dependency risk → likely idle.
+- **If PR #119 head moves past `3a05089`** → re-evaluate; force a re-test before any review/merge dispatch (decision tree: PR exists, ready, CI green, test results outdated → re-testing worker).
+- **If a human waives the hypothesis-age policy on PR #119** → reopen PR slot decision; spawn review worker (address `fakes.py` dedup hint from AI review), then re-test, then merge.
+- **If PR #120 grows a `Manual Test Results` comment OR a tracked-issue link appears** → re-evaluate joining it into orchestrator workflow. Currently still human-owned.
+- **If a new top-level `## INSTRUCTION:` (outside fenced code) appears** → follow it first.
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → zero top-level matches. **Zero actionable.**
+
+**Current State (verified 20:48–20:51Z):**
+- **Open PRs:** 2 — [PR #119](https://github.com/jpshackelford/ohtv/pull/119) (orchestrator's slot, deferred pending hypothesis policy gate or human waiver) + [PR #120](https://github.com/jpshackelford/ohtv/pull/120) (out-of-band, release automation bootstrap, human-driven, all CI green).
+- **Ready issues (6):** #108 (priority:medium), #109 (priority:medium — note: actually landed via PR #117 per 20:22Z entry; if still showing open the issue close needs a follow-up, but not blocking), #110 (priority:high, in flight via PR #119), #111 (priority:medium, blocked on #110+#112 merge), #112 (priority:medium, awaiting impl after PR slot opens), #113 (now ready, newly expanded by `bfafacb`).
+- **Needs expansion (2 effective):** #116 (now in flight via `6c47d56`), #114 (dependency-blocked from expansion until #111/#112 land).
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+
+**Housekeeping:** WORKLOG.md is at 1043 lines pre-this-entry, ~1130 post — still below the 1600-line custom threshold for heavy productive days established at the 18:16Z archive. **Deferred** (next housekeeping consideration when we cross 1600 or when productive-cycle density drops).
+
+**Auto-disable check:** Productive cycle (1 expansion completion confirmed via artifact + 1 new spawn). Consecutive-quiet counter remains 0. No auto-disable trigger.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 20:26 UTC - Issue #113 expanded
 
 `ohtv sync --repair` four-category UX (`new_on_cloud` / `missing_locally` /
