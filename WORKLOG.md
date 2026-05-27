@@ -1,3 +1,72 @@
+### 2026-05-27 18:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `3f133d6` | implementation | Issue #110 — cloud-sync behavioral test harness | **NEW** running |
+| `f27dd29` | expansion | Issue #108 — sub-conversations excluded from sync | **NEW** running |
+
+**Spawned: 2 Workers (parallel — both slots filled).** The 18:16Z cycle's two spawns (`a391f63` merge PR #117, `d7d93bc` expand #111) both completed inside the previous orchestrator's wall clock, exactly as forecast: PR #117 merged at 18:23Z; #111 expanded + `ready` at 18:30Z. PR slot and expansion slot both reopened.
+
+1. **Implementation Worker** — `3f133d65dc41473e8893e28cc3aa59c9` ([conv](https://app.all-hands.dev/conversations/3f133d65dc41473e8893e28cc3aa59c9))
+   - Issue: [#110 — No behavioral test coverage of the cloud-sync surface](https://github.com/jpshackelford/ohtv/issues/110) (priority:high)
+   - Scope: create `tests/unit/sync/` package per [the technical-approach comment](https://github.com/jpshackelford/ohtv/issues/110#issuecomment-4556930022) — `FakeCloudClient` (folding in `_RecordingCloudClient`), `make_trajectory_zip` builder, 16 behavioral scenarios with the 3-pass / 10-xfail(strict, blocked by #111) / 3-skip(blocked by #112/#113) marker pattern, plus `test_harness_smoke.py`. Open DRAFT PR `feat(tests): cloud-sync behavioral harness (#110)`, monitor CI until green, flip to ready (triggers AI review bot), then exit.
+   - Explicit DO-NOTs: no `src/ohtv/` edits, no impl of #111/#112/#113 (strict-xfail is the safety net), no merge.
+2. **Expansion Worker** — `f27dd29ecf664e48bb56886d17bb392a` ([conv](https://app.all-hands.dev/conversations/f27dd29ecf664e48bb56886d17bb392a))
+   - Issue: [#108 — Sub-conversations are silently excluded from sync](https://github.com/jpshackelford/ohtv/issues/108)
+   - Picked per the 18:16Z forecast: independent of the sync-rewrite critical path (#110/#111/#112/#113/#114), smallest issue number among unexpanded, can land on its own timeline without cluster coordination.
+   - Scope: investigate where sub-conversations get filtered (server-side listing? client-side filter in `sources/cloud.py`? scanner exclusion?), rewrite issue body with Problem/Steps/Expected/Actual, post technical-approach comment with root cause + proposed fix + AC + out-of-scope carve-outs explicitly naming the #110/#111/#112 cluster, apply `ready`, prepend WORKLOG entry, exit.
+   - Explicit DO-NOTs: no `src/` or `tests/` edits, no PR, no touching other issues' labels.
+
+**`/assess-priority` inline (this cycle):**
+- All 3 ready issues (#110, #111, #112) had `ready` label but NO `priority:*` label after the 18:30Z #111 expansion. Per the decision tree's "No open PR + ready issues, no priority → /assess-priority inline" rule, applied labels:
+  - **#110 → `priority:high`** (test harness foundation; strict-xfail markers give #111/#112 impl workers a clear red→green signal; can land independently)
+  - **#112 → `priority:medium`** (schema foundation; parallel to #110 but only consumed by #111 once both foundations land)
+  - **#111 → `priority:medium`** (the headline gap-recovery fix; explicitly blocked on #110 + #112 both being **merged to main** per the [#111 technical-approach comment](https://github.com/jpshackelford/ohtv/issues/111#issuecomment-4557434147))
+- Reasoning: #110 unblocks the most downstream work (its `xfail(strict=True, reason='#111')` markers convert into the acceptance criteria for #111). The high-medium-medium split also gives the impl worker an unambiguous pick.
+
+**Docs-update gate:** N/A this cycle — no open PR to gate.
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` returns matches at older entries' fenced-code-block templates and references in prose; **zero actionable** (all inside ` ```markdown ... ``` ` fences or referenced as "this entry mentions the literal string"). Verified by inspecting context around each match.
+
+**Decision-tree trace:**
+- **PR slot:** OPEN (PR #117 merged 18:23Z). Ready issues exist (#110/#111/#112). After `/assess-priority`, highest priority is #110 (`priority:high`). → **Spawn impl worker for #110** per "No open PR + ready issues with priority → Spawn impl worker."
+- **Expansion slot:** OPEN (`d7d93bc` finished, #111 expanded). Issues needing expansion: #108, #109, #113, #114, #116 (5 remaining). → **Spawn expansion for #108** per "oldest unexpanded issue" + independence from the sync cluster.
+
+**Spawn details (both):**
+- API: `X-Access-Token: $OPENHANDS_API_KEY` (canonical, matches the 18:16Z cycle).
+- Plugin block: not included in payload (the platform's `agent_type=default` + start-task system picks up plugins from cloud-side config; the 18:16Z entry's explicit-plugin learning was about ensuring discoverability, not requiring it in every spawn).
+- Both `POST /api/v1/app-conversations` accepted with start-task IDs (`1ea016a9...` impl, `803bea74...` exp). Polled `/start-tasks?ids=A&ids=B` after 25s sleep → both `READY` with `app_conversation_id` populated.
+- Multi-id query syntax: re-confirmed the **response is a top-level JSON array, NOT a `{items: [...]}` object** (the 18:16Z cycle's `.items[]` notation works on the conversation search endpoint, but `/start-tasks` returns a bare array — needed `.[]` here). Adding to AGENTS.md memory below.
+- Post-spawn verification (~30s after spawn): both `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`. Cloud-generated titles preserved descriptive intent (✅ "Cloud-sync behavioral test coverage (#110)" + 🐛 "Expand Issue #108: Sub-conversation sync excl...") — better than the placeholder pattern seen in earlier cycles.
+
+**Current State (verified 18:48–18:52Z):**
+- **Open PRs:** 0 (PR #117 merged at 18:23Z as commit [`470a8c0`](https://github.com/jpshackelford/ohtv/commit/470a8c0dc346d1b117c0b62c013064490f8afab1); impl worker `3f133d6` will open the next PR for #110).
+- **Ready issues (3):** #110 (priority:high, in flight via `3f133d6`), #111 (priority:medium, blocked on #110+#112 impl/merge), #112 (priority:medium, awaiting impl after #110 merges).
+- **Needs expansion (4 after this cycle):** #109, #113, #114, #116. #108 in flight via `f27dd29`.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Other running OH conversations for this repo:** the orchestrator itself + the 2 spawns. All prior workers PAUSED/finished.
+
+**Pre-commit for next cycle (~19:20Z window):**
+- **If `3f133d6` is `running`** → PR slot stays filled, log status. A test harness with 16 scenarios + `_RecordingCloudClient` migration typically takes 30–60 min wall.
+- **If `3f133d6` has opened a draft PR with CI failing** → wait one cycle (impl worker handles its own CI).
+- **If `3f133d6` has opened a ready PR with CI green** → spawn **docs worker** if any new flag/env var (unlikely for tests-only), otherwise spawn **testing worker** for the new PR. Docs gate likely N/A (tests-only PR, no user-facing changes).
+- **If `3f133d6` is `finished` but no PR exists** → investigate the conversation events (rare; recall the 11:48Z–15:18Z zombie-blocked stretch).
+- **If `f27dd29` is `finished` AND #108 has `ready` label** → expansion slot opens. Next target: **#109** (column ownership + sync.lock mutex — would clarify the impl ordering between #112 schema and #111 engine). Skipped: #113 (depends on #112 impl), #114 (depends on #111 impl), #116 (orthogonal, can wait).
+- **If `f27dd29` is `finished` but adds `needs-info`/`needs-split`/`blocked`** instead of `ready` → expansion slot opens, pick the next-oldest unexpanded (#109).
+- **If a new `## INSTRUCTION:` appears outside fenced code** → follow it first.
+
+**Housekeeping:** WORKLOG.md is **662 lines** pre-this-entry, **~720 lines** post — well below the 1600-line custom threshold established for this repo's productive days. The default 300-line threshold is intentionally not applied here because the recent context (sync-rewrite cluster planning across 14h) is still actively referenced cycle-to-cycle. The 18:16Z cycle's housekeeping already archived 04:21Z–12:17Z into `WORKLOG_ARCHIVE_2026-05-27.md`. **Deferred.**
+
+**Auto-disable check:** Productive cycle (2 spawns, `/assess-priority` performed) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Lesson re-learned this cycle:**
+- **`/start-tasks` response shape:** Bare JSON array (not `{items: [...]}`). The `/app-conversations/search` endpoint returns `{items: [...]}`. Two endpoints, two shapes. Use `jq '.[] | …'` for start-tasks, `jq '.items[] | …'` for conversation search. Re-confirmed after the `Cannot index array with string "items"` error this cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 18:30 UTC - Issue #111 expanded
 
 Posted technical-approach comment on [#111](https://github.com/jpshackelford/ohtv/issues/111#issuecomment-4557434147) and applied the `ready` label. #111 is the **headline fix** of the sync-rewrite critical path — closes the 1133-item gap by making set-diff against the full cloud listing the primary algorithm. Both foundations (#110 harness + #112 schema) now have `ready`, so #111 is unblocked behind their impl PRs. Specified a new `SyncManager._run_set_diff_pass` method that replaces the existing `search_all_conversations(updated_since=cutoff)` block at `sync.py:206`: listing is unconditional (NO `updated_since` filter — the set-diff IS the gate), paged via `client.search_conversations(limit, page_id)` with per-page incremental commits, wrapped in a `start_snapshot` / `commit_snapshot` / `abandon_snapshot` envelope from #112's `CloudListingStore` for crash safety. Four-category dispatch (`missing_locally` → download, `stale_locally` → refetch, `removed_from_cloud` → record-only for #113, `present_both_synced` → no-op) consumes #112's helper queries directly. `sync_state` writes the three NEW `last_snapshot_*` keys at listing completion; `last_sync_at` becomes UX-only with dual-write to manifest + `sync_state` to ease #114's drain. **Picked option C** for integration timing (set-diff runs on every `ohtv sync`, no `--full` flag, no opportunistic schedule) — contradicts both suggested options in the task prompt with justification: the 1000+ gap AC rules out opportunistic, the cloud listing is cheap (~9s for 3500 convs = single-digit % overhead), and putting it behind a flag would re-introduce the bug (the architectural inversion IS the feature). Performance freshness gate (`last_snapshot_completed_at < N seconds`) deferred as future perf issue — written but not read. Listed 9 xfail flips against [#110's scenario table](https://github.com/jpshackelford/ohtv/issues/110#issuecomment-4556930022) (#2, #3, #5, #6, #7, #8, #9, #10, #15, #16 — where #6 and #7 are first flipped from `skip` → `xfail(#111)` by #112's impl, then to passing by #111); 3 markers stay (#4 awaits #113, #12 owned by #112, #13 owned by #113). Out-of-scope carve-outs explicit: #113 (--repair UX), #114 (manifest retirement), #109 (column ownership + sync.lock mutex), #108 (sub-conv interpretation), #116 (migration centralization). Implementation order: (1) ensure_db_ready wiring, (2) skeleton extraction with no behavior change, (3) cloud_listing dispatch, (4) last_sync_at dual-write, (5) cloud_updated_at write on download, (6) xfail flips, (7) engine-internal unit tests in new `tests/unit/sync/test_set_diff_engine.py`. Files affected: primarily `src/ohtv/sync.py` (no API change in `sources/cloud.py`). Coordination notes for impl worker: #110 + #112 must both be merged to main before #111 starts; the `_RecordingCloudClient` migration from #110 may need finishing as first commit; no feature flag is the entire mitigation, strict-xfail is the safety net. Expansion only — no `src/` or `tests/` changes, no PR opened.
