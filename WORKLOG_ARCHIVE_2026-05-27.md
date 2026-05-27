@@ -1736,3 +1736,138 @@ A prior orchestrator wake-up (around 03:51Z) appears to have spawned an impl wor
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-27 13:19 UTC - Orchestrator
+
+> 🛑 **Still idling on PR #106 — cycle 7/N, no retry.** Pre-commit from 12:17Z holds. Resume on `## Manual Test Results` comment OR new `## INSTRUCTION:`.
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `46367c3` | testing | PR #106 | ⚠️ ZOMBIE +2h58m (PAUSED, 3µs Δ, $0, unchanged) |
+
+**State delta vs 12:17Z:** Nothing on PR #106. Head `8ba972cb` (no new commits), 0 comments, AI bot review only, no `## Manual Test Results`. Open issues: #103 (in flight via #106, `ready`+`priority:low`), #90 (hold), #26 (hold). 0 need expansion.
+
+**Action this cycle:** None. 7th consecutive blocked cycle. Decision-tree match (testing worker for PR #106) remains suppressed by 10:46Z platform-pause pre-commit; no fresh non-zombie test spawn has appeared.
+
+**New observation (does not change action):** developer-initiated conv `57e73b02` (LiteLLM proxy fix, 11:46Z) reached `execution_status=finished` cleanly. Confirms the platform IS producing healthy convs for **non-plugin** work in this time window. Strengthens the "ohtv-workflow plugin branch is the zombie trigger" hypothesis (3 of 4 zombies had it; only healthy productive convs today omit it or use it for non-testing work). Still requires sandbox boot logs the orchestrator can't access to confirm. The 12:17Z entry's diagnosis paths are unchanged.
+
+**Auto-disable check:** N/A — blocked, not quiet. Counter stays 0.
+
+**Pre-commit for next cycle (13:46Z–14:16Z window):** Same as 12:17Z. One-liner unless state changes. Will NOT spawn a testing worker without (a) a fresh non-zombie testing-shaped spawn elsewhere in the listing, OR (b) human `## INSTRUCTION:`, OR (c) the manual-test comment landing on PR #106 (which would dispatch the merge worker, not testing).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-27 13:46 UTC - Orchestrator
+
+> 🛑 **Still idling on PR #106 — cycle 8/N, no retry.** Pre-commit from 13:19Z holds. Resume on `## Manual Test Results` comment OR new `## INSTRUCTION:`.
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `46367c3` | testing | PR #106 | ⚠️ ZOMBIE +3h25m (PAUSED, 3µs Δ, $0, unchanged) |
+
+**State delta vs 13:19Z:** Nothing. PR #106 head `8ba972cb` (no new commits since 09:24Z), 0 `## Manual Test Results` comments, AI bot review only, mergeable=UNKNOWN. Open issues: #103 (in flight via #106, `ready`+`priority:low`), #90 (`hold`), #26 (`hold`). 0 need expansion. Zombie `46367c3` still 3µs Δ / $0 / PAUSED at +3h25m. No fresh non-zombie test spawn in conv listing.
+
+**Action this cycle:** None. 8th consecutive blocked cycle. None of the three resume conditions met:
+- (a) fresh non-zombie testing-shaped spawn elsewhere → ✗
+- (b) human `## INSTRUCTION:` in WORKLOG.md → ✗ (grep → 0 actionable matches)
+- (c) manual-test comment on PR #106 → ✗
+
+**Auto-disable check:** N/A — blocked, not quiet. Counter stays 0.
+
+**Pre-commit for next cycle (14:16Z window):** Unchanged from 13:19Z. One-liner unless state changes. Will NOT spawn a testing worker without one of the three conditions above.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-27 14:16 UTC - Orchestrator
+
+> 🛑 **Still idling on PR #106 — cycle 9/N, no retry.** Pre-commit from 13:46Z holds. Resume on `## Manual Test Results` comment OR new `## INSTRUCTION:` OR fresh non-zombie testing spawn.
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `46367c3` | testing | PR #106 | ⚠️ ZOMBIE +3h55m (PAUSED, 0s Δ created==updated, $0, unchanged) |
+
+**State delta vs 13:46Z:** Nothing. PR #106 head `8ba972cb` (no new commits), 0 comments, `mergeable=MERGEABLE`, `reviewDecision=""` (AI bot review only, COMMENTED state), CI green (`pr-review` SUCCESS). Open issues: #103 (`ready`+`priority:low`, in flight via #106), #90 (`hold`), #26 (`hold`). 0 need expansion. Conv listing for `jpshackelford/ohtv` shows the same 7 PAUSED convs as 13:46Z — no new testing-shaped spawn.
+
+**Action this cycle:** None. 9th consecutive blocked cycle. None of the three resume conditions met:
+- (a) fresh non-zombie testing-shaped spawn → ✗ (no new convs in listing)
+- (b) human `## INSTRUCTION:` → ✗ (only matches are inside fenced code blocks from 10:46Z)
+- (c) manual-test comment on PR #106 → ✗ (still 0 comments)
+
+**Auto-disable check:** N/A — blocked, not quiet. Counter stays 0.
+
+**Pre-commit for next cycle (~14:46Z window):** Unchanged from 13:19Z/13:46Z. One-liner unless state changes. Will NOT spawn a testing worker without one of the three conditions above. Worklog is at ~1216 lines pre-cycle; truncation threshold (300 lines productive-age cutoff) was reset by recent productive activity, but the 19:19Z–22:51Z 2026-05-26 block is still eligible for archive — deferred again to keep cycle-action-count at 0.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-27 14:46 UTC - Orchestrator
+
+> 🛑 **Still idling on PR #106 — cycle 10/N, no retry.** Pre-commit from 13:19Z/13:46Z/14:16Z holds. Resume on `## Manual Test Results` comment OR new (real, non-fenced) `## INSTRUCTION:` OR fresh non-zombie testing spawn.
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `46367c3` | testing | PR #106 | ⚠️ ZOMBIE +4h25m (PAUSED, 0s Δ created==updated, $0, unchanged) |
+
+**State delta vs 14:16Z:** Nothing.
+- PR #106 head `8ba972cb` (no new commits), 0 comments, `mergeable=MERGEABLE`, `reviewDecision=""` (AI bot `pr-review` SUCCESS 3m50s — only check), CI green.
+- Open issues unchanged: #103 (`ready`+`priority:low`, in flight via #106), #90 (`hold`), #26 (`hold`). 0 need expansion.
+- Cloud conv listing for `jpshackelford/ohtv` returns 40 convs, **all `sandbox_status=PAUSED`, all `$0`** — same set as 14:16Z. `46367c3` `created_at == updated_at == 2026-05-27T10:21:31`, confirming the zombie pattern is stable (still 0 events processed at +4h25m). No fresh testing-shaped spawn anywhere in the listing.
+
+**`## INSTRUCTION:` re-check:** `grep -n "^## INSTRUCTION:" WORKLOG.md` returns 2 matches at lines 184 + 195 — both inside ` ```markdown ... ``` ` fenced code blocks (the suggested-shapes template from 10:46Z). **Zero actionable human instructions.** Consistent with cycles 8/9.
+
+**Action this cycle:** None. 10th consecutive blocked cycle. None of the three resume conditions met:
+- (a) fresh non-zombie testing-shaped spawn → ✗ (listing unchanged)
+- (b) human `## INSTRUCTION:` outside fenced code → ✗
+- (c) `## Manual Test Results` comment on PR #106 → ✗ (still 0 comments)
+
+**Auto-disable check:** N/A — blocked, not quiet. The skill's auto-disable trigger keys on "All quiet" entries (rechecked /orchestrate skill body this cycle); these "🛑 Still idling" entries don't count, consistent with the reasoning in the 10:46Z escalation. Counter stays 0. The human-facing escalation has been outstanding for 4 hours (10:46Z → 14:46Z); if cycle 12 (~15:46Z window) is still blocked, will reconsider whether to invoke auto-disable on spirit-of-rule grounds (10+ cycles of identical no-op is exactly what the rule is meant to prevent, even if the literal trigger doesn't match).
+
+**Pre-commit for next cycle (~15:16Z window):** Unchanged from 14:16Z. One-liner entry unless state changes. Will NOT spawn a testing worker without one of the three resume conditions. **Sliding the "consider auto-disable on spirit-of-rule grounds" threshold from cycle 12 → cycle 12** (no change) — keeping the door open but not jumping early.
+
+**Sync note:** Skipped this cycle (state delta = 0; no need to re-sync trajectories for a one-liner cycle). `gh` API for PR/issue gate-checks runs cleanly with `GH_TOKEN=$github_token`.
+
+**Housekeeping:** WORKLOG.md was 1240 lines pre-this-entry. Well under 1500-line trigger. The 2026-05-26 19:19Z–22:51Z block was already archived to `WORKLOG_ARCHIVE_2026-05-26.md` (verified — the file exists at 205743 bytes). No archive action needed.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-27 15:18 UTC - Orchestrator
+
+> 🛑 **Still idling on PR #106 — cycle 11/N, no retry.** Pre-commit from 14:46Z holds. Resume on `## Manual Test Results` comment OR new (real, non-fenced) `## INSTRUCTION:` OR fresh non-zombie testing spawn.
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `46367c3` | testing | PR #106 | ⚠️ ZOMBIE +4h57m (PAUSED, ~3µs Δ created==updated, $0, unchanged) |
+
+**State delta vs 14:46Z:** Nothing.
+- PR #106 head `8ba972cb` (no new commits since 09:24Z), 0 `## Manual Test Results` comments, only the AI bot `pr-review` SUCCESS 3m50s (LOW risk, "worth merging"), `mergeable=MERGEABLE`, `reviewDecision=""`, CI green.
+- Open issues unchanged: #103 (`ready`+`priority:low`, in flight via #106), #90 (`hold`), #26 (`hold`). 0 need expansion.
+- Cloud listing for `jpshackelford/ohtv` still shows all-PAUSED/$0 convs; `46367c3` `created_at == updated_at == 2026-05-27T10:21:31` (still 0 events at +4h57m). Sister zombie `35263dc` (14:07Z, PAUSED, $0, 2µs Δ) also unchanged — confirms the platform's zombie pattern is still active for ohtv-workflow plugin spawns. No fresh non-zombie testing-shaped spawn anywhere.
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` returns 2 matches at lines 217 + 228 — both inside ` ```markdown ... ``` ` fenced code blocks (the suggested-shapes template from 10:46Z, shifted from L184/L195 to L217/L228 by intervening entries but unchanged in substance). **Zero actionable human instructions.** Consistent with cycles 7–10.
+
+**Action this cycle:** None. 11th consecutive blocked cycle. None of the three resume conditions met:
+- (a) fresh non-zombie testing-shaped spawn → ✗ (listing unchanged; `35263dc` is a sister zombie, not a healthy retry)
+- (b) human `## INSTRUCTION:` outside fenced code → ✗
+- (c) `## Manual Test Results` comment on PR #106 → ✗ (still 0 comments)
+
+**Auto-disable check:** N/A — blocked, not quiet. Counter stays 0. Per 14:46Z plan, the "consider auto-disable on spirit-of-rule grounds" threshold sits at **cycle 12** (~15:46Z window). This is cycle 11 — door is open, not jumping yet.
+
+**Pre-commit for next cycle (~15:46Z window — the threshold cycle):** Unchanged from 14:46Z on the testing-worker-spawn gate. **NEW for cycle 12:** if state delta is still zero (no manual-test comment, no INSTRUCTION, no fresh healthy testing spawn) AND no human signal has landed since 10:46Z (~5h of escalation outstanding), I will write the cycle-12 entry as a one-liner AND invoke auto-disable on spirit-of-rule grounds (12 cycles of identical no-op is exactly what the auto-disable rule is meant to prevent, even though the literal "All quiet" trigger doesn't apply to "🛑 Still idling" entries). The disable POST + worklog disable-message template are already documented in the 10:46Z entry — will copy that template, log the disable, exit. If ANY of the three resume conditions DO land before 15:46Z, normal dispatch resumes and the auto-disable plan is dropped.
+
+**Sync note:** `ohtv sync --since 4h` ran cleanly (env: `OH_API_KEY=$OPENHANDS_API_KEY`). `gh` API with `GH_TOKEN=$github_token` clean.
+
+**Housekeeping:** WORKLOG.md was 1273 lines pre-this-entry. Still under the 1500-line custom trigger established in earlier cycles. The 2026-05-26 19:19Z–22:51Z block is archived (`WORKLOG_ARCHIVE_2026-05-26.md`, 205743 bytes). No archive action this cycle — keeping action-count at 0 per pre-commit discipline.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._

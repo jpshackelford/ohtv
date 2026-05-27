@@ -1,3 +1,78 @@
+### 2026-05-27 21:46 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| _(none)_ | — | — | — |
+
+**Housekeeping:** Ran worklog truncation (deferred from 21:17Z). Cutoff at 15:46 UTC archived 5 zombie/idle-cycle entries (13:19Z, 13:46Z, 14:16Z, 14:46Z, 15:18Z — 140 lines) to `WORKLOG_ARCHIVE_2026-05-27.md`. Kept 26 entries from the productive 15:46Z–21:17Z window. WORKLOG.md: 1141 → 1003 lines. Note: standard truncate-worklog skill's `is_productive` detector mismatched this repo's actual entry style (entries here use plain headers like "Issue #N expanded" / "Merge Worker" rather than `✅ **Expanded` bullets), so applied a date-based cutoff instead. Worth raising as a future skill/format reconciliation but not blocking today.
+
+**Decision-tree trace (unchanged from 21:17Z):**
+- **Expansion slot:** No work — #114 still the only un-`ready` open issue and the ordering-risk gate ("expand only after #111 or #112 merges") still holds. Merged PRs since 21:17Z: 0 (last merge: PR #118 at 19:20Z, orthogonal). → **Idle.**
+- **PR slot:** PR #119 head still `3a05089`, no new commits, `mergeStateStatus=UNKNOWN`/CLEAN, `reviewDecision=CHANGES_REQUESTED`, CI green. Hypothesis-age policy gate (~2026-06-03; today is 2026-05-27, **7 days early**) still in force per the 19:25Z testing-worker manual-test results. → **Deferred.** PR #120 (`chore/release-automation-bootstrap`) remains human-driven / out-of-band.
+
+**Current State:**
+- [PR #119](https://github.com/jpshackelford/ohtv/pull/119): ready, CI green, CHANGES_REQUESTED, head `3a05089` — deferred (Hypothesis-age gate)
+- [PR #120](https://github.com/jpshackelford/ohtv/pull/120): out-of-band, human-driven
+- Issues needing expansion: **#114** only (deferred by ordering-risk policy on #111/#112)
+- Ready issues with priority: #108 (medium), #109 (medium), #110 (high — in flight via PR #119), #111 (medium), #112 (medium)
+- Ready issues without priority: #113, #116
+- On hold: #26, #90
+- No closed/merged action on #111 or #112 since last cycle
+
+**Action Taken:** Worklog truncation only. Both worker slots intentionally idle (same rationale as 21:17Z).
+
+**Auto-disable check:** This entry documents *active deferrals by policy*, not "All quiet" (work exists; gates are blocking dispatch). The auto-disable rule keys on the literal string `"All quiet"` — counter still 0. No disable action this cycle.
+
+**Pre-commit forecast for next cycle (~22:16Z window):**
+- **If PR #111 or #112 merges before next wake-up** → expansion slot dispatches #114 immediately. Otherwise expansion slot stays idle.
+- **If PR #119 head moves past `3a05089`** → re-test required (re-testing worker).
+- **If today rolls past 2026-06-03** (Hypothesis-age gate target) → reassess #119 review dispatch.
+- **If a fresh `## INSTRUCTION:` entry appears in WORKLOG** → follow it before normal workflow.
+- **Worklog size:** 1003 lines post-truncation. If next cycle is also idle and worklog grows materially (e.g., past 1200), consider a deeper truncation pass (the productive 15:46Z–21:17Z block could itself be partially archived once PR #119 either merges or sits idle past 2026-05-28).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-27 21:17 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| _(none)_ | — | — | — |
+
+✅ **Expansion worker `6c47d56` finished cleanly** — Issue #116 now has `ready` label (verified at 20:58:19Z conv `updated_at`, GH API confirms `labels: ["ready"]`, `issue.updated_at=20:55:47Z` matches the 20:55Z WORKLOG entry "Issue #116 expanded" prepended by the worker). All three positive signals from 20:51Z's pre-spawn forecast landed: artifact (label) + WORKLOG prepend + conv reached `finished`. Single dead-spawn-protocol concern: `accumulated_cost=null` despite ~7m40s wall time and successful label + 1100-line worklog write — likely a cost-attribution lag on the platform side rather than a no-op spawn, since the side-effects are unambiguous. Not investigating further (artifact is the authoritative signal per AGENTS.md/skill).
+
+**Decision-tree trace:**
+- **Expansion slot:** Reopened. Per 20:51Z pre-commit forecast: "Next expansion target: **#114 only if at least one of #111/#112 has been merged**; otherwise log 'no expansion work without ordering risk' and leave slot idle." Merged PRs since 20:51Z: none net-new vs the 20:51Z snapshot (last merge is still PR #118 at 19:20Z, orthogonal to #111/#112). → **Expansion slot stays IDLE.** Reaffirming the dependency rationale: #114's body still describes "two sources of truth = manifest + DB" as the core problem, but #111+#112 collectively reshape that boundary (set-diff engine + schema additions), so any expansion of #114 written today would have to be substantially rewritten after the first of those merges. Wait-and-expand is cheaper than expand-and-rewrite.
+- **PR slot:** No state change vs 20:51Z. PR #119 head still `3a05089` (`lastCommit=2026-05-27T19:07:46Z`, no new pushes), `mergeStateStatus=CLEAN`, `reviewDecision=CHANGES_REQUESTED`, CI green (one SKIPPED + one SUCCESS), 1 comment (the 19:25Z testing-worker manual-test results from @jpshackelford). Hypothesis-age policy gate (~2026-06-03) still in force per multiple prior cycles' testing-worker commentary — **deferred**. PR #120 (`chore/release-automation-bootstrap`) remains human-driven / out-of-band, not part of the orchestrator workflow.
+
+**Current State:**
+- [PR #119](https://github.com/jpshackelford/ohtv/pull/119): ready, CI green, CHANGES_REQUESTED, 💬1 — deferred (Hypothesis-age gate)
+- [PR #120](https://github.com/jpshackelford/ohtv/pull/120): out-of-band, human-driven
+- Issues needing expansion: **#114** only (deferred by ordering-risk policy)
+- Ready issues with priority: #108 (medium), #109 (medium), #110 (high — in flight via PR #119), #111 (medium), #112 (medium)
+- Ready issues without priority: #113, #116
+- On hold: #26, #90
+- No closed/merged action on #111/#112 since last cycle
+
+**Action Taken:** None this cycle. Both slots intentionally idle: expansion slot blocked by ordering-risk policy on #114; PR slot blocked by Hypothesis-age policy on #119 (PR #120 OOB).
+
+**Auto-disable check:** This is the **first** post-spawn idle cycle (the 20:51Z entry was a productive spawn, not "All quiet"). Counter at 1/2 for auto-disable. If the 21:46Z–22:16Z window also produces no action AND state is unchanged, that would be cycle 2 of consecutive quiet — but I'd still distinguish "deferred by policy" (today's posture) from "All quiet" (no work exists). The auto-disable rule keys on `"All quiet"` literal string in the entry, so this entry does NOT count toward auto-disable — it documents active deferrals, not absence of work.
+
+**Pre-commit forecast for next cycle (~21:47Z window):**
+- **If PR #111 or #112 merges before next wake-up** → expansion slot dispatches #114 immediately (the gating condition flips). Otherwise expansion slot stays idle on the same rationale.
+- **If PR #119 head moves past `3a05089`** → re-test required (decision tree: PR ready, CI green, test results outdated → re-testing worker). New comments alone (without push) don't trigger that; need a commit.
+- **If PR #119 picks up a 2nd review-comment thread** (currently 💬1, which is the manual-test report not a code-review thread) AND head is still `3a05089` AND Hypothesis-age gate is still in force → still deferred. The gate dominates.
+- **If today is 2026-06-03 or later** (the Hypothesis-age gate target) → reassess #119 review dispatch. Today is 2026-05-27, 7 days early.
+- **If a fresh `## INSTRUCTION:` entry appears in WORKLOG** → follow it before normal workflow.
+- **Worklog truncation:** 1103 lines pre-cycle (now ~1140). Threshold is 300. Continuing to defer per prior-cycle pattern; next cycle may want to run `/truncate-worklog` to archive the 2026-05-26/early-27 zombie-cycle block (≈300 lines of repetitive idle entries that no longer carry context value).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 20:55 UTC - Issue #116 expanded
 
 Centralize migration into `get_ready_connection()` — a context-manager
@@ -10,6 +85,8 @@ contract; #112's new migrations land cleanly through the new helper for
 free. Carved out `sync.py:_open_metadata_store()` (intentional raw
 connection), `db init` (uses `migrate()` return value), and all `tests/`
 call sites. Regression test (grep-based) is part of the AC.
+
+---
 
 ### 2026-05-27 20:51 UTC - Orchestrator
 
@@ -79,6 +156,8 @@ Expansion deliverables:
 - Applied `ready` label.
 
 No `src/` or `tests/` edits. No PR. Per orchestrator expansion-only contract.
+
+---
 
 ### 2026-05-27 20:22 UTC - Orchestrator
 
@@ -329,6 +408,37 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
 
+### 2026-05-27 19:08 UTC - Implementation Worker — Issue #110 Complete
+
+**Issue:** [#110 — No behavioral test coverage of the cloud-sync surface](https://github.com/jpshackelford/ohtv/issues/110) (`priority:high`, foundation for the #111 atomic switch).
+
+**PR:** [#119 — feat(tests): cloud-sync behavioral harness](https://github.com/jpshackelford/ohtv/pull/119) (marked ready for AI review).
+
+**Branch:** `feat/sync-test-harness-110` (2 commits: foundation + scenarios/migration).
+
+**What landed:**
+- New `tests/unit/sync/` package: `fakes.py` (FakeCloudClient + RecordingCloudClient shim), `builders.py` (`make_trajectory_zip` + `ConvFactory`), `strategies.py` (Hypothesis), `conftest.py` (fixtures incl. the temporary `ohtv.sync.CloudClient` import-site patch that #111 retires), `test_harness_smoke.py` (32 tests), `test_behavioral.py` (16 scenarios).
+- `_RecordingCloudClient` migrated to `RecordingCloudClient` (thin subclass of `FakeCloudClient`), aliased in `test_sync.py` via `import as` so all 27 call sites stay untouched — single fake, no parallel impls.
+- `_create_minimal_zip` migrated to `make_trajectory_zip` via the same aliasing pattern.
+- `pyproject.toml`: added `hypothesis>=6` to `[dependency-groups] dev`.
+
+**Test count delta:** 1744 → 1792 collected (+48). Breakdown: 1779 passed, 3 skipped, 10 xfailed. Zero new ruff findings in touched files.
+
+**Scenario marker tally (matches expansion comment exactly):**
+- 3 pass-today (initial empty sync, id normalization, #87 metadata regression guard)
+- 10 `xfail(strict=True, reason="#111[+...]")` — flip when #111 ships
+- 3 `skip(reason="#112" or "#113")` — flip when those issues land
+
+**Strict-xfail safety net:** 3 scenarios (9, 10, 16) initially XPASS'd because their assertions accidentally held under today's code. Each was sharpened to a post-#111-specific contract (e.g., #16 now asserts `search_calls[-1] is None` on second sync — false today, true after #111).
+
+**Out of scope, NOT touched:** `src/ohtv/sync.py`, `src/ohtv/sources/cloud.py`, `src/ohtv/db/migrations/`. Only `tests/` + `pyproject.toml`/`uv.lock`.
+
+**Handoff:** PR #119 is open and ready for AI review. Next dependent worker is #111's implementer — they should flip 10 xfails to passing as the gap-recovery engine lands. #112 schema work flips the 2 `skip(#112)` markers to `xfail(strict=True, reason="#111")` first; then #111 flips them to pass. #113 flips the `skip(#113)` repair-UX scenario.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 18:58 UTC - Issue #108 expanded
 
 Posted [technical-approach comment](https://github.com/jpshackelford/ohtv/issues/108#issuecomment-4557716321) on #108 and applied the `ready` label. Reproduced cleanly against `app.all-hands.dev`: a paginated `/search?limit=100` returns **3580** items with **zero** `parent_conversation_id`, while `?include_sub_conversations=true` returns **3582** items with **2** sub-conversations present — confirming the silent server-side filter. Adjacent finding worth flagging: `/count` returns the inclusive **3582** regardless of the flag, so the existing `sync --repair --check-cloud` path already disagrees with itself when sub-conversations exist on the account. Root cause is one omission at `src/ohtv/sources/cloud.py:76-91` (the param is never added to the request), cascading through four `search_all_conversations` call sites in `sync.py` (lines 206, 751, 936, 1149).
@@ -560,7 +670,6 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
 
-
 ### 2026-05-27 17:26 UTC - Implementation Worker — Issue #107 Complete
 
 **PR opened (ready for review):** [#117 — fix(sync): sort by updated_at DESC in reset_to_n_newest](https://github.com/jpshackelford/ohtv/pull/117)
@@ -584,7 +693,6 @@ Out of scope (explicitly): cross-cutting sync rewrite (#110/#111/#112/#113/#114)
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 
 ### 2026-05-27 17:25 UTC - Issue #110 expanded
 
@@ -930,212 +1038,3 @@ _This follow-up was created by an AI agent (OpenHands) on behalf of @jpshackelfo
 **Housekeeping:** WORKLOG.md at 1306 lines pre-entry, still under the 1500-line custom truncation trigger. No archive action this cycle.
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-
-### 2026-05-27 15:18 UTC - Orchestrator
-
-> 🛑 **Still idling on PR #106 — cycle 11/N, no retry.** Pre-commit from 14:46Z holds. Resume on `## Manual Test Results` comment OR new (real, non-fenced) `## INSTRUCTION:` OR fresh non-zombie testing spawn.
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `46367c3` | testing | PR #106 | ⚠️ ZOMBIE +4h57m (PAUSED, ~3µs Δ created==updated, $0, unchanged) |
-
-**State delta vs 14:46Z:** Nothing.
-- PR #106 head `8ba972cb` (no new commits since 09:24Z), 0 `## Manual Test Results` comments, only the AI bot `pr-review` SUCCESS 3m50s (LOW risk, "worth merging"), `mergeable=MERGEABLE`, `reviewDecision=""`, CI green.
-- Open issues unchanged: #103 (`ready`+`priority:low`, in flight via #106), #90 (`hold`), #26 (`hold`). 0 need expansion.
-- Cloud listing for `jpshackelford/ohtv` still shows all-PAUSED/$0 convs; `46367c3` `created_at == updated_at == 2026-05-27T10:21:31` (still 0 events at +4h57m). Sister zombie `35263dc` (14:07Z, PAUSED, $0, 2µs Δ) also unchanged — confirms the platform's zombie pattern is still active for ohtv-workflow plugin spawns. No fresh non-zombie testing-shaped spawn anywhere.
-
-**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` returns 2 matches at lines 217 + 228 — both inside ` ```markdown ... ``` ` fenced code blocks (the suggested-shapes template from 10:46Z, shifted from L184/L195 to L217/L228 by intervening entries but unchanged in substance). **Zero actionable human instructions.** Consistent with cycles 7–10.
-
-**Action this cycle:** None. 11th consecutive blocked cycle. None of the three resume conditions met:
-- (a) fresh non-zombie testing-shaped spawn → ✗ (listing unchanged; `35263dc` is a sister zombie, not a healthy retry)
-- (b) human `## INSTRUCTION:` outside fenced code → ✗
-- (c) `## Manual Test Results` comment on PR #106 → ✗ (still 0 comments)
-
-**Auto-disable check:** N/A — blocked, not quiet. Counter stays 0. Per 14:46Z plan, the "consider auto-disable on spirit-of-rule grounds" threshold sits at **cycle 12** (~15:46Z window). This is cycle 11 — door is open, not jumping yet.
-
-**Pre-commit for next cycle (~15:46Z window — the threshold cycle):** Unchanged from 14:46Z on the testing-worker-spawn gate. **NEW for cycle 12:** if state delta is still zero (no manual-test comment, no INSTRUCTION, no fresh healthy testing spawn) AND no human signal has landed since 10:46Z (~5h of escalation outstanding), I will write the cycle-12 entry as a one-liner AND invoke auto-disable on spirit-of-rule grounds (12 cycles of identical no-op is exactly what the auto-disable rule is meant to prevent, even though the literal "All quiet" trigger doesn't apply to "🛑 Still idling" entries). The disable POST + worklog disable-message template are already documented in the 10:46Z entry — will copy that template, log the disable, exit. If ANY of the three resume conditions DO land before 15:46Z, normal dispatch resumes and the auto-disable plan is dropped.
-
-**Sync note:** `ohtv sync --since 4h` ran cleanly (env: `OH_API_KEY=$OPENHANDS_API_KEY`). `gh` API with `GH_TOKEN=$github_token` clean.
-
-**Housekeeping:** WORKLOG.md was 1273 lines pre-this-entry. Still under the 1500-line custom trigger established in earlier cycles. The 2026-05-26 19:19Z–22:51Z block is archived (`WORKLOG_ARCHIVE_2026-05-26.md`, 205743 bytes). No archive action this cycle — keeping action-count at 0 per pre-commit discipline.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-
-### 2026-05-27 14:46 UTC - Orchestrator
-
-> 🛑 **Still idling on PR #106 — cycle 10/N, no retry.** Pre-commit from 13:19Z/13:46Z/14:16Z holds. Resume on `## Manual Test Results` comment OR new (real, non-fenced) `## INSTRUCTION:` OR fresh non-zombie testing spawn.
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `46367c3` | testing | PR #106 | ⚠️ ZOMBIE +4h25m (PAUSED, 0s Δ created==updated, $0, unchanged) |
-
-**State delta vs 14:16Z:** Nothing.
-- PR #106 head `8ba972cb` (no new commits), 0 comments, `mergeable=MERGEABLE`, `reviewDecision=""` (AI bot `pr-review` SUCCESS 3m50s — only check), CI green.
-- Open issues unchanged: #103 (`ready`+`priority:low`, in flight via #106), #90 (`hold`), #26 (`hold`). 0 need expansion.
-- Cloud conv listing for `jpshackelford/ohtv` returns 40 convs, **all `sandbox_status=PAUSED`, all `$0`** — same set as 14:16Z. `46367c3` `created_at == updated_at == 2026-05-27T10:21:31`, confirming the zombie pattern is stable (still 0 events processed at +4h25m). No fresh testing-shaped spawn anywhere in the listing.
-
-**`## INSTRUCTION:` re-check:** `grep -n "^## INSTRUCTION:" WORKLOG.md` returns 2 matches at lines 184 + 195 — both inside ` ```markdown ... ``` ` fenced code blocks (the suggested-shapes template from 10:46Z). **Zero actionable human instructions.** Consistent with cycles 8/9.
-
-**Action this cycle:** None. 10th consecutive blocked cycle. None of the three resume conditions met:
-- (a) fresh non-zombie testing-shaped spawn → ✗ (listing unchanged)
-- (b) human `## INSTRUCTION:` outside fenced code → ✗
-- (c) `## Manual Test Results` comment on PR #106 → ✗ (still 0 comments)
-
-**Auto-disable check:** N/A — blocked, not quiet. The skill's auto-disable trigger keys on "All quiet" entries (rechecked /orchestrate skill body this cycle); these "🛑 Still idling" entries don't count, consistent with the reasoning in the 10:46Z escalation. Counter stays 0. The human-facing escalation has been outstanding for 4 hours (10:46Z → 14:46Z); if cycle 12 (~15:46Z window) is still blocked, will reconsider whether to invoke auto-disable on spirit-of-rule grounds (10+ cycles of identical no-op is exactly what the rule is meant to prevent, even if the literal trigger doesn't match).
-
-**Pre-commit for next cycle (~15:16Z window):** Unchanged from 14:16Z. One-liner entry unless state changes. Will NOT spawn a testing worker without one of the three resume conditions. **Sliding the "consider auto-disable on spirit-of-rule grounds" threshold from cycle 12 → cycle 12** (no change) — keeping the door open but not jumping early.
-
-**Sync note:** Skipped this cycle (state delta = 0; no need to re-sync trajectories for a one-liner cycle). `gh` API for PR/issue gate-checks runs cleanly with `GH_TOKEN=$github_token`.
-
-**Housekeeping:** WORKLOG.md was 1240 lines pre-this-entry. Well under 1500-line trigger. The 2026-05-26 19:19Z–22:51Z block was already archived to `WORKLOG_ARCHIVE_2026-05-26.md` (verified — the file exists at 205743 bytes). No archive action needed.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-
-### 2026-05-27 14:16 UTC - Orchestrator
-
-> 🛑 **Still idling on PR #106 — cycle 9/N, no retry.** Pre-commit from 13:46Z holds. Resume on `## Manual Test Results` comment OR new `## INSTRUCTION:` OR fresh non-zombie testing spawn.
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `46367c3` | testing | PR #106 | ⚠️ ZOMBIE +3h55m (PAUSED, 0s Δ created==updated, $0, unchanged) |
-
-**State delta vs 13:46Z:** Nothing. PR #106 head `8ba972cb` (no new commits), 0 comments, `mergeable=MERGEABLE`, `reviewDecision=""` (AI bot review only, COMMENTED state), CI green (`pr-review` SUCCESS). Open issues: #103 (`ready`+`priority:low`, in flight via #106), #90 (`hold`), #26 (`hold`). 0 need expansion. Conv listing for `jpshackelford/ohtv` shows the same 7 PAUSED convs as 13:46Z — no new testing-shaped spawn.
-
-**Action this cycle:** None. 9th consecutive blocked cycle. None of the three resume conditions met:
-- (a) fresh non-zombie testing-shaped spawn → ✗ (no new convs in listing)
-- (b) human `## INSTRUCTION:` → ✗ (only matches are inside fenced code blocks from 10:46Z)
-- (c) manual-test comment on PR #106 → ✗ (still 0 comments)
-
-**Auto-disable check:** N/A — blocked, not quiet. Counter stays 0.
-
-**Pre-commit for next cycle (~14:46Z window):** Unchanged from 13:19Z/13:46Z. One-liner unless state changes. Will NOT spawn a testing worker without one of the three conditions above. Worklog is at ~1216 lines pre-cycle; truncation threshold (300 lines productive-age cutoff) was reset by recent productive activity, but the 19:19Z–22:51Z 2026-05-26 block is still eligible for archive — deferred again to keep cycle-action-count at 0.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-
-### 2026-05-27 13:46 UTC - Orchestrator
-
-> 🛑 **Still idling on PR #106 — cycle 8/N, no retry.** Pre-commit from 13:19Z holds. Resume on `## Manual Test Results` comment OR new `## INSTRUCTION:`.
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `46367c3` | testing | PR #106 | ⚠️ ZOMBIE +3h25m (PAUSED, 3µs Δ, $0, unchanged) |
-
-**State delta vs 13:19Z:** Nothing. PR #106 head `8ba972cb` (no new commits since 09:24Z), 0 `## Manual Test Results` comments, AI bot review only, mergeable=UNKNOWN. Open issues: #103 (in flight via #106, `ready`+`priority:low`), #90 (`hold`), #26 (`hold`). 0 need expansion. Zombie `46367c3` still 3µs Δ / $0 / PAUSED at +3h25m. No fresh non-zombie test spawn in conv listing.
-
-**Action this cycle:** None. 8th consecutive blocked cycle. None of the three resume conditions met:
-- (a) fresh non-zombie testing-shaped spawn elsewhere → ✗
-- (b) human `## INSTRUCTION:` in WORKLOG.md → ✗ (grep → 0 actionable matches)
-- (c) manual-test comment on PR #106 → ✗
-
-**Auto-disable check:** N/A — blocked, not quiet. Counter stays 0.
-
-**Pre-commit for next cycle (14:16Z window):** Unchanged from 13:19Z. One-liner unless state changes. Will NOT spawn a testing worker without one of the three conditions above.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-
-### 2026-05-27 13:19 UTC - Orchestrator
-
-> 🛑 **Still idling on PR #106 — cycle 7/N, no retry.** Pre-commit from 12:17Z holds. Resume on `## Manual Test Results` comment OR new `## INSTRUCTION:`.
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `46367c3` | testing | PR #106 | ⚠️ ZOMBIE +2h58m (PAUSED, 3µs Δ, $0, unchanged) |
-
-**State delta vs 12:17Z:** Nothing on PR #106. Head `8ba972cb` (no new commits), 0 comments, AI bot review only, no `## Manual Test Results`. Open issues: #103 (in flight via #106, `ready`+`priority:low`), #90 (hold), #26 (hold). 0 need expansion.
-
-**Action this cycle:** None. 7th consecutive blocked cycle. Decision-tree match (testing worker for PR #106) remains suppressed by 10:46Z platform-pause pre-commit; no fresh non-zombie test spawn has appeared.
-
-**New observation (does not change action):** developer-initiated conv `57e73b02` (LiteLLM proxy fix, 11:46Z) reached `execution_status=finished` cleanly. Confirms the platform IS producing healthy convs for **non-plugin** work in this time window. Strengthens the "ohtv-workflow plugin branch is the zombie trigger" hypothesis (3 of 4 zombies had it; only healthy productive convs today omit it or use it for non-testing work). Still requires sandbox boot logs the orchestrator can't access to confirm. The 12:17Z entry's diagnosis paths are unchanged.
-
-**Auto-disable check:** N/A — blocked, not quiet. Counter stays 0.
-
-**Pre-commit for next cycle (13:46Z–14:16Z window):** Same as 12:17Z. One-liner unless state changes. Will NOT spawn a testing worker without (a) a fresh non-zombie testing-shaped spawn elsewhere in the listing, OR (b) human `## INSTRUCTION:`, OR (c) the manual-test comment landing on PR #106 (which would dispatch the merge worker, not testing).
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-
-
-### 2026-05-27 19:08 UTC - Implementation Worker — Issue #110 Complete
-
-**Issue:** [#110 — No behavioral test coverage of the cloud-sync surface](https://github.com/jpshackelford/ohtv/issues/110) (`priority:high`, foundation for the #111 atomic switch).
-
-**PR:** [#119 — feat(tests): cloud-sync behavioral harness](https://github.com/jpshackelford/ohtv/pull/119) (marked ready for AI review).
-
-**Branch:** `feat/sync-test-harness-110` (2 commits: foundation + scenarios/migration).
-
-**What landed:**
-- New `tests/unit/sync/` package: `fakes.py` (FakeCloudClient + RecordingCloudClient shim), `builders.py` (`make_trajectory_zip` + `ConvFactory`), `strategies.py` (Hypothesis), `conftest.py` (fixtures incl. the temporary `ohtv.sync.CloudClient` import-site patch that #111 retires), `test_harness_smoke.py` (32 tests), `test_behavioral.py` (16 scenarios).
-- `_RecordingCloudClient` migrated to `RecordingCloudClient` (thin subclass of `FakeCloudClient`), aliased in `test_sync.py` via `import as` so all 27 call sites stay untouched — single fake, no parallel impls.
-- `_create_minimal_zip` migrated to `make_trajectory_zip` via the same aliasing pattern.
-- `pyproject.toml`: added `hypothesis>=6` to `[dependency-groups] dev`.
-
-**Test count delta:** 1744 → 1792 collected (+48). Breakdown: 1779 passed, 3 skipped, 10 xfailed. Zero new ruff findings in touched files.
-
-**Scenario marker tally (matches expansion comment exactly):**
-- 3 pass-today (initial empty sync, id normalization, #87 metadata regression guard)
-- 10 `xfail(strict=True, reason="#111[+...]")` — flip when #111 ships
-- 3 `skip(reason="#112" or "#113")` — flip when those issues land
-
-**Strict-xfail safety net:** 3 scenarios (9, 10, 16) initially XPASS'd because their assertions accidentally held under today's code. Each was sharpened to a post-#111-specific contract (e.g., #16 now asserts `search_calls[-1] is None` on second sync — false today, true after #111).
-
-**Out of scope, NOT touched:** `src/ohtv/sync.py`, `src/ohtv/sources/cloud.py`, `src/ohtv/db/migrations/`. Only `tests/` + `pyproject.toml`/`uv.lock`.
-
-**Handoff:** PR #119 is open and ready for AI review. Next dependent worker is #111's implementer — they should flip 10 xfails to passing as the gap-recovery engine lands. #112 schema work flips the 2 `skip(#112)` markers to `xfail(strict=True, reason="#111")` first; then #111 flips them to pass. #113 flips the `skip(#113)` repair-UX scenario.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-
-### 2026-05-27 21:17 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| _(none)_ | — | — | — |
-
-✅ **Expansion worker `6c47d56` finished cleanly** — Issue #116 now has `ready` label (verified at 20:58:19Z conv `updated_at`, GH API confirms `labels: ["ready"]`, `issue.updated_at=20:55:47Z` matches the 20:55Z WORKLOG entry "Issue #116 expanded" prepended by the worker). All three positive signals from 20:51Z's pre-spawn forecast landed: artifact (label) + WORKLOG prepend + conv reached `finished`. Single dead-spawn-protocol concern: `accumulated_cost=null` despite ~7m40s wall time and successful label + 1100-line worklog write — likely a cost-attribution lag on the platform side rather than a no-op spawn, since the side-effects are unambiguous. Not investigating further (artifact is the authoritative signal per AGENTS.md/skill).
-
-**Decision-tree trace:**
-- **Expansion slot:** Reopened. Per 20:51Z pre-commit forecast: "Next expansion target: **#114 only if at least one of #111/#112 has been merged**; otherwise log 'no expansion work without ordering risk' and leave slot idle." Merged PRs since 20:51Z: none net-new vs the 20:51Z snapshot (last merge is still PR #118 at 19:20Z, orthogonal to #111/#112). → **Expansion slot stays IDLE.** Reaffirming the dependency rationale: #114's body still describes "two sources of truth = manifest + DB" as the core problem, but #111+#112 collectively reshape that boundary (set-diff engine + schema additions), so any expansion of #114 written today would have to be substantially rewritten after the first of those merges. Wait-and-expand is cheaper than expand-and-rewrite.
-- **PR slot:** No state change vs 20:51Z. PR #119 head still `3a05089` (`lastCommit=2026-05-27T19:07:46Z`, no new pushes), `mergeStateStatus=CLEAN`, `reviewDecision=CHANGES_REQUESTED`, CI green (one SKIPPED + one SUCCESS), 1 comment (the 19:25Z testing-worker manual-test results from @jpshackelford). Hypothesis-age policy gate (~2026-06-03) still in force per multiple prior cycles' testing-worker commentary — **deferred**. PR #120 (`chore/release-automation-bootstrap`) remains human-driven / out-of-band, not part of the orchestrator workflow.
-
-**Current State:**
-- [PR #119](https://github.com/jpshackelford/ohtv/pull/119): ready, CI green, CHANGES_REQUESTED, 💬1 — deferred (Hypothesis-age gate)
-- [PR #120](https://github.com/jpshackelford/ohtv/pull/120): out-of-band, human-driven
-- Issues needing expansion: **#114** only (deferred by ordering-risk policy)
-- Ready issues with priority: #108 (medium), #109 (medium), #110 (high — in flight via PR #119), #111 (medium), #112 (medium)
-- Ready issues without priority: #113, #116
-- On hold: #26, #90
-- No closed/merged action on #111/#112 since last cycle
-
-**Action Taken:** None this cycle. Both slots intentionally idle: expansion slot blocked by ordering-risk policy on #114; PR slot blocked by Hypothesis-age policy on #119 (PR #120 OOB).
-
-**Auto-disable check:** This is the **first** post-spawn idle cycle (the 20:51Z entry was a productive spawn, not "All quiet"). Counter at 1/2 for auto-disable. If the 21:46Z–22:16Z window also produces no action AND state is unchanged, that would be cycle 2 of consecutive quiet — but I'd still distinguish "deferred by policy" (today's posture) from "All quiet" (no work exists). The auto-disable rule keys on `"All quiet"` literal string in the entry, so this entry does NOT count toward auto-disable — it documents active deferrals, not absence of work.
-
-**Pre-commit forecast for next cycle (~21:47Z window):**
-- **If PR #111 or #112 merges before next wake-up** → expansion slot dispatches #114 immediately (the gating condition flips). Otherwise expansion slot stays idle on the same rationale.
-- **If PR #119 head moves past `3a05089`** → re-test required (decision tree: PR ready, CI green, test results outdated → re-testing worker). New comments alone (without push) don't trigger that; need a commit.
-- **If PR #119 picks up a 2nd review-comment thread** (currently 💬1, which is the manual-test report not a code-review thread) AND head is still `3a05089` AND Hypothesis-age gate is still in force → still deferred. The gate dominates.
-- **If today is 2026-06-03 or later** (the Hypothesis-age gate target) → reassess #119 review dispatch. Today is 2026-05-27, 7 days early.
-- **If a fresh `## INSTRUCTION:` entry appears in WORKLOG** → follow it before normal workflow.
-- **Worklog truncation:** 1103 lines pre-cycle (now ~1140). Threshold is 300. Continuing to defer per prior-cycle pattern; next cycle may want to run `/truncate-worklog` to archive the 2026-05-26/early-27 zombie-cycle block (≈300 lines of repetitive idle entries that no longer carry context value).
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
