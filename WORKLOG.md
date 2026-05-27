@@ -1352,3 +1352,80 @@ PR ready ✓ + CI green (`pr-review` SUCCESS @ 00:37:21Z) ✓ + docs in PR diff 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-27 01:52 UTC — Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `1142f43` | orchestrator | this cycle | running |
+| `d2b3267` | implementation | Issue #90 — `ohtv label` batch command | **NEW** running |
+
+**Spawned: Implementation Worker** — `d2b32674839648e390c5e7277130989f` ([conversation](https://app.all-hands.dev/conversations/d2b32674839648e390c5e7277130989f))
+
+PR slot is now occupied by the impl worker. Expansion slot remains idle (0 issues need expansion — all open issues carry `ready` or `hold`).
+
+**Prior cycle result (merge worker `66d0620`):**
+
+Finished cleanly at ~01:22:47Z (~2 min runtime). **PR #99 MERGED** at `01:22:30Z` as commit [`ae38940854b3e2edf5178cd37304bcbac24f64ec`](https://github.com/jpshackelford/ohtv/commit/ae38940854b3e2edf5178cd37304bcbac24f64ec) — `feat: add ohtv classify command (#83)`. **Issue #83 CLOSED** at `01:22:31Z`. Verified via `gh pr view 99` → `state=MERGED`, `mergedAt=2026-05-27T01:22:30Z`, `mergeCommit.oid=ae38940...`; `gh issue view 83` → `state=CLOSED`, `closedAt=2026-05-27T01:22:31Z`. Merge worker did NOT touch `WORKLOG.md` (correct — orchestrator owns it). Branch `feat/classify-83` left to repo auto-delete settings (the prompt instructed no manual deletion).
+
+That closes the full PR #99 cycle: impl (#3f1844ae, 22:30Z) → testing (#10d3c12d, 23:51Z report) → review (#4e867f21, 00:29Z fixes for B-1/B-2 + 3 encoding threads) → re-test (#06abb078, 00:56Z ✅ ready) → merge (#66d06207, 01:22Z). Round-trip ~3 hours for an issue with 1 review round + 1 re-test.
+
+**Decision Path (orchestrate skill decision tree):**
+
+- PR slot empty (PR #99 merged, 0 open PRs) ✓
+- Expansion slot empty (no in-flight expansion worker) ✓ AND no issues need expansion (every open issue has `ready` or `hold`) → expansion slot stays idle.
+- Ready issues with priority exist → "No open PR + ready issues with priority → Spawn **impl worker** for highest priority ready issue" (PR-slot table last row).
+- Priority resolution: 4 ready issues. `priority:medium` × 2 (#90, #92), `priority:low` × 2 (#82, #87). Tie-break between #90 and #92 by ascending issue number (#90 < #92) + FIFO of issue creation (#90: 2026-05-22T01:49Z < #92: 2026-05-22T02:02Z) + **strong skill-momentum argument**: #90 builds directly on the just-merged PR #99's short-ID prefix-resolution pattern (`classify.py:_resolve_conversation_id`). All three signals point the same way → **#90 wins**.
+
+**Dependency verification (issue #90's expansion called out a HARD dep on PR #93/#86 that was open at expansion time — re-checked on main before spawning):**
+
+- ✅ `ConversationStore.update_metadata(conv_id, *, title, labels)` exists on main: `src/ohtv/db/stores/conversation_store.py:232` (landed via PR #93 / issue #86, merged `2026-05-22T10:22:34Z`, commit `89a13526`).
+- ✅ `CloudClient.update_conversation(conv_id, *, title=None, tags=None)` exists on main: `src/ohtv/sources/cloud.py:128` (landed via PR for issue #89's `gen titles` work, per AGENTS.md item #28).
+- ✅ Manifest writeback pattern: `SyncManager.update_metadata` at `sync.py:722` plus in-place mutation + `self.manifest.save()` around `sync.py:810`. **Note for the worker:** the expansion's named helper `_write_manifest_metadata` does NOT exist by that name — the production pattern is in-place mutation + single save. Prompt explicitly tells the worker to follow the production pattern and avoid premature helper extraction.
+
+All deps satisfied. No reason to gate on anything.
+
+**Implementation worker scope (prompt highlights):**
+
+- Branch `feat/label-90` from fresh `origin/main`.
+- **PATCH-tags sanity check is FIRST** (before any CLI code): the `REFERENCE_CLOUD_API.md:233-243` docs show only `{"title": "..."}` in the example body — `tags` is in the GET schema but not documented as patchable. Worker must single-curl-verify the server honors `{"tags": {...}}` PATCH; if it silently ignores, STOP and post a PR comment so a human can decide. Same caveat #89 had — that PR apparently confirmed it works for `tags=`, but #90's worker should re-verify for paranoia.
+- File-by-file: `cli.py` new `label` command with `--add/-remove/--replace/--dry-run/-y/--workers` + 3 helpers (`_resolve_short_ids`, `_parse_kv_pairs`, `_compute_new_labels`); read-modify-write worker; whole-batch abort on local-source convs; reuse `CloudClient.update_conversation` + `ConversationStore.update_metadata` + in-place manifest mutate; `parallel.run_parallel(max_workers=5)`.
+- Tests: `tests/unit/test_label_cmd.py` + `tests/unit/test_cli_label.py` + blackbox under `tests/blackbox/` (dry-run / merge / replace / remove / ambiguous-prefix / local-in-batch / `-y` bypass). Mock `CloudClient` — never hit real Cloud API in pytest. ≥80% coverage target.
+- **Docs FIRST** (per orchestrate workflow): `README.md` gets a new `ohtv label` section with 3-5 copy-pasteable examples + local-only abort + short-ID semantics. `AGENTS.md` optional new item if architectural decision warrants (similar to #27).
+- Quality gates: `ruff check` clean on changed files, `pytest -x` green (1651+ tests), targeted suite green, `--help` + `--dry-run` smoke test.
+- PR: title `feat: add ohtv label command for batch labeling (#90)`, body has What/Why/Key design points (mirrors PR #99 short-ID pattern; reuses #89's PATCH client; manifest writeback follows #86 model) + PATCH-tags verification result + test summary + `Closes #90.`. **Draft** initially; flip to ready only after CI green + self-reflection on acceptance criteria.
+
+**Explicit DO-NOTs encoded in prompt:** no real Cloud API in tests, no premature `_write_manifest_metadata` helper extraction, no widening `update_metadata`'s columns (#87's job), no `last_sync_at` / `sync_count` / `event_count` / `downloaded_at` mutation, no direct push to main, no `WORKLOG.md` touch, no merge, no additional worker spawns.
+
+**Current State (verified 01:46–01:51Z):**
+
+- **Open PRs:** 0 (PR #99 merged 01:22:30Z).
+- **Ready issues queue (3 post-#90-spawn, plus #90 itself which is now in-flight):** `priority:medium`: #92 (next impl target after #90 lands); `priority:low`: #82 (charting for velocity, unblocked since #81 merged), #87 (manifest as full cloud cache, waits on #86 — already merged so effectively unblocked too). Next cycle's impl candidate if #90 ships clean: #92.
+- **Needs expansion:** 0. **On hold:** #26 (mcp server). **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations (pre-spawn check):** only `1142f43be` (this orchestrator cycle, no repo binding). All prior PR-99 workers (`66d06207`, `06abb078`, `4e867f21`, `10d3c12d`, `3f1844ae`, `235b7713`, `37a6ba32`) are PAUSED / MISSING (sandbox auto-paused on finish).
+
+**Spawn schema:** Used `POST /api/v1/app-conversations` with `initial_message.content[{type, text}]` body per the openhands-api skill. **First attempt (01:50Z) failed with HTTP 405** because I hit `/api/v1/start-task` (the wrong path — that's not the V1 endpoint, despite the response field being called `start_task_id`). Second attempt at the correct `/app-conversations` endpoint succeeded on the first poll: start-task `6351d27389f94ee2952b09fef6e2568c` → `WORKING` (creation response) → `READY` (5s later, first poll) → `app_conversation_id=d2b32674839648e390c5e7277130989f`. `GET /app-conversations?ids=…` confirms `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `selected_branch=main`. Title shows the default `Conversation d2b32…` rather than the custom title from the payload — the request title was set but the cloud apparently overrides it on creation (same pattern seen on prior spawns; cosmetic only).
+
+**Lesson pinned for future cycles:** the V1 spawn endpoint is `POST /api/v1/app-conversations`, NOT `/api/v1/start-task`. The response's `id` field is the start-task ID (poll `GET /api/v1/app-conversations/start-tasks?ids=…` for `app_conversation_id`). Confused with v0 / older API surfaces — easy mistake. Both `initial_user_msg` (00:19Z lesson) and `/start-task` (this cycle's lesson) are bygone names. Combined fix: always `POST /api/v1/app-conversations` with `initial_message.content[{type, text}]`.
+
+**Sync note:** `OPENHANDS_API_KEY=$OPENHANDS_API_KEY uv run ohtv sync --since … --quiet` succeeded silently this cycle (no auth-env issues this time — the env var was already in scope). The 23:51Z / 00:51Z / 01:21Z notes about explicit env passing remain valid for future cycles where this might break.
+
+**Housekeeping (deferred AGAIN, intentionally):** WORKLOG.md is now ~1450 lines (this entry pushes it past 1450). The 16:21Z–18:50Z PR #96 entries from 2026-05-26 (all 7+ hours old, PR fully merged) are still strong archive candidates — would save ~150 lines. Last cycle's pre-commitment: "if `66d0620` finishes with PR #99 merged AND there are no other actions to take, do the archive then." This cycle DID have an action (spawn impl for #90), so the pre-commitment's second clause fails. **New commitment, firmer:** do the archive on the very next quiet cycle (the cycle that would otherwise log "All quiet"). If the next cycle also has an action, the cycle after — but always before the 1500-line hard threshold.
+
+**Auto-disable check:** Not applicable — productive spawn this cycle. Recent cycles (00:23Z, 00:51Z, 01:21Z, 01:52Z) have all been productive. Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min, ~02:22Z):**
+
+- If `d2b3267` is `running` → log status, do nothing. Implementation of a CLI command with ~3 helpers, ~2 test files, plus docs typically runs 30–90 min. The PATCH-tags sanity check is fast (single curl) but if the result is "tags silently ignored", the worker will STOP and post a comment — watch for that on the next cycle.
+- If `d2b3267` is `running` AND a PR has been opened (draft) → still nothing to do; CI will be running.
+- If `d2b3267` is `finished` AND a PR exists (draft, CI green or red) → next cycle's action depends on PR state per the orchestrate decision tree (typical: CI green + ready → spawn docs/testing worker; CI red → impl worker finishing up may have errored, investigate).
+- If `d2b3267` is `finished` AND PR is **ready** (worker did its full job + flipped to ready) → spawn **docs worker** if README isn't updated, else **testing worker**.
+- If `d2b3267` is `finished` AND there's a "PATCH tags ignored" comment on a fresh PR → likely need a `## INSTRUCTION:` from human deciding whether to file an upstream API ticket or proceed with title-only / different strategy.
+- If `d2b3267` is `finished` AND no PR exists → investigate the conversation events; the worker may have errored early or never committed.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Archive TO-DO:** see Housekeeping above. Strong commitment to do it on the next non-productive cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
