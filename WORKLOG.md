@@ -1,3 +1,76 @@
+### 2026-05-27 10:22 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `46367c3` | testing | PR #106 - hatch partial_loc + NULL docs | **NEW** (retry) |
+
+**Spawned: Testing Worker (retry after zombie `f67d9875`)**
+- PR: [#106 - hatch partial_loc bars + NULL LOC docs](https://github.com/jpshackelford/ohtv/pull/106)
+- Conversation: [`46367c3`](https://app.all-hands.dev/conversations/46367c39cc1143a4a4d314abdd945fa6)
+- Start task: `32a21a4156a94264b2af41d4c16335f8` → `WORKING` → conv `46367c3` ready in ~8s.
+- Spawn shape: **plugins block accepted on first attempt** (no 500 this cycle — divergence from the 08:22Z cycle that needed a no-plugins fallback). `execution_status=idle`, `sandbox_status=RUNNING`, `pr_number=[106]`, `selected_branch=docs/chart-partial-loc-hatch-103` ✓.
+
+**Why the retry was necessary:**
+
+The 09:53Z cycle spawned testing worker `f67d9875` for PR #106 at 09:51:52Z. At 10:21Z (~30 min later) its sandbox was still `PAUSED` with `execution_status=None`, `accumulated_cost=0.0`, `prompt_tokens=0`, `completion_tokens=0`. **The conversation never actually executed.** Sandbox booted but the initial user message was never dispatched to the agent — a confirmed zombie spawn (third such pattern observed in this orchestrator run, after `1b1cde3d` at 09:46Z and `9928c514` at 09:16Z, both also MISSING/PAUSED with 0 cost). Without manual test results, PR #106's merge gate is still blocked. Retry was the right call.
+
+**Current State (verified 10:18–10:22Z):**
+
+- **Open PRs (1):** [PR #106](https://github.com/jpshackelford/ohtv/pull/106): `oC green ready`, AI bot review LOW ("Good taste") at 09:29Z, **no manual test results yet**. Head SHA `8ba972cb`, 3 files changed (+86/-3): `src/ohtv/reports/charts.py`, `tests/unit/reports/test_charts.py`, `AGENTS.md`. Testing in flight via `46367c3`.
+- **Ready issues (1):** #103 (in flight via PR #106 — will auto-close on merge, `priority:low`).
+- **Needs expansion:** 0.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none.
+- **Recently merged (last 24h):** PR #105 (#102 UsageError, 08:23Z), PR #104 (#87 manifest cache, 06:54Z), PR #101 (#82 charts, 04:52Z), PR #100 (#92 weekly-counts, 03:20Z), PR #99 (#83 classify, 01:22Z).
+
+**Zombie-spawn pattern (3 confirmed this run):**
+
+| Conv ID | Type | Spawned | Symptom |
+|---------|------|---------|---------|
+| `9928c514` | (unknown — testing PR #106?) | 09:16Z | MISSING sandbox, 0 cost |
+| `1b1cde3d` | (unknown) | 09:46Z | MISSING sandbox, 0 cost |
+| `f67d9875` | testing PR #106 | 09:51Z | PAUSED sandbox, exec_status=None, 0 cost |
+
+All three remained sandbox-up but agent-idle: no LLM calls, no events. This is **distinct from the 08:22Z cycle's plugin-block 500s** (those were start-task errors returning HTTP 500 BEFORE the conv ID was issued; today's pattern issues a healthy-looking conv ID, sandbox boots fine, but the initial user message never reaches the agent). Hypothesis: race condition in start-task → agent-server handoff under load, OR a downstream service (LLM proxy? plugin loader?) is selectively timing out. The retry succeeded this time with the same plugin shape that prior cycles flagged as suspect — so plugin block is _not_ the cause of these particular failures. **Watch list for next cycle:** if `46367c3` also zombies, this may need a `## INSTRUCTION:` from human to dig into the sandbox boot logs.
+
+**Pre-commit for next cycle (~10:52Z):**
+
+- If `46367c3` is `running` or `finished` AND a `## Manual Test Results` comment exists on PR #106 with **overall PASS** verdict → spawn **merge worker**. Merge-worker prompt template (self-contained, no plugin dependency):
+  1. Branch off main; checkout PR #106 (`gh pr checkout 106`).
+  2. Study the full PR diff (charts.py hatch logic, test_charts.py new test + extended assertions, AGENTS.md NULL-LOC bullet).
+  3. Update PR description to reflect final state (no review changes occurred, so the body should already be accurate — verify and lightly polish).
+  4. Squash-merge with conventional commit:
+     - Subject: `feat(charts): hatch partial_loc bars + document NULL LOC convention (#103)`
+     - Body bullets: (a) Panel 2 bars now carry `hatch=///` when `VelocityRow.partial_loc=True`, (b) new `Patch("Partial LOC (NULL)")` legend entry on Panel 2, (c) regression guard added to `test_bar_calls_receive_expected_pr_counts` ensuring Panel 1 PR-count bars are NOT hatched, (d) new `test_partial_loc_bars_carry_hatch_marker` test, (e) AGENTS.md item updated with the hatch convention, (f) 1691 unit tests green.
+     - Footer: `Closes #103`.
+  5. `gh pr merge 106 --squash --delete-branch --subject ... --body ...`.
+  6. Verify `state=MERGED` and Issue #103 auto-closed.
+  7. Update WORKLOG.md on main with merge entry.
+  8. Exit.
+
+  **Explicit DO-NOTs in merge prompt:** no source edits, no fixup pushes, no README/AGENTS.md changes, no re-open, no new follow-up issues (queue is empty after this; #103 is the last ready issue and there are no follow-ups expected from this PR), no priority re-labeling, no other spawns.
+- If `46367c3` is `running` and **no** test comment yet → log brief status, no action. Testing workers in this repo typically take 4–8 min; PR #106 setup includes `uv sync --extra charts` which adds ~30s for matplotlib install. Realistic completion window: 10:30–10:36Z.
+- If `46367c3` is `idle`/`paused`/zombie (4th in a row) → log it and consider escalating via `## INSTRUCTION:` to human; do NOT immediately re-retry without diagnosis.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+
+**Auto-disable risk this cycle:** Low (productive spawn). Counter stays 0. After #103/#106 merge, queue empties (#26 + #90 are `hold` for valid external reasons) — expect quiet-period risk in 2–3 cycles thereafter unless human adds new issues.
+
+**Housekeeping note:** WORKLOG.md is at 1638 lines pre-this-entry (~1720 post). Above the 1500-line trigger; the **truncate-worklog** skill should run next cycle. Deferred this cycle because the immediate priority was unblocking PR #106's test gate. Recommending the 10:52Z orchestrator runs truncation first thing.
+
+**Sync note:** `ohtv sync` skipped this cycle (orchestrator-context-only work).
+
+**Lessons learned this cycle:**
+
+1. **Zombie-spawn pattern is repeatable.** Three confirmed in ~75 min (09:16, 09:46, 09:51), all with sandbox up + agent idle + 0 cost. The 09:53Z orchestrator did not catch the 09:51Z zombie because at that moment the conversation was only ~2 min old and `sandbox_status` had not yet settled. **The orchestrator should NOT mark a spawn as healthy until at least one of {execution_status=running, accumulated_cost>0, prompt_tokens>0} is observed** — `idle/RUNNING` is the necessary-but-not-sufficient state.
+2. **Plugin block worked on first attempt.** Confirms the 08:22Z cycle's 500s were transient, not a structural issue. The next orchestrator can continue using plugin-on-first-try, no-plugin-fallback-on-500 as the spawn pattern.
+3. **WORKLOG.md needs truncation.** Crossed the 1500-line threshold mid-cycle. Holding the line for the 10:52Z cycle since `46367c3` is the critical-path concern.
+4. **Pre-commits remain effective context-bridging.** Each cycle's "next cycle" section is consumed by the next orchestrator essentially verbatim — saves rederiving merge-worker prompts and decision criteria. Eight consecutive cycles with this pattern.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 09:53 UTC - Orchestrator
 
 **Active Workers:**
