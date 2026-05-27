@@ -1,3 +1,16 @@
+### 2026-05-27 20:55 UTC - Issue #116 expanded
+
+Centralize migration into `get_ready_connection()` — a context-manager
+wrapper around `get_connection()` + `ensure_db_ready()`. Verified 16
+`migrate(conn)` call sites in `src/ohtv/` (11 cli.py, 3 analysis/cache.py,
+1 conversations.py, 1 inside `ensure_db_ready` itself); only 4 production
+sites already use the canonical `ensure_db_ready()` path. Soft-prerequisite
+for #111's "fresh-install sync" AC and #114's DB-as-sole-source-of-truth
+contract; #112's new migrations land cleanly through the new helper for
+free. Carved out `sync.py:_open_metadata_store()` (intentional raw
+connection), `db init` (uses `migrate()` return value), and all `tests/`
+call sites. Regression test (grep-based) is part of the AC.
+
 ### 2026-05-27 20:51 UTC - Orchestrator
 
 **Active Workers:**
