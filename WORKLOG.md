@@ -1,3 +1,77 @@
+### 2026-05-27 17:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `4f1e30d` | orchestrator | this cycle | running |
+| `5a20c41` | testing | PR #117 — `--force -n` newest-updated fix | **NEW** running |
+| `ee4d831` | expansion | Issue #112 — `cloud_listing` schema for set-diff sync | **NEW** running |
+
+**Spawned: 2 Workers (parallel — both slots filled).** Exactly the dispatch forecast by the 17:21Z pre-commit ("If both finished cleanly → next cycle gets two newly-open slots; spawn another expansion (#112) + handle whatever PR state #107 left").
+
+1. **Testing Worker** — `5a20c4108b18474abc84679832975c82` ([conv](https://app.all-hands.dev/conversations/5a20c4108b18474abc84679832975c82))
+   - PR: [#117 — fix(sync): sort by updated_at DESC in reset_to_n_newest (#107)](https://github.com/jpshackelford/ohtv/pull/117) — ready, CI green (`pr-review` SUCCESS), 0 manual test results, 0 review threads.
+   - Scope: full `pytest -x` regression baseline (expect 1695/1695), focused `TestResetToNNewest`, ruff, T-1..T-8 blackbox matrix (algorithmic correctness, sort-key choice, reverse-polarity, in-PR docs corrections, scope check, integration smoke, README scan), AC pass against #107, post `## Manual Test Results — PR #117` comment, exit.
+   - Explicit DO-NOTs: no edits, no commits, no draft-flip, no approve/merge, no WORKLOG touch, no spawning.
+2. **Expansion Worker** — `ee4d831acd6947de83ed8d6d0b166714` ([conv](https://app.all-hands.dev/conversations/ee4d831acd6947de83ed8d6d0b166714))
+   - Issue: [#112 — Schema additions for set-diff sync](https://github.com/jpshackelford/ohtv/issues/112)
+   - The other foundation half (with already-`ready` #110) that unblocks #111. Picked per the 17:21Z pre-commit's explicit next-target rule.
+   - Scope: design `cloud_listing` table (or column additions to `conversations`), pick next migration number, define upsert contract, write technical-approach comment with AC + out-of-scope, coordinate with #110's harness (xfail-marked scenarios that flip when #112 lands), apply `ready` label, prepend WORKLOG entry, exit.
+   - Explicit DO-NOTs: no source edits (expansion-only), no test code, no PR, no touching other issues' labels, no touching PR #117 in flight.
+
+**Docs-update gate for PR #117 — N/A:** The decision tree's docs-worker spawn applies to PRs introducing user-facing changes (new CLI flags, new env vars, output formats). PR #117 is a behavioral bug fix to existing `--force -n` semantics: no new flag, no new env var, no new output format. `REFERENCE_CLOUD_API.md` L130 is updated **in-diff** for the false `updated_at` DESC claim. README.md is not in the diff and correctly does not need an update. Skipped to testing per "PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker."
+
+**Worker handoff success (17:21Z → 17:25Z → 17:26Z):** Last cycle's two parallel spawns both completed in <5min wall time:
+- Expansion `a907335` for #110 → finished 17:25Z; #110 has `ready` label; technical-approach comment landed at https://github.com/jpshackelford/ohtv/issues/110#issuecomment-4556930022 (FakeCloudClient shape + 16 behavioral scenarios with `xfail(strict=True)` markers per downstream issue).
+- Impl `705e31a` for #107 → finished 17:26Z; PR #117 opened at HEAD `556f4b53...`, marked ready immediately after CI gate; 1695/1695 tests pass; AI bot review 🟢 "Good taste" (COMMENTED).
+- The expansion→impl→testing handoff for #107 went from raw bug → expanded → priority-set → implemented → in testing in **~45 min** of wall time.
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → 2 matches at lines 622 + 633, both inside ` ```markdown ... ``` ` fenced code blocks (the 10:46Z suggested-shapes templates). **Zero actionable.**
+
+**Decision-tree trace:**
+
+- **Expansion slot:** `a907335` finished (#110 expanded + `ready`). Slot OPEN. 7 issues need expansion: #108, #109, #111, #112, #113, #114, #116. → Spawn for **#112** per pre-commit (other foundation half, unblocks #111). Skipped: #108 (independent, can wait for next cycle), #109 (depends on #112's column ownership clarity), #111 (depends on #110 + #112), #113 (depends on #112), #114 (depends on #111), #116 (orthogonal cleanup, no dependency pressure).
+- **PR slot:** PR #117 open, ready, CI green, AI-positive, no human comments, docs updated in-diff, no manual test. → Spawn **testing worker for #117** per "PR exists, ready, CI green, docs updated, no manual test results."
+
+**Spawn details (both):**
+
+- Plugin shape: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin` (canonical, NOT included in this spawn because the orchestrate skill embedded prompts no longer pass `plugins` — workers pick up plugins from their own start-task context).
+- Both `POST /api/v1/app-conversations` with correct `initial_message.content[{type, text}]` schema. Start-tasks `04c7f6a5…` + `76822bdf…` → polled `/start-tasks?ids=…&ids=…` (multi-id syntax requires repeated `ids=` params, NOT comma-separated — re-learned this cycle after a 400 on the comma form). Both `READY` in ~12s with `app_conversation_id` populated.
+- Verified post-spawn: both `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`. Cloud-generated titles preserved descriptive intent (🐛 "Manual Test Gate: PR #117 Sync Reset Fix" + 🗃️ "Expand #112: cloud_listing schema for sync") — better than the typical "Conversation NNN" placeholder.
+
+**Current State (verified 17:46–17:50Z):**
+
+- **Open PRs:** 1 — [PR #117](https://github.com/jpshackelford/ohtv/pull/117) (ready, CI green 🟢, AI-bot positive 🟢 "Good taste", manual test in flight via `5a20c41`).
+- **Ready issues (2):** #107 (now in PR #117 testing) + #110 (just expanded; impl worker would start after #112 lands its impl since #111 depends on #110+#112 — for now #110's impl is on the queue once a PR slot opens).
+- **Need expansion (no `ready`, no `hold`):** #108, #109, #111, #112 (in flight via `ee4d831`), #113, #114, #116 → **7 issues** (#112 covered, 6 remain after this cycle).
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations for this repo:** `4f1e30d` (this orchestrator) + the 2 new spawns. All else PAUSED/finished/missing.
+
+**Pre-commit for next cycle (~18:20Z window):**
+
+- **If `5a20c41` is `running`** → PR slot stays filled, log status. Testing a 3-file bug-fix PR (pytest -x + 8 blackbox tests) typically runs 10–30 min.
+- **If `5a20c41` is `finished` AND a `## Manual Test Results — PR #117` PR comment exists with ✅ Ready to merge AND no blocker bugs** → spawn **merge worker** for PR #117. AI bot review is already positive; no human review round needed.
+- **If `5a20c41` is `finished` AND test report shows 🟡/🔴 with bugs** → spawn **review worker** to fold in fixes; re-test on the cycle after.
+- **If `5a20c41` is `finished` BUT no test comment was posted** → investigate the conversation events; may need a `## INSTRUCTION:` from human (recall the 11:48Z–15:18Z zombie-blocked stretch — different cause, similar symptom of no-comment-posted).
+- **If `ee4d831` is `finished` AND #112 has `ready` label** → expansion slot opens. Next target depends on the dependency tree: #111 (the headline fix) now has both its foundations ready (#110 + #112), so once a PR slot opens, **#111 is the next impl candidate** — but it ALSO needs an impl worker on #112 first (the schema must land before #111 can build the set-diff engine against it). So next expansion target = **#113** (`--repair` four-category, depends on #112 — expansion can proceed in parallel with #112's impl since they don't share schema scope).
+- **If both PR slot and impl-of-#112 land in some future cycle** → the critical path becomes: #112 impl → #111 impl (headline fix) → #113 + #114 in parallel.
+- **If a new `## INSTRUCTION:` appears in WORKLOG.md (outside fenced code)** → follow it first.
+
+**Housekeeping:** WORKLOG.md is **1678 lines** pre-this-entry, **~1730 lines** post. **Over the established 1600-line custom threshold for this repo.** Archive eligible: the 11:48Z–15:18Z 2026-05-27 "Still idling" block (~660 lines, >6h old, unrelated to in-flight work). **Deferred this cycle** to keep the action count to 2 spawns. **Pre-commit:** the next quiet cycle OR the cycle after that (if quiet doesn't arrive soon) will fire `/truncate-worklog` against that block → `WORKLOG_ARCHIVE_2026-05-27.md` (already exists — append, or write to `_2026-05-27_part2.md` if collision). The 04:21Z–17:26Z block (the productive sync-rewrite planning + #107 fix burst) stays put — recent and contextual.
+
+**Auto-disable check:** Productive cycle (2 spawns) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Lessons re-learned this cycle:**
+
+1. **Multi-id query param syntax:** `/start-tasks?ids=X,Y` returns 400 (comma not a UUID separator). Must use `?ids=X&ids=Y` (repeated params). Same likely true for `/app-conversations?ids=…`. The openhands-api skill could call this out explicitly.
+2. **The 17:21Z parallel-spawn forecast worked exactly as designed:** both slots opened on this cycle's wake-up, both filled in one orchestrator action, plugin shape canonical, no spawn retries. The "act on pre-commits when their entry conditions hold" pattern is paying down planning debt cycle-over-cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+
 ### 2026-05-27 17:26 UTC - Implementation Worker — Issue #107 Complete
 
 **PR opened (ready for review):** [#117 — fix(sync): sort by updated_at DESC in reset_to_n_newest](https://github.com/jpshackelford/ohtv/pull/117)
