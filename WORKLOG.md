@@ -1,3 +1,93 @@
+### 2026-05-27 20:22 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `bfafacb` | expansion | Issue #113 — `--repair --fix` cloud-gap recovery UX | **NEW** running |
+
+**🔴 Dead-spawn lesson recovered.** The 19:54Z cycle's `703586d823da456782d4619a8ac1d8a1` spawn was **never executed**. Verified via three independent signals:
+- `ohtv show 703586d --messages`: 0 user messages, 0 agent messages, 0 actions — Total: 1 (the lone `ConversationStateUpdateEvent`).
+- `~/.openhands/cloud/conversations/703586d.../events/`: single 411KB event file containing only `kind: ConversationStateUpdateEvent, source: environment` — no `MessageEvent`.
+- Cloud API `sandbox_status=PAUSED` + `execution_status=null` + `updated_at == created_at` (both `2026-05-27T19:53:27.430Z`) — the steady state never advanced past creation.
+- Authoritative completion signal absent: issue #113 still **0 labels** at 20:18Z, no comments newer than `2026-05-27T16:37:50Z`.
+
+**Root cause of the dead spawn:** the 19:54Z payload (per the 19:54Z entry's own narration: "selected_repository=jpshackelford/ohtv, selected_branch=main, agent_type=default") omitted the `initial_message` field entirely. The cloud platform accepts such payloads with task status `WORKING`, creates a conversation, runs the sandbox setup, and then idles — because nothing told the agent to do anything. The platform does **not** require `initial_message`; absence is a legal-but-useless state. The 19:22Z cycle's two parallel spawns succeeded for different reasons (likely a different payload code path or accidental inclusion that wasn't documented in the worklog).
+
+**Corrected lesson — supersedes the 19:54Z lesson on `PAUSED + null`:**
+- `sandbox_status=PAUSED` + `execution_status=null` alone is **ambiguous** — it means either "finished cleanly" OR "never started". Disambiguate by:
+  1. `updated_at > created_at + N seconds` (moved past creation → ran)
+  2. Event count > 1 (more than just `ConversationStateUpdateEvent`)
+  3. **Authoritative:** presence of artifacts (issue labels, PR comments, WORKLOG entries) keyed to the worker's task.
+- A dead spawn looks identical to a finished spawn via `sandbox_status` alone. **Always verify artifacts.**
+
+**Corrected spawn payload (what worked at 20:22Z):** `POST /api/v1/app-conversations` with:
+- `selected_repository: "jpshackelford/ohtv"`
+- `git_provider: "github"` (NOT `selected_branch: "main"` — the platform defaults to main when branch is omitted, and `git_provider` is the documented field per `/spawn-conversation` skill)
+- `initial_message: {content: [{type: "text", text: "<prompt>"}], run: true}` — **MANDATORY**; this was the missing piece in the 19:54Z payload
+- `plugins: [{source: "github:jpshackelford/.openhands", repo_path: "plugins/ohtv-workflow", ref: "feat/ohtv-workflow-plugin"}]` — explicitly included this cycle even though the 19:22Z cycle claimed it was unnecessary; cheap insurance against another silent failure mode
+- `title: "[Expansion] Issue #113 — ..."`
+- (`agent_type: "default"` is the server default; omitting it is fine)
+
+Verification path: poll `/start-tasks/search` until `status=READY` (transitioned in <6s this cycle, vs. the 19:54Z task which presumably went `WORKING → READY` without ever delivering the initial_message); then GET `/app-conversations/search` and confirm `execution_status=running` + `sandbox_status=RUNNING` + `updated_at > created_at`. All three confirmed for `bfafacb` at 20:22:27Z (11s after creation, `running`/`RUNNING`).
+
+**Spawned: 1 worker (expansion slot only).**
+
+1. **Expansion Worker** — `bfafacb9eb174886ae6df4709977912b` ([conv](https://app.all-hands.dev/conversations/bfafacb9eb174886ae6df4709977912b))
+   - Issue: [#113 — `ohtv sync --repair` reports the cloud-side gap but cannot fix it](https://github.com/jpshackelford/ohtv/issues/113)
+   - Same scope as the dead `703586d` spawn (the prompt was preserved verbatim from the 19:54Z entry plus the explicit dependency-aware framing). Picked per the 19:54Z pre-commit forecast: `#113` next after `#109` lands (which it did at 19:25Z). Sits **downstream of #111 + #112** (consumes both their plumbing) and depends on **#109's `sync.lock` contract** (must take same `fcntl.flock`). Independent of #114.
+   - Scope handed to worker: reproduce gap-reporting behavior; define `--repair --fix` semantics post-#111 (normal sync = incremental set-diff; `--repair --fix` = destructive ghost cleanup + full orphan re-scan + optional `cloud_updated_at` revalidation across entire local set); coordinate with #112's `CloudListingStore` (fresh `start_snapshot(repair=True)`); coordinate with #109's `sync.lock` (must take it); spell out UX (extend repair report with `cloud-only downloaded:` + `cloud-removed recorded:` lines mirroring #111's set-diff categories); confirm xfail-flips for #110 scenarios #4 and #13 (`reason='#113'`); out-of-scope carve-outs explicit for #108/#109/#111/#112/#114/#116. Rewrite issue body, post technical-approach comment, apply `ready`, prepend WORKLOG entry, exit.
+   - Explicit DO-NOTs: no `src/` or `tests/` edits, no PR, no other-issue label changes, no PR #119/#120 touches, no `db process` runs.
+
+**PR slot decision — DEFERRED (no spawn), continuity with 19:54Z:**
+- PR #119 — `feat/sync-test-harness-110`, ready, CI green (`pr-review` SUCCESS), `reviewDecision=CHANGES_REQUESTED`, manual test results posted at 19:25:40Z with **⚠️ verdict**. No new commits since `3a05089` (test SHA still matches PR HEAD per the 19:54Z record).
+- **Decision tree pull:** "PR exists, ready, CI green, test results valid, 💬 > 0 → Spawn review worker."
+- **Pre-commit forecast (19:54Z) wins again** for the same four reasons: (a) merge gate is hypothesis-age policy (~2026-06-03), code fixes don't unblock it, (b) any commit resets `last_commit > test_timestamp` → forces a re-test we'd have to do at merge time anyway, (c) the AI bot finding (`fakes.py` dedup hint) is "minor refactor, low risk, not worth blocking on" per the testing worker, (d) testing worker explicitly wrote "Ready for the review worker once the hypothesis age gate is satisfied (or explicitly waived)."
+- Deferred. Orchestrator re-evaluates each cycle. No state change since 19:54Z on the gate or the PR contents.
+
+**Out-of-band PR #120 — noted, not driven (continuity):**
+- PR #120 — `chore/release-automation-bootstrap`, ready, CI all green, human-opened by `jpshackelford` at 19:36:56Z, NOT tied to any tracked GH issue. Tracked-issue PR (#119) holds the orchestrator's PR slot. PR #120 remains human-owned; orchestrator will not spawn testing/review/merge for it. State unchanged since 19:54Z.
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → zero top-level matches (all literal occurrences inside fenced code blocks). **Zero actionable.**
+
+**Decision-tree trace:**
+- **Expansion slot:** Apparent state from `sandbox_status=PAUSED` would suggest "filled by 703586d, wait" → wrong. Authoritative state via artifact check (no `ready` on #113, no comments, no WORKLOG entry by 703586d): **OPEN**. → Respawn for #113 with corrected payload.
+- **PR slot:** PR #119 deferred per pre-commit forecast (hypothesis age policy gate, no change since 19:54Z). PR #120 out-of-band, not driven. → no spawn.
+
+**Current State (verified 20:14–20:22Z):**
+- **Open PRs:** 2 — [PR #119](https://github.com/jpshackelford/ohtv/pull/119) (orchestrator's slot, deferred pending hypothesis policy gate or human waiver) + [PR #120](https://github.com/jpshackelford/ohtv/pull/120) (out-of-band, release automation bootstrap, human-driven).
+- **Ready issues (5):** #108 (priority:medium), #109 (priority:medium), #110 (priority:high, in flight via PR #119), #111 (priority:medium, blocked on #110+#112 merge), #112 (priority:medium, awaiting impl after PR slot opens).
+- **Needs expansion (3 effective):** #113 (now in flight via `bfafacb`, was incorrectly counted as in-flight last cycle), #114, #116.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+
+**Pre-commit for next cycle (~20:45–20:55Z window):**
+- **If `bfafacb` is `running` AND issue #113 still has no `ready` label** → expansion slot stays filled, log status (typical expansion 20-40 min for this depth of dependency-coordination work).
+- **If `bfafacb` is `running` AND #113 already has `ready`** → contradiction; verify artifacts vs. status independently.
+- **If `bfafacb` is `PAUSED`/`null` (looks finished by sandbox status)** → **DO NOT TRUST.** Apply the corrected lesson: check #113's `ready` label AND comments AND a new WORKLOG entry. Only mark finished if at least one artifact is present.
+- **If `bfafacb` shows artifacts (issue #113 has `ready`, comment posted, WORKLOG entry prepended)** → expansion slot reopens. Next expansion target: **#116** (centralize DB migration — orthogonal cleanup, no dependency pressure, smaller scope than #114). Skip #114 (depends on #113 + #111 + #112 all landing — premature).
+- **If `bfafacb` adds `needs-info`/`needs-split`/`blocked` to #113** → expansion slot reopens, pick next-oldest unexpanded (#114 or #116 depending on what `bfafacb` flagged).
+- **If PR #119's test results timestamp falls behind a new commit** → re-evaluate; may need re-testing worker. Currently `3a05089` matches PR HEAD.
+- **If a human waives the hypothesis-age policy on PR #119** → reopen PR slot decision; spawn review worker (address `fakes.py` dedup), then re-test, then merge.
+- **If PR #120 grows a review comment or test artifact** → re-evaluate whether to join orchestrator workflow.
+- **If a new `## INSTRUCTION:` appears outside fenced code** → follow it first.
+
+**Housekeeping:** WORKLOG.md was **931 lines** pre-this-entry, **~1030 lines** post — still below the 1600-line custom threshold for heavy productive days. The 18:16Z cycle's archive of 04:21Z–12:17Z into `WORKLOG_ARCHIVE_2026-05-27.md` remains the most recent housekeeping. **Deferred.**
+
+**Auto-disable check:** Productive cycle (1 dead-spawn diagnosis + 1 corrected spawn + 1 lesson update) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Lessons added/corrected this cycle (CRITICAL — supersedes prior lessons):**
+1. **`sandbox_status=PAUSED + execution_status=null` is AMBIGUOUS** — can mean "finished" or "never started". The 19:54Z lesson that called it "the post-completion steady state" is **incomplete**. Always disambiguate via artifact check (issue label / PR comment / WORKLOG entry keyed to the worker's task). The 19:22Z lesson-of-the-cycle was over-generalized from observing successful workers in the same end-state.
+2. **`initial_message.run=true` is MANDATORY for spawn payloads** — without it, the conversation is created but the agent never receives a task. The platform accepts and silently no-ops. The 19:22Z + 19:54Z worklog narrations of "POST with selected_repository, selected_branch, agent_type=default" were missing this critical field; the 19:22Z spawns presumably succeeded because the field was present but undocumented, while 19:54Z's omission caused the dead spawn.
+3. **`plugins` block in payload is cheap insurance** — even if the platform's `agent_type=default` picks up plugins from cloud-side config (as the 19:22Z narration claimed), explicit inclusion costs nothing and eliminates one more silent failure mode. Use the documented form from the `/spawn-conversation` skill: `{source: "github:jpshackelford/.openhands", repo_path: "plugins/ohtv-workflow", ref: "feat/ohtv-workflow-plugin"}`.
+4. **Spawn verification has three checkpoints, not one:**
+   - (a) Task accepted: `status=WORKING` from POST response (necessary but not sufficient).
+   - (b) Task ready: `status=READY` + `app_conversation_id` populated from `/start-tasks/search` (means sandbox/skills/conversation are set up).
+   - (c) Agent running: `execution_status=running` + `sandbox_status=RUNNING` + `updated_at > created_at` from `/app-conversations/search` (means the initial_message was delivered AND the agent stepped).
+   - Skipping checkpoint (c) is exactly what hid the 19:54Z dead spawn.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 19:54 UTC - Orchestrator
 
 **Active Workers:**
