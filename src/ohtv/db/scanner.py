@@ -64,14 +64,32 @@ def discover_conversations(base_dir: Path, source: str) -> list[tuple[str, Path,
     return conversations
 
 
+_MISSING = object()  # sentinel: manifest key absent (vs. present-but-None)
+
+
 def load_manifest_metadata() -> dict[str, dict]:
     """Load per-conversation metadata cache from the sync manifest.
 
     Returns:
-        Dict mapping conversation ID to a dict with keys ``"title"`` and
-        ``"labels"``. Includes ALL manifest entries (with ``None``/empty
-        for missing fields) so that label removal and cloud-side renames
-        propagate down through the scanner.
+        Dict mapping conversation ID to a per-entry dict containing the
+        manifest's cached, refreshable metadata fields:
+
+        - ``"title"``: cloud title (str or None)
+        - ``"labels"``: normalized labels (dict or empty dict sentinel)
+        - ``"selected_repository"``: present iff the manifest entry has
+          that key. Value is the manifest value (str or None). Issue #87.
+        - ``"selected_branch"``: same shape as ``selected_repository``;
+          not refreshable via listing API (lives in trajectory
+          ``meta.json``). Issue #87.
+        - ``"created_at"``: present iff the manifest entry has that key.
+          Value is the manifest value as ISO 8601 string or None.
+          Issue #87.
+
+        Issue #87 fields are only included when the underlying key
+        exists in the manifest entry — this lets ``extract_metadata``
+        distinguish "pre-#87 manifest (fall back to base_state.json)"
+        from "post-#87 manifest with explicit None (trust the manifest)"
+        without a schema migration.
 
     The returned ``"labels"`` value is ``{}`` (empty dict) when labels are
     absent on the manifest entry — this is the sentinel ``extract_metadata``
@@ -96,10 +114,19 @@ def load_manifest_metadata() -> dict[str, dict]:
         normalized_labels = (
             labels if (labels and isinstance(labels, dict)) else {}
         )
-        metadata_map[conv_id] = {
+        entry: dict = {
             "title": conv_data.get("title"),
             "labels": normalized_labels,
         }
+        # Only carry Issue #87 fields when present so callers can
+        # distinguish missing-key (pre-#87) from present-but-None.
+        if "selected_repository" in conv_data:
+            entry["selected_repository"] = conv_data.get("selected_repository")
+        if "selected_branch" in conv_data:
+            entry["selected_branch"] = conv_data.get("selected_branch")
+        if "created_at" in conv_data:
+            entry["created_at"] = conv_data.get("created_at")
+        metadata_map[conv_id] = entry
     return metadata_map
 
 
@@ -131,10 +158,13 @@ def extract_metadata(
             to preserve backward compatibility with callers that only
             need labels.
         manifest_map: Pre-loaded manifest metadata map keyed by
-            conversation ID, with ``{"title": ..., "labels": ...}``
-            values. When provided, a non-empty manifest title takes
-            precedence over ``base_state.json`` (Issue #86 — keep
-            ``db scan`` honest after a cloud-side rename).
+            conversation ID, with at minimum ``{"title": ..., "labels": ...}``
+            and optionally Issue #87 fields
+            ``selected_repository``, ``selected_branch``, ``created_at``.
+            When provided for a cloud-source conversation with a complete
+            manifest entry, the scanner skips ``base_state.json`` entirely
+            (Issue #87 — cold-start cloud scans should not open the
+            shim).
 
     Returns:
         Dict with title, created_at, updated_at, selected_repository, labels.
@@ -152,6 +182,7 @@ def extract_metadata(
     #   2. base_state.json title
     #   3. First user message extraction (later fallback)
     manifest_title: str | None = None
+    manifest_entry: dict | None = None
     if manifest_map is not None:
         manifest_entry = manifest_map.get(conv_id)
         if manifest_entry:
@@ -159,9 +190,21 @@ def extract_metadata(
             if isinstance(mt, str) and mt.strip():
                 manifest_title = mt
 
-    # Try to read from base_state.json
+    # Issue #87: cloud convs with a complete manifest entry skip
+    # base_state.json reads. "Complete" means the manifest entry carries
+    # ALL three new keys (any value, including None, is fine — the key's
+    # presence proves the entry was written post-#87 and the value is
+    # authoritative).
+    skip_base_state = (
+        source != "local"
+        and manifest_entry is not None
+        and "selected_repository" in manifest_entry
+        and "selected_branch" in manifest_entry
+        and "created_at" in manifest_entry
+    )
+
     base_state = conv_path / "base_state.json"
-    if base_state.exists():
+    if not skip_base_state and base_state.exists():
         try:
             data = json.loads(base_state.read_text())
             title = data.get("title")
@@ -171,18 +214,40 @@ def extract_metadata(
         except (json.JSONDecodeError, OSError):
             pass
 
+    # Issue #87: pull manifest-cached selected_repository/created_at when
+    # present. These override any base_state.json values for CLOUD convs
+    # only — the manifest is the canonical cache for cloud-side editable
+    # metadata. Local CLI convs are explicitly out of scope per the
+    # issue ("base_state.json remains canonical").
+    if source != "local" and manifest_entry is not None:
+        if "selected_repository" in manifest_entry:
+            selected_repository = manifest_entry.get("selected_repository")
+        if "created_at" in manifest_entry:
+            manifest_created_at = manifest_entry.get("created_at")
+            if isinstance(manifest_created_at, str) and manifest_created_at:
+                parsed = _parse_datetime(manifest_created_at, assume_utc=True)
+                if parsed is not None:
+                    created_at = parsed
+            elif manifest_created_at is None and skip_base_state:
+                # Authoritative None from manifest — no base_state read to
+                # fall back to.
+                created_at = None
+
     # Manifest title wins over base_state.json title when present.
     if manifest_title:
         title = manifest_title
 
-    # Prefer timestamps from events for accuracy
+    # Prefer timestamps from events for accuracy. Always reads events for
+    # local-CLI convs and for cloud convs (event reads are not the
+    # base_state.json open the regression test is guarding against).
     event_timestamps = _get_event_timestamps(conv_path, timestamps_are_utc)
     if event_timestamps:
         created_at = event_timestamps[0]
         updated_at = event_timestamps[1]
 
-    # Last resort: file mtime
-    if created_at is None and base_state.exists():
+    # Last resort: file mtime (only sensible when base_state.json was
+    # actually read; skipped path means we trust manifest + events).
+    if created_at is None and not skip_base_state and base_state.exists():
         try:
             file_mtime = datetime.fromtimestamp(base_state.stat().st_mtime, tz=timezone.utc)
             created_at = file_mtime

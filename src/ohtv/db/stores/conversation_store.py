@@ -235,11 +235,16 @@ class ConversationStore:
         *,
         title: str | None | object = _UNSET,
         labels: dict[str, str] | None | object = _UNSET,
+        selected_repository: str | None | object = _UNSET,
+        created_at: datetime | None | object = _UNSET,
     ) -> bool:
-        """Update only the title and/or labels for a conversation.
+        """Update focused metadata columns for a conversation.
 
-        Used by the metadata-refresh sync path (Issue #86) to propagate
-        cloud-side title/label edits without re-downloading trajectories.
+        Used by the metadata-refresh sync path (Issue #86 / #87) to propagate
+        cloud-side edits without re-downloading trajectories. Issue #86
+        introduced ``title``/``labels``; Issue #87 extends to
+        ``selected_repository``/``created_at`` (the remaining listing-API
+        fields).
 
         Args:
             conversation_id: Conversation ID. Normalized by stripping dashes
@@ -250,12 +255,22 @@ class ConversationStore:
                 leave the column untouched. Pass ``None`` or an empty dict
                 to clear labels (empty dict is normalized to NULL to match
                 ``sources/cloud.py:parse_conversation_info``).
+            selected_repository: New repository value. Same _UNSET vs None
+                semantics as ``title``. Issue #87.
+            created_at: New created_at value (datetime). Same _UNSET vs None
+                semantics. Stored as ISO 8601 string. Issue #87.
 
         Returns:
             True if a matching row was updated, False if the conversation
             ID does not exist in the index.
         """
-        if title is self._UNSET and labels is self._UNSET:
+        all_unset = (
+            title is self._UNSET
+            and labels is self._UNSET
+            and selected_repository is self._UNSET
+            and created_at is self._UNSET
+        )
+        if all_unset:
             # Nothing to do; treat as a successful no-op only when the row
             # exists, so callers can still distinguish "missing conversation"
             # from a real no-op (matches update_summary semantics).
@@ -284,6 +299,24 @@ class ConversationStore:
             labels_json = json.dumps(labels_value) if labels_value else None
             set_clauses.append("labels = ?")
             params.append(labels_json)
+
+        if selected_repository is not self._UNSET:
+            set_clauses.append("selected_repository = ?")
+            params.append(selected_repository)
+
+        if created_at is not self._UNSET:
+            # Accept datetime or None. We don't accept raw strings — callers
+            # already parse listing payloads via _parse_datetime before
+            # invoking us.
+            if created_at is None:
+                params.append(None)
+            elif isinstance(created_at, datetime):
+                params.append(created_at.isoformat())
+            else:
+                raise TypeError(
+                    f"created_at must be datetime or None, got {type(created_at).__name__}"
+                )
+            set_clauses.append("created_at = ?")
 
         params.append(normalized_id)
         sql = f"UPDATE conversations SET {', '.join(set_clauses)} WHERE id = ?"
