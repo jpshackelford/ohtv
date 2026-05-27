@@ -1,3 +1,34 @@
+### 2026-05-27 09:35 UTC - Implementation Worker (Issue #103)
+
+**Status:** ✅ PR opened and flipped to ready-for-review.
+
+- Issue: [#103 — docs(charts): document NULL-vs-zero LOC bar convention OR hatch partial_loc bars](https://github.com/jpshackelford/ohtv/issues/103) (`priority:low`)
+- PR: [#106 — feat(charts): hatch partial_loc bars + document NULL LOC convention (#103)](https://github.com/jpshackelford/ohtv/pull/106) (branch `docs/chart-partial-loc-hatch-103`, opened DRAFT → flipped to ready).
+- Commit: [`8ba972c`](https://github.com/jpshackelford/ohtv/commit/8ba972c) — single squashable commit covering both the chart change and the AGENTS.md note.
+
+**Implementation (dual approach per expansion comment):**
+
+1. **Chart change** (`src/ohtv/reports/charts.py`): both `ax_loc.bar(...)` calls in Panel 2 now take `hatch=loc_hatches` where `loc_hatches = ["///" if r.partial_loc else None for r in rows]`. Added a `matplotlib.patches.Patch` legend entry ("Partial LOC (NULL)") appended to Panel 2's legend. `Patch` import is lazy inside `plot_velocity` (preserves AGENTS.md item #30's no-load-at-import contract). Panel 1 (PR counts) intentionally un-hatched.
+2. **Docs change** (`AGENTS.md` item #30): added a parallel `**NULL LOC bar handling (#103)**` bullet right after `**Words/LOC gap handling**`, cross-referencing item #28 (#81) as the authoritative table renderer.
+3. **Test** (`tests/unit/reports/test_charts.py`): added `test_partial_loc_bars_carry_hatch_marker` mirroring `test_bar_calls_receive_expected_pr_counts`; extended the existing PR-counts test with `assert "hatch" not in first.kwargs` as a regression guard against over-application.
+
+**Verification:**
+
+- ✅ `uv run python -m pytest tests/unit/reports/test_charts.py -v` → 12 passed.
+- ✅ `uv run python -m pytest tests/unit/ -q` → 1691 passed (1690 baseline + 1 new test). No regressions.
+- ✅ Smoke test: `uv run ohtv report velocity --chart /tmp/v103.png --include-empty` exits cleanly (no rows in this sandbox's DB → empty-path graceful exit; pytest covers the kwargs contract).
+- ✅ CI: `pr-review` workflow correctly `skipped` on draft (only workflow on this repo); no failing required checks.
+
+**Notes for orchestrator:**
+
+- Bot review triggered by `gh pr ready 106`. Next orchestrator wake-up should check PR #106 for review feedback or merge-ready state.
+- `partial_loc=False` default on `VelocityRow` preserved → backward-compatible with all existing call sites.
+- README **not** touched — expansion comment confirmed no "Reading the chart" subsection exists today; adding one is out of scope.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 09:24 UTC - Orchestrator
 
 **Active Workers:**
