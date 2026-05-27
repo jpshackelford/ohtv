@@ -128,6 +128,42 @@ class VelocityRow:
     # Useful for --verbose footnotes; defaults to 0.
     missing_loc_count: int = 0
 
+    @classmethod
+    def from_csv_dict(cls, row: dict[str, str]) -> "VelocityRow":
+        """Build a :class:`VelocityRow` from a ``csv.DictReader`` row.
+
+        Mirrors the columns written by :func:`format_csv`. Empty
+        strings round-trip to ``None`` for the optional numeric
+        fields (``lines_added`` / ``lines_removed`` / ``total_loc`` /
+        ``words_per_loc``). ``partial_loc`` and ``missing_loc_count``
+        are not part of the CSV surface and default to their
+        dataclass defaults.
+
+        Used by the standalone ``scripts/chart_velocity.py`` shim
+        (issue #82) which renders a chart directly from a CSV pipe.
+        """
+
+        def _opt_int(value: str | None) -> int | None:
+            if value is None or value == "":
+                return None
+            return int(value)
+
+        def _opt_float(value: str | None) -> float | None:
+            if value is None or value == "":
+                return None
+            return float(value)
+
+        return cls(
+            week=row["week"],
+            prs_merged=int(row["prs_merged"]),
+            lines_added=_opt_int(row.get("lines_added")),
+            lines_removed=_opt_int(row.get("lines_removed")),
+            total_loc=_opt_int(row.get("total_loc")),
+            human_words=int(row["human_words"]),
+            human_messages=int(row["human_messages"]),
+            words_per_loc=_opt_float(row.get("words_per_loc")),
+        )
+
 
 @dataclass
 class VelocityReport:

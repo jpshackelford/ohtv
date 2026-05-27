@@ -48,6 +48,10 @@ GITHUB_TOKEN=$(gh auth token) ohtv fetch-loc
 ohtv report velocity
 ohtv report velocity --format csv > velocity.csv
 
+# 3-panel velocity chart (requires the [charts] extra: pip install ohtv[charts])
+ohtv report velocity --chart velocity.png --since 2024-01-01 \
+    --mark-date 2024-03-01 --title "Q1 Velocity"
+
 # Weekly new-conversation counts CSV (cloud, cli, total) by ISO week
 ohtv report weekly-counts > counts.csv
 ohtv report weekly-counts --since 4w --exclude-current-week

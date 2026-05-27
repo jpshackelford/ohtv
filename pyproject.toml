@@ -16,6 +16,9 @@ dependencies = [
     "tomli_w>=1.0",
 ]
 
+[project.optional-dependencies]
+charts = ["matplotlib>=3.8"]
+
 [project.scripts]
 ohtv = "ohtv.cli:main"
 
@@ -28,6 +31,7 @@ packages = ["src/ohtv"]
 
 [dependency-groups]
 dev = [
+    "matplotlib>=3.8",
     "pytest>=8.0",
     "pytest-httpx>=0.30",
     "pyyaml>=6.0",
