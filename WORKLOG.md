@@ -1,3 +1,17 @@
+### 2026-05-27 19:25 UTC - Issue #109 expanded
+
+Posted [technical-approach comment](https://github.com/jpshackelford/ohtv/issues/109#issuecomment-4557975170) on #109 and applied the `ready` label. Issue is now the column-ownership + `sync.lock` mutex contract that gates the #111 set-diff engine's safety story without touching #111's algorithm itself. Root-caused the race to two correct-in-isolation writers (`ConversationStore.upsert` at `stores/conversation_store.py:67-112`, called only by `db/scanner.py:441-469`; and `ConversationStore.update_metadata` at `stores/conversation_store.py:232-324`, called only by `sync.py:1053`) racing through the `sync_manifest.json` file, with WAL preventing physical corruption but doing nothing for the logical clobber: scan reads `manifest_map` at scan-start, sync rewrites manifest mid-scan, scan's `upsert` then overwrites sync's `update_metadata` write with stale data. Confirmed via grep there is no `fcntl` / `flock` / `filelock` / `BEGIN IMMEDIATE` / `sync.lock` anywhere in `src/`.
+
+Picked **scanner-only ownership for `selected_branch`** (the brief's flagged trickiest column) as the explicit resolution — sync's listing API doesn't return it (per AGENTS.md #27), only `meta.json` inside the trajectory ZIP does, and the existing `update_metadata` signature deliberately omits it per #87. Codified the rule by *not* adding `selected_branch` to `update_metadata`'s parameter list. Picked **`fcntl.flock(LOCK_EX | LOCK_NB)` on `~/.ohtv/sync.lock`** over `BEGIN IMMEDIATE` because the race surface includes the manifest file (filesystem) which SQLite locking doesn't cover. Picked **fail-fast (timeout=0) with `--lock-timeout=N` opt-in** over queue/wait because `ohtv sync` is interactive and a silently-stalled progress bar is worse UX than an immediate error.
+
+Wrote the full column-ownership table for the post-#112, post-#108 schema covering 13 column-or-table entries with explicit cross-references to AGENTS.md items #27, #86, #87. Coordination notes spelled out explicitly: #108 / #112 contribute new rows to the table (mechanical), #111 must execute inside the lock (one-line wrap in `cli.py`), #113 must take the same lock for `--repair --fix`, #110's harness gets a new `test_race_during_sync.py` scenario marked `xfail(strict=True, reason='#109')` until impl flips it green, #114's manifest retirement *simplifies* the table but doesn't retire the mutex (sync↔scan still race on the DB alone). Implementation order recommendation: land #109 before #111 so #111 inherits serialization for free.
+
+No `src/` or `tests/` edits, no PR, no touching of other issues' labels, no `db process` runs. Documentation-and-mutex-contract expansion only.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 19:22 UTC - Orchestrator
 
 **Active Workers:**
