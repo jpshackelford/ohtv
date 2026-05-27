@@ -1224,3 +1224,87 @@ Finished at 03:00:08Z (~9 min runtime). Posted full `## Manual Test Results — 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-27 04:21 UTC — Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `d9a994e` | orchestrator | this cycle | running |
+| `19dfec8` | testing | PR #101 — `--chart` flag for velocity | **NEW** running |
+
+**Spawned: Testing Worker** — `19dfec829cd142e7a67ea8cb72a7403b` ([conversation](https://app.all-hands.dev/conversations/19dfec829cd142e7a67ea8cb72a7403b))
+
+PR slot now occupied by testing worker. Expansion slot stays idle (0 issues need expansion).
+
+**Discovery on wake-up:**
+
+A prior orchestrator wake-up (around 03:51Z) appears to have spawned an impl worker for issue #82 (charting for velocity) — exactly as pre-committed in the 03:21Z cycle. That impl worker completed quickly: opened **PR #101** at 04:07:32Z and prepended a one-line worker note at the top of WORKLOG.md (`### 2026-05-27 04:09 UTC - Impl Worker (#82)`). No 03:51Z orchestrator entry was committed (looks like that cycle exited after spawning before the worklog commit), but the spawn succeeded and the impl worker landed PR #101 cleanly.
+
+**PR #101 state on wake-up (verified 04:16–04:21Z):**
+
+- **Title:** "feat: add --chart flag to ohtv report velocity (#82)"
+- **Branch:** `feat/charts-velocity-82`, HEAD `0a85d36e7d5eb1a7e268f49faaf9d5e644b0b43a`
+- **Status:** `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `reviewDecision=""` (AI bot uses COMMENTED).
+- **CI:** ✅ 1 SUCCESS check — `PR Review by OpenHands/pr-review` finished 04:10:50Z (2m41s).
+- **AI bot review:** 🟢 "Good taste — Elegant, pragmatic solution that solves a real problem with minimal complexity. KEY INSIGHT: The None-value filtering for words/LOC (lines 149-154 in charts.py) is textbook 'good taste' — it eliminates edge cases by construction rather than adding conditional checks throughout the plotting logic. The lazy matplotlib import keeps the core install lightweight while providing a clear error path." COMMENTED state — not a change-request review.
+- **Comments:** 0 (no manual test results yet).
+- **Files changed (13):** `AGENTS.md`, `README.md`, `pyproject.toml`, `scripts/__init__.py`, `scripts/chart_velocity.py`, `src/ohtv/cli.py`, `src/ohtv/reports/charts.py`, `src/ohtv/reports/velocity.py`, `tests/unit/reports/test_charts.py`, `tests/unit/reports/test_cli_chart.py`, `tests/unit/scripts/__init__.py`, `tests/unit/scripts/test_chart_velocity_script.py`, `uv.lock`.
+- **Docs already in-diff:** ✅ Both `README.md` (new chart section) and `AGENTS.md` (new item #30 per impl worker) bundled — no separate docs worker needed.
+
+**Decision-tree gates verified:**
+
+- ✅ **PR slot empty on wake-up:** Only `d9a994e` (this orchestrator) was running for `jpshackelford/ohtv`. Impl worker already exited.
+- ✅ **Expansion slot empty + nothing to expand:** 0 issues without `ready` or `hold` labels.
+- ✅ **Decision tree match:** "PR exists, ready, CI green, docs updated, no manual test results → Spawn **testing worker**." Exact match. Not a re-test (no commits since CI green; no test comment yet → first test pass). Not a review round (0 review comments needing reply; AI bot review is positive informational).
+- ✅ **No `## INSTRUCTION:` in WORKLOG.md.** Step 1 of the orchestrate skill completed cleanly.
+
+**Testing worker scope (prompt highlights):**
+
+- Clone + `gh pr checkout 101`, verify HEAD == `0a85d36...` (drift check), `uv sync` + matplotlib install.
+- Read PR description, issue #82 expansion comments, and full diff before designing the test matrix.
+- **Full pytest first** — `uv run pytest -x` baseline is 1688/1688 per impl worker. Regression = blocker.
+- **Focused tests** on the 3 new test files.
+- **Blackbox T-1..T-15 matrix:** help text, default CSV unchanged, PNG written, 3-panel layout, empty dataset, partial-LOC rows, `--repo` filter combo, matplotlib-missing error path, `scripts/chart_velocity.py` standalone, AC-by-AC against issue #82.
+- **Ruff/lint** on the new files + check `src/ohtv/cli.py` baseline drift.
+- **Documentation cross-check** — run 2+ README examples to verify they're copy-pasteable.
+- Post `## Manual Test Results — PR #101` PR comment with verdict (✅/🟡/🔴), coverage matrix, bugs section, AI-disclosure footer.
+
+**Explicit DO-NOTs encoded in prompt:** no file edits / no commits / no pushes to PR branch, no draft-switching, no `gh pr merge`, no `gh pr review --approve` / `--request-changes`, no WORKLOG.md touch, no `AGENTS.md`/`README.md` edits (report doc bugs in the test comment instead), no resolving review threads, no writing to real `~/.ohtv/index.db` (use `OHTV_DIR=$(mktemp -d)`), no spawning other conversations.
+
+**Spawn details:**
+
+- `POST /api/v1/app-conversations` with `initial_message.content[{type, text}]` per the openhands-api skill.
+- **Lesson re-learned:** First spawn attempt used the wrong field name (`initial_user_msg` instead of `initial_message.content[]`). The API accepted the request and started a sandbox (`01NGXsHV9QzM6SE2lInpc6` / app conv `0cd5df26cc624d4caba7ef11a65bf13a`) but with `initial_message: null` — i.e., an idle conversation with no task. **Recovery:** Paused that sandbox via `POST /api/v1/sandboxes/01NGXsHV9QzM6SE2lInpc6/pause` (`success: true`), then re-spawned with the correct payload schema. The bad sandbox is now paused and harmless. **Pre-commit:** invoke the `openhands-api` skill BEFORE the first spawn next time, not after, to catch the schema upfront.
+- Re-spawn start-task `1a9a97fd…` → poll at +8s: `READY` → `app_conversation_id=19dfec829cd142e7a67ea8cb72a7403b`. `GET /app-conversations?ids=…` confirms `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[101]` (✅ pinned per the 02:51Z lesson-learned). Cloud-generated title: "✅ Manual Testing PR #101: Velocity Chart Flag" (request title was honored at the descriptive level — better than the typical "Conversation 19dfec8" placeholder).
+
+**Current State (verified 04:16–04:21Z):**
+
+- **Open PRs:** 1 — [PR #101 — feat: add --chart flag to ohtv report velocity (#82)](https://github.com/jpshackelford/ohtv/pull/101) (ready, CI green, AI-bot positive, docs in-diff, manual test in flight via `19dfec8`).
+- **Recently merged:** PR #100 (#92 weekly-counts, merged 03:20Z), PR #99 (#83 classify, merged 01:22Z 2026-05-27), PR #98 (#81 velocity, merged 22:52Z 2026-05-26).
+- **Ready issues (2 remaining):** #82 (in PR #101 testing), #87 (`priority:low`, manifest cache extension).
+- **Pre-commit:** when PR #101 lands clean, next PR-slot spawn → **#87** (only remaining `ready` issue, `priority:low`, no `hold`).
+- **Needs expansion:** 0.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** `d9a994e` (this orchestrator) + `19dfec8` (just-spawned testing worker). The empty sandbox `0cd5df2` from the schema mishap is paused. All else `finished`/`paused`/missing.
+
+**Sync note:** `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 2026-05-27T00:16:55 --quiet` completed cleanly (the existing pattern of mapping `OPENHANDS_API_KEY → OH_API_KEY` for `ohtv` continues to work). `lxa repo add jpshackelford/ohtv` ran on a fresh `.venv` (clone is grafted/shallow until `git fetch --unshallow`, which I ran to inspect commit history for the missing 03:51Z entry).
+
+**Housekeeping:** WORKLOG.md was 1226 lines pre-cycle; this entry pushes it to ~1290. The 6-hour-post-productive-work threshold for the 19:19Z–22:51Z 2026-05-26 entries has now passed (those entries are 5.5–9 hours old at 04:21Z), so they're eligible for archive. **Deferred this cycle** to keep the action count at 1 (one spawn). **Pre-commit:** archive the 19:19Z–22:51Z 2026-05-26 block (lines ~9–~660) on the next quiet cycle OR if WORKLOG.md crosses 1300 lines — whichever comes first. Saving ~650 lines would bring the file back to ~640 lines, well under the 300-line truncation-trigger threshold.
+
+**Auto-disable check:** Not applicable — productive spawn this cycle. Recent cycles (01:52Z, 02:22Z, 02:51Z, 03:21Z, ~03:51Z impl spawn, this 04:21Z one) have all been productive. Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min, ~04:51Z):**
+
+- If `19dfec8` is `running` → log status, do nothing. Testing of a chart-rendering PR (matplotlib install + image-byte verification + full pytest + 10+ blackbox tests) typically runs 20–60 min. The matplotlib install adds ~30s on cold sandbox start.
+- If `19dfec8` is `finished` AND a `## Manual Test Results — PR #101` PR comment exists with **✅ Ready to merge** AND no blocker bugs → spawn **merge worker** for PR #101. AI bot review is already positive; no human review-round needed.
+- If `19dfec8` is `finished` AND test report shows 🔴/🟡 with ❌ MAJOR bugs → spawn **review worker** (fix-then-re-test loop). The review worker should fold AI-bot review nits + bug fixes into one round.
+- If `19dfec8` is `finished` AND test report shows ⚠️ minor bugs only → spawn **review worker** to fold in minor fixes, then re-test on the cycle after.
+- If `19dfec8` is `finished` BUT no test comment was posted → investigate the conversation events; may need a `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Archive TO-DO (eligible now):** 19:19Z–22:51Z 2026-05-26 entries → `WORKLOG_ARCHIVE_2026-05-26.md`. Run on next quiet cycle or if WORKLOG.md > 1300 lines.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
