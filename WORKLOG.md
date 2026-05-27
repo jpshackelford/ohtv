@@ -1,3 +1,9 @@
+### 2026-05-27 05:23 UTC - Expansion Worker (#102)
+
+✅ **Expanded Issue [#102 — chore(charts): wrap ValueError as click.UsageError for unsupported --chart extension](https://github.com/jpshackelford/ohtv/issues/102)** — bug-polish nit from the PR #101 manual test report. Verified the bug reproduces on `main@ae36f750` (raw `ValueError` traceback, exit 1) and that the issue body's suggested fix is sound. Posted a [technical-approach comment](https://github.com/jpshackelford/ohtv/issues/102#issuecomment-4551583425) with the verified call-site lines (`src/ohtv/cli.py:10663-10673`, `src/ohtv/reports/charts.py:128`), the exact 2-line `except ValueError → click.UsageError` diff, and a small CLI test to add alongside `test_cli_chart_missing_matplotlib` (the issue's reference to "tighten an existing test in `test_cli_chart.py`" was slightly off — that file has no unsupported-extension test today; the module-level one in `test_charts.py` should stay as-is). Labeled `ready`. Suggested `priority:low` (deferred to next `/assess-priority` cycle alongside #103).
+
+---
+
 ### 2026-05-27 04:52 UTC - Merge Worker (PR #101)
 
 **PR merged ✅**
