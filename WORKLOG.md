@@ -1,3 +1,71 @@
+### 2026-05-27 16:40 UTC - Sync rewrite planning session
+
+**Filed 8 GitHub issues covering the cloud-sync rewrite, with an explicit dependency graph encoded in each issue body via `**Depends on:**` headers (GitHub auto-links the refs).**
+
+The sync bug surfaced earlier today (1126 cloud conversations that `ohtv sync` cannot recover under the current architecture) traces to a structural problem: the time cursor `manifest.last_sync_at` is being used as the source of truth for "what should exist locally" via the `updated_at__gte` filter on `/api/v1/app-conversations/search`. Once the cursor advances past a gap (whatever the cause — a prior partial listing, a `reset_to_n_newest` run, a one-time `--since` invocation), the gap is permanent. The cliff in the age distribution of the 1126 missing items (zero items <7 days old, hundreds from Dec 2025–May 2026) is the signature of exactly this class of bug.
+
+Diagnosis + plan split across 8 issues, ordered tests-first. Three architectural decisions resolved during planning and baked into the issue bodies so they don't need a separate RFC.
+
+**Issues filed** (cross-refs are real `#NNN`, not placeholders):
+
+| # | Role | Title |
+|---|---|---|
+| [#107](https://github.com/jpshackelford/ohtv/issues/107) | independent bug | `--force -n` keeps "newest created", not "newest updated" as documented |
+| [#108](https://github.com/jpshackelford/ohtv/issues/108) | independent feature | Sub-conversations are silently excluded from sync |
+| [#109](https://github.com/jpshackelford/ohtv/issues/109) | concurrency hardening | Sync and scan can race; column ownership is undocumented |
+| [#110](https://github.com/jpshackelford/ohtv/issues/110) | **foundation** | No behavioral test coverage of the cloud-sync surface |
+| [#111](https://github.com/jpshackelford/ohtv/issues/111) | **headline fix** | `ohtv sync` can't recover from a gap between local store and cloud |
+| [#112](https://github.com/jpshackelford/ohtv/issues/112) | **foundation** | Schema additions for set-diff sync |
+| [#113](https://github.com/jpshackelford/ohtv/issues/113) | builds on #111 | `ohtv sync --repair` reports the cloud-side gap but cannot fix it |
+| [#114](https://github.com/jpshackelford/ohtv/issues/114) | builds on #111 | Two sources of truth for sync state (manifest + DB) makes correctness brittle |
+
+**Dependency graph:**
+
+```
+#107  (--force-n bug)              independent
+#108  (sub-conversations)          independent
+
+#110  (test harness)               foundation, blocks nothing directly
+#112  (schema)                     foundation, blocks #111 and #109
+
+#111  (set-diff fix)               Depends on: #110, #112
+  ├── #113  (--repair)             Depends on: #111
+  └── #114  (retire manifest)      Depends on: #111
+
+#109  (concurrency)                Depends on: #112
+```
+
+**Critical path:** `#110 + #112` (parallelizable) → `#111` → `{#113, #114}` (parallelizable). `#109` joins after `#112` lands. `#107` and `#108` are independent of the chain and can be picked up any time.
+
+**Design decisions locked into the issue bodies** (chosen during planning to avoid leaving open questions in the issues):
+
+- **Tests-first.** `#110` lands first; subsequent implementation issues flip `skip`/`xfail(strict=True)` markers to passing as each behavior arrives. CI stays green throughout via the markers.
+- **Atomic switch, no feature flag, no dual-write phase.** Under release-on-merge with ~48h wall-clock turnaround there is no meaningful soak window, so a flag would be theater. `#110`'s test suite is the safety net.
+- **`cloud_listing` is a transactional snapshot.** Replaced atomically per sync run; partial listings leave the previous snapshot untouched. Prevents the original failure mode of computing set-diffs against an incomplete listing.
+- **Migration backfills `cloud_updated_at` from existing `sync_manifest.json`** rather than leaving NULL. Avoids a slow first sync after upgrade where every cloud conversation would be re-refreshed.
+- **Source-dependent column ownership** (encoded in `#109`): `db scan` owns filesystem columns for all rows; `ohtv sync` owns cloud-sourced metadata for `source='cloud'` rows; `db scan` owns metadata for non-cloud rows. Each column has exactly one writer per row.
+- **Process-level mutex** for concurrent `ohtv sync` invocations; lockfile at `~/.ohtv/sync.lock` with PID-liveness staleness detection.
+- **`--repair` reports four user-facing categories:** *New on cloud*, *Missing locally*, *Removed from cloud*, *Stale locally*. Distinction between the first two is made by comparing each item's `created_at` against the last successful reconciliation timestamp. Replaces today's misleading single number.
+- **Additive-only schema migrations** so older binaries remain compatible (downgrade is non-destructive).
+- **Canonical timestamp format:** ISO-8601 UTC with `Z` suffix, microsecond precision, stored as text — matches what the cloud API returns, no normalization round-trip needed on cloud-sourced values.
+- **`last_sync_at` retired as a sync gate.** Survives only as a UX field ("last successful reconciliation at …"). The new algorithm never compares timestamps against this scalar.
+
+**Probe findings that informed the plan** (throwaway probes against `https://app.all-hands.dev/api/v1/app-conversations`):
+
+- **Sort order**: `/search` returns items sorted by `created_at DESC`, not `updated_at DESC`. This contradicts the docstring on `reset_to_n_newest` in `sync.py:1011` — that's `#107`.
+- **Pagination**: cursor-based via opaque `page_id` token; terminates when `next_page_id` is null. Consistency model not documented; assume keyset-weak (items updated mid-listing may shift within the keyset and be missed). Mitigation: dedup observed IDs across pages; set-diff catches anything missed on the next run.
+- **Sub-conversations**: only 2 of the 1133 missing items are subs. Not the headline cause. Filed as `#108` for cleanliness.
+- **Age distribution of missing items**: 0 items <7d old; 188 7–30d; 627 30–90d; 311 >90d. The hard cliff at 7d is the signature of a one-time cursor advance, not a gradual drift. Confirms the architectural diagnosis.
+- **429 / Retry-After handling**: already robust in `sources/cloud.py` via the `RateLimiter` class with global shared backoff. Not in scope for the rewrite.
+
+**Not yet filed:** the per-issue implementation-detail follow-on comments (schema SQL, lockfile mechanics, fake-cloud-client API shape, timestamp helper, snapshot replacement query, the actual SQL for the three set-diff reconciliation queries). Per repo convention, those are comments on each issue, not body content. Deferred until an implementation worker is ready to pick up the first one.
+
+**Next step:** when ready to start, the foundation pair `#110` (test harness) and `#112` (schema) can be worked in parallel. `#111` (the actual fix) cannot start until both are merged. The headline release that closes the bug for users is the `#111` merge.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 16:18 UTC - Orchestrator
 
 ✅ **All quiet** — board empty post-PR #106 merge. No workers spawned.
