@@ -1,3 +1,69 @@
+### 2026-05-27 17:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `4b7a792` | orchestrator | this cycle | running |
+| `a907335` | expansion | Issue #110 — cloud-sync test harness (foundation) | **NEW** running |
+| `705e31a` | implementation | Issue #107 — `--force -n` newest-updated fix | **NEW** running |
+
+**Spawned: 2 Workers (parallel — both slots filled).** This is exactly the dispatch forecast by the 16:50Z pre-commit ("If `302be93` is `finished` AND ready label on #107 → spawn expansion for #110 and impl for #107 in parallel"). Both slots open as predicted; both spawns succeeded on first try.
+
+1. **Expansion Worker** — `a9073355e2774fb788e0b4d99ee1b487` ([conv](https://app.all-hands.dev/conversations/a9073355e2774fb788e0b4d99ee1b487))
+   - Issue: [#110 — cloud-sync test harness](https://github.com/jpshackelford/ohtv/issues/110)
+   - Foundation for the sync-rewrite critical path. Parallelizable with #112; blocks #111.
+   - Scope: post technical-approach comment (FakeCloudClient shape, test scenarios with `xfail(strict=True)` markers, files-to-create estimate), apply `ready` label, prepend WORKLOG entry, exit. **No code changes to `src/`.**
+2. **Implementation Worker** — `705e31a1d37c44339d16f3d03808f737` ([conv](https://app.all-hands.dev/conversations/705e31a1d37c44339d16f3d03808f737))
+   - Issue: [#107 — `--force -n` newest-updated](https://github.com/jpshackelford/ohtv/issues/107) (`priority:medium`, just assigned this cycle)
+   - Scope: implement the 3-line client-side sort in `SyncManager.reset_to_n_newest`, update collateral docs at `sync.py:1142–1143` + `REFERENCE_CLOUD_API.md:130`, add `TestResetToNNewest` (4 tests) to `tests/unit/test_sync.py`, open DRAFT PR with `Fixes #107`, wait for CI green, flip to ready. Explicit "do NOT widen scope into the #110/#111/#112/#113/#114 sync rewrite chain."
+
+**Priority assessment for #107** (run inline this cycle, single ready issue): `priority:medium` — independent of the sync-rewrite critical path, small (~3 LoC core + ~80 LoC tests), not the headline (the headline is #111 which depends on #110+#112). Bug exists in user-visible documented behavior, so worth fixing soon, but not urgent. `gh issue edit 107 --add-label priority:medium` ✓ applied.
+
+**Current State (verified 17:17–17:21Z):**
+
+- **Open PRs:** 0 ✓
+- **Ready issues:** #107 (`ready` + `priority:medium`, now in flight via `705e31a`)
+- **Need expansion (no `ready`, no `hold`):** #108, #109, #110 (in flight via `a907335`), #111, #112, #113, #114, #116 — **8 issues** (#110 covered, 7 remain after this cycle completes)
+  - **New since last cycle:** #116 ("Centralize DB migration into a single 'ensure ready' entry point") filed at 16:50:56Z. Not part of the 16:40Z sync-rewrite batch; orthogonal cleanup. Will be picked up by a future expansion cycle.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker)
+- **Other running OH conversations for this repo:** `4b7a792` (this orchestrator) + the two new spawns. All else PAUSED/finished.
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` — only matches are inside fenced code blocks (suggested-shapes templates from 10:46Z, now pushed deeper into history by subsequent entries). **Zero actionable.**
+
+**Decision-tree trace:**
+
+- **Expansion slot:** `302be93` (prior #107 expansion) confirmed PAUSED + `ready` label present on #107 → slot OPEN. 8 issues need expansion → spawn for **#110** per 16:50Z pre-commit (foundation, shortest critical path to the headline #111 fix). Skipped #108 (independent, can wait), #109 (depends on #112), #111 (depends on #110+#112), #112 (foundation but #110 picked first to maximize parallelism with the impl worker on #107), #113/#114 (depend on #111), #116 (orthogonal cleanup, no dependency pressure).
+- **PR slot:** 0 open PRs + #107 ready+prioritized → spawn **impl worker for #107**. PR slot now filled.
+
+**Spawn details (both):**
+
+- Plugin shape: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin` (canonical, working since 16:50Z; the 12:17Z–14:46Z zombie/plugin-500 stretch is in the rear-view mirror).
+- Both `POST /api/v1/app-conversations` → start-tasks `4c33f9f4…` + `2b9f1c26…` → polled `/api/v1/app-conversations/start-tasks?ids=…` → both `READY` in ~8s with `app_conversation_id` populated.
+- Verified post-spawn: both `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`.
+
+**Pre-commit for next cycle (~17:51Z window):**
+
+- **If `a907335` is `finished` AND #110 has `ready` label** → expansion slot opens. Next target: **#112** (other foundation half, schema additions). #112 is the only remaining foundation that unblocks #111. After #112's expansion + impl land, #111 can start.
+- **If `705e31a` is `running`** → PR slot stays filled, log status. Impl typically runs 15–60 min (small fix but full PR cycle including CI wait). If `running` for >2h with no PR opened, may indicate stuck or struggling — investigate.
+- **If `705e31a` opened a draft PR but CI still red** → PR slot stays filled (worker is still iterating).
+- **If `705e31a` opened a ready PR + CI green + docs needed** → spawn docs worker (per workflow gate: docs before testing).
+- **If `705e31a` opened a ready PR + CI green + no docs needed + no test results** → spawn testing worker. Note: #107 is purely a behavior fix in `sync.py` (no new CLI flag, no new env var, no new output format), so the docs-update gate likely doesn't fire — README only mentions `--force -n` semantics in passing if at all. Worker will assess.
+- **If both finished cleanly** → next cycle gets two newly-open slots; spawn another expansion (#112) + handle whatever PR state #107 left.
+
+**Housekeeping deferred (still):** WORKLOG.md is **1571 lines** pre-this-entry. Under the established 1600-line custom threshold for this repo (set by the 16:50Z pre-commit). Truncation deferred until: (a) a genuinely quiet cycle when there's no other work to do, OR (b) crossing 1600 lines. The 11:48Z–15:18Z 2026-05-27 "Still idling" block (~660 lines) is the obvious archive target — already >6h old and unrelated to in-flight work. Will fire on whichever trigger arrives first.
+
+**Auto-disable check:** Productive cycle (2 spawns) → counter reset to 0. No auto-disable trigger.
+
+**Cycle observations:**
+
+- The expansion→impl handoff worked exactly as designed: #107 went from raw bug report (filed 16:40Z) → expanded with technical approach (16:53Z) → priority-assessed + impl-spawned (17:21Z) in **41 minutes** of wall time. The 16:40Z planning session's investment in pre-expanded issue bodies (with Problem/Solution/AC built in) paid off — the expansion worker only had to add the technical-approach comment, not do codebase archaeology from scratch.
+- Both spawns succeeded with the canonical plugin shape on first try. No plugin-500 retries needed this cycle. Continued cooling of the platform issue from earlier today.
+- Parallel-slot fill achieved: this is the first cycle since the 16:40Z planning batch where both slots are productively occupied (expansion #110 + impl #107). Throughput maximization in action.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 16:53 UTC - Issue #107 expanded
 
 Posted technical-approach comment on [#107](https://github.com/jpshackelford/ohtv/issues/107) and applied the `ready` label. Recommended **Option A (fix the code)**: client-side sort by `updated_at` descending inside `SyncManager.reset_to_n_newest` (`src/ohtv/sync.py:1111`) before the `[:n]` slice. The `/api/v1/app-conversations/search` endpoint exposes no `sort` parameter, so the server cannot do the work — but `search_all_conversations()` already paginates the full set, so a 3-line `list.sort(...)` on the result is sufficient. Also flagged two collateral wrong-claim spots that share the same root cause and should ship in the same PR: the inline comment at `sync.py:1142–1143` and `REFERENCE_CLOUD_API.md:130`. Test plan adds `TestResetToNNewest` to `tests/unit/test_sync.py` reusing the existing `_RecordingCloudClient` fake (4 unit tests; behavioral cross-cutting tests deferred to #110).
