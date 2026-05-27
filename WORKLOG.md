@@ -1,3 +1,72 @@
+### 2026-05-27 16:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `4b7a792` | orchestrator | this cycle | running |
+| `302be93` | expansion | Issue #107 — `--force -n` newest-created bug | **NEW** running |
+
+**Spawned: Expansion Worker** — `302be93b60a6496c81c92a0de0cb4acb` ([conversation](https://app.all-hands.dev/conversations/302be93b60a6496c81c92a0de0cb4acb))
+
+State changed dramatically from the 16:18Z "All quiet" cycle. The 16:40Z sync-rewrite planning session (by @jpshackelford via an AI session) filed **8 new issues** (#107–#114) covering the cloud-sync gap-recovery rewrite, with explicit dependency graph encoded in each issue body. PR #106 merged cleanly (per 16:18Z). Auto-disable counter was at **1 of 2**; this cycle resets it to **0** because the spawn is productive.
+
+**Current State (verified 16:46–16:50Z):**
+
+- **Open PRs:** 0 ✓
+- **Issues needing expansion (no `ready`, no `hold`):** 8 — #107, #108, #109, #110, #111, #112, #113, #114
+- **Ready issues:** 0
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker)
+- **Other running OH conversations for this repo:** `4b7a792` (this orchestrator) only; `3617083` (prior orchestrator) is paused/finished. All else PAUSED/finished.
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` — the only matches are inside fenced code blocks (suggested-shapes templates from earlier cycles). **Zero actionable** human instructions.
+
+**Decision-tree trace:**
+
+- **Expansion slot:** empty + 8 issues need expansion → **spawn expansion worker for oldest unexpanded issue** = #107.
+- **PR slot:** empty + 0 open PRs + 0 ready issues → wait (nothing to implement). Slot stays idle this cycle by design — implementation can only start once the expansion chain produces at least one `ready` issue.
+
+**Why #107 first** (not a strict "oldest" pick — see rationale):
+
+1. **Oldest by issue number** (#107 < #108–#114) → matches the skill's default heuristic.
+2. **Independent of the dependency chain** (the 16:40Z entry calls #107 + #108 "independent" of the #110→#112→#111→{#113,#114} critical path), so expansion completing here doesn't gate or get gated by the foundation pair.
+3. **Smallest scope** — single-function bug (`reset_to_n_newest` in `sync.py:1011` has a docstring contradicting the cloud API's `created_at DESC` sort). Quick expansion turnaround means the `ready` queue gets its first item fast, and the expansion worker can pick up another issue on the next cycle without holding the slot long.
+
+**Expansion worker scope (prompt highlights):**
+
+- Clone + `uv sync`; scratch branch only — **no PR, no push** beyond the WORKLOG entry.
+- Locate `reset_to_n_newest` (`sync.py:1011`) + callers + the `--force -n` CLI handler in `cli.py` + the cloud listing code in `sources/cloud.py`. Confirm the bug in code.
+- **Decide Option A (fix code: sort client-side by `updated_at`) vs Option B (fix docs to say "newest created")**, with rationale.
+- Post technical-approach comment on #107 with: Recommended Fix, Root Cause, Implementation Plan, Files to Modify, Test Plan, Out of Scope (carving out #108–#114).
+- `gh issue edit 107 --add-label ready --repo jpshackelford/ohtv`.
+- Prepend a completion entry to top of `WORKLOG.md` on `main` (the repo's newest-first convention, confirmed by reading the existing top entry from the 16:40Z planning session).
+- Exit.
+
+**Explicit DO-NOTs encoded in prompt:** no code changes to `src/`, no PR / branch push (only the WORKLOG commit goes to `main`), do not touch #108–#114 (separate future expansion tasks), no `AGENTS.md` / `README.md` edits, no spawning other conversations, no `needs-info` / `needs-split` unless genuinely blocked (the issue body looks straightforward enough that `ready` should be the outcome).
+
+**Spawn details:**
+
+- `POST /api/v1/app-conversations` with `initial_message.content[{type:"text", text:...}]` and `plugins:[{source:"github:jpshackelford/.openhands", repo_path:"plugins/ohtv-workflow", ref:"feat/ohtv-workflow-plugin"}]` per the openhands-api skill + the 04:21Z lesson-learned. Pre-loaded `openhands-api` skill BEFORE spawn this time (04:21Z lesson explicitly recorded; followed).
+- Start task `7438fb1b…` → poll: `WORKING` → `READY` at first check, `app_conversation_id=302be93b60a6496c81c92a0de0cb4acb`. Verify: `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[]` (expansion-only, no PR pinning).
+
+**Pre-commit for next cycle (~17:20Z window):**
+
+- If `302be93` is `running` → log status, do nothing. Expansion of a small focused bug typically runs 5–20 min; if it's still going at 17:20Z it likely means the worker is being thorough.
+- If `302be93` is `finished` AND `ohtv` has `ready` label on #107 → expansion slot opens. Next expansion target should be **#110** (test harness, foundation, blocks #111) — the dependency graph from the 16:40Z entry says #110 + #112 are the parallelizable foundation. Picking #110 next puts the headline-fix (#111) on the shortest critical path. PR slot would then have its first ready issue, so spawn an **impl worker for #107** in parallel.
+- If `302be93` is `finished` BUT `ready` label NOT added → check the conversation events; may have added `needs-info` or `needs-split` instead. Address accordingly.
+- If two parallel slots open (expansion + impl) → spawn both in the same cycle per the parallel-work model.
+- **Housekeeping deferred again:** WORKLOG.md is now ~1490 lines (above the 1300-line pre-commit threshold from 04:21Z). On the **next** quiet cycle OR if WORKLOG.md crosses 1600 lines, run the truncate-worklog skill: archive everything older than 6 hours of productive work (the 04:21Z entry and everything below it through ~10:46Z, plus the 11:17Z–15:48Z zombie-cycle stretch). Deferring this cycle to keep the action count at 1 spawn.
+
+**Auto-disable check:** Productive spawn this cycle → counter reset to 0. No auto-disable trigger.
+
+**Cycle observations:**
+
+- The 16:40Z planning session is a great precedent — pre-filing dependency-graph'd issues with design decisions baked in means downstream expansion workers can move fast (less codebase archaeology, clearer "out of scope" boundaries). Each issue body already has Problem / Solution / AC; expansion just adds the technical-approach comment + `ready` label.
+- For #110 and #112 (the foundation pair), expansion can be parallelizable in principle, but the workflow only allows one expansion worker at a time. So #107 first (independent, smallest), then on the next cycle pick whichever of #110/#112 finishes its predecessor expansion first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 16:40 UTC - Sync rewrite planning session
 
 **Filed 8 GitHub issues covering the cloud-sync rewrite, with an explicit dependency graph encoded in each issue body via `**Depends on:**` headers (GitHub auto-links the refs).**
