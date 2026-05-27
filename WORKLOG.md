@@ -1033,3 +1033,75 @@ Used `POST /api/v1/app-conversations` with `initial_message.content[{type, text}
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-27 02:51 UTC — Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `(this conv)` | orchestrator | this cycle | running |
+| `fc9bde66` | testing | PR #100 — `ohtv report weekly-counts` manual test | **NEW** running |
+
+**Spawned: Manual Testing Worker** — `fc9bde662aef4cd1b7ff83cc3a1c04dd` ([conversation](https://app.all-hands.dev/conversations/fc9bde662aef4cd1b7ff83cc3a1c04dd))
+
+PR slot is now occupied. Expansion slot stays idle (0 issues need expansion — `gh issue list --jq '[.[]|select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"])) | not)] | length'` → 0).
+
+**Prior cycle result (impl worker `14ac006e` for #92):**
+
+Finished at 02:30:07Z (~9 min runtime). **PR #100 opened, ready, CI green, README + AGENTS.md updated in the diff.** The worker did the full job clean — including the docs-first bundling that the spawn prompt called for. AI bot review at 02:32Z is positive ("🟢 Good taste — Worth merging — no issues found"). MERGEABLE, no unresolved threads, no failing checks.
+
+**Decision-tree gates verified (02:46–02:51Z):**
+
+- ✅ **Impl worker finished:** `14ac006e` → `execution_status=finished`, `sandbox_status=RUNNING` (sandbox idle, agent done). `updated_at=02:30:07Z`. Opened PR #100 with `pr_number=[100]` correctly bound.
+- ✅ **PR #100 is READY, not draft:** `gh pr view 100 --json isDraft,state,mergeable` → `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`.
+- ✅ **CI green:** `statusCheckRollup` shows two `pr-review` CheckRuns — first one SKIPPED (no review-worthy diff initially), second one SUCCESS at 02:32:50Z. No failing checks anywhere.
+- ✅ **Docs updated (this is the gating condition for testing):** `gh pr diff 100 --name-only` includes `README.md` AND `AGENTS.md` alongside the implementation files. The impl worker correctly bundled docs with the implementation per the spawn prompt's "Docs FIRST" directive — no separate docs worker needed.
+- ✅ **No manual test results yet:** `gh pr view 100 --comments` shows only the AI-bot review comment. No `## Manual Test Results` header anywhere.
+- ✅ **No competing PR worker:** `GET /app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` → only `4eea97b1` running (this orchestrator). All other recent ohtv conversations are `paused` or `MISSING`. The `1dd378b7` second-instance of "Weekly Conversion Counts CSV Export (#92)" is `finished` with `pr_number=[]` (no PR) — appears to be a dup spawn from the prior cycle that no-op'd; not blocking and not opening a duplicate PR.
+- ✅ **No `## INSTRUCTION:` in WORKLOG.md:** `grep -n '^## INSTRUCTION:' WORKLOG.md` → 0 matches.
+- ✅ **Decision tree match:** "PR exists, ready, CI green, **docs updated**, no manual test results → Spawn **testing worker** (initial)." Exact match.
+- ✅ **AI bot review is positive, NOT a change request:** review status=COMMENTED with verdict "✅ Worth merging". Per the orchestrate decision tree, this is the textbook docs-then-test-then-merge path (no review-round needed). Testing is still mandatory — the bot didn't run runtime tests.
+
+**Testing worker scope (prompt highlights):**
+
+- Setup: `uv sync`, read PR comments + diff + issue #92 expansion + new README section + AGENTS.md item #29.
+- **18 numbered blackbox tests** (T-1..T-18) covering: `--help` flag completeness, `report --help` lists `weekly-counts` alongside `velocity`, happy-path CSV on real data, `cloud + cli = total` sum invariant, `--source` filter semantics + cli↔local name translation, `--out` flag, all `--since` formats (`Nd`/`Nw`/`Nm`/`today`/`yesterday`/`YYYY-MM-DD`), `--include-empty` zero-fill, `--exclude-current-week` semantics, **mandatory ISO-week regression T-11** (`2024-12-30` → `2025-W01`, NOT `2024-W53`), UTC bucketing for naive timestamps (T-12 per AGENTS.md #29), empty-range header-only output, CSV column type integrity, `report velocity` side-by-side sanity (regression-free against #81), `--source bogus` / `--since not-a-date` / inverted range error paths.
+- **Unit suite:** `uv run pytest -x` (expect 1667 passing per PR body) + focused `tests/unit/reports/test_weekly_counts.py test_cli_weekly_counts.py -v`.
+- **Lint:** `uv run ruff check` on the 3 new files only; note (don't fail on) the pre-existing `src/ohtv/cli.py` baseline errors.
+- **Output:** PR comment with `## Manual Test Results — PR #100` header (orchestrator scans for this), AC coverage map from issue #92, full T-1..T-18 matrix with ✅/❌/⚠️/⏭️, unit-test counts + runtime, bugs-found list (use B-N numbering, MAJOR/minor/nit severity), recommendation verdict, AI-disclosure footer.
+
+**Explicit DO-NOTs encoded in prompt:** no file edits / no commits / no pushes, no draft-switch, no approve / merge, no WORKLOG.md touch, no `AGENTS.md`/`README.md` touch, no resolving review threads (the AI bot's review is not their concern), no writing to real `~/.ohtv/index.db`, no skipping the full pytest run, no spawning other conversations.
+
+**Spawn details:**
+
+- `POST /api/v1/app-conversations` with `initial_message.content[{type, text}]` per the openhands-api skill. Start-task `cbbeadbd…` → poll 0 (after 6s): `READY` → `app_conversation_id=fc9bde662aef4cd1b7ff83cc3a1c04dd`. `GET /app-conversations?ids=…` confirms `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `selected_branch=feat/weekly-counts-92`. Cloud-generated title: "✅ Manual Testing: weekly-counts Command PR #100" (request title was ignored — same cosmetic pattern as prior spawns).
+- Forgot to set `pr_number=[100]` in the payload — minor; the repo + branch binding is correct, and `pr_number` isn't required for the testing worker to function (it does `gh pr view 100` via the prompt). Worth pinning for future spawns: set `pr_number` when the worker is PR-bound, for tidier conversation listings.
+
+**Current State (verified 02:46–02:51Z):**
+
+- **Open PRs:** 1 — [PR #100 — feat: add ohtv report weekly-counts command (#92)](https://github.com/jpshackelford/ohtv/pull/100) (ready, CI green, README+AGENTS updated, 0 manual test comments, 1 positive AI-bot review).
+- **Recently merged (1d+):** PR #99 (#83 classify, merged 01:22Z), PR #98 (#81 velocity, merged 22:52Z 2026-05-26), and earlier #96/#97 chains.
+- **Ready issues (3 remaining):** #92 (in PR #100 testing), #87 (`priority:low`, manifest cache extension), #82 (`priority:low`, charting for velocity). Pre-commit from the 02:22Z cycle was to spawn #82 next. **Re-affirmed:** when PR #100 lands, spawn #82 next (downstream of just-landed #92, lower issue number than #87).
+- **Needs expansion:** 0. **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker, applied 02:11Z this cycle's prior).
+- **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** `4eea97b1` (this orchestrator) + `fc9bde66` (just-spawned testing worker). All else paused/finished/missing.
+
+**Sync note:** `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 2026-05-26T22:00:00 --quiet` completed cleanly (no auth env issues this cycle since `OPENHANDS_API_KEY` was in scope and we explicitly mapped it to `OH_API_KEY` for `ohtv`). `lxa repo add jpshackelford/ohtv` created a fresh board "Unnamed Board 1" on first run (cosmetic, board state not used this cycle).
+
+**Housekeeping (no archive this cycle):** WORKLOG.md was 1035 lines pre-cycle (after the 02:22Z archive); this entry pushes it past ~1090. Still well below the 1500-line hard threshold. Last archive landed at 02:22Z; next candidates are the 19:19Z–22:51Z entries from 2026-05-26 (currently 4–7 hours old; will pass the 6-hour-post-productive-work age around 04:51Z onwards, so next-or-next-next cycle can archive them). **Pre-commit:** archive on the very next quiet cycle, or at the 1500-line threshold, whichever comes first.
+
+**Auto-disable check:** Not applicable — productive spawn this cycle. Recent cycles (23:51Z, 00:23Z, 00:51Z, 01:21Z, 01:52Z, 02:22Z, this 02:51Z one) have all been productive spawns. Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min, ~03:21Z):**
+
+- If `fc9bde66` is `running` → log status, do nothing. Testing of an 18-test matrix + full pytest + linting typically runs 30–60 min on a moderate-sized PR.
+- If `fc9bde66` is `finished` AND a `## Manual Test Results — PR #100` PR comment exists with ✅ Ready verdict AND no blocker bugs → spawn **merge worker** (no review round needed; the AI bot's review is positive and no human change requests exist, so testing-then-merge is the direct path here).
+- If `fc9bde66` is `finished` AND test report shows 🔴/🟡 with ❌ MAJOR bugs → spawn **review worker** (fix-then-re-test loop) on the same PR branch. The review worker should fix the reported bugs + address any AI-bot-review nits in one round.
+- If `fc9bde66` is `finished` AND test report shows ⚠️ minor bugs only → spawn **review worker** to fold in minor fixes in one round, then re-test on the cycle after.
+- If `fc9bde66` is `finished` BUT no test comment was posted → investigate the conversation events; may need a `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Archive TO-DO (deferred):** 19:19Z–22:51Z 2026-05-26 entries → `WORKLOG_ARCHIVE_2026-05-26.md` once they cross 6h post-productive-work age (~04:51Z onwards).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
