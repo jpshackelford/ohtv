@@ -58,13 +58,54 @@ class ClassifyError(Exception):
 
 
 class MissingHumanInputRowError(ClassifyError):
-    """Raised by :func:`set_single` when no human-input row exists yet."""
+    """Raised by :func:`set_single` when no human-input row exists yet.
+
+    Distinct from :class:`NoSuchConversationError`: the conversation row
+    exists in ``conversations``, but the ``human_input`` processing stage
+    has not produced a ``conversation_human_input`` row for it yet.
+    """
 
     def __init__(self, conversation_id: str) -> None:
         self.conversation_id = conversation_id
         super().__init__(
             f"No conversation_human_input row for conversation {conversation_id!r}. "
             "Run 'ohtv db process human_input' first."
+        )
+
+
+class NoSuchConversationError(ClassifyError):
+    """Raised when a conversation ID (or short prefix) matches no row.
+
+    Distinct from :class:`MissingHumanInputRowError`: the conversation
+    itself isn't indexed in ``conversations``, so the caller most likely
+    has a typo or hasn't run ``ohtv db scan`` yet.
+    """
+
+    def __init__(self, conversation_id: str) -> None:
+        self.conversation_id = conversation_id
+        super().__init__(
+            f"No such conversation {conversation_id!r}. "
+            "Check the ID or run 'ohtv db scan' to index new conversations."
+        )
+
+
+class AmbiguousConversationIdError(ClassifyError):
+    """Raised when a short-ID prefix matches more than one conversation.
+
+    Mirrors the convention used by ``_find_conversation_dir`` (AGENTS.md
+    item #14): callers may pass a unique prefix, but ambiguous prefixes
+    must be rejected loudly so they don't silently target the wrong row.
+    """
+
+    def __init__(self, conversation_id: str, matches: list[str]) -> None:
+        self.conversation_id = conversation_id
+        self.matches = matches
+        sample = ", ".join(m[:12] for m in matches[:5])
+        more = f" (+{len(matches) - 5} more)" if len(matches) > 5 else ""
+        super().__init__(
+            f"Ambiguous conversation ID {conversation_id!r}: "
+            f"{len(matches)} matches ({sample}{more}). "
+            "Provide more characters."
         )
 
 
@@ -115,6 +156,50 @@ class SingleResult:
 def _normalize_conv_id(conv_id: str) -> str:
     """Strip dashes from a conversation ID (per AGENTS.md item #14)."""
     return conv_id.replace("-", "")
+
+
+def _resolve_conversation_id(
+    conn: sqlite3.Connection, conv_id: str
+) -> str:
+    """Resolve a possibly-short conversation ID to its full DB form.
+
+    Accepts either a full 32-char ID (with or without dashes) or a unique
+    short prefix, mirroring ``_find_conversation_dir`` (AGENTS.md item
+    #14). Returns the full normalised ID on success.
+
+    Raises:
+        NoSuchConversationError: no row in ``conversations`` matches the
+            input (typo, fabricated ID, or ``db scan`` hasn't run yet).
+        AmbiguousConversationIdError: the input is a prefix that matches
+            more than one conversation; caller should pass more chars.
+    """
+    normalized = _normalize_conv_id(conv_id)
+
+    # Fast path: exact match. Cheap and unambiguous for full IDs.
+    cur = conn.execute(
+        "SELECT id FROM conversations WHERE id = ?",
+        (normalized,),
+    )
+    row = cur.fetchone()
+    if row is not None:
+        return row["id"] if isinstance(row, sqlite3.Row) else row[0]
+
+    # Prefix path: LIKE 'prefix%' for short-ID lookup. SQLite escapes the
+    # ``%`` only inside the literal, so a literal ``%`` in the prefix
+    # would be unusual but technically broaden the match — guard against
+    # it by escaping. Hex-only IDs in practice means this is paranoia.
+    safe_prefix = normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    cur = conn.execute(
+        "SELECT id FROM conversations WHERE id LIKE ? ESCAPE '\\' LIMIT 11",
+        (safe_prefix + "%",),
+    )
+    matches = [r["id"] if isinstance(r, sqlite3.Row) else r[0] for r in cur.fetchall()]
+
+    if not matches:
+        raise NoSuchConversationError(conv_id)
+    if len(matches) > 1:
+        raise AmbiguousConversationIdError(conv_id, matches)
+    return matches[0]
 
 
 def _validate_source(source: str) -> None:
@@ -295,10 +380,22 @@ def set_single(
     row (it is the manual override path). It refuses to act if no
     ``conversation_human_input`` row exists yet — see the module
     docstring for the rationale.
+
+    Accepts a full 32-char conversation ID (with or without dashes) or a
+    unique short prefix (mirrors ``_find_conversation_dir``; AGENTS.md
+    item #14). Raises :class:`NoSuchConversationError` if the input
+    matches no conversation, or :class:`AmbiguousConversationIdError` if
+    it matches more than one — these are distinct from
+    :class:`MissingHumanInputRowError`, which means the conversation
+    exists but the ``human_input`` stage hasn't run for it.
     """
     _validate_source(source)
 
-    normalized = _normalize_conv_id(conversation_id)
+    # Resolve first so "no such conversation" is a distinct error from
+    # "human_input stage hasn't run". This is what makes the README's
+    # ``classify --list-unknown -1 | head -5 | xargs ohtv classify {}``
+    # pipeline work: ``-1`` emits 8-char short IDs.
+    normalized = _resolve_conversation_id(conn, conversation_id)
 
     cur = conn.execute(
         "SELECT initial_prompt_source FROM conversation_human_input "

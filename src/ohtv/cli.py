@@ -10275,6 +10275,15 @@ def _classify_single(
             result = classify_mod.set_single(
                 conn, conversation_id=conversation_id, source=source
             )
+    except classify_mod.NoSuchConversationError as exc:
+        # Distinct from MissingHumanInputRowError: the conversation row
+        # itself doesn't exist in `conversations` (typo / fabricated ID
+        # / `db scan` hasn't run yet).
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(2) from exc
+    except classify_mod.AmbiguousConversationIdError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(2) from exc
     except classify_mod.MissingHumanInputRowError as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise SystemExit(2) from exc

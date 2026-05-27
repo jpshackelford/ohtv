@@ -281,3 +281,103 @@ def test_classify_single_refuses_when_no_human_input_row(
     result = runner.invoke(main, ["classify", cid, "--source", "human"])
     assert result.exit_code != 0
     assert "ohtv db process human_input" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Short-ID prefix resolution + B-2 error distinction (PR #99 review round)
+# ---------------------------------------------------------------------------
+
+
+def _seed_distinct_short_ids(db_path: Path) -> list[str]:
+    """Seed three conversations whose first 8 chars are unique.
+
+    ``_seed_three_unknown_no_fu`` deliberately uses near-identical IDs
+    (they differ only in the last digit) to exercise other code paths,
+    so it's unsuitable for short-prefix tests. This helper seeds
+    ``aaaa****`` / ``bbbb****`` / ``cccc****`` so an 8-char prefix is
+    unique by construction.
+    """
+    ids: list[str] = []
+    created = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    for prefix in ("aaaa1111", "bbbb2222", "cccc3333"):
+        cid = prefix + "0" * 24
+        ids.append(cid)
+        conn.execute(
+            "INSERT INTO conversations (id, location, event_count, title, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (cid, "/tmp/fake", 1, f"row {prefix}", created),
+        )
+        conn.execute(
+            """
+            INSERT INTO conversation_human_input (
+                conversation_id, initial_prompt_words, initial_prompt_source,
+                followup_word_count, followup_message_count, processed_at, event_count
+            ) VALUES (?, ?, 'unknown', ?, ?, ?, ?)
+            """,
+            (cid, 5, 0, 0, "2024-06-01T12:00:00+00:00", 1),
+        )
+    conn.commit()
+    conn.close()
+    return ids
+
+
+def test_classify_single_accepts_short_id_prefix(
+    runner: CliRunner, isolated_db: Path
+) -> None:
+    """B-1: README example #5 (``--list-unknown -1 | xargs classify``).
+
+    ``-1`` emits 8-char short IDs. The pipeline must succeed: a unique
+    short prefix resolves to the full row instead of erroring out.
+    """
+    ids = _seed_distinct_short_ids(isolated_db)
+    # First 8 chars uniquely identify each row by construction.
+    short_target = ids[0][:8]
+    assert short_target == "aaaa1111"
+
+    result = runner.invoke(main, ["classify", short_target, "--source", "human"])
+    assert result.exit_code == 0, result.output
+    assert _read_source(isolated_db, ids[0]) == "human"
+    assert _read_source(isolated_db, ids[1]) == "unknown"
+    assert _read_source(isolated_db, ids[2]) == "unknown"
+
+
+def test_classify_single_rejects_ambiguous_short_id(
+    runner: CliRunner, isolated_db: Path
+) -> None:
+    """B-1: ambiguous prefix must be rejected, not silently target one row."""
+    ids = _seed_three_unknown_no_fu(isolated_db)
+    # First 8 chars (``convnofu``) match all three seeded conversations.
+    ambiguous = ids[0][:8]
+
+    result = runner.invoke(main, ["classify", ambiguous, "--source", "human"])
+    assert result.exit_code == 2
+    assert "Ambiguous" in result.output
+    assert "3 matches" in result.output
+    # No row was touched.
+    for cid in ids:
+        assert _read_source(isolated_db, cid) == "unknown"
+
+
+def test_classify_single_no_such_conversation_distinct_error(
+    runner: CliRunner, isolated_db: Path
+) -> None:
+    """B-2: a fabricated ID must NOT blame the human_input stage.
+
+    Before the fix, every fabricated/typoed ID produced
+    ``No conversation_human_input row for conversation '...'. Run 'ohtv
+    db process human_input' first.`` — which is misleading because the
+    real problem is that the conversation isn't indexed at all.
+    """
+    # DB has no conversations at all.
+    result = runner.invoke(
+        main, ["classify", "deadbeef", "--source", "human"]
+    )
+    assert result.exit_code == 2
+    assert "No such conversation" in result.output
+    # The error must NOT pretend the human_input stage is to blame.
+    assert "conversation_human_input" not in result.output
+    assert "ohtv db process human_input" not in result.output
+    # And it should point at the real remediation.
+    assert "ohtv db scan" in result.output

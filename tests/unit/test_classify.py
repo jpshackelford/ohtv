@@ -37,8 +37,10 @@ import pytest
 from ohtv.classify import (
     FILTER_HAS_FOLLOWUPS,
     FILTER_NO_FOLLOWUPS,
+    AmbiguousConversationIdError,
     InvalidSourceError,
     MissingHumanInputRowError,
+    NoSuchConversationError,
     apply_classification,
     count_matching,
     list_unknown,
@@ -410,6 +412,147 @@ class TestSetSingle:
         msg = str(exc.value)
         assert cid in msg
         assert "ohtv db process human_input" in msg
+
+
+class TestSetSingleShortIdResolution:
+    """Tests for short-ID prefix resolution in :func:`set_single`.
+
+    Mirrors the convention in ``_find_conversation_dir`` (AGENTS.md item
+    #14): callers may pass either a full 32-char ID or a unique short
+    prefix. Fixes bug B-1 (README example #5: ``classify --list-unknown
+    -1 | head -5 | xargs ohtv classify {}``) and bug B-2 (distinct error
+    message for "no such conversation" vs "stage hasn't run").
+    """
+
+    def test_set_single_resolves_short_prefix(self, conn):
+        """B-1: a unique 8-char short ID resolves to the full row."""
+        cid = "deadbeefcafef00d1234567890abcdef"
+        _insert_conversation(conn, cid)
+        _insert_human_input(conn, cid)
+
+        # Mirrors what ``classify --list-unknown -1`` emits: 8 chars.
+        result = set_single(conn, conversation_id="deadbeef", source="human")
+        assert result.changed is True
+        assert result.conversation_id == cid
+
+        # The DB was actually updated with the full ID.
+        stored = conn.execute(
+            "SELECT initial_prompt_source FROM conversation_human_input "
+            "WHERE conversation_id = ?",
+            (cid,),
+        ).fetchone()
+        assert stored["initial_prompt_source"] == "human"
+
+    def test_set_single_ambiguous_short_prefix_is_rejected(self, conn):
+        """B-1: prefix that matches multiple convs raises, with sample matches."""
+        # Three conversations all starting with "abcd1234".
+        prefix = "abcd1234"
+        cids = [
+            prefix + "00" + "0".zfill(22),
+            prefix + "11" + "1".zfill(22),
+            prefix + "22" + "2".zfill(22),
+        ]
+        for cid in cids:
+            _insert_conversation(conn, cid)
+            _insert_human_input(conn, cid)
+
+        with pytest.raises(AmbiguousConversationIdError) as exc:
+            set_single(conn, conversation_id=prefix, source="human")
+
+        msg = str(exc.value)
+        assert prefix in msg
+        assert "3 matches" in msg
+        # Useful sample is included so the user can disambiguate.
+        for cid in cids:
+            assert cid[:12] in msg
+        # The exception itself also exposes the match list for tooling.
+        assert sorted(exc.value.matches) == sorted(cids)
+
+        # No row was touched.
+        flipped = conn.execute(
+            "SELECT COUNT(*) AS n FROM conversation_human_input "
+            "WHERE initial_prompt_source != 'unknown'"
+        ).fetchone()["n"]
+        assert flipped == 0
+
+    def test_set_single_unknown_id_raises_no_such_conversation(self, conn):
+        """B-2: ID that matches no conversation raises NoSuchConversationError.
+
+        The message must NOT blame ``conversation_human_input`` — the
+        problem is that the conversation itself isn't indexed.
+        """
+        # DB has *some* conversation, just not the requested one. This
+        # also exercises the "no prefix collision possible" path.
+        _insert_conversation(conn, "ffffffff" + "f".zfill(24))
+
+        with pytest.raises(NoSuchConversationError) as exc:
+            set_single(conn, conversation_id="00000000", source="human")
+
+        msg = str(exc.value)
+        assert "00000000" in msg
+        # The B-2 fix: the error must distinguish itself from
+        # MissingHumanInputRowError. It must NOT mention the human-input
+        # row or suggest running ``ohtv db process human_input``.
+        assert "conversation_human_input" not in msg
+        assert "ohtv db process human_input" not in msg
+        # And it must point at the real remediation.
+        assert "ohtv db scan" in msg
+
+    def test_set_single_distinguishes_missing_conv_from_missing_human_input(
+        self, conn
+    ):
+        """B-2: same fixture style, two distinct exception types.
+
+        ``MissingHumanInputRowError`` fires only when the conversation
+        row exists but the ``human_input`` stage hasn't produced its row
+        yet. ``NoSuchConversationError`` fires when the conversation row
+        doesn't exist at all.
+        """
+        # Case A: no conversation row at all.
+        with pytest.raises(NoSuchConversationError):
+            set_single(conn, conversation_id="aa" + "a".zfill(30), source="human")
+
+        # Case B: conversation row exists, but no human_input row.
+        cid = "bb" + "b".zfill(30)
+        _insert_conversation(conn, cid)
+        with pytest.raises(MissingHumanInputRowError):
+            set_single(conn, conversation_id=cid, source="human")
+
+    def test_set_single_full_id_skips_prefix_path(self, conn):
+        """A 32-char exact match must not trigger a LIKE scan.
+
+        Regression guard: a full ID that happens to be a prefix of
+        another conversation must still resolve unambiguously via the
+        exact-match fast path.
+        """
+        short_target = "aaaa1111" + "0".zfill(24)
+        long_neighbour = "aaaa1111" + "x" + "0".zfill(23)
+        # ``long_neighbour`` shares the first 8 chars with ``short_target``.
+        # If we passed "aaaa1111" we'd hit ambiguity; passing the full
+        # ``short_target`` must resolve directly.
+        _insert_conversation(conn, short_target)
+        _insert_human_input(conn, short_target)
+        _insert_conversation(conn, long_neighbour)
+        _insert_human_input(conn, long_neighbour)
+
+        result = set_single(
+            conn, conversation_id=short_target, source="automation"
+        )
+        assert result.changed is True
+        assert result.conversation_id == short_target
+
+    def test_set_single_dashed_short_prefix_is_normalised(self, conn):
+        """Dashes inside a short-ID prefix are still stripped before lookup."""
+        cid = "deadbeef" + "0".zfill(24)
+        _insert_conversation(conn, cid)
+        _insert_human_input(conn, cid)
+
+        # Caller passes a dashed short prefix; resolver must strip it.
+        result = set_single(
+            conn, conversation_id="dead-beef", source="human"
+        )
+        assert result.changed is True
+        assert result.conversation_id == cid
 
 
 class TestListUnknown:
