@@ -1286,3 +1286,526 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+
+---
+
+### 2026-05-26 19:51 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `ebc3363` | testing | PR #97 — `ohtv fetch-loc` manual test | **NEW** (spawned 19:51:04Z, `execution_status: running`, `sandbox: RUNNING`) |
+
+**Spawned: Testing Worker (initial) for PR #97 (docs worker `007863ee` finished; docs commit landed; "Documentation Updated" PR comment posted; no manual test results yet)**
+
+- PR: [#97 — feat: add fetch-loc command to backfill LOC from GitHub API (#80)](https://github.com/jpshackelford/ohtv/pull/97) (`isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, no CI workflows configured on branch → empty `statusCheckRollup`)
+- Conversation: [`ebc3363b`](https://app.all-hands.dev/conversations/ebc3363b31de4cf2867ffb2ac60806a2) (`selected_repository=jpshackelford/ohtv`, `pr_number=[97]`)
+- Start task: `dbe74fce` → polled twice (5s interval) → `STARTING_CONVERSATION` → `READY` → `app_conversation_id=ebc3363b31de4cf2867ffb2ac60806a2`. Verified via `GET /app-conversations?ids=…`: `execution_status=running`, `sandbox_status=RUNNING` (per the 13:23Z operational lesson — `READY` alone only confirms sandbox came up).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**Why decision-tree gates pass for spawning the testing worker:**
+
+- ✅ **Docs worker `007863ee` finished:** Cloud API shows `sandbox_status=PAUSED` (agent exited cleanly). The 19:23Z PR comment "Documentation Updated" was posted by the docs worker and a `docs:` commit (`79b2c6d2` at 19:21:28Z) landed on the PR branch.
+- ✅ **CI green:** No CI workflows configured on this branch — `gh pr checks 97` returns "no checks reported". PR remains `MERGEABLE`. Don't block on absent checks.
+- ✅ **Docs updated (was the gating condition):** `grep "fetch-loc" README.md` now finds the documented command section (per the docs worker's PR comment listing the user-facing changes documented). The docs commit landed AFTER the bot review, so the test report this worker produces is exactly what the bot's 19:13Z "missing runtime evidence" note flagged.
+- ✅ **No manual test results yet:** `gh pr view 97 --json comments` shows only the docs-update comment (jpshackelford, 19:23:30Z) — no `## Manual Test Results` header anywhere.
+- ✅ **No competing PR worker:** Network-wide `running` conversations: only `60d3781e` (this orchestrator cycle, no repo binding) and the just-spawned `ebc3363b`. All earlier PR-slot workers (`007863ee` docs, `6a10472a` impl, `32538365` merge of PR #96, full PR #95/PR #94 chains) all paused.
+- ✅ **Testing precedes review:** Per the orchestrate skill's decision tree, "Review comments (💬 > 0) but NO manual test results → Spawn testing worker (docs first if missing)". The bot left a `COMMENTED` review at 19:13Z ("🟡 Acceptable — missing runtime evidence") — that does NOT skip the testing gate; it makes testing more urgent.
+
+**Testing worker scope (prompt highlights):**
+
+- Clone, checkout `feat/fetch-loc-80`, `uv sync`.
+- Blackbox exercises mapping to issue #80's 13 ACs:
+  - `--help` discoverability + option list parity with README.
+  - Missing `GITHUB_TOKEN` → clear non-zero exit.
+  - `--dry-run` → zero HTTP + zero DB writes (verify via `db status` before/after).
+  - Real run on seeded `change_refs` → populates `lines_added/lines_removed/files_changed/merged_at/status`.
+  - Idempotent 2nd run → zero HTTP.
+  - `--force` re-fetches.
+  - `--repo` filter restricts rows; unknown repo exits non-zero.
+  - Non-GitHub `canonical_url` rows skipped.
+  - Token value never appears in stdout/stderr/logs.
+- Full `uv run pytest -x` should be 1577/1577 (PR body baseline).
+- Run the README's documented `fetch-loc` examples verbatim — verify copy-pasteable accuracy.
+- Post `## Manual Test Results` PR comment via `/manual-test` skill format; rate Pass / Pass with concerns / Fail.
+
+**Explicit DO-NOTs encoded in prompt:**
+
+- Do NOT address the github-actions bot review feedback inline (review worker's job in a later cycle).
+- Do NOT continue to review after posting the test report — EXIT.
+- Do NOT modify code or docs — testing is observe-only.
+- Do NOT block on missing CI checks — there are no workflows on the branch by design.
+
+**PR slot:** Now occupied by `ebc3363b` (testing on PR #97).
+**Expansion slot:** Idle — `gh issue list --jq '[.[]|select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]|length'` → 0. All 7 open issues are `ready` + priority-labeled. Nothing to expand.
+
+**Current State (verified 19:45–19:51Z):**
+
+- **Open PRs:** [PR #97](https://github.com/jpshackelford/ohtv/pull/97) (`ready`, no-CI by config / MERGEABLE, docs landed, no test results yet, 1 bot review at 19:13Z `COMMENTED 🟡 Acceptable`).
+- **Ready issues (7, all expanded):** `priority:medium`: #80 (in PR #97), #81, #83, #90, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** none competing (only `60d3781e` this cycle, no repo binding; `b0b6992f` previous orchestrator is MISSING/done).
+
+**Sync note:** `ohtv sync --since … --quiet` succeeded (exit 0) using `OPENHANDS_API_KEY`. Cloud auth path stable.
+
+**Housekeeping (truncation still deferred):** WORKLOG.md was 823 lines pre-cycle (this entry pushes it past ~880). Per the 19:19Z orchestrator's stated plan, the 14:19Z–15:21Z PR #95 chain becomes archive-eligible only after 20:19Z. Current time is 19:51Z, so wait one more cycle. The next orchestrator wake-up (~20:21Z if cron) will be able to safely archive lines 19–197 (PR #95 test/review/merge chain) to `WORKLOG_ARCHIVE_2026-05-26.md`, saving ~180 lines.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-consecutive-quiet-period counter remains at 0. Recent orchestrator entries (18:50Z, 19:19Z, 19:51Z) have all spawned workers.
+
+**Next check (~30 min, ~20:21Z):**
+
+- If `ebc3363b` is `running` → log status, do nothing. Manual testing typically takes 20–45 min for a CLI command with 13 ACs.
+- If `ebc3363b` is `finished` AND a `## Manual Test Results` PR comment appears with **good rating** (Pass / Pass with concerns) AND the bot review (💬 > 0) has not been addressed → spawn **review worker** to address the 19:13Z bot feedback.
+- If `ebc3363b` is `finished` AND the test report rates **Fail** or surfaces blocking issues → spawn a **review worker** (which sets PR back to draft and addresses both bot feedback and test findings).
+- If `ebc3363b` is `finished` but no test-results comment appeared → investigate the conversation events; possibly re-spawn with sharper scope.
+- If new commits land on `feat/fetch-loc-80` between now and next cycle → re-evaluate: docs commit only → still testing; `.py` changes → outdated test results (re-test).
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO:** After 20:19Z, archive lines 19–197 (PR #95 14:19Z–15:21Z chain) to `WORKLOG_ARCHIVE_2026-05-26.md` (currently 527 lines, will grow to ~707).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-26 20:21 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e6daad0` | review | PR #97 — address bot review (Evidence + nesting refactor) | **NEW** (spawned 20:21:35Z, `execution_status=running`, `sandbox=RUNNING`) |
+
+**Spawned: Review Worker for PR #97 (testing worker `ebc3363b` finished; manual test results posted ✅ Pass; 1 unresolved review thread + bot "Needs rework: add Evidence" verdict)**
+
+- PR: [#97 — feat: add fetch-loc command to backfill LOC from GitHub API (#80)](https://github.com/jpshackelford/ohtv/pull/97) (`isDraft=false`, head `79b2c6d2`, `mergeable=MERGEABLE` was UNKNOWN at the moment of check — transient state typical right after a comment-only edit; no checks configured on branch by design).
+- Conversation: [`e6daad01`](https://app.all-hands.dev/conversations/e6daad012b224278ac4fd7ed70d40660) (`selected_repository=jpshackelford/ohtv`, `pr_number=[97]`).
+- Start task: `d243da53` → polled once after 8s → `READY` → `app_conversation_id=e6daad012b224278ac4fd7ed70d40660`. Verified `GET /app-conversations?ids=…`: `execution_status=running`, `sandbox_status=RUNNING` (passes the 13:23Z operational lesson: `READY` alone confirms sandbox only).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**Why review (not merge) — decision-tree gates:**
+
+- ✅ **Testing worker `ebc3363b` finished cleanly:** Per the `## TASK_TRACKING` context, the manual test results comment was posted at 19:58Z with **Overall Rating: ✅ Pass** (all 18 blackbox scenarios + 13 issue-#80 ACs verified end-to-end, full unit suite 1577/1577, README's six documented `fetch-loc` examples all copy-pasteable). Worker exited; not occupying the PR slot.
+- ✅ **Docs already landed:** Docs worker `007863ee` pushed `79b2c6d2 docs: …` at 19:21Z and posted the "Documentation updated" PR comment at 19:23Z. The docs gate cleared before testing (correct order — test what's documented).
+- ✅ **CI green (no-CI by design):** PR #97 branch has zero workflow checks configured. `gh pr checks 97` → empty. Per the 14:19Z+ orchestrator precedent for this repo, don't block on absent checks; the only enforced check is the pr-review bot review.
+- ✅ **Unresolved review thread exists (💬 > 0):** `gh api graphql … reviewThreads(first:20)` → 1 unresolved thread `PRRT_kwDOR9seq86E5m8-` on `src/ohtv/fetch_loc.py` lines 450-502 (bot suggests extracting `_process_pr_row()` / `_process_push_row()` to flatten 3-level nesting). The bot's overall review is `COMMENTED` (verdict 🟡 "Needs rework: Add runtime evidence section before merging"), not `CHANGES_REQUESTED`, but the inline thread is unresolved AND the verdict identifies a missing PR-description requirement.
+- ✅ **Per decision tree:** `"PR exists, ready, CI green, test results valid, 💬 > 0 → Spawn review worker"`. Exact match. Skipping straight to merge would leave the bot's two concrete items (Evidence section + nesting refactor) silently dismissed — both are legitimate and accept-able per the review skill's "most suggestions improve code quality" guidance.
+- ✅ **No competing PR worker:** Network-wide running conversations (per the `## CURRENT_STATE` context): only `50fa405c` (no repo binding — unrelated to ohtv) and the just-spawned `e6daad01`. No PR-slot conflict.
+
+**Review worker scope (prompt highlights):**
+
+- **Commit 1 — refactor (the inline thread):** Extract `_process_pr_row()` and `_process_push_row()` private helpers; flatten main loop to ≤2 levels. Preserve every behavior: `result.skipped_unparseable`, 404 → `_mark_tried`, `still_open` / `closed_unmerged` counters, `on_progress` gating. Run `uv run pytest -x` → must stay 1577 passing. Commit message: `refactor(fetch-loc): extract _process_pr_row and _process_push_row to reduce nesting (#97)`.
+- **Commit-less edit — Evidence section (the bot verdict):** Append `## Evidence` to PR description linking the 19:58Z `## Manual Test Results` comment via its `html_url` permalink + a 3-6 line real-output excerpt + a "Rating ✅ Pass. Full unit suite 1577/1577" line. Use `gh pr edit 97 --body-file …` (append-only — no rewriting existing content).
+- **Resolve the thread:** Reply to `PRRT_kwDOR9seq86E5m8-` citing the refactor commit SHA, then `resolveReviewThread` via GraphQL.
+- **Round-summary comment:** AI-disclosed `## Review Round 1` top-level PR comment so the next orchestrator cycle sees a clear marker.
+- **Workflow state:** Set PR to draft on entry (`gh pr ready 97 --undo`), back to ready after pushing (`gh pr ready 97`).
+
+**Explicit DO-NOTs encoded in prompt:**
+
+- Do NOT change PR title or remove existing description content (append only).
+- Do NOT modify README.md (docs worker owned that; refactor doesn't touch any documented surface).
+- Do NOT modify test files unless legitimately needed (helpers are new private functions, not renames of public ones).
+- Do NOT mark approved, do NOT merge, do NOT touch WORKLOG.md (orchestrator owns).
+- Do NOT silently swallow regressions — if `uv run pytest -x` drops below 1577, fix before pushing.
+- Do NOT modify `.agents/skills/custom-codereview-guide.md` — the bot's suggestions are legitimate, no need to push back at the bot's prompt level.
+
+**Bot-feedback evaluation (per the review skill's "critically evaluate each comment"):**
+
+1. **Evidence section (CRITICAL):** Accept. The bot is right that a reader skimming the PR description should see actual runtime output, not just a "we tested it" assertion. The manual-test comment already contains the evidence — adding a link + excerpt to the description is the minimum-change adoption. Not over-engineering.
+2. **Nesting refactor (IMPROVEMENT):** Accept. 3 levels of nesting in a main batch loop with mixed concerns (PR vs push) is a genuine maintainability problem. Two ~50-line helpers with a clean `(msg, new_status)` return contract are proportional to the benefit. The full unit suite is the safety net.
+
+**PR slot:** Now occupied by `e6daad01` (review on PR #97).
+**Expansion slot:** Idle. `gh issue list --jq '[.[]|select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]|length'` → 0. All open issues are `ready`+priority-labeled or `hold`. Nothing to expand.
+
+**Current State (verified 20:18–20:21Z):**
+
+- **Open PRs:** [PR #97](https://github.com/jpshackelford/ohtv/pull/97) (`ready`, no-CI by config, docs landed, manual test ✅ Pass at 19:58Z, 1 unresolved review thread).
+- **Ready issues (7, all expanded):** `priority:medium`: #80 (in PR #97), #81, #83, #90, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** none competing — only `50fa405c` (this orchestrator cycle, no repo binding) and the just-spawned `e6daad01`.
+
+**Sync note:** `ohtv sync --since … --quiet` succeeded (exit 0) under `OH_API_KEY=$OPENHANDS_API_KEY`. Cloud auth path stable.
+
+**Housekeeping (executed):** WORKLOG.md was at 915 lines pre-cycle, well past the 300-line threshold. Per the prior cycle's (19:51Z) explicit plan, archived the three PR #95-chain orchestrator entries (14:19Z, 14:46Z, 15:21Z — 179 lines, sed `34,212d`) to `WORKLOG_ARCHIVE_2026-05-26.md` (now 707 lines, +179). Post-truncation WORKLOG.md size: 736 lines pre-this-entry. Preserved: all entries 15:50Z onwards (within 4.5h productive window), all worker entries at the top, the WORKLOG header. PR #95 is merged (SHA `03657ed`); the archived chain documents complete merged work and is referenced via the archive file for any future cross-reference.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-consecutive-quiet-period counter remains at 0. Recent orchestrator entries (18:50Z, 19:19Z, 19:51Z, this one) have all been spawn cycles.
+
+**Next check (~30 min, ~20:51Z):**
+
+- If `e6daad01` is `running` → log status, do nothing. Review work (refactor + thread reply + description edit) typically completes in 15–35 min for a ≤50-line refactor.
+- If `e6daad01` is `finished` AND a refactor commit landed on `feat/fetch-loc-80` AND the review thread `PRRT_kwDOR9seq86E5m8-` is resolved AND PR description has an Evidence section AND PR is back to `isDraft=false` → spawn **re-testing worker** (per the workflow: "Source files changed → re-test required"; the refactor touches `src/ohtv/fetch_loc.py` directly so the 19:58Z test results are now outdated for that file).
+- If `e6daad01` is `finished` but the refactor broke a test → review worker should have fixed it before pushing; if it pushed broken anyway, spawn another review worker for the regression.
+- If `e6daad01` is `finished` AND no refactor commit landed (worker bailed) → investigate; consider re-spawn with sharper scope or skip the refactor if the worker had a justified reason to decline.
+- If new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-26 20:51 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `6659ea4` | re-testing | PR #97 — `fetch-loc` after refactor (review round 1) | **NEW** (spawned 20:50:41Z, `execution_status=running`, `sandbox=RUNNING`) |
+
+**Spawned: Re-Testing Worker for PR #97 (review worker `e6daad01` finished cleanly; refactor commit pushed; thread resolved; bot re-reviewed positively — but source file churned 153 LOC, so the 19:58Z test results are formally outdated)**
+
+- PR: [#97 — feat: add fetch-loc command to backfill LOC from GitHub API (#80)](https://github.com/jpshackelford/ohtv/pull/97) (`isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, head `4bc71162`, no CI workflows on branch by design).
+- Conversation: [`6659ea43`](https://app.all-hands.dev/conversations/6659ea43398149ab9761e368b59524e4) (`selected_repository=jpshackelford/ohtv`, `pr_number=[97]`).
+- Start task: `394b32a3` → polled once after 10s → `READY` → `app_conversation_id=6659ea43398149ab9761e368b59524e4`. Verified `GET /app-conversations?ids=…`: `execution_status=running`, `sandbox_status=RUNNING` (satisfies the 13:23Z operational lesson — `READY` alone only confirms sandbox came up).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Model: default (`litellm_proxy/claude-opus-4-7` for the OH cloud agent; testing worker is observe-only so model choice is secondary).
+
+**Why re-test (decision-tree gates):**
+
+- ✅ **Review worker `e6daad01` finished cleanly:** Cloud API → `execution_status=finished`, `updated_at=2026-05-26T20:26:12Z`. Did its scope:
+  - Refactor commit `4bc71162` pushed at 20:23:44Z: `refactor(fetch-loc): extract _process_pr_row and _process_push_row to reduce nesting (#97)` — touches only `src/ohtv/fetch_loc.py` (+104/-49, 153 LOC churn).
+  - Round-summary comment `## Review Round 1 — Addressed pr-review bot feedback` posted at 20:26:05Z (jpshackelford / OpenHands agent).
+  - Review thread `PRRT_kwDOR9seq86E5m8-` (the nesting suggestion at `src/ohtv/fetch_loc.py:546`) → `isResolved=true`.
+  - PR description Evidence section added (visible in jpshackelford's `COMMENTED` review at 20:25:46Z that opened the round).
+- ✅ **Bot re-reviewed positively:** New github-actions review at 20:30:27Z: `state=COMMENTED`, body opens with 🟢 **"Good taste — Clean, pragmatic implementation with excellent engineering discipline. Recommended for approval."** No new unresolved threads created. The static reviewer is satisfied.
+- ✅ **No CI to gate on:** `gh pr view 97 --json statusCheckRollup` → empty. No workflows configured on the branch by design (consistent with prior #95/#96 testing rounds on this repo).
+- ✅ **Manual test results from 19:58Z are formally outdated:** Refactor commit (20:23Z) modified `src/ohtv/fetch_loc.py` only. Per the orchestrate skill's re-test heuristics:
+  - "Source files changed (`.py` excluding `*_test.py`, `test_*.py`)" → YES (the production module the command name comes from).
+  - "More than 50 lines of non-test code changed" → YES (153 LOC churn). Both heuristics trigger.
+- ✅ **Per decision tree:** `"PR exists, ready, CI green, test results outdated → Spawn re-testing worker"`. Exact match. Skipping to merge would let an unverified refactor slip through despite the workflow's explicit rule.
+- ✅ **No competing PR worker:** Network-wide `running` conversations at 20:46Z: only `9bd0a1a6` (this orchestrator cycle, no repo binding) plus the just-spawned `6659ea43`. All prior PR-slot workers (`e6daad01` review, `ebc3363b` testing, `007863ee` docs, `6a10472a` impl) are PAUSED.
+- ✅ **No new `## INSTRUCTION:` in WORKLOG.md.** Step 1 of the orchestrate skill completed cleanly — only historical references to past instructions, all already acknowledged.
+
+**Re-testing worker scope (prompt highlights):**
+
+- Clone, checkout `feat/fetch-loc-80`, confirm head SHA `4bc7116`, `uv sync`.
+- **Full unit suite first** — `uv run pytest -x` must be **1577/1577** to match the 19:58Z baseline. Regression here is a blocker.
+- **Targeted blackbox** focused on the two new private helpers (the refactor's only externally-visible surface):
+  - **PR-row helper** — real run against PR #95 (merged, has LOC) and PR #97 itself (open, `status='open'` no LOC), 404 path on a deleted PR (`_mark_tried` still called).
+  - **Push-row helper** — verify direct_push branch still works (seed minimally if no row exists locally).
+  - **Loop-level invariants the helpers thread through** — `--dry-run` zero-HTTP, idempotent 2nd run, `--force`, `--repo` filter (positive + unknown-value), token leak check (`grep -F "$GITHUB_TOKEN"` over stdout/stderr/`~/.ohtv/logs/ohtv.log`).
+  - Progress callback gating (helpers preserve `on_progress(...)`) and counter accumulation (`processed/errors/still_open/closed_unmerged/skipped_unparseable`).
+- Spot-check the six README `fetch-loc` examples (the docs commit `79b2c6d2` already validated at the initial test; only verify the one or two that exercise the PR/push branches).
+- Post a **NEW** PR comment `## Manual Test Results — Re-test after Review Round 1` (do NOT edit the 19:58Z one); cite head SHA `4bc7116`; explicit rating ✅/🟡/❌; AI disclosure footer.
+- **EXIT after posting.** Do NOT continue to merge.
+
+**Explicit DO-NOTs encoded in prompt:**
+
+- Do NOT modify code or docs — testing is observe-only.
+- Do NOT edit the 19:58Z test report — post a new comment.
+- Do NOT re-run the full 13-AC matrix from scratch (refactor is narrow; only PR-row, push-row, and loop invariants need re-verification).
+- Do NOT block on missing CI checks — no workflows configured on this branch.
+- Do NOT touch WORKLOG.md (orchestrator owns it).
+- Do NOT mark approved, do NOT merge.
+
+**Refactor-evaluation note (why I trusted the static reviewer enough to skip a deeper test scope):** The diff is mechanical extraction — two contiguous `if`/`elif` branches of the main loop body became two private functions with the same arguments and a `(msg, new_status)` return tuple. The bot's 20:30Z follow-up review independently inspected the post-refactor file and rated it 🟢 "Good taste — Recommended for approval", with zero new threads. The 153-LOC churn count is dominated by indentation/refactor scaffolding, not behavioral change. Even so, the workflow's heuristic is binary (`>50 LOC of non-test code → re-test`), and I'm honoring it rather than overriding on judgment.
+
+**PR slot:** Now occupied by `6659ea43` (re-testing on PR #97).
+**Expansion slot:** Idle. `gh issue list --state open --json labels --jq '[.[]|select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]|length'` → 0. All 7 open issues are `ready`+priority-labeled or `hold`. Nothing to expand.
+
+**Current State (verified 20:46–20:51Z):**
+
+- **Open PRs:** [PR #97](https://github.com/jpshackelford/ohtv/pull/97) (`ready`, no-CI by config / MERGEABLE, docs landed, manual test ✅ Pass at 19:58Z, **refactor commit `4bc7116` at 20:23Z**, review thread resolved, bot 20:30Z 🟢 recommended for approval, re-test pending).
+- **Ready issues (7, all expanded):** `priority:medium`: #80 (in PR #97), #81, #83, #90, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** none competing — only `9bd0a1a6` (this orchestrator cycle, no repo binding) and the just-spawned `6659ea43`.
+
+**Sync note:** `ohtv sync --since … --quiet` succeeded (exit 0) under `OH_API_KEY=$OPENHANDS_API_KEY`. Cloud auth path stable.
+
+**Housekeeping:** WORKLOG.md was 809 lines pre-cycle (this entry pushes it past ~880). The skill's >300-line threshold is well exceeded, but the 6-hour productive-work preservation window (currently ~14:51Z–20:51Z) still captures every entry currently in the file — the oldest preserved entry is the 15:50Z orchestrator spawn of impl `5106f489` for #89 (exactly at 5h 01m old) plus the 16:00Z impl-worker completion log for #89 (4h 51m). Both are still inside the 6h boundary, so archiving would violate the rule. **Truncation deferred** — by the next orchestrator wake-up (~21:21Z if cron / ~21:51Z if natural rhythm), the 15:50Z + 16:00Z + 16:21Z (docs spawn) entries will all be safely past 6h and can be archived together (saving ~150 lines: lines 19–~165 of current WORKLOG.md → `WORKLOG_ARCHIVE_2026-05-26.md`).
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Two-consecutive-quiet-period counter remains at 0. Recent orchestrator entries (18:50Z, 19:19Z, 19:51Z, 20:21Z, this one) have all been spawn cycles.
+
+**Next check (~30 min, ~21:21Z):**
+
+- If `6659ea43` is `running` → log status, do nothing. Re-test is narrow (full pytest + ~6 targeted CLI exercises + 1 PR comment); typical 15–35 min.
+- If `6659ea43` is `finished` AND a `## Manual Test Results — Re-test after Review Round 1` comment appears with **good rating** (✅ Pass / 🟡 Pass with concerns) → spawn **merge worker**. The workflow gates after re-test point to merge; docs are still valid (no doc-impacting changes in the refactor), no further review-round-2 was triggered, and the bot's static re-review is already 🟢 "Recommended for approval".
+- If `6659ea43` is `finished` AND test report rates **❌ Fail** or surfaces blocking regressions → spawn another **review worker** (which will set PR back to draft and fix the regression).
+- If `6659ea43` is `finished` AND no re-test comment appeared → investigate the conversation events; possibly re-spawn with sharper scope.
+- If new commits land on `feat/fetch-loc-80` between now and next cycle (e.g., a bot left another inline thread and the human asked someone to address it) → re-evaluate the test-results-still-valid gate.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO:** Next cycle (~21:21Z+), archive lines 19–~165 (15:50Z spawn + 16:00Z impl completion + 16:21Z docs spawn entries for the now-merged PR #96) to `WORKLOG_ARCHIVE_2026-05-26.md`, saving ~150 lines while keeping the 16:50Z+ test/review/merge chain for #96 plus today's full PR #97 chain (18:50Z onwards) preserved.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-26 21:21 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `03c344b` | merge | PR #97 — squash-merge `feat/fetch-loc-80` after re-test ✅ Pass | **NEW** (spawned 21:20:13Z, `execution_status=running`, `sandbox=RUNNING`) |
+
+**Spawned: Merge Worker for PR #97 (every gate clear; re-test ✅ Pass at current HEAD; no follow-up review threads opened)**
+
+- PR: [#97 — feat: add fetch-loc command to backfill LOC from GitHub API (#80)](https://github.com/jpshackelford/ohtv/pull/97) (`state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, HEAD `4bc7116`, pr-review CI ✅ SUCCESS at 20:30:43Z, no other workflows by design).
+- Conversation: [`03c344bf`](https://app.all-hands.dev/conversations/03c344bf3ee147c190515af85bfc3198) (`selected_repository=jpshackelford/ohtv`, `pr_number=[97]`).
+- Start task: `9b1780f3` → polled once after ~8s → `READY` → `app_conversation_id=03c344bf3ee147c190515af85bfc3198`. Verified `GET /app-conversations?ids=…` immediately after: `execution_status=running`, `sandbox_status=RUNNING` (satisfies the operational lesson — `READY` alone only confirms sandbox came up; `execution_status=running` is the actual agent-active signal).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**Why merge (decision-tree gates verified at 21:17–21:20Z):**
+
+- ✅ **Re-testing worker `6659ea43` finished cleanly:** Cloud API → `sandbox_status=PAUSED`, `updated_at=2026-05-26T20:55:29Z`. Posted comprehensive `## Manual Test Results — Re-test after Review Round 1` at 20:55:16Z (PR #97 [comment #4548764981](https://github.com/jpshackelford/ohtv/pull/97#issuecomment-4548764981)) citing **Head SHA `4bc7116202c6d94eed12687c7decbc9f3604e19d`** — matches current PR HEAD exactly. Rating: **✅ Pass.**
+- ✅ **Refactor behavioral equivalence verified by re-test:** All 14 re-exercised areas pass (full 1577/1577 pytest in 14.32s, `_process_pr_row` merged/open/404 paths, `_process_push_row` valid-range/malformed/404 paths, `--dry-run` zero-HTTP under blackhole proxy, idempotency, `--force`, `--repo` filter, token-leak grep all-clean). Counter semantics identical across cold + `--force` runs (Candidates: 6 / Fetched: 3 / Failed: 2 / Skipped(bad data): 1 / PRs still open: 1 — exact match both runs). PR #95 ground-truth cross-checked against `gh pr view`: `additions=1032 deletions=252 changedFiles=10 mergedAt=2026-05-26T15:23:16Z` matches DB row exactly.
+- ✅ **No new commits since re-test:** `gh pr view 97 --json commits` → 3 commits, most recent is `4bc71162` at 20:23:44Z. Re-test (20:55Z) is AFTER the last commit; nothing has churned since.
+- ✅ **All review threads resolved:** `gh api graphql` over `reviewThreads` → 1 thread total, `PRRT_kwDOR9seq86E5m8-` (nesting suggestion at `src/ohtv/fetch_loc.py:546`), `isResolved=true`. No new threads opened in the bot's 20:30Z 🟢 re-review (`COMMENTED` state, no inline suggestions).
+- ✅ **PR description accurate:** Includes the Evidence section added in Review Round 1, "Closes #80" link, complete "What's in the box" + Tests + Migration 017 rationale. Merge-worker prompt explicitly tells it to leave the description alone unless a material inaccuracy is spotted in the final diff.
+- ✅ **Docs valid:** README updated at commit `79b2c6d2` (19:21Z). The post-docs refactor `4bc71162` is internal (extraction of two private helpers from `fetch_loc.py`) — no CLI surface change, no new flag, no schema diff, no output-format change. **Docs spot-check NOT required** per the workflow gate (refactor is non-doc-impacting).
+- ✅ **CI green:** `gh pr view 97 --json statusCheckRollup` → `pr-review` (`PR Review by OpenHands`) `CONCLUSION=SUCCESS` at 20:30:43Z. No other workflows on the branch — consistent with prior #95/#96 merges. The static-bot review at 20:30Z gave 🟢 "Good taste — Clean, pragmatic implementation with excellent engineering discipline. Recommended for approval."
+- ✅ **`Closes #80`** in PR body — squash-merge will auto-close issue #80 (priority:medium, expanded with #76/#78/#79 context).
+- ✅ **Decision tree match:** "PR exists, ready, CI green, test results valid, good rating, docs valid → Spawn **merge worker**." Exact match. No re-test loop needed.
+- ✅ **No competing PR worker:** Network-wide `running` conversations at 21:17Z: only `24d2c21c` (this orchestrator cycle, no repo binding) plus the just-spawned `03c344bf`. All prior PR-slot workers (`6659ea43` re-test, `e6daad01` review, `ebc3363b` testing, `007863ee` docs, `6a10472a` impl) are `PAUSED`.
+- ✅ **No new `## INSTRUCTION:` in WORKLOG.md.** Step 1 of orchestrate skill completed cleanly — `grep -A5 "^## INSTRUCTION:" WORKLOG.md` returned only historical (already-acknowledged) references.
+
+**Merge worker scope (prompt highlights):**
+
+- Clone repo, set `GH_TOKEN="$github_token"` (lowercase env var, as the OH worker sandbox sets `github_token` not `GITHUB_TOKEN` for the gh CLI's auto-pickup).
+- Study full PR #97 diff holistically before crafting the commit message.
+- **Conventional-commits squash subject (≤72 chars):** `feat: add fetch-loc command to backfill LOC from GitHub API (#80)`.
+- **Body:** ~10-20 lines covering the new `ohtv fetch-loc` CLI + 6 flags, the new `github_api.py` (`httpx` wrapper, rate-limit cascade, 404→None, token never logged), the new `fetch_loc.py` (orchestrator, commit-per-row, 1h open-PR refetch heuristic, graceful 401/404/5xx), migration 017 (`change_refs.status` CHECK widened to include `'open'`), 48 new tests across 3 files (real-HTTP mocked via `pytest-httpx`, real in-memory SQLite with full migration replay), README documentation, `Closes #80`.
+- **Co-authored-by trailer:** `Co-authored-by: openhands <openhands@all-hands.dev>` at the end (one blank line before).
+- Execute via `gh pr merge 97 --repo jpshackelford/ohtv --squash --subject "..." --body "..."` (non-interactive, explicit subject + body).
+- **Verify:** `gh pr view 97 --json state,mergedAt,mergeCommit` → `MERGED` with `mergedAt` + `mergeCommit.oid`; `gh issue view 80 --json state` → `CLOSED`; `git log -1 origin/main --pretty=fuller` shows the subject + Co-authored-by trailer.
+- **EXIT** after verification.
+
+**Explicit DO-NOTs encoded in prompt:**
+
+- Do NOT use merge-commit or rebase-merge — **must be squash**.
+- Do NOT push to main directly.
+- Do NOT modify code on the feature branch (any new commit invalidates the 20:55Z re-test gate at SHA `4bc7116`).
+- Do NOT mark/unmark labels.
+- Do NOT delete the feature branch (GitHub UI / repo settings can handle that).
+- Do NOT touch WORKLOG.md (orchestrator owns it).
+- Do NOT spawn follow-up conversations or open follow-up issues.
+
+**PR slot:** Now occupied by `03c344bf` (merge on PR #97).
+**Expansion slot:** Idle. `gh issue list --state open --json labels --jq '[.[]|select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]|length'` → 0. All 7 open issues are `ready`+priority-labeled or `hold`. Nothing to expand.
+
+**Current State (verified 21:17–21:20Z):**
+
+- **Open PRs:** [PR #97](https://github.com/jpshackelford/ohtv/pull/97) (`isDraft=false`, `MERGEABLE`, pr-review SUCCESS at 20:30Z, docs landed `79b2c6d2`, initial manual test ✅ Pass at 19:58Z, refactor `4bc71162` at 20:23Z, review thread resolved, bot 🟢 re-review at 20:30Z, re-test ✅ Pass at 20:55Z — **merge pending**).
+- **Ready issues (7, all expanded):** `priority:medium`: #80 (in PR #97 — about to close), #81, #83, #90, #92; `priority:low`: #82, #87.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** none competing — only `24d2c21c` (this orchestrator cycle, no repo binding) and the just-spawned `03c344bf`.
+
+**Sync note:** `ohtv sync --since … --quiet` succeeded (exit 0) under `OH_API_KEY=$OPENHANDS_API_KEY`. Cloud auth path stable.
+
+**Housekeeping (deferred again):** WORKLOG.md was 894 lines pre-cycle. The 6-hour productive-work preservation window (currently 15:21Z–21:21Z) still captures every entry from 15:50Z onwards — the oldest preserved entry is the 15:50Z orchestrator spawn of impl `5106f489` for #89 (5h 31m old, still inside 6h). One more cycle (~21:50Z+) and the 15:50Z + 16:00Z + 16:21Z (docs spawn for #96) entries will all clear the 6h boundary together, enabling a clean ~150-line archive to `WORKLOG_ARCHIVE_2026-05-26.md`. Tempting to archive the 15:50Z spawn entry alone, but it pairs semantically with the 16:00Z impl-worker completion + 16:21Z docs spawn (all part of the PR #96 chain) — archiving them as a group is cleaner.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Recent orchestrator entries (18:50Z, 19:19Z, 19:51Z, 20:21Z, 20:51Z, this one at 21:21Z) have all been spawn cycles. Two-consecutive-quiet counter remains at 0.
+
+**Next check (~30 min, ~21:51Z):**
+
+- If `03c344bf` is `running` → log status, do nothing. Merge work (read diff + craft message + `gh pr merge --squash`) typically completes in 5-12 min.
+- If `03c344bf` is `finished` AND PR #97 shows `state=MERGED` with a `mergeCommit.oid` AND issue #80 is `CLOSED` AND `origin/main` HEAD is a new squash commit with the subject `feat: add fetch-loc command…(#80)` and the Co-authored-by trailer → log completion. Then **assess next implementation** from the 6 remaining ready issues. Priority order (by `priority:` label + issue age):
+  - `priority:medium`: #81, #83, #90, #92 (no priority tiebreaker rule in skill — fall back to issue number ascending = #81)
+  - `priority:low`: #82, #87
+  - Skip on-hold: #26
+  - Next impl candidate: **#81 (priority:medium, oldest medium remaining)** — but verify there's no `dependency-blocked` follow-up before spawning.
+- If `03c344bf` is `finished` but PR #97 is still OPEN (merge attempt aborted) → investigate the conversation events; likely a sandbox sync issue or `gh` auth issue. Re-spawn with sharper diagnostics.
+- If `03c344bf` is `finished` and PR is merged but issue #80 is somehow not auto-closed → close it manually via `gh issue close 80`.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO (this cycle's deferred item):** Next cycle, archive lines covering the 15:50Z + 16:00Z + 16:21Z entries (all PR #96 chain, will be past 6h boundary by 21:50Z) to `WORKLOG_ARCHIVE_2026-05-26.md`, saving ~150 lines. Keep all 16:50Z+ entries (the #96 test/review/merge chain + today's full #97 chain from 18:50Z onwards).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-26 21:49 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `450921e` | implementation | Issue #81 — Add velocity report command (priority:medium) | **NEW** (spawned 21:48:36Z, `execution_status=running`, `sandbox=RUNNING`) |
+
+**Spawned: Implementation Worker for Issue #81 (PR slot cleared by PR #97 merge; #81 is the highest-priority ready issue by ascending issue number among `priority:medium`)**
+
+- Issue: [#81 — Add velocity report command](https://github.com/jpshackelford/ohtv/issues/81) (`enhancement`, `ready`, `priority:medium`). Fully expanded with CLI surface, acceptance criteria, output formats (table + CSV), ISO-week caveat, `initial_prompt_source` rules, division-by-zero handling, and the `aggregate_velocity` row-shaping function explicitly required to be importable from `src/ohtv/reports/velocity.py` so issue #82 (charting) can reuse it.
+- Conversation: [`450921e9`](https://app.all-hands.dev/conversations/450921e90f8f457fa0a231421a65202f) (`selected_repository=jpshackelford/ohtv`, no `pr_number` because no PR exists yet).
+- Start task: `24307b63` → `READY` on first 5s poll → `app_conversation_id=450921e90f8f457fa0a231421a65202f`. Verified `GET /app-conversations?ids=…` returns `execution_status=running`, `sandbox_status=RUNNING` (the agent-active signal beyond just `READY`).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**Why #81 (decision-tree gates verified at 21:46–21:48Z):**
+
+- ✅ **Prior PR worker `03c344bf` (merge for PR #97) cleanly disposed:** `execution_status=null`, `sandbox=PAUSED`, `updated_at=2026-05-26T21:22:20Z`. Did exactly its scope in ~2 minutes (read diff + craft commit message + `gh pr merge --squash`).
+- ✅ **PR #97 merged + issue #80 closed:** `gh pr view 97` → `state=MERGED`, `mergedAt=2026-05-26T21:21:52Z`, `mergeCommit.oid=31917bea`. `gh issue view 80` → `state=CLOSED`, `closedAt=2026-05-26T21:21:54Z` (auto-closed via `Closes #80` in PR body). Squash subject correctly landed: `feat: add fetch-loc command to backfill LOC from GitHub API (#80)`.
+- ✅ **PR slot now empty:** `gh pr list --state open` → `[]`. Zero open PRs.
+- ✅ **6 ready issues, all expanded, no PR for any of them:**
+  - `priority:medium` (4): #81 (velocity report), #83 (conversation classification), #90 (`ohtv label` batch), #92 (weekly conversion counts CSV).
+  - `priority:low` (2): #82 (charting for velocity — depends on #81 being importable), #87 (manifest as full metadata cache).
+  - Tiebreaker (no priority sub-rule in skill): ascending issue number among the highest tier (`priority:medium`) → **#81**.
+- ✅ **#81 dependencies satisfied:** Per issue body's "Dependencies" section, only the schema from #76 is hard-required (merged days ago). #78/#79/#80 are useful for end-to-end verification on real data but the command is independently develop-able with seeded fixtures. #80 just merged, so all data-population issues for the velocity research are in main.
+- ✅ **#81 unblocks #82:** The issue body explicitly states "Unblocks #82 — chart generation reads the same aggregation; this command's row-shaping function should be importable so #82 can re-use it." Worker prompt encodes this as a non-negotiable: `aggregate_velocity()` must live in a non-CLI module.
+- ✅ **No issues need expansion:** `gh issue list --state open --json labels --jq '[.[]|select(.labels|map(.name)|(contains(["ready"]) or contains(["hold"]))|not)]|length'` → 0. Expansion slot intentionally idle (nothing to do).
+- ✅ **No competing OH workers:** Network-wide `running` conversations at 21:46Z: only `5a2514b` (this orchestrator cycle, no repo binding) and the just-spawned `450921e9`. All prior PR-slot workers from the #97 chain are `PAUSED`.
+- ✅ **No new `## INSTRUCTION:` in WORKLOG.md.** Step 1 of orchestrate skill completed cleanly — `grep -n "^## INSTRUCTION:" WORKLOG.md` returned no matches; all "INSTRUCTION:" string occurrences are historical references in prior orchestrator narratives, not actionable directives.
+- ✅ **Decision tree match:** "No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue." Exact match. No `/assess-priority` run needed (priorities already assigned).
+
+**Implementation worker scope (prompt highlights):**
+
+- Branch: `feat/report-velocity-81` from latest `origin/main` (includes the just-merged #80 + migration 017).
+- New `report` Click group with first sub-command `velocity` — designed as a group so future report sub-commands (e.g., `report contributions`) slot in cleanly.
+- Module layout: `src/ohtv/reports/__init__.py` + `src/ohtv/reports/velocity.py` (the `aggregate_velocity(...)` entry point + `VelocityRow` dataclass — importable for #82) + thin Click wrapper in `cli.py`. Optional `formatters.py` if table/CSV rendering grows.
+- Hard requirements baked into prompt:
+  - ISO week label via Python `datetime.isocalendar()` (NOT SQLite `strftime('%W')` which is non-ISO).
+  - Aggregate `status='merged' AND change_type IN ('pr','direct_push')` only.
+  - DISTINCT-on-`conversation_id` per `change_ref_id` so a conversation across two PRs isn't double-counted.
+  - `initial_prompt_source` rules: `'human'` → `initial_prompt_words + followup_word_count`; `'automation'` → `followup_word_count`; `'unknown'` → counted as `'human'` (documented caveat).
+  - `Words/LOC` = `sum(Words) / sum(Total)` for totals row (NOT average of per-week ratios). `-` / empty for div-by-zero.
+  - Empty weeks omitted by default; `--include-empty` shows zero-rows.
+  - Reuse `ohtv.filters.parse_date_filter` and the existing repo-FQN normalization helper. No duplication.
+- Tests:
+  - `tests/unit/reports/test_velocity.py` — real in-memory SQLite with full migration replay; seeded `change_refs` + `conversation_contributions` + `conversation_human_input`. Covers happy path, NULL `lines_added`, all 3 `initial_prompt_source` values, DISTINCT conversation_id, ISO-week boundary at Sunday 23:59 vs Monday 00:00 UTC, `--include-empty`, `--repo` filter, division-by-zero.
+  - `tests/unit/test_cli_report_velocity.py` — Click `CliRunner` exercises all flags + `ohtv report --help` lists `velocity`.
+  - Target: existing 1577 tests still pass + new tests >80% coverage on new code.
+- Quality gates pre-push: `uv run pytest -x`, `uv run ruff check src tests`, manual smoke against seeded SQLite for both `--format table` and `--format csv`.
+- PR: DRAFT, titled `feat: add report velocity command (#81)`, with `Closes #81` + "Evidence" section showing actual command output + test counts. Move to ready only after CI green AND acceptance-criteria verified. Plugin loaded so downstream workflow gates apply.
+- `Co-authored-by: openhands <openhands@all-hands.dev>` trailer on every commit.
+
+**Explicit DO-NOTs encoded in prompt:**
+
+- Do NOT push to `main` directly.
+- Do NOT touch `WORKLOG.md` (orchestrator owns it).
+- Do NOT run docs-update, manual testing, or review (downstream workers' jobs).
+- Do NOT invent a new migration if a schema column is missing — comment + `blocked` label and exit.
+- Do NOT mock the DB — real in-memory SQLite with migration replay (per repo convention).
+- Do NOT exceed ~5 commits — logical splits (data layer / CLI / tests / docs).
+
+**PR slot:** Now occupied by `450921e9` (implementation on #81).
+**Expansion slot:** Idle (0 issues need expansion).
+
+**Current State (verified 21:46–21:48Z):**
+
+- **Open PRs:** 0 (PR #97 merged at 21:21:52Z, squash commit `31917bea` on main).
+- **Recently closed issues:** #80 (closed 21:21:54Z via PR #97 auto-close).
+- **Ready issues (6, all expanded, none in flight):** `priority:medium`: #81 (**now in implementation**), #83, #90, #92; `priority:low`: #82 (waits on #81's importable row-shaper), #87 (waits on Issue #86's manifest foundation, which is merged).
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** none competing — only `5a2514b` (this orchestrator cycle, no repo binding) and the just-spawned `450921e9`.
+
+**Sync note:** `ohtv sync --since … --quiet` succeeded (exit 0) under `OH_API_KEY=$OPENHANDS_API_KEY`. Cloud auth path remains stable.
+
+**Housekeeping (deferred again):** WORKLOG.md was 976 lines pre-cycle (this entry pushes it past ~1080). The skill's >300-line threshold is well exceeded, but the 6-hour productive-work preservation window (currently 15:49Z–21:49Z) STILL captures every entry currently in the file — the oldest non-archive entry is the 15:50Z orchestrator spawn of impl `5106f489` for #89 (5h 59m old, JUST inside the 6h boundary). One more cycle (~22:21Z if cron) and the 15:50Z + 16:00Z + 16:21Z entries (all part of the now-merged PR #96 chain for #89) will all clear the 6h boundary together, enabling a clean archive (saving ~150 lines: lines 1–108 → `WORKLOG_ARCHIVE_2026-05-26.md`). Tempting to archive the 15:50Z entry alone, but it pairs semantically with the 16:00Z impl-worker completion + 16:21Z docs spawn (all PR #96 chain) — archiving them as a group is cleaner and matches the strategy noted in the 20:51Z + 21:21Z entries.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Recent orchestrator entries (18:50Z, 19:19Z, 19:51Z, 20:21Z, 20:51Z, 21:21Z, this one at 21:49Z) have all been spawn cycles. Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min, ~22:21Z):**
+
+- If `450921e9` is `running` → log status, do nothing. Velocity-report implementation is a focused feature (1 module + 2 test files + small CLI plumbing + minimal docs); typical scope is 60–120 min including CI loop. May still be running at the next wake-up.
+- If `450921e9` is `finished` AND a draft PR is open for `feat/report-velocity-81` with `Closes #81` AND `pr-review` CI is `SUCCESS` AND the PR is marked ready → spawn **docs worker** (the issue adds a new CLI command group + sub-command + flags — clear "user-facing changes" trigger for the docs-before-testing gate).
+- If `450921e9` is `finished` AND PR is open but still draft (CI still running or fixing failures) → wait one more cycle.
+- If `450921e9` is `finished` AND NO PR was opened → investigate the conversation events. Likely blocked. May need a `## INSTRUCTION:` from the human (e.g., schema column missing, ambiguous spec, etc.).
+- If `450921e9` is `finished` AND PR is open BUT `pr-review` CI is failing → wait (the impl worker should still be trying to fix, unless it timed out). If 2+ cycles pass with red CI and no new commits, re-spawn impl with adjusted scope.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO (this cycle's deferred item, ready next cycle):** Archive lines 1–108 (19:58Z manual-test for #97 + 16:00Z impl completion for #89 + 15:50Z orchestrator spawn for #89 + 16:21Z docs spawn for #96) to `WORKLOG_ARCHIVE_2026-05-26.md`, saving ~108 lines while keeping the 16:50Z+ test/review/merge chain for #96 + the full 18:50Z–21:21Z #97 chain + this 21:49Z #81 spawn preserved. Wait — actually the 19:58Z manual-test for #97 is at line 1 (1h 51m old) and MUST be preserved. Re-stating: archive lines 16–108 (the 16:00Z + 15:50Z + 16:21Z entries) only, leaving line 1's 19:58Z manual-test in place. Re-verify line ranges before truncating.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-26 22:20 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `37a6ba3` | testing | PR #98 — `feat: add report velocity command (#81)` | **NEW** (spawned 22:20:07Z, `execution_status=running`, `sandbox=RUNNING`) |
+
+**Spawned: Testing Worker for PR #98** — the implementation worker `450921e9` finished cleanly (PR opened + CI green), so the PR slot is now in its testing phase per the docs-before-testing gate.
+
+- PR: [#98 — feat: add report velocity command (#81)](https://github.com/jpshackelford/ohtv/pull/98) on branch `feat/report-velocity-81`.
+- Conversation: [`37a6ba32`](https://app.all-hands.dev/conversations/37a6ba3270fe4b088f32b80827c61ca8) (`selected_repository=jpshackelford/ohtv`, `pr_number=[98]`).
+- Start task: `a7de97b2…` → `READY` on first 5s poll → `app_conversation_id=37a6ba3270fe4b088f32b80827c61ca8`. Verified `GET /app-conversations?ids=…` returns `execution_status=running`, `sandbox_status=RUNNING`.
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**Why testing (decision-tree gates verified at 22:16–22:20Z):**
+
+- ✅ **Prior impl worker `450921e9` cleanly disposed:** `execution_status=finished`, `sandbox=RUNNING` (still warm but execution done), `updated_at=2026-05-26T22:05:56Z`, `pr_number=[98]`. Did exactly its scope in ~17 minutes (impl + tests + README update + PR open + CI loop).
+- ✅ **PR #98 exists, ready, CI green:** `gh pr view 98` → `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`. `pr-review` workflow run 26477834436 conclusion=SUCCESS at 22:08:26Z. `lxa pr list jpshackelford/ohtv#98` → `oC green ready 13m / 9m ago` (the `C` reflects the auto-AI-review COMMENTED state on the PR, not a human change-request).
+- ✅ **README updated in the PR diff:** `gh pr diff 98 --name-only` lists `README.md` + `AGENTS.md` alongside the new `src/ohtv/reports/{__init__,velocity}.py` and `tests/unit/reports/{test_velocity,test_cli_report}.py`. The impl worker correctly bundled docs with the implementation, satisfying the **docs-before-testing** gate — no separate docs worker needed.
+- ✅ **No manual test results yet:** `gh api repos/jpshackelford/ohtv/issues/98/comments` → `[]`. The only PR-level interaction is the auto-AI review (`github-actions[bot]`, state=COMMENTED at 22:08:08Z) which gave a 🟢 LOW-risk "Worth merging" verdict but is NOT a manual test report (it's static-analysis-style review, not blackbox execution).
+- ✅ **Decision tree match:** "PR exists, ready, CI green, **docs updated**, **no manual test results** → Spawn **testing worker**." Exact match.
+- ✅ **No competing PR-slot workers:** Only `6157442c` running network-wide (this orchestrator cycle, no repo binding) prior to the spawn. `450921e9` is `finished`. The just-spawned `37a6ba32` is the sole PR-slot worker.
+- ✅ **Expansion slot intentionally idle:** `gh issue list … --jq '[.[] | select(no ready/hold)] | length'` → 0. No issues need expansion. All 6 ready issues (#81 now in PR #98, #82, #83, #87, #90, #92) are already expanded.
+- ✅ **No new `## INSTRUCTION:` in WORKLOG.md:** `grep -n '^## INSTRUCTION:' WORKLOG.md` → no matches. Step 1 of orchestrate skill clean.
+
+**Testing worker scope (prompt highlights):**
+
+- Setup: clone, checkout `feat/report-velocity-81`, `uv sync`, read PR diff + issue #81 body/comments + updated README.
+- **13 numbered blackbox tests** covering: `report --help`, `velocity --help`, happy path on real `~/.ohtv` data, `--format csv`, `--since/--until` (absolute + relative), `--repo` filter, `--include-empty`, division-by-zero / NULL LOC handling, `initial_prompt_source` semantics (human/automation/unknown), DISTINCT (change_ref_id, conversation_id) anti-triple-counting, ISO-week boundary (Sunday 23:59 UTC vs Monday 00:00 UTC), public API importability for #82 (`from ohtv.reports.velocity import aggregate_velocity, VelocityRow`), and README example accuracy (copy-paste-runnable).
+- **Unit-test suite:** `uv run pytest -x` (expect ~1577 + 40 = 1617 passing) + `uv run pytest tests/unit/reports/ -v` for the new tests in isolation.
+- **Acceptance criteria coverage:** explicit mapping bullet list from each #81 criterion to a test number.
+- **Output:** PR comment with `## Manual Test Results` header (orchestrator scans for this), test matrix with ✅/❌/⚠️, bugs found list with severity, recommendation verdict, AI-disclosure footer. Posted via `gh pr comment 98 --body-file …`.
+
+**Explicit DO-NOTs encoded in prompt:** no draft-switch, no code changes (bugs → report only), no `WORKLOG.md` touch, no review-approval / merge calls, no skipping the unit-test run.
+
+**PR slot:** Now occupied by `37a6ba32` (testing on PR #98).
+**Expansion slot:** Idle (0 issues need expansion).
+
+**Current State (verified 22:16–22:20Z):**
+
+- **Open PRs:** 1 — [PR #98](https://github.com/jpshackelford/ohtv/pull/98) (ready, CI green, 0 human comments, 1 auto-AI review).
+- **Recently closed PRs/issues:** #97 + #80 (merged 21:21Z, prior cycle).
+- **Ready issues (6, all expanded):** `priority:medium`: #81 (**now in PR #98 testing**), #83, #90, #92; `priority:low`: #82 (waits on #81), #87 (waits on #86 — already merged).
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** `6157442c` (this orchestrator cycle, no repo binding) + `37a6ba32` (just-spawned testing worker).
+
+**Sync note:** `ohtv sync --since … --quiet` succeeded (litellm botocore warnings are routine and not failures).
+
+**Housekeeping done this cycle:** Truncated WORKLOG.md from 1067 → 974 lines (saved 93 lines). Archived the 16:00Z impl completion for #89 + 15:50Z orchestrator spawn for #89 (lines 16–108) into `WORKLOG_ARCHIVE_2026-05-26.md` (now 800 lines). The 16:21Z orchestrator entry (4 min inside the 6h boundary) and the 19:58Z manual-test for PR #97 stay in the active worklog. This finally lands the truncation TO-DO that's been deferred since the 19:51Z + 20:21Z + 20:51Z + 21:21Z + 21:49Z cycles.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Recent orchestrator entries (18:50Z, 19:19Z, 19:51Z, 20:21Z, 20:51Z, 21:21Z, 21:49Z, this one at 22:20Z) have all been spawn cycles. Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min, ~22:50Z):**
+
+- If `37a6ba32` is `running` → log status, do nothing. Testing typically takes 30–90 min for a 13-test matrix + real-data exercises + full pytest run.
+- If `37a6ba32` is `finished` AND a `## Manual Test Results` comment is on PR #98 with ✅ Ready verdict AND no blocker bugs → spawn **review worker** (the auto-AI review is already there; a human-equivalent reviewer pass can refine it, OR if no review comments need addressing the next step is merge).
+- If `37a6ba32` is `finished` AND test report exists with ❌ blocker bugs → spawn **impl worker** (re-implement / fix) on the same PR branch. Update worklog with bug summary.
+- If `37a6ba32` is `finished` AND test report exists with ⚠️ minor bugs only → spawn **review worker** (will fold in fixes during review round).
+- If `37a6ba32` is `finished` BUT no test comment was posted → investigate the conversation events; may need a `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation status:** Caught up. Next cycle, the 16:21Z orchestrator entry (now ~6h 30min old by 22:50Z) becomes a candidate, but its content (spawn of `dd70b78` docs worker for #96) is part of the now-merged PR #96 chain and can be archived together with the 16:50Z entry once both are past 6h.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-26 22:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `235b771` | merge | PR #98 - feat: report velocity | **NEW** ✓ running |
+
+**Spawned: Merge Worker**
+- PR: [#98 - feat: add report velocity command (#81)](https://github.com/jpshackelford/ohtv/pull/98)
+- Conversation: [`235b771`](https://app.all-hands.dev/conversations/235b7713df8c4400891be84255499c26)
+- Verified: `execution_status=running`, `sandbox_status=RUNNING`, `pr_number=[98]`
+
+**Previous PR Worker Status:** `37a6ba3` (testing for PR #98) — execution_status=finished at 22:30:55Z, posted ✅ Ready test report 22:30:44Z.
+
+**PR #98 — Merge-Readiness Verified:**
+- `lxa pr list jpshackelford/ohtv#98` → `oC | green | ready | 💬-- | 45m | 18m ago`
+- `mergeable=MERGEABLE`, `reviewDecision=null`, head `f9b0d1a`, base `main`
+- README.md updated in PR diff (docs-before-test gate satisfied during impl) ✓
+- CI green: `pr-review` SUCCESS at 22:08:26Z (only required check) ✓
+- Auto-AI review (github-actions, 22:08:08Z): `COMMENTED` state, positive "🟢 Good taste / Worth merging" ✓
+- **0 unresolved review threads** (`reviewThreads = []`) — no inline change requests ✓
+- Manual test verdict (22:30:44Z): **✅ Ready to review** — 1617/0/0 unit tests, all 19 acceptance criteria covered, math verified by hand against 13-row seeded DB
+- Two nits in test report (LOC=`-` vs `0` on `--include-empty` filler weeks; mixed `-`/`0` convention) — explicitly called non-blocking spec-vs-implementation philosophy disagreements. Merge worker instructed to acknowledge in commit body, not change code.
+
+**Decision Path (orchestrate skill decision tree):**
+- PR ready ✓ + CI green ✓ + docs updated ✓ + test results valid ✓ + good rating ✓ + docs valid ✓ + 💬=0 (no actionable threads) ✓ → **Spawn merge worker** (last row of PR slot table).
+
+**Current State:**
+- [PR #98](https://github.com/jpshackelford/ohtv/pull/98): `oC green ready 💬-- ` — merge worker actively executing squash-merge
+- No other open PRs
+- Expansion slot: **idle** (0 issues need expansion — every open issue has `ready` or `hold`)
+- Ready issues queue (post-merge candidates): #82 (priority:low — unblocked by #98), #83 (priority:medium), #90 (priority:medium), #92 (priority:medium), #87 (priority:low)
+
+**Persistent Note: Cloud Sync 401**
+- `ohtv sync --since … --quiet` still fails with `Error: API key required. Set OPENHANDS_API_KEY or OH_API_KEY environment variable.` despite both vars being set in the shell — the venv subprocess apparently isn't seeing them or ohtv is using a different auth path. Non-blocking for orchestration (we have `gh`, `lxa`, and the OH REST API). Flagged for follow-up; not fixing this cycle.
+
+**Truncation Status:** WORKLOG.md is 1040 lines (was 974 after 22:20Z truncation). Skipped this cycle — the 16:21Z and 16:50Z entries (~6h old) are next candidates but not aged enough to be high-value to archive. Will revisit next cycle when they're >7h old.
+
+**Next Check:** Next cron tick (~30 min). On wake-up, expect to see PR #98 merged, issue #81 auto-closed, and a fresh implementation slot ready for the next priority:medium ready issue (#83, #90, or #92).
