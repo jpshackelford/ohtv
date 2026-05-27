@@ -13,6 +13,25 @@ _This follow-up was created by an AI agent (OpenHands) on behalf of @jpshackelfo
 
 ---
 
+### 2026-05-27 15:50 UTC - Merge Worker
+
+**✅ PR #106 merged.** Squash commit `d7788da4a30ecdad581f43c5f55fba3aacc54b5e` on `main` at 2026-05-27T15:50:40Z. Branch `docs/chart-partial-loc-hatch-103` deleted on merge.
+
+**Issue #103 auto-closed** at 2026-05-27T15:50:42Z via the `Closes #103` footer.
+
+**Conventional commit shape used** (matches the pre-committed template confirmed in @jpshackelford's 15:37:58Z manual test comment):
+- Subject: `feat(charts): hatch partial_loc bars + document NULL LOC convention (#103)`
+- Body bullets: (a) `hatch=` kwarg on Panel 2 LOC bars when `partial_loc=True`, (b) `Patch("Partial LOC (NULL)")` legend entry, (c) AGENTS.md item #30 NULL-LOC bullet, (d) 1 new test (`test_partial_loc_bars_carry_hatch_marker`) + 1 extended regression guard (`test_bar_calls_receive_expected_pr_counts` now asserts `"hatch" not in first.kwargs` on Panel 1), (e) unit suite at 1691 passed (1690 baseline + 1 new)
+- Footer: `Closes #103`
+
+**Merge criteria** that gated this action: `state=OPEN`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, AI `pr-review` check SUCCESS, head SHA `8ba972cb` matches the SHA verified in the manual test comment (T1–T9 all ✅, no blockers).
+
+**Open observation — NOT filed as an issue.** The manual test surfaced one 🟡 cosmetic note: the `Patch("Partial LOC (NULL)")` legend entry is appended unconditionally in `plot_velocity`, regardless of whether any row actually has `partial_loc=True`. Both interpretations are defensible (always-self-documenting vs. conditional-when-relevant) and the merge-orchestrator instruction explicitly said to leave this as an open observation unless it clearly warrants a `ready`-labeled issue. It doesn't — the test comment documents it as intentional/non-blocking, and the existing AC set is silent on the question. If a future reviewer prefers the conditional-legend behavior, it's a ~3-line guard around the `Patch` append in `src/ohtv/reports/charts.py` (around lines 185–192).
+
+**Exit.** Per orchestrator instructions: no further workers spawned, no follow-up issues filed.
+
+---
+
 ### 2026-05-27 15:46 UTC - Orchestrator
 
 🎉 **Unblocked! Resume condition (c) met — manual test landed at 15:37:58Z. Spawned merge worker.**
