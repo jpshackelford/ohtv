@@ -10076,6 +10076,354 @@ def _display_aggregate_results_table(
 
 
 # =============================================================================
+# Classify — populate conversation_human_input.initial_prompt_source (Issue #83)
+# =============================================================================
+
+
+@main.command("classify")
+@click.argument("conversation_id", required=False)
+@click.option(
+    "--source",
+    "source",
+    type=click.Choice(["human", "automation", "unknown"]),
+    help="Target classification value.",
+)
+@click.option(
+    "--list-unknown",
+    "list_unknown_flag",
+    is_flag=True,
+    help="List conversations with source='unknown' and exit (read-only).",
+)
+@click.option(
+    "--no-followups",
+    "no_followups",
+    is_flag=True,
+    help="Bulk filter: rows where followup_message_count = 0.",
+)
+@click.option(
+    "--has-followups",
+    "has_followups",
+    is_flag=True,
+    help="Bulk filter: rows where followup_message_count >= 1.",
+)
+@click.option(
+    "--repo",
+    "repo_filter",
+    help="Restrict to conversations linked to OWNER/REPO (or short repo name).",
+)
+@click.option(
+    "--confirm",
+    "confirm",
+    is_flag=True,
+    help="Required to actually write in bulk mode. Single-conv mode does not need this.",
+)
+@click.option(
+    "-1",
+    "one_per_line",
+    is_flag=True,
+    help="Shorthand for --format lines (one short_id per line, no decoration).",
+)
+@click.option(
+    "--format",
+    "-F",
+    "fmt",
+    type=click.Choice(["table", "lines", "csv", "json"]),
+    default=None,
+    help="Output format for --list-unknown (default: table).",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Show debug output.")
+def classify(
+    conversation_id: str | None,
+    source: str | None,
+    list_unknown_flag: bool,
+    no_followups: bool,
+    has_followups: bool,
+    repo_filter: str | None,
+    confirm: bool,
+    one_per_line: bool,
+    fmt: str | None,
+    verbose: bool,
+) -> None:
+    """Classify the initial_prompt_source of conversations.
+
+    \b
+    Three behavior modes (mutually exclusive):
+
+    \b
+      1. Single-conversation override (no --confirm needed):
+         ohtv classify <id> --source human|automation|unknown
+         CAN flip an already-classified row (it is the override path).
+
+    \b
+      2. Discovery / listing (read-only):
+         ohtv classify --list-unknown [--repo OWNER/REPO]
+         ohtv classify --list-unknown -1     # one short_id per line
+
+    \b
+      3. Bulk heuristic (requires --confirm to write):
+         ohtv classify --no-followups --source automation --confirm
+         ohtv classify --has-followups --source human --confirm
+         Bulk operations ONLY touch rows where initial_prompt_source =
+         'unknown' so prior manual overrides are preserved. Without
+         --confirm, the command prints a preview count and exits 0
+         without writing.
+
+    \b
+    All modes accept --repo to narrow by repository (OWNER/REPO, short
+    name, or canonical URL), matching the behavior of ohtv list / refs.
+    """
+    _init_logging(verbose=verbose)
+
+    # Local import to keep CLI startup snappy and break any circular risk.
+    from ohtv import classify as classify_mod
+    from ohtv.db import get_connection
+    from ohtv.filters import is_db_available
+
+    # -1 shorthand
+    if one_per_line:
+        fmt = "lines"
+
+    # ------------------------------------------------------------------
+    # Mutual-exclusion checks (in the command body for friendly errors,
+    # not via Click constraints).
+    # ------------------------------------------------------------------
+    if no_followups and has_followups:
+        console.print(
+            "[red]Error:[/red] --no-followups and --has-followups are mutually exclusive."
+        )
+        raise SystemExit(1)
+
+    has_bulk_filter = no_followups or has_followups
+
+    if conversation_id and (has_bulk_filter or list_unknown_flag):
+        console.print(
+            "[red]Error:[/red] CONVERSATION_ID cannot be combined with "
+            "--list-unknown or --no-followups/--has-followups."
+        )
+        raise SystemExit(1)
+
+    if list_unknown_flag and has_bulk_filter:
+        console.print(
+            "[red]Error:[/red] --list-unknown cannot be combined with "
+            "--no-followups/--has-followups."
+        )
+        raise SystemExit(1)
+
+    # ------------------------------------------------------------------
+    # Mode dispatch
+    # ------------------------------------------------------------------
+    if not is_db_available():
+        console.print(
+            "[yellow]Warning:[/yellow] Database not initialized. "
+            "Run 'ohtv db scan && ohtv db process all' first."
+        )
+        raise SystemExit(1)
+
+    if conversation_id:
+        _classify_single(classify_mod, get_connection, conversation_id, source)
+        return
+
+    if list_unknown_flag:
+        _classify_list_unknown(
+            classify_mod, get_connection, repo=repo_filter, fmt=fmt
+        )
+        return
+
+    if has_bulk_filter:
+        filter_name = (
+            classify_mod.FILTER_NO_FOLLOWUPS
+            if no_followups
+            else classify_mod.FILTER_HAS_FOLLOWUPS
+        )
+        _classify_bulk(
+            classify_mod,
+            get_connection,
+            filter_name=filter_name,
+            source=source,
+            repo=repo_filter,
+            confirm=confirm,
+        )
+        return
+
+    # No usable mode — show a friendly hint.
+    console.print(
+        "[yellow]Usage:[/yellow] Provide a conversation ID, --list-unknown, "
+        "or one of --no-followups / --has-followups."
+    )
+    console.print()
+    console.print("Examples:")
+    console.print("  ohtv classify abc123 --source human")
+    console.print("  ohtv classify --list-unknown -1")
+    console.print("  ohtv classify --no-followups --source automation --confirm")
+    console.print()
+    console.print("Run [bold]ohtv classify --help[/bold] for full options.")
+    raise SystemExit(1)
+
+
+def _classify_single(
+    classify_mod, get_connection, conversation_id: str, source: str | None
+) -> None:
+    """Handle single-conversation override mode."""
+    if source is None:
+        console.print(
+            "[red]Error:[/red] --source is required when classifying a single conversation."
+        )
+        raise SystemExit(1)
+
+    try:
+        with get_connection() as conn:
+            result = classify_mod.set_single(
+                conn, conversation_id=conversation_id, source=source
+            )
+    except classify_mod.NoSuchConversationError as exc:
+        # Distinct from MissingHumanInputRowError: the conversation row
+        # itself doesn't exist in `conversations` (typo / fabricated ID
+        # / `db scan` hasn't run yet).
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(2) from exc
+    except classify_mod.AmbiguousConversationIdError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(2) from exc
+    except classify_mod.MissingHumanInputRowError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(2) from exc
+
+    if result.changed:
+        console.print(
+            f"Set [bold]{result.conversation_id[:8]}[/bold] "
+            f"initial_prompt_source: {result.previous_source} -> "
+            f"[green]{result.new_source}[/green]"
+        )
+    else:
+        console.print(
+            f"No change: [bold]{result.conversation_id[:8]}[/bold] "
+            f"is already '{result.new_source}'."
+        )
+
+
+def _classify_bulk(
+    classify_mod,
+    get_connection,
+    *,
+    filter_name: str,
+    source: str | None,
+    repo: str | None,
+    confirm: bool,
+) -> None:
+    """Handle bulk-heuristic mode (preview + optional --confirm apply)."""
+    if source is None:
+        console.print(
+            "[red]Error:[/red] --source is required with --no-followups / --has-followups."
+        )
+        raise SystemExit(1)
+
+    filter_label = (
+        "--no-followups"
+        if filter_name == classify_mod.FILTER_NO_FOLLOWUPS
+        else "--has-followups"
+    )
+
+    with get_connection() as conn:
+        if not confirm:
+            count = classify_mod.count_matching(
+                conn, filter_=filter_name, repo=repo
+            )
+            console.print(
+                f"Would classify [bold]{count}[/bold] conversation(s) as "
+                f"[green]{source!r}[/green] (filter: {filter_label})."
+            )
+            if count > 0:
+                console.print("Add [bold]--confirm[/bold] to apply.")
+            return
+
+        changed = classify_mod.apply_classification(
+            conn, filter_=filter_name, source=source, repo=repo
+        )
+
+    console.print(
+        f"Classified [bold]{changed}[/bold] conversation(s) as "
+        f"[green]{source!r}[/green] (filter: {filter_label})."
+    )
+
+
+def _classify_list_unknown(
+    classify_mod, get_connection, *, repo: str | None, fmt: str | None
+) -> None:
+    """Handle --list-unknown read-only mode."""
+    fmt = fmt or "table"
+    with get_connection() as conn:
+        rows = classify_mod.list_unknown(conn, repo=repo)
+
+    if fmt == "lines":
+        # Machine-readable: one short_id per line, no Rich decoration.
+        import sys
+
+        for r in rows:
+            sys.stdout.write(r.short_id + "\n")
+        return
+
+    if fmt == "csv":
+        import sys
+
+        writer = csv.writer(sys.stdout)
+        writer.writerow(
+            ["conversation_id", "short_id", "created_at", "repo", "followups", "title"]
+        )
+        for r in rows:
+            writer.writerow(
+                [
+                    r.conversation_id,
+                    r.short_id,
+                    r.created_at or "",
+                    r.repo or "",
+                    r.followup_message_count,
+                    r.title or "",
+                ]
+            )
+        return
+
+    if fmt == "json":
+        click.echo(
+            json.dumps(
+                [
+                    {
+                        "conversation_id": r.conversation_id,
+                        "short_id": r.short_id,
+                        "created_at": r.created_at,
+                        "repo": r.repo,
+                        "followup_message_count": r.followup_message_count,
+                        "title": r.title,
+                    }
+                    for r in rows
+                ],
+                indent=2,
+            )
+        )
+        return
+
+    # table (default)
+    if not rows:
+        console.print("[dim]No conversations classified as 'unknown'.[/dim]")
+        return
+
+    table = Table(title="Unknown-source conversations", show_lines=False)
+    table.add_column("short_id", style="bold")
+    table.add_column("created_at")
+    table.add_column("repo")
+    table.add_column("followups", justify="right")
+    table.add_column("title")
+    for r in rows:
+        table.add_row(
+            r.short_id,
+            r.created_at or "",
+            r.repo or "-",
+            str(r.followup_message_count),
+            r.title or "",
+        )
+    console.print(table)
+
+
+# =============================================================================
 # Reports — weekly aggregates for research analysis (Issue #81+)
 # =============================================================================
 
