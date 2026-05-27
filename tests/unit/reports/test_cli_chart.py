@@ -173,6 +173,18 @@ def test_cli_chart_missing_matplotlib(
     assert "pip install ohtv[charts]" in result.output
 
 
+def test_cli_chart_unsupported_extension(
+    runner: CliRunner, isolated_db: Path, tmp_path: Path
+) -> None:
+    """Unsupported --chart extension → click.UsageError, exit 2, no traceback."""
+    _seed_one_repo(isolated_db)
+    out = tmp_path / "v.txt"
+    result = runner.invoke(ohtv_main, ["report", "velocity", "--chart", str(out)])
+    assert result.exit_code == 2
+    assert "unsupported output extension" in result.output
+    assert "Traceback" not in result.output
+
+
 # ---------------------------------------------------------------------------
 # C-4: --chart respects --repo filter (data routed through aggregate_velocity).
 # ---------------------------------------------------------------------------

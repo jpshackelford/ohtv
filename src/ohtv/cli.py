@@ -10681,6 +10681,8 @@ def report_velocity(
                 "Charting requires the [charts] extra. "
                 "Install with: pip install ohtv[charts]"
             ) from exc
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
         return
 
     if fmt == "csv":
