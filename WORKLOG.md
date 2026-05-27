@@ -739,3 +739,34 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
 
+
+### 2026-05-27 19:08 UTC - Implementation Worker — Issue #110 Complete
+
+**Issue:** [#110 — No behavioral test coverage of the cloud-sync surface](https://github.com/jpshackelford/ohtv/issues/110) (`priority:high`, foundation for the #111 atomic switch).
+
+**PR:** [#119 — feat(tests): cloud-sync behavioral harness](https://github.com/jpshackelford/ohtv/pull/119) (marked ready for AI review).
+
+**Branch:** `feat/sync-test-harness-110` (2 commits: foundation + scenarios/migration).
+
+**What landed:**
+- New `tests/unit/sync/` package: `fakes.py` (FakeCloudClient + RecordingCloudClient shim), `builders.py` (`make_trajectory_zip` + `ConvFactory`), `strategies.py` (Hypothesis), `conftest.py` (fixtures incl. the temporary `ohtv.sync.CloudClient` import-site patch that #111 retires), `test_harness_smoke.py` (32 tests), `test_behavioral.py` (16 scenarios).
+- `_RecordingCloudClient` migrated to `RecordingCloudClient` (thin subclass of `FakeCloudClient`), aliased in `test_sync.py` via `import as` so all 27 call sites stay untouched — single fake, no parallel impls.
+- `_create_minimal_zip` migrated to `make_trajectory_zip` via the same aliasing pattern.
+- `pyproject.toml`: added `hypothesis>=6` to `[dependency-groups] dev`.
+
+**Test count delta:** 1744 → 1792 collected (+48). Breakdown: 1779 passed, 3 skipped, 10 xfailed. Zero new ruff findings in touched files.
+
+**Scenario marker tally (matches expansion comment exactly):**
+- 3 pass-today (initial empty sync, id normalization, #87 metadata regression guard)
+- 10 `xfail(strict=True, reason="#111[+...]")` — flip when #111 ships
+- 3 `skip(reason="#112" or "#113")` — flip when those issues land
+
+**Strict-xfail safety net:** 3 scenarios (9, 10, 16) initially XPASS'd because their assertions accidentally held under today's code. Each was sharpened to a post-#111-specific contract (e.g., #16 now asserts `search_calls[-1] is None` on second sync — false today, true after #111).
+
+**Out of scope, NOT touched:** `src/ohtv/sync.py`, `src/ohtv/sources/cloud.py`, `src/ohtv/db/migrations/`. Only `tests/` + `pyproject.toml`/`uv.lock`.
+
+**Handoff:** PR #119 is open and ready for AI review. Next dependent worker is #111's implementer — they should flip 10 xfails to passing as the gap-recovery engine lands. #112 schema work flips the 2 `skip(#112)` markers to `xfail(strict=True, reason="#111")` first; then #111 flips them to pass. #113 flips the `skip(#113)` repair-UX scenario.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
