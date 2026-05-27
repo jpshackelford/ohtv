@@ -127,7 +127,7 @@ curl -s "https://app.all-hands.dev/api/v1/app-conversations/search?updated_at__g
   -H "Authorization: Bearer $OH_API_KEY"
 ```
 
-**Note on Sorting:** Results are returned in descending order by `updated_at` (most recently updated first).
+**Note on Sorting:** Results are returned in descending order by `created_at` (most recently created first). The endpoint does not accept a `sort` parameter; callers that need `updated_at` ordering must sort client-side.
 
 ---
 

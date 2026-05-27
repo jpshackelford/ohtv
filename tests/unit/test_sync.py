@@ -2000,3 +2000,119 @@ class TestMetadataDiffDataclass:
         ]:
             diff = MetadataDiff(**{kwarg: True})
             assert diff.any_changed is True, f"any_changed False for {kwarg}"
+
+
+
+class TestResetToNNewest:
+    """Tests for SyncManager.reset_to_n_newest() client-side sort (Issue #107).
+
+    The cloud /search endpoint returns items in created_at DESC order and has no
+    `sort` parameter, so reset_to_n_newest must sort by updated_at DESC
+    client-side to honor its documented "N most recently updated" semantic.
+    """
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        """SyncManager with a tmp manifest and mocked config."""
+        config = MagicMock()
+        config.api_key = "test-key"
+        config.cloud_api_url = "https://example.com"
+        config.synced_conversations_dir = tmp_path / "synced"
+        with patch("ohtv.sync.get_manifest_path", return_value=tmp_path / "manifest.json"):
+            return SyncManager(config)
+
+    def test_returns_n_items_sorted_by_updated_at_desc(self, manager):
+        """The N items kept must be those with the newest updated_at, even when
+        that ordering disagrees with created_at (which is what the API returns)."""
+        # Listing as the API would return it: created_at DESC.
+        # Note: conv "B" has the oldest created_at but the newest updated_at —
+        # the pre-#107 code would have dropped it; the fix must keep it.
+        listing = [
+            {"id": "A", "title": "A", "created_at": "2026-05-20T00:00:00Z", "updated_at": "2026-05-20T00:00:00Z"},
+            {"id": "C", "title": "C", "created_at": "2026-05-15T00:00:00Z", "updated_at": "2026-05-22T00:00:00Z"},
+            {"id": "D", "title": "D", "created_at": "2026-05-10T00:00:00Z", "updated_at": "2026-05-18T00:00:00Z"},
+            {"id": "E", "title": "E", "created_at": "2026-05-05T00:00:00Z", "updated_at": "2026-05-12T00:00:00Z"},
+            {"id": "B", "title": "B", "created_at": "2026-05-01T00:00:00Z", "updated_at": "2026-05-25T00:00:00Z"},
+        ]
+        client = _RecordingCloudClient(listing)
+
+        progress: list[str] = []
+
+        def on_progress(conv_id, title, status):
+            progress.append(conv_id)
+
+        with patch("ohtv.sync.CloudClient", return_value=client):
+            result = manager.reset_to_n_newest(n=3, dry_run=True, on_progress=on_progress)
+
+        # Newest-updated three are B (05-25), C (05-22), A (05-20). E and D drop.
+        assert progress == ["B", "C", "A"]
+        assert result.new == 3
+        assert result.skipped_new == 2
+
+    def test_missing_updated_at_sorts_last(self, manager):
+        """Items with updated_at=None must sort to the END so that an unknown
+        timestamp can never displace a known-recent conversation from the keep
+        set — even when the item has a very recent created_at."""
+        listing = [
+            {"id": "A", "title": "A", "created_at": "2026-05-20T00:00:00Z", "updated_at": "2026-05-20T00:00:00Z"},
+            # X has the newest created_at but updated_at=None. It must NOT
+            # displace A or C, both of which have a known updated_at.
+            {"id": "X", "title": "X", "created_at": "2026-05-25T00:00:00Z", "updated_at": None},
+            {"id": "C", "title": "C", "created_at": "2026-05-15T00:00:00Z", "updated_at": "2026-05-22T00:00:00Z"},
+        ]
+        client = _RecordingCloudClient(listing)
+
+        progress: list[str] = []
+
+        def on_progress(conv_id, title, status):
+            progress.append(conv_id)
+
+        with patch("ohtv.sync.CloudClient", return_value=client):
+            result = manager.reset_to_n_newest(n=2, dry_run=True, on_progress=on_progress)
+
+        # C (updated 05-22) > A (updated 05-20) > X (created 05-25 fallback).
+        # Two highest are C and A. X is dropped despite having the newest
+        # created_at, because updated_at is the primary sort key.
+        assert progress == ["C", "A"]
+        assert result.new == 2
+        assert result.skipped_new == 1
+
+    def test_preserves_all_items_when_n_exceeds_total(self, manager):
+        """When N >= total, every item is kept; skipped_new is 0."""
+        listing = [
+            {"id": "A", "title": "A", "created_at": "2026-05-20T00:00:00Z", "updated_at": "2026-05-20T00:00:00Z"},
+            {"id": "B", "title": "B", "created_at": "2026-05-10T00:00:00Z", "updated_at": "2026-05-22T00:00:00Z"},
+            {"id": "C", "title": "C", "created_at": "2026-05-15T00:00:00Z", "updated_at": "2026-05-18T00:00:00Z"},
+        ]
+        client = _RecordingCloudClient(listing)
+
+        progress: list[str] = []
+
+        def on_progress(conv_id, title, status):
+            progress.append(conv_id)
+
+        with patch("ohtv.sync.CloudClient", return_value=client):
+            result = manager.reset_to_n_newest(n=10, dry_run=True, on_progress=on_progress)
+
+        # All 3 kept, still sorted by updated_at DESC: B (05-22), A (05-20), C (05-18).
+        assert progress == ["B", "A", "C"]
+        assert result.new == 3
+        assert result.skipped_new == 0
+
+    def test_empty_cloud_is_noop(self, manager):
+        """Empty cloud listing must produce a clean no-op SyncResult (no errors,
+        no progress callbacks). Guards against TypeError or IndexError on []."""
+        client = _RecordingCloudClient([])
+
+        progress: list[tuple] = []
+
+        def on_progress(conv_id, title, status):
+            progress.append((conv_id, status))
+
+        with patch("ohtv.sync.CloudClient", return_value=client):
+            result = manager.reset_to_n_newest(n=5, dry_run=True, on_progress=on_progress)
+
+        assert progress == []
+        assert result.new == 0
+        assert result.skipped_new == 0
+

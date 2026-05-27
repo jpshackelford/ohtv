@@ -1139,11 +1139,20 @@ class SyncManager:
         try:
             with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
                 # Fetch all conversations from cloud.
-                # Note: API returns conversations sorted by updated_at descending (newest first).
-                # See REFERENCE_CLOUD_API.md for sort order documentation.
+                # The /search endpoint returns items in created_at DESC order and exposes
+                # no `sort` parameter (see REFERENCE_CLOUD_API.md). To honor this method's
+                # documented "N most recently updated" semantic, sort client-side by
+                # updated_at DESC before truncating. Items with a missing/None updated_at
+                # are coerced to "" so they sort to the end under reverse=True — a
+                # conversation with unknown updated_at must not displace a known-recent
+                # one from the keep set (issue #107).
                 conversations = client.search_all_conversations()
                 log.info("Found %d total conversations in cloud", len(conversations))
-                
+                conversations.sort(
+                    key=lambda c: c.get("updated_at") or "",
+                    reverse=True,
+                )
+
                 # Take only first N
                 conversations_to_sync = conversations[:n]
                 
