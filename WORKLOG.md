@@ -1,3 +1,27 @@
+### 2026-05-27 07:30 UTC - Implementation Worker [102]
+
+Implemented Issue [#102 — chore(charts): wrap ValueError as click.UsageError for unsupported --chart extension](https://github.com/jpshackelford/ohtv/issues/102). Pure UX polish from PR #101 manual test report — unsupported `--chart` extension (e.g. `.txt` or no extension) now produces a single-line `Error: …` Click usage message (exit 2) instead of a raw 20-line `ValueError` traceback (exit 1).
+
+**Files touched (2):**
+
+- `src/ohtv/cli.py` — added 2-line `except ValueError as exc: raise click.UsageError(str(exc)) from exc` branch immediately after the existing `except ImportError` handler around the `plot_velocity(...)` call.
+- `tests/unit/reports/test_cli_chart.py` — added `test_cli_chart_unsupported_extension` (one CLI test, modeled on C-3 `test_cli_chart_missing_matplotlib`).
+
+**Intentionally NOT touched:** `src/ohtv/reports/charts.py` (module-level `ValueError` contract preserved) and `tests/unit/reports/test_charts.py::test_unknown_extension_raises` (still asserts the raw `ValueError` — that is the module-level contract; only the CLI's reaction to it was polished).
+
+**Verification:**
+
+- `uv run pytest tests/unit/reports/test_cli_chart.py tests/unit/reports/test_charts.py -v` → 18 passed (including the new `test_cli_chart_unsupported_extension` and the preserved `test_unknown_extension_raises`).
+- `uv run pytest -q` → 1739 passed (1738 baseline + 1 new test, as the expansion comment predicted).
+- `uv run ruff check src/ohtv/cli.py tests/unit/reports/test_cli_chart.py` → 78 pre-existing warnings, **0 new** on the 2 added lines or the new test (per orchestrator instructions, unrelated ruff debt left untouched).
+
+**PR:** [#105 — chore(charts): wrap ValueError as click.UsageError for unsupported --chart extension](https://github.com/jpshackelford/ohtv/pull/105) (branch `chore/charts-unsupported-ext-usage-error-102`). Opened as draft, then marked ready-for-review. The repo's `PR Review by OpenHands` workflow ran with `conclusion=skipped` on the draft-open trigger; marking the PR ready re-arms it for the orchestrator's next cycle. Awaiting orchestrator (testing-worker spawn + AI code review).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+
 ### 2026-05-27 06:54 UTC - Merge Worker (PR #104)
 
 **PR merged ✅**
