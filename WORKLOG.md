@@ -1,3 +1,106 @@
+### 2026-05-27 10:46 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `46367c3` | testing | PR #106 — hatch partial_loc + NULL docs | ⚠️ **ZOMBIE (4th in a row)** — sandbox PAUSED, 0 activity since spawn |
+
+🚨 **BLOCKED — Awaiting human guidance.** No worker spawned this cycle. PR #106's merge gate is stuck on the manual-test step because the platform is producing zombie spawns at a 100% rate over the last 4 attempts.
+
+**Decision-tree match this cycle:**
+
+- ✅ **No `## INSTRUCTION:` in WORKLOG.md** (`grep -nE '^## INSTRUCTION:' WORKLOG.md` → 0 matches).
+- ✅ **Active worker `46367c3` (spawned 10:21:31Z) is the 4th consecutive zombie** — confirmed via microsecond-delta probe on the API listing: `created_at=2026-05-27T10:21:31.042759Z`, `updated_at=2026-05-27T10:21:31.042762Z` (3-microsecond delta → no agent activity ever occurred). For comparison, the 4 most recent **healthy** productive convs all show 2+ minutes of created→updated delta:
+  - `a49fc55` (impl, PR #106): 09:22:11 → 09:27:57 (+5m46s) ✓
+  - `002d198` (merge, PR #105): 08:22:17 → 08:24:26 (+2m09s) ✓
+  - `2a89daa` (test, PR #105): 07:51:30 → 07:56:14 (+4m44s) ✓
+  - `7b39f85` (merge, PR #104): 06:51 → 06:55 (+~4m) ✓
+- ✅ **PR #106 state on inspection (10:43–10:46Z):** unchanged from 10:22Z. `state=OPEN`, `isDraft=false`, `mergeable=UNKNOWN`, `reviewDecision=""`, `headRefOid=8ba972cb3e8c2bd2c8d0fe8b0eee63502e01779a` (zero drift), last commit `2026-05-27T09:24:57Z`. **No `## Manual Test Results` comment** (`gh pr view 106 --json comments` → 0 comments matching the pattern). AI bot review LOW remains the only review.
+- ✅ **Match: "4th-in-a-row zombie → log and escalate, do NOT re-retry without diagnosis"** — exactly the path pre-committed by the 10:22Z cycle. No new spawn this cycle.
+- ✅ **Expansion slot:** No unexpanded issues (`gh issue list --state open --json labels` → 3 open: #103 (in flight via PR #106, `ready`+`priority:low`), #26 (`hold`), #90 (`hold`+`enhancement`+`priority:medium`)). Expansion slot idle by design.
+- ✅ **Auto-disable check N/A:** This is **NOT** an "All quiet" cycle — there is productive work (PR #106 testing) that is **blocked on platform issues**, not a lack of work. Consecutive-quiet counter stays at 0. (Auto-disable would be inappropriate here: it would silently park the workflow while a PR sits stuck.)
+
+**Confirmed zombie pattern (now 4 in this orchestrator run, all blocking PR #106):**
+
+| # | Conv ID | Spawned (UTC) | Type | Microsecond Δ created→updated | Diagnosis |
+|---|---------|---------------|------|-------------------------------|-----------|
+| 1 | `9928c514` | 09:16Z | (unknown — testing PR #106?) | n/a (already disappeared from listing) | MISSING sandbox, 0 cost |
+| 2 | `1b1cde3d` | 09:46Z | (unknown) | n/a | MISSING sandbox, 0 cost |
+| 3 | `f67d9875` | 09:51:52.832638Z → .832640Z | testing PR #106 | **2 µs** | PAUSED sandbox, exec_status=null, 0 cost |
+| 4 | `46367c3` | 10:21:31.042759Z → .042762Z | testing PR #106 (retry) | **3 µs** | PAUSED sandbox, exec_status=null, 0 cost |
+
+All four show the same fingerprint: sandbox provisioned, conv ID issued, but `updated_at` advances by single-digit microseconds past `created_at` — meaning the initial-user-message dispatch never reached the agent. This is **distinct from the 08:22Z plugin-block 500s** (which were start-task HTTP 500s BEFORE conv ID issuance — a different failure mode entirely).
+
+**Hypotheses (orchestrator cannot validate without sandbox boot logs):**
+
+1. **Plugin-loader bug** in the `feat/ohtv-workflow-plugin` branch causing agent-server to crash on init AFTER healthy-looking sandbox boot. The 09:53Z cycle noted the response echoed `plugins=null` — server may be silently dropping the plugin payload, but if the agent-server still attempts to load and crashes, that would match this pattern. ⚠️ **However:** the 10:22Z retry succeeded in getting a conv ID with `execution_status=idle` + `sandbox_status=RUNNING` on first poll — same observation that historically meant a healthy spawn. So either (a) initial poll is misleading and zombies look healthy for the first 30–60s, OR (b) the failure is downstream of agent init.
+2. **Initial-user-msg dispatch race** in the runtime — the message payload getting lost between start-task READY and the agent's main loop. The 10:22Z entry suggested this hypothesis; nothing today contradicts it.
+3. **LLM proxy / downstream timeout** — the agent does start, attempts its first LLM call, the call hangs/times out silently, the agent stalls without surfacing an error. Less likely because 0 tokens were ever recorded (would expect some prompt-tokens if the first LLM call started).
+4. **Sandbox image regression** — a recent platform-side image update may have broken the bootstrap. Would explain the cliff-edge transition (07:51Z spawn worked, 09:16Z+ spawns all zombie).
+
+**Recommended human investigation paths (in priority order):**
+
+1. **Pull the sandbox boot logs for `46367c3`** (`46367c39cc1143a4a4d314abdd945fa6`) and `f67d9875` (`f67d9875b58d4df7999ffe09ada9c53e`) — the orchestrator has no access to these. Look for agent-server crashes, plugin-loader exceptions, or LLM proxy connection errors in the boot trace.
+2. **Manually run the PR #106 test plan** locally (it's an 86-line / 3-file PR — ~15 min of human testing would unblock the merge gate and resolve the immediate blocker). Test plan is in the 09:53Z WORKLOG entry under "Testing worker scope (prompt highlights)" — 9 steps, all reproducible. If the test passes, the human can post the manual-test comment and the next orchestrator can spawn the merge worker normally.
+3. **Compare sandbox image / runtime version** between `a49fc55` (last healthy spawn, 09:22Z) and `f67d9875` (first zombie, 09:51Z). The 29-minute window is the cliff.
+4. **If platform issue persists** → add `## INSTRUCTION: Pause workflow pending zombie spawn diagnosis` to WORKLOG.md to silence retry attempts cleanly.
+
+**Suggested `## INSTRUCTION:` shapes for the human:**
+
+```markdown
+## INSTRUCTION: Pause workflow — manual-test PR #106 locally and post results
+
+The orchestrator is producing zombie testing-worker spawns at 100% rate.
+Skip the testing-worker spawn step until further notice. After the manual
+test comment is posted on PR #106, the orchestrator can resume normally
+(merge-worker spawn is the next step in the decision tree).
+```
+
+OR
+
+```markdown
+## INSTRUCTION: Resume normal operations
+
+Platform issue resolved (manually verified a fresh test spawn).
+Continue from where you left off: spawn a testing worker for PR #106
+if there are no manual test results yet.
+```
+
+**Current State (verified 10:43–10:46Z):**
+
+- **Open PRs (1):** [PR #106](https://github.com/jpshackelford/ohtv/pull/106): `oR/oC green ready` (AI bot review LOW only, no manual tests, no issue-thread comments). Head SHA `8ba972cb` (unchanged across 3 cycles). Testing **BLOCKED by platform**, retry-worthy diagnostics: ✗ (4 zombies in a row).
+- **Ready issues (1):** #103 (in flight via PR #106 — will auto-close on merge, `priority:low`).
+- **Needs expansion:** 0.
+- **On hold:** #26 (mcp server, awaiting external dep), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none labeled (but PR #106 is informally blocked on platform — this entry IS the surfacing of that).
+- **Recently merged (last 24h):** PR #105 (#102 UsageError, 08:23Z), PR #104 (#87 manifest cache, 06:54Z), PR #101 (#82 charts, 04:52Z), PR #100 (#92 weekly-counts, 03:20Z), PR #99 (#83 classify, 01:22Z).
+
+**Auto-disable risk this cycle:** **Zero.** Counter stays 0. This is a platform-blocked cycle, not a quiet cycle. The auto-disable logic explicitly keys on "All quiet" entries (no productive work to pick up), which does not match here.
+
+**Housekeeping note:** WORKLOG.md is at **1711 lines pre-this-entry (~1820 post)**. Above the 1500-line trigger flagged by the last 3 cycles. **Deferred again this cycle** because the immediate priority is surfacing the zombie pattern in a fully self-contained entry that the human can read top-down without scrolling through truncated context. Truncation can land in the next quiet cycle once PR #106's gate is unblocked (or the human posts an instruction). The 16:00Z target proposed in the 10:22Z entry slides accordingly.
+
+**Sync note:** `ohtv sync --since $(date -u -d '4 hours ago' +%Y-%m-%dT%H:%M:%S) --quiet` ran cleanly (`OH_API_KEY="$OPENHANDS_API_KEY"`-bridged). Tools installed via `uv venv` + `uv pip install git+...` inside the repo `.venv` (`uv pip install --system` hits `Permission denied` in this sandbox — 4th consecutive cycle with the same install pattern).
+
+**Lessons learned this cycle:**
+
+1. **The 10:22Z pre-commit landed exactly as forecasted.** Predicted: "If `46367c3` is idle/paused/zombie (4th in a row) → log it and consider escalating via `## INSTRUCTION:` to human; do NOT immediately re-retry without diagnosis." Reality: 4th zombie confirmed, no new spawn, escalation logged. Nine consecutive cycles of cleanly-fulfilled pre-commits.
+2. **Microsecond-delta probe is a reliable zombie detector.** Healthy productive convs show 2+ minute deltas; zombies show single-digit microseconds. This is more reliable than `execution_status` or `sandbox_status` at first-poll time (both showed `idle`/`RUNNING` on the 10:22Z healthy-looking probe of `46367c3`, but the conversation never advanced past those values). **Codifying for future orchestrators:** treat any spawn with `(updated_at - created_at) < 1s` after a 20-minute wait as a confirmed zombie.
+3. **Restraint is the right move at this volume of evidence.** Four consecutive zombies for the same PR means the next retry is unlikely to succeed and IS likely to add another zombie to the listing without surfacing anything new. The pre-commit's "do NOT re-retry without diagnosis" guardrail is exactly right.
+4. **The auto-disable logic needs to NOT fire here.** This cycle is a "platform-blocked productive cycle", not a "quiet cycle". The skill's auto-disable trigger keys on "All quiet" entries specifically — confirmed by re-reading the skill body. No counter increment.
+5. **Tiny manual-test shortcut available.** PR #106 is an 86-line, 3-file change with a fully-documented 9-step test plan (09:53Z entry). The human could unblock the gate in ~15 minutes of local work and resume the orchestrator cleanly. Calling out this option explicitly so the operational cost is visible.
+
+**Next check (~30 min, ~11:16Z):**
+
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first (this is the most likely path; the entry above is a request for one).
+- If a `## Manual Test Results` comment appears on PR #106 (human posted it manually, OR a new healthy worker landed it) → spawn **merge worker**. Merge-worker pre-commit shape is already in the 10:22Z entry — re-use verbatim. Squash subject: `feat(charts): hatch partial_loc bars + document NULL LOC convention (#103)`, footer: `Closes #103`.
+- If `46367c3` is still zombie AND no human instruction AND no test comment → log "platform-still-blocked, no action this cycle" and **continue restraint**. Do NOT spawn a 5th zombie. **This would be the 1st "platform-blocked" non-quiet cycle in a row** (not the same as a quiet cycle for auto-disable purposes).
+- If `46367c3` retroactively comes alive (e.g., LLM proxy unblocked at runtime → the conv suddenly starts processing) AND posts a test comment → great, route as merge worker per the normal flow.
+- **Pre-commit further out:** If platform issue persists for 2–3 more cycles without human intervention, the orchestrator should add a `## INSTRUCTION:` to itself nominating "I need eyes on the spawn pipeline" — but that requires deciding when "log and wait" becomes "spam the worklog with no-op entries". Soft threshold: 3 platform-blocked cycles in a row → write a single consolidated escalation summary; do not re-log per cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 10:22 UTC - Orchestrator
 
 **Active Workers:**
