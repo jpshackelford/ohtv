@@ -1,3 +1,13 @@
+### 2026-05-27 18:58 UTC - Issue #108 expanded
+
+Posted [technical-approach comment](https://github.com/jpshackelford/ohtv/issues/108#issuecomment-4557716321) on #108 and applied the `ready` label. Reproduced cleanly against `app.all-hands.dev`: a paginated `/search?limit=100` returns **3580** items with **zero** `parent_conversation_id`, while `?include_sub_conversations=true` returns **3582** items with **2** sub-conversations present — confirming the silent server-side filter. Adjacent finding worth flagging: `/count` returns the inclusive **3582** regardless of the flag, so the existing `sync --repair --check-cloud` path already disagrees with itself when sub-conversations exist on the account. Root cause is one omission at `src/ohtv/sources/cloud.py:76-91` (the param is never added to the request), cascading through four `search_all_conversations` call sites in `sync.py` (lines 206, 751, 936, 1149).
+
+Picked **default-on** (no CLI flag) over the issue body's opt-in `--include-sub-conversations` proposal — justified explicitly in the comment: silent-bug framing in the title, 0.06% observed dataset growth, contract consistency between sync/repair/update-metadata/reset paths, and search↔count alignment. Specified a three-part fix: kwarg through `CloudClient` (`search_conversations`/`search_all_conversations`/`count_conversations`), a new additive migration `018_parent_conversation_id.py` with index, and DB writeback in both `Syncer._process_conversations` and `db/scanner.py:extract_metadata`. Coordination notes carved out explicitly: orthogonal to #111 (set-diff is unaware of parent/sub once the listing is inclusive), needs a small fake-client surface in #110 (honor the param + factory for sub-conv items + new "subs included in set-diff" xfail scenario), additive to #112 (separate migration recommended), and slots into #109's column-ownership table as a sync-owned cloud-only column. No `src/` or `tests/` changes, no PR opened.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 18:51 UTC - Orchestrator
 
 **Active Workers:**
