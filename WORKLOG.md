@@ -1,3 +1,7 @@
+### 2026-05-27 04:09 UTC - Impl Worker (#82)
+
+- PR opened: [#101 — feat: add --chart flag to ohtv report velocity (#82)](https://github.com/jpshackelford/ohtv/pull/101) (ready, branch `feat/charts-velocity-82`, 1688 tests passing, ruff clean on new files). All 9 ACs verified by tests; velocity data path untouched. Docs (README + AGENTS.md #30) bundled in the same PR.
+
 ### 2026-05-26 19:19 UTC - Orchestrator
 
 **Active Workers:**
