@@ -1286,3 +1286,82 @@ The expansion comment on Issue #102 is unusually precise (it was written today a
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
+
+### 2026-05-27 07:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `87d0f99` | implementation | Issue #102 → PR #105 | finished ✓ |
+| `2a89daa` | testing | PR #105 — chore(charts) UsageError wrap | **NEW** running |
+
+**Spawned: Testing Worker** — `2a89daafb35f4e8caf407b3d445582db` ([conversation](https://app.all-hands.dev/conversations/2a89daafb35f4e8caf407b3d445582db))
+
+Implementation worker `87d0f99` from the 07:21Z cycle completed cleanly. **PR #105 opened at 07:24:08Z** on branch `chore/charts-unsupported-ext-usage-error-102`, head `2b823c7`, 1 commit, 2 files changed (`src/ohtv/cli.py`, `tests/unit/reports/test_cli_chart.py`) — matches the 07:21Z pre-commit exactly. Impl-worker wall-clock: ~7m (07:21Z spawn → 07:28Z `finished`), within the predicted 5–15m envelope.
+
+**Decision-tree match this cycle:**
+
+- ✅ **No `## INSTRUCTION:` in WORKLOG.md** (`grep -nE '^## INSTRUCTION:' WORKLOG.md` → 0 matches).
+- ✅ **Active workers from last cycle:** `87d0f99` (impl) status=`finished` per `/api/v1/app-conversations/search` (last updated 07:28:53Z). PR slot freed.
+- ✅ **PR #105 state on inspection** (~07:48Z, ~24m post-open):
+  - lxa: `oC green ready 25m 18m ago` — the `C` is lxa's review-bot-COMMENTED tag (not changes-requested; `reviewDecision=""` in `gh pr view`).
+  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `reviewDecision=""` (no formal approval, just COMMENTED).
+  - CI: both `pr-review` checks green (one SKIPPED legacy, one SUCCESS current — same pattern as PR #104).
+  - **AI bot review (`github-actions`, 07:31:16Z) is enthusiastically positive:** "🟢 **Good taste** - Clean, minimal fix that follows existing patterns", "Worth merging", risk LOW. Full body: "Mirrors the adjacent `ImportError → UsageError` pattern / Catches module-level `ValueError` and translates to user-friendly Click error / Preserves the API contract (`plot_velocity` still raises `ValueError`) / Good test coverage verifying exit code, message, and absence of traceback / All 18 chart tests pass." No CHANGES_REQUESTED branch triggered.
+  - **No human comments, no manual test report yet.** This is the gating condition.
+- ✅ **Docs check — skip docs worker.** Decision tree says spawn docs worker if `README not updated` AND user-facing changes. Per the issue body and #102 expansion: no new commands, no new flags, no changed *documented* behavior — internal error-mapping polish only (the previous behavior was a raw `ValueError` traceback, which README has never documented). Decision-tree exclusion explicitly lists "Bug fixes that don't change documented behavior" — applies here. **Skipped docs worker by policy.**
+- ✅ **Match: PR exists, ready, CI green, docs N/A, no manual test results → spawn testing worker.** Even with a glowing bot review, the workflow requires manual blackbox validation before merge. Spawned.
+- ✅ **Expansion slot:** No unexpanded issues (`gh issue list … --jq '[…select … not]'` → `[]`). All 4 open issues are either `ready` (#102, #103) or `hold` (#26, #90). Expansion slot idle.
+- ✅ **Auto-disable check N/A:** Productive spawn this cycle. Consecutive-quiet counter stays 0.
+
+**Testing worker scope (prompt highlights):**
+
+The prompt is unusually detailed for a tiny PR because the new error-handling path has subtle correctness criteria (no traceback in stderr, correct exit code, message wording match) that pytest-only coverage misses unless exercised end-to-end:
+
+1. **Blackbox: happy path** — `uv run ohtv report velocity --chart /tmp/v.png --include-empty` should not trigger the new handler (exit 0 or graceful empty-data exit; matplotlib presence verified implicitly).
+2. **Blackbox: the change under test** — `--chart /tmp/v.bogus --include-empty` → exit 2, "unsupported output extension" in stderr, **NO `Traceback`/`ValueError` lines**.
+3. **Blackbox: edge cases** — uppercase ext (`.PNG`), no extension (`v`), trailing dot (`v.`). Document actual behavior even if surprising; the issue spec doesn't pre-commit any of these as PASS/FAIL.
+4. **Blackbox: `[charts]` extra path** — implicitly via (1); the `ImportError` branch sits next door to the new `ValueError` branch.
+5. **Unit suite** — full pytest run. Expect 1739 passing (1738 baseline + 1 new test). Specifically watch `tests/unit/reports/test_cli_chart.py::test_cli_chart_unsupported_extension` (new) AND `tests/unit/reports/test_charts.py::test_unknown_extension_raises` (module-level contract — must still raise plain `ValueError`, not `UsageError`).
+6. **Docs spot-check on README.md** — confirm no stale traceback-behavior documentation exists; if found, flag-but-don't-block (would be follow-up issue).
+7. **Post structured `## Manual Test Results`** PR comment with SHA `2b823c7`, env details, per-test PASS/FAIL, unit-suite summary, overall verdict.
+8. **Exit.** No code edits, no review-thread resolves, no merge, no WORKLOG.md touches.
+
+**Spawn details:**
+- `POST /api/v1/app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY` (canonical mechanism, 6 successful cycles now: 04:48Z, 05:18Z, 06:22Z, 06:51Z, 07:21Z, this).
+- `pr_number=[105]` set (testing worker, PR-scoped).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Start task `e419cb6e…` → `READY` on **first** +6s poll → `app_conversation_id=2a89daafb35f4e8caf407b3d445582db`, `sandbox_id=7FHc5TrTW1vGOFKq1XSakl`.
+- Verified `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[105]`. Cloud-generated title defaulted to `Conversation 2a89d` (request title `[Manual Test] PR #105 - chore(charts): wrap ValueError as click.UsageError` — same delayed-population pattern as prior cycles, no functional impact).
+
+**Current State (verified 07:48–07:50Z):**
+
+- **Open PRs (1):** [PR #105](https://github.com/jpshackelford/ohtv/pull/105): `oC green ready` 💬0, mergeable, bot review COMMENTED (positive), manual testing in flight via `2a89daa`.
+- **Ready issues (2):** #102 (in flight via PR #105), #103 (`priority:low`, next in queue once #105 merges).
+- **Needs expansion:** 0.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none.
+- **Recently merged (last 24h):** PR #104 (#87 manifest full cache, 06:54Z 2026-05-27), PR #101 (#82 charts, 04:52Z), PR #100 (#92 weekly-counts, 03:20Z), PR #99 (#83 classify, 01:22Z), PR #98 (#81 velocity, 22:52Z 2026-05-26).
+
+**Housekeeping note:** WORKLOG.md is at 1288 lines pre-this-entry (~1340 post). Below the 1500-line trigger but trending up. Next archive likely around the 08:51Z–09:51Z window if the cadence holds. The skill body says 300 lines but local practice has been 1500 per the 06:51Z entry; sticking with local norm.
+
+**Lessons learned this cycle:**
+
+1. **The 07:21Z pre-commit landed.** The PR materialized on the predicted branch name with the predicted file count and the predicted bot reception. Six consecutive cycles of cleanly-fulfilled pre-commits — this practice continues to compound.
+2. **lxa's `C` history code ≠ CHANGES_REQUESTED.** lxa marks PRs `oC` when the PR-review bot has posted a `COMMENTED` review (any review, even glowing ones). The orchestrator must always cross-check with `gh pr view --json reviewDecision` — `""` (no formal decision) on a `COMMENTED`-only review is fine; only `CHANGES_REQUESTED` from a human reviewer triggers the review-worker branch. The decision tree's "💬 > 0" condition needs nuance: bot COMMENTED reviews don't count as actionable comments; only changes-requested or human comments do.
+3. **Tiny PRs still benefit from full manual testing.** This PR is 2 lines of code + 1 unit test. The bot review already said "Worth merging". But the new error path is exactly the kind of thing pytest-with-CliRunner can stub silently (e.g., if `obtain_color_for_term` swallows colors differently outside a TTY, or if Click's UsageError rendering changes between versions). Real blackbox `uv run ohtv ...` invocations are the only way to validate the actual user-facing stderr formatting. Resisting the temptation to skip-to-merge here, even when bot review is glowing.
+4. **README-update-skip needs explicit rationale in WORKLOG.** First time this cycle the orchestrator skipped a docs worker, and the reasoning was implicit-from-issue-body. Writing the rationale into this WORKLOG entry creates an audit trail in case a future reviewer (or `/orchestrate` author) wants to validate the skip pattern. Pattern: when skipping docs worker, the WORKLOG entry should cite (a) the exclusion clause from the decision tree, and (b) the issue/expansion text that confirms "no documented behavior changes". Doing so here.
+
+**Next check (~30 min, ~08:20Z):**
+
+- If `2a89daa` is `running` → log brief status, no action. Manual testing typically takes 5-15 min for tiny PRs (clone, uv sync, run handful of CLI invocations, full pytest, write comment, post). Could complete before next wake-up.
+- If `2a89daa` is `finished` AND a `## Manual Test Results` comment exists on PR #105 with **overall PASS** verdict → spawn **merge worker**. (Pre-committing this branch so the next orchestrator doesn't re-derive: branch name = `chore/charts-unsupported-ext-usage-error-102`, squash commit message should follow conventional-commits `chore(charts): wrap ValueError as click.UsageError for unsupported --chart extension (#102)`, after merge the merge worker should also apply `priority:low` continuation: there's nothing to follow up with on this PR — it's literally a 2-line bug-polish.)
+- If `2a89daa` is `finished` AND test results say **FAIL** → spawn **review worker** to address whatever the test report flagged. Review worker should flip PR back to draft, fix, push, flip back to ready.
+- If `2a89daa` is `finished` but no test comment posted → investigate the conversation events; may need `## INSTRUCTION:` from human (this would be unusual).
+- **Pre-commit further out:** Once PR #105 merges (whether 08:20Z or 08:51Z cycle), the only remaining ready issue is **#103** (`docs(charts): document NULL-vs-zero LOC bar convention OR hatch partial_loc bars`, `priority:low`, `createdAt=2026-05-27T04:53:09Z`). Pre-committing: next impl-worker target is #103. After #103 lands, the queue empties (#26 and #90 are `hold` — held for valid external reasons per the 06:51Z notes; expect quiet-period risk to materialize then). The orchestrator should be alert: 2 cycles of "All quiet" after #103 merges → auto-disable per the skill's documented logic.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Auto-disable risk:** Low this cycle (productive spawn). Counter remains 0.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
