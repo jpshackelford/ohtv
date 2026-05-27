@@ -1,3 +1,9 @@
+### 2026-05-27 05:55 UTC - Impl Worker (#87)
+
+Implemented Issue [#87 — manifest as full cloud metadata cache](https://github.com/jpshackelford/ohtv/issues/87) as a direct follow-up to PR #94 / Issue #86. Extends the manifest schema with `selected_repository`/`selected_branch`/`created_at`; `db scanner.extract_metadata` now skips `base_state.json` for cloud convs with fully-populated manifest entries (regression test enforces zero opens); `sync --update-metadata` refreshes the new fields (except `selected_branch`, which is not in the listing API); `sync --repair --fix` rebuilds orphans from listing payload. Widened `ConversationStore.update_metadata` with `selected_repository`/`created_at` kwargs (sentinel semantics). 1738 tests green (+50). PR [#104 — feat: manifest as full cloud metadata cache (#87)](https://github.com/jpshackelford/ohtv/pull/104) opened, marked ready.
+
+---
+
 ### 2026-05-27 05:23 UTC - Expansion Worker (#102)
 
 ✅ **Expanded Issue [#102 — chore(charts): wrap ValueError as click.UsageError for unsupported --chart extension](https://github.com/jpshackelford/ohtv/issues/102)** — bug-polish nit from the PR #101 manual test report. Verified the bug reproduces on `main@ae36f750` (raw `ValueError` traceback, exit 1) and that the issue body's suggested fix is sound. Posted a [technical-approach comment](https://github.com/jpshackelford/ohtv/issues/102#issuecomment-4551583425) with the verified call-site lines (`src/ohtv/cli.py:10663-10673`, `src/ohtv/reports/charts.py:128`), the exact 2-line `except ValueError → click.UsageError` diff, and a small CLI test to add alongside `test_cli_chart_missing_matplotlib` (the issue's reference to "tighten an existing test in `test_cli_chart.py`" was slightly off — that file has no unsupported-extension test today; the module-level one in `test_charts.py` should stay as-is). Labeled `ready`. Suggested `priority:low` (deferred to next `/assess-priority` cycle alongside #103).
