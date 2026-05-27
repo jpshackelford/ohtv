@@ -1424,3 +1424,72 @@ Testing worker `19dfec8` completed cleanly at 04:29:16Z (cost $4.96). Test repor
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-27 05:18 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `91ed7ea` | merge | PR #101 — `--chart` flag | finished ✓ |
+| `56b491f` | implementation | Issue #87 — Manifest full cloud metadata cache | **NEW** running |
+| `761e1d9` | expansion | Issue #102 — Wrap ValueError as click.UsageError | **NEW** running |
+
+**Spawned: 2 Workers (parallel)** — both PR slot + Expansion slot filled
+
+1. **Implementation Worker** — `56b491fcd5274e4db210df295a9e5037` ([conversation](https://app.all-hands.dev/conversations/56b491fcd5274e4db210df295a9e5037))
+   - Issue: [#87 — Manifest as full cloud metadata cache](https://github.com/jpshackelford/ohtv/issues/87) (`priority:low`, `ready`)
+   - Only remaining `ready` issue post #82 merge. Direct follow-up to PR #94 / Issue #86 (AGENTS.md item #27) — extends the manifest from `title`/`labels` to `selected_repository`, `selected_branch`, `created_at`.
+2. **Expansion Worker** — `761e1d90ee70494ea3a4de65dbf963a6` ([conversation](https://app.all-hands.dev/conversations/761e1d90ee70494ea3a4de65dbf963a6))
+   - Issue: [#102 — chore(charts): wrap ValueError as click.UsageError](https://github.com/jpshackelford/ohtv/issues/102) (no labels yet)
+   - Oldest of the two follow-up issues filed by merge worker `91ed7ea` (#102 at 04:52:59Z; #103 at 04:53:09Z). Body is already well-formed (Context/Problem/Repro/Expected/Suggested fix), so the expansion job is lighter — verify + add a sharp technical-approach comment + add `ready` label.
+
+**Decision-tree match this cycle:**
+
+- ✅ **Merge worker `91ed7ea` finished cleanly:** Sandbox `PAUSED` at 04:55:21Z (~7 minutes after spawn). PR #101 `state=MERGED`, `mergedAt=04:52:14Z` (merged 3 minutes into the worker run). Issue #82 auto-closed at 04:52:15Z via `Closes #82` in PR body. Two follow-up issues filed (#102, #103) as instructed. Excellent worker discipline — exact match to the 04:48Z spawn prompt; no fixup commits, no scope creep.
+- ✅ **PR slot empty on wake-up:** No open PRs. Only this orchestrator conv `7894926` was `running` at 05:16Z; all prior PR-slot workers (`91ed7ea` merge, `19dfec8` testing, `0ba9415f` merge #100, `d9a994e` prior orchestrator, `03c344bf` merge #97, etc.) all `PAUSED`/`finished`.
+- ✅ **Expansion slot empty:** No expansion worker running.
+- ✅ **Both slots eligible to fill in parallel:** orchestrate skill explicitly supports parallel spawns ("Both slots can be filled simultaneously"). The 04:48Z entry pre-committed this exact spawn pair: "spawn expansion worker for the oldest of the new follow-ups" AND "potentially spawn impl worker for #87 in the same cycle".
+- ✅ **No `## INSTRUCTION:` in WORKLOG.md.** Step 1 of orchestrate skill completed cleanly — only historical references (all already acknowledged).
+- ✅ **Auto-disable check N/A:** Productive spawn this cycle. Consecutive-quiet counter stays 0.
+
+**Spawn details (both):**
+
+- `POST /api/v1/app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY` header (the openhands-api skill's documented mechanism — invoked pre-spawn this cycle, lesson-learned from 04:21Z applied).
+- Both payloads use correct `initial_message.content[{type:text, text:...}]` schema + plugin block `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Impl spawn: start-task `259f2b4d…` → `READY` on first +6s poll → `app_conversation_id=56b491fcd5274e4db210df295a9e5037`.
+- Exp spawn: start-task `5753af3a…` → `READY` on first +6s poll → `app_conversation_id=761e1d90ee70494ea3a4de65dbf963a6`.
+- Both verified `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`. Cloud-generated titles defaulted to `Conversation NNN` (request titles were descriptive enough but cloud opted for short form — non-issue, no functional impact).
+- Note: neither spawn set `pr_number` (correctly — no PR exists yet for #87; #102 expansion is issue-only, no PR to bind to). The impl worker will create PR for #87; future cycles will see `pr_number` populated automatically once the PR is opened.
+
+**Current State (verified 05:16–05:18Z):**
+
+- **Open PRs:** 0.
+- **Ready issues:** #87 (now in impl flight via `56b491f`).
+- **Needs expansion:** #102 (now in expansion flight via `761e1d9`), #103 (next quiet cycle or after #102 expansion completes).
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none.
+- **Recently merged:** PR #101 (#82 charts, 04:52Z), PR #100 (#92 weekly-counts, 03:20Z), PR #99 (#83 classify, 01:22Z 2026-05-27), PR #98 (#81 velocity, 22:52Z 2026-05-26).
+
+**Sync note:** `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 2026-05-27T01:16:* --quiet` completed cleanly. `lxa` + `ohtv` installed via venv at `/tmp/orchvenv/bin` (system `pip install` was rejected for system Python, expected).
+
+**Housekeeping deferred:** WORKLOG.md is now ~1485 lines after this entry. The 19:19Z–22:51Z 2026-05-26 block (lines ~9–~660, ~650 lines, all >6 hours old, unrelated to #87/#102/#103) is **3 cycles overdue** for archive. Was deferred this cycle because both worker spawns + archive would be 3 actions, violating the orchestrator's one-action-per-wake-up discipline (parallel spawns count as 1 spawn action). **Pre-commit:** the next quiet cycle (~05:48Z if both workers are still running and there's no other decision-making to do) MUST run `/truncate-worklog` against that block. If WORKLOG.md crosses 1500 lines before then, archive becomes the priority action.
+
+**Lessons learned this cycle:**
+
+1. **Pre-committed parallel spawn worked cleanly.** The 04:48Z entry called this spawn pair exactly (impl #87 + exp #102) — no re-derivation needed at 05:18Z, just verification that PR slot was empty and #102/#103 had landed as predicted. Pre-committing concrete next-cycle actions in WORKLOG entries continues to pay off when state matches predictions.
+2. **Merge worker `91ed7ea` completed in ~7 minutes end-to-end** including filing 2 follow-up issues — slightly longer than `0ba9415f` (PR #100 merge, ~25s) because of the issue-filing step. New baseline: merge-with-follow-ups ≈ 5–10 min; merge-only ≈ <1 min. Future merge spawn prompts that include follow-ups should budget ~10 min.
+3. **`X-Access-Token` vs `Authorization: Bearer`:** the `spawn-conversation` skill documents `X-Access-Token: $OH_API_KEY`. Both header forms appear to work against the API, but the skill's documented form is the canonical one — used both spawns this cycle, both worked first-try with no schema/auth retries needed.
+4. **Parallel spawns are no harder than serial spawns** when both payloads are pre-validated. Two `curl POST` + one polling loop checking both task IDs ≈ same wall-clock as a single spawn (~10s total for both READY).
+
+**Next check (~30 min, ~05:48Z):**
+
+- If `56b491f` (impl #87) is `running` AND `761e1d9` (exp #102) is `running` → log status, do nothing. Both slots occupied. Run the deferred truncation NOW (this would be a quiet cycle for spawning, but truncation is housekeeping, not spawning).
+- If `56b491f` is `running` AND `761e1d9` is `finished` AND #102 has `ready` label → expansion slot empty; spawn **expansion worker for #103** (only remaining unexpanded issue). One spawn.
+- If `56b491f` is `finished` AND a new PR exists (probably `feat/manifest-full-cache-87` branch) → check PR state per decision tree. If draft+CI green → wait. If ready+CI green+docs-in-diff+no-test-results → spawn testing worker.
+- If `56b491f` is `finished` BUT no PR exists → investigate (impl worker may have hit a blocker; check conversation events).
+- If `761e1d9` is `finished` AND #102 has `needs-info` or `needs-split` → human attention needed (skip for orchestrator, log).
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Archive TO-DO (DEFINITELY next cycle):** 19:19Z–22:51Z 2026-05-26 block → `WORKLOG_ARCHIVE_2026-05-26.md`. Hard-block: do this before the next spawn.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
