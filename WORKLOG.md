@@ -1,3 +1,13 @@
+### 2026-05-27 16:53 UTC - Issue #107 expanded
+
+Posted technical-approach comment on [#107](https://github.com/jpshackelford/ohtv/issues/107) and applied the `ready` label. Recommended **Option A (fix the code)**: client-side sort by `updated_at` descending inside `SyncManager.reset_to_n_newest` (`src/ohtv/sync.py:1111`) before the `[:n]` slice. The `/api/v1/app-conversations/search` endpoint exposes no `sort` parameter, so the server cannot do the work — but `search_all_conversations()` already paginates the full set, so a 3-line `list.sort(...)` on the result is sufficient. Also flagged two collateral wrong-claim spots that share the same root cause and should ship in the same PR: the inline comment at `sync.py:1142–1143` and `REFERENCE_CLOUD_API.md:130`. Test plan adds `TestResetToNNewest` to `tests/unit/test_sync.py` reusing the existing `_RecordingCloudClient` fake (4 unit tests; behavioral cross-cutting tests deferred to #110).
+
+Conv `302be93b60a6496c81c92a0de0cb4acb`. Expansion only — no code changes to `src/`, no PR opened.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 16:50 UTC - Orchestrator
 
 **Active Workers:**
