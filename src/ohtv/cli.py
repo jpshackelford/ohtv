@@ -10622,5 +10622,143 @@ def report_velocity(
         )
 
 
+@report.command("weekly-counts")
+@click.option(
+    "--since",
+    "since_str",
+    help="Lower bound on created_at; YYYY-MM-DD or relative (7d, 2w, 1m)",
+)
+@click.option(
+    "--until",
+    "until_str",
+    help="Upper bound on created_at; YYYY-MM-DD or relative",
+)
+@click.option(
+    "--source",
+    type=click.Choice(["cloud", "cli", "all"]),
+    default="all",
+    show_default=True,
+    help="Restrict to one source. 'cli' maps to DB source='local'.",
+)
+@click.option(
+    "--include-empty",
+    is_flag=True,
+    help="Emit weeks with zero conversations as zero rows (default: omit)",
+)
+@click.option(
+    "--exclude-current-week",
+    is_flag=True,
+    help="Omit the in-progress (current) ISO week from output",
+)
+@click.option(
+    "--out",
+    "out_path",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Write CSV to PATH instead of stdout",
+)
+def report_weekly_counts(
+    since_str: str | None,
+    until_str: str | None,
+    source: str,
+    include_empty: bool,
+    exclude_current_week: bool,
+    out_path: str | None,
+) -> None:
+    """Emit weekly new-conversation counts as CSV (cloud, cli, total).
+
+    Buckets ``conversations.created_at`` by ISO 8601 week
+    (``YYYY-Www``, Monday-start). The ``cli`` column is the count of
+    CLI / local conversations (stored as ``source='local'`` in the
+    DB — the CSV header uses ``cli`` because it reads naturally in a
+    report).
+
+    Output is always CSV with header ``week,cloud,cli,total``. By
+    default it streams to stdout; pass ``--out PATH`` to write to a
+    file. Weeks with zero conversations are omitted unless
+    ``--include-empty`` is passed.
+
+    \b
+    Examples:
+      ohtv report weekly-counts > counts.csv
+      ohtv report weekly-counts --since 4w
+      ohtv report weekly-counts --since 2024-01-01 --include-empty
+      ohtv report weekly-counts --source cli --exclude-current-week
+    """
+    import sys
+
+    from ohtv.db import ensure_db_ready, get_connection, get_db_path
+    from ohtv.filters import parse_date_filter
+    from ohtv.reports.weekly_counts import (
+        aggregate_weekly_counts,
+        fetch_rows,
+        format_csv,
+    )
+
+    since_dt = None
+    if since_str:
+        since_dt = parse_date_filter(since_str)
+        if since_dt is None:
+            console.print(
+                f"[red]Error:[/red] could not parse --since {since_str!r}. "
+                "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
+            )
+            raise SystemExit(2)
+
+    until_dt = None
+    if until_str:
+        until_dt = parse_date_filter(until_str)
+        if until_dt is None:
+            console.print(
+                f"[red]Error:[/red] could not parse --until {until_str!r}. "
+                "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
+            )
+            raise SystemExit(2)
+
+    # User-facing 'cli' → DB 'local'. Sole place this translation happens.
+    db_source: str | None
+    if source == "cli":
+        db_source = "local"
+    elif source == "cloud":
+        db_source = "cloud"
+    else:
+        db_source = None
+
+    def _emit(report_rows: list, stream) -> None:
+        format_csv(report_rows, stream)
+
+    db_path = get_db_path()
+    if not db_path.exists():
+        # Friendly empty state: write header-only CSV.
+        if out_path:
+            with open(out_path, "w", newline="") as fh:
+                _emit([], fh)
+        else:
+            _emit([], sys.stdout)
+        return
+
+    with get_connection(db_path) as conn:
+        ensure_db_ready(conn, show_progress=False)
+        raw_rows = fetch_rows(
+            conn,
+            since=since_dt,
+            until=until_dt,
+            source=db_source,
+        )
+
+    report_data = aggregate_weekly_counts(
+        raw_rows,
+        include_empty=include_empty,
+        exclude_current_week=exclude_current_week,
+        since=since_dt,
+        until=until_dt,
+    )
+
+    if out_path:
+        with open(out_path, "w", newline="") as fh:
+            _emit(report_data.rows, fh)
+    else:
+        _emit(report_data.rows, sys.stdout)
+
+
 if __name__ == "__main__":
     main()

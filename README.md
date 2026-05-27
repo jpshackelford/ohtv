@@ -48,6 +48,10 @@ GITHUB_TOKEN=$(gh auth token) ohtv fetch-loc
 ohtv report velocity
 ohtv report velocity --format csv > velocity.csv
 
+# Weekly new-conversation counts CSV (cloud, cli, total) by ISO week
+ohtv report weekly-counts > counts.csv
+ohtv report weekly-counts --since 4w --exclude-current-week
+
 # Search conversations semantically
 ohtv search "fix authentication bugs"
 

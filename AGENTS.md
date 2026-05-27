@@ -173,6 +173,14 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - **LOC NULL handling**: All-NULL bucket → `-` (table) / empty (CSV). Mixed → sum knowns + `partial_loc=True` (surfaced by `--verbose`). Words/LOC denominator zero → `-` / empty.
     - **Reusable surface**: `ohtv.reports.velocity.aggregate_velocity(conn=..., since=..., until=..., repo=..., include_empty=...)` returns a `VelocityReport(rows, totals, metadata)` and is the entry point that issue #82 should consume.
 
+29. **Weekly counts report (`ohtv.reports.weekly_counts`, Issue #92)**: CSV-only export of new-conversation counts bucketed by ISO 8601 week, split by source. Built on top of the #81 scaffolding (`reports/` package + `report` Click group).
+    - **CLI**: `ohtv report weekly-counts` emits stdout CSV with header `week,cloud,cli,total`. Flags: `--since`/`--until`, `--source [cloud|cli|all]`, `--include-empty`, `--exclude-current-week`, `--out PATH`.
+    - **`cli` (CSV) vs `local` (DB) naming**: The CSV column header is `cli` because that is what the issue title says and what reads naturally in a report. The DB stores `source='local'` for CLI conversations (see `src/ohtv/sources/base.py`). The translation happens in exactly one place: `weekly_counts.aggregate_weekly_counts` (DB→CSV) and the CLI `--source` flag mapping (`cli` → `'local'` bind value). Every other layer keeps the existing `local` vocabulary.
+    - **UTC-bin caveat**: Cloud `created_at` is UTC, CLI `created_at` is often naive (see item 5 above). Naive timestamps are treated as UTC for ISO-week bucketing — best-effort consistent with the rest of the codebase. This can mis-bucket conversations created within a few hours of a Monday boundary on machines in non-UTC time zones. Documented in the module docstring and in the test `test_naive_timestamp_treated_as_utc` (T-11).
+    - **Bucket-by `created_at`** (NOT `updated_at`) — "new conversations per week" is the report's semantics.
+    - **No SQLite `strftime` for ISO week**: Same regression rule as #81 (test T-4: 2024-12-30 → `2025-W01`).
+    - **Reusable surface**: `ohtv.reports.weekly_counts.fetch_rows(conn, ...)` + `aggregate_weekly_counts(rows, ...)` returns a `WeeklyCountsReport(rows, metadata)` and is the entry point that issue #82 should consume.
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input
