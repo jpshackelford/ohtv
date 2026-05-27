@@ -1,3 +1,34 @@
+## INSTRUCTION: be aware of #122 and the dependency graph it implies — sequence work around it
+
+**Filed by @jpshackelford, 2026-05-27 22:45 UTC.**
+
+Read [issue #122](https://github.com/jpshackelford/ohtv/issues/122) ("Aggregate sub-conversations into their root for analysis and reporting") in full before expanding or implementing anything in the #122–#128 cluster. The orchestrator and any worker it spawns must respect the following dependency graph:
+
+```
+#108 (parent_conversation_id sync — already in flight)
+   └── #122 (root_conversation_id source-of-truth + conversations_by_root view)
+           ├── #123  report weekly-counts: count by root
+           ├── #124  report velocity: aggregate human input across each root's subtree
+           ├── #125  gen objs / gen titles / gen run: iterate roots only (opt-in subs)
+           ├── #126  classify: short-circuit sub conversations to initial_prompt_source='automation'
+           ├── #127  list / refs: default-hide subs; roll up sub refs to the root
+           └── #128  ask / search (RAG): dedupe citations by root
+```
+
+**Hard rules for the orchestrator and any spawned worker:**
+
+1. **#122 is blocked by #108.** Do not dispatch an implementation worker for #122 until #108 has merged. Expansion of #122 may proceed in parallel with #108 (it's a design/coordination issue) but the expansion worker must explicitly call out the #108 dependency in its acceptance criteria and not assume #108's schema.
+2. **#123–#128 are all blocked by #122.** Do not implement any of them before #122 lands. Expansion of #123–#128 should be deferred until #122's expansion produces a concrete `root_conversation_id` API/view shape; otherwise the per-command expansions will speculate and drift.
+3. **Treat #122 as the umbrella.** When expanding #122, the worker should produce a coordination plan / dependency graph that #123–#128 reference. The worker should also assess whether any of #123–#128 collapse into follow-on comments on #122 vs. remain independent issues — and surface that recommendation rather than silently merging them.
+4. **Per-command issues stay grain-aware.** Per-conversation data (events, embeddings, refs, contributions, human-input) remains at the conversation grain. Only aggregation and display roll up to the root. Reject any expansion that proposes deleting or renaming per-conversation tables.
+5. **AGENTS.md note.** Whoever implements #122 must add the AGENTS.md metadata note ("Subs are first-class rows; downstream aggregation rolls up to `root_conversation_id`.") as part of the same PR — it's an explicit acceptance criterion on #122 and is the durable contract that keeps future per-command work honest.
+
+**Routing implication for the current cycle:** the in-flight expansion worker (`62277b1`, on #121) is unaffected — #121 is thematically independent of this cluster. The next expansion slot that opens should pick up **#122 first** (umbrella, sets the contract), not any of #123–#128.
+
+_This instruction was filed via an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 22:20 UTC - Orchestrator
 
 **Active Workers:**
