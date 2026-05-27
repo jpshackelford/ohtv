@@ -1187,3 +1187,78 @@ Testing worker `5ecbdb7` from the 06:22Z cycle completed cleanly. Its [test repo
 - If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+
+---
+
+### 2026-05-27 07:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7b39f85` | merge | PR #104 — Manifest full cache (#87) | finished ✓ |
+| `87d0f99` | implementation | Issue #102 — chore(charts) UsageError wrap | **NEW** running |
+
+**Spawned: Implementation Worker** — `87d0f99232164bffb973f18508d6d60c` ([conversation](https://app.all-hands.dev/conversations/87d0f99232164bffb973f18508d6d60c))
+
+Merge worker `7b39f85` from the 06:51Z cycle completed cleanly. PR #104 squash-merged at **06:54:41Z** (head `0d8be62` matched tested SHA — no drift), Issue #87 auto-closed via `Closes #87`, and `priority:low` labels applied to both #102 and #103 as predicted in the 06:51Z pre-commit. End-to-end merge wall-clock ≈ 4 min (faster than the `91ed7ea` baseline of ~7 min — merge worker had less side-work since priority-labeling for 2 issues is cheaper than filing 2 new issues like `91ed7ea` did).
+
+**Decision-tree match this cycle:**
+
+- ✅ **PR slot empty on wake-up:** Merge finished, no open PR exists, all prior PR-slot workers PAUSED.
+- ✅ **No open PRs** (`gh pr list --state open` → `[]`).
+- ✅ **Ready issues with priority labels exist:** #102 (priority:low, `createdAt=2026-05-27T04:52:59Z`), #103 (priority:low, `createdAt=2026-05-27T04:53:09Z`). Both received their priority labels from the merge worker this cycle. **#102 wins the tiebreak by 10 seconds** of older `createdAt` — matches the 06:51Z pre-committed action exactly.
+- ✅ **Expansion slot has no work:** All open issues either have `ready` (#102, #103) or `hold` (#26, #90). Zero unexpanded issues. Expansion slot idle.
+- ✅ **No `## INSTRUCTION:` in WORKLOG.md** (`grep -nE '^## INSTRUCTION:' WORKLOG.md` → 0 matches; only historical refs in old orchestrator entries).
+- ✅ **Auto-disable check N/A:** Productive spawn this cycle. Consecutive-quiet counter stays 0.
+- ✅ **Pre-committed action match:** The 06:51Z entry pre-committed: "If `7b39f85` is `finished` AND PR #104 = MERGED AND #102/#103 have `priority:low` labels → ... spawn **impl worker** for whichever of #102/#103 has the older `created_at` (#102 was filed first on 04:52:59Z)." This spawn is that exact action — zero re-derivation needed at 07:21Z, just verification.
+
+**Impl worker scope (prompt highlights):**
+
+The expansion comment on Issue #102 is unusually precise (it was written today at 05:23Z by `761e1d9` — verified against `main` SHA `ae36f750…` which is two PRs behind current `main` `c0561b8…` post-#104 merge, so the impl worker is explicitly instructed to re-locate the target block by search rather than by line number):
+
+1. **Two-line code change** in `src/ohtv/cli.py`: add `except ValueError as exc: raise click.UsageError(str(exc)) from exc` next to the existing `except ImportError` handler in the `report velocity` `--chart` block. The matplotlib `ImportError → UsageError` mapping immediately below is the template to mirror.
+2. **One new CLI test** in `tests/unit/reports/test_cli_chart.py` — modeled on `test_cli_chart_missing_matplotlib` (C-3). Exit code 2, no traceback, "unsupported output extension" in output. Test body is included verbatim in the expansion comment.
+3. **Hard DO-NOTs:** no edits to `src/ohtv/reports/charts.py` (module-level `ValueError` contract is intentional), no edits to `tests/unit/reports/test_charts.py::test_unknown_extension_raises` (validates that contract), no new test files (use existing `test_cli_chart.py`), no README.md changes (no documented behavior changes — this is internal error-mapping polish), no pre-existing-ruff-warning fixups (out of scope per PR #104 testing-worker notes), no `ready` label on follow-ups, no other worker spawns.
+4. **Process:** branch `chore/charts-unsupported-ext-usage-error-102` (or similar) off freshly-pulled `main`; focused test → full pytest (expect 1739 passing, up from 1738 post-#87); ruff clean on changed files only; draft PR with `Fixes #102`; wait for AI-bot review (~2-3 min); flip draft→ready; log to WORKLOG.md on main; exit.
+
+**Spawn details:**
+- `POST /api/v1/app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY` (per openhands-api skill — canonical mechanism used in 04:48Z, 05:18Z, 06:22Z, 06:51Z cycles, all successful).
+- Payload schema: `initial_message.content[{type:text, text:...}]` + plugin block `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`. **No `pr_number` set** — correct, since no PR exists yet for #102; the impl worker creates the PR and future cycles will see `pr_number` populated automatically.
+- Start task `2a9e66b5…` → `READY` on **first** +6s poll → `app_conversation_id=87d0f99232164bffb973f18508d6d60c`.
+- Verified `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`. Cloud-generated title defaulted to short form `Conversation 87d0f` (request title was descriptive `[Implementation] Issue #102 - chore(charts): wrap ValueError as click.UsageError` — non-issue, no functional impact, same delayed-population pattern as prior cycles).
+
+**Current State (verified 07:18–07:21Z):**
+
+- **Open PRs:** 0 (PR #104 merged 06:54:41Z; impl worker for #102 will open one shortly).
+- **Ready issues (2):** #102 (`priority:low`, in flight via `87d0f99`), #103 (`priority:low`, next in queue after #102 PR merges or once impl slot frees).
+- **Needs expansion:** 0.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none.
+- **Recently merged (last 24h):** PR #104 (#87 manifest full cache, 06:54Z 2026-05-27), PR #101 (#82 charts, 04:52Z), PR #100 (#92 weekly-counts, 03:20Z), PR #99 (#83 classify, 01:22Z), PR #98 (#81 velocity, 22:52Z 2026-05-26).
+
+**Housekeeping note:** WORKLOG.md is at 1189 lines pre-this-entry (~1240 post). Comfortably below the 1500-line trigger restored after the 06:51Z truncation. No archive needed this cycle. Next archive likely around the 08:51Z–09:21Z cycle if work continues at the current pace.
+
+**Sync note:** `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 2026-05-27T03:16:* --quiet` completed cleanly. Tools installed via `uv venv` + `uv pip install` inside repo `.venv` (the system Python `pip install` and `pip install --system` both ran into permission errors in this sandbox; the venv approach worked cleanly).
+
+**Lessons learned this cycle:**
+
+1. **The 06:51Z pre-commit was end-to-end correct.** Both branches of the pre-committed decision tree ("if merged + priority labels → spawn impl for #102") matched reality bit-for-bit. Pre-committing concrete next-cycle actions in WORKLOG entries continues to be the orchestrator's compounding asset — five consecutive cycles (04:48Z, 05:18Z, 06:22Z, 06:51Z, this) have hit their pre-committed predictions cleanly.
+2. **Merge worker with simple label follow-ups is fast** — ~4 min wall-clock vs ~7 min when filing new issues (`91ed7ea` baseline). Updated mental model: merge-with-label-only ≈ 3–5 min; merge-with-issue-filing ≈ 5–10 min; merge-only ≈ <1 min. Useful for predicting cycle cadence.
+3. **Tiny issues are worth running through the full pipeline.** #102 is a 2-line + 1-test change; the issue could plausibly have been merged with a manual one-liner. But running it through impl→test→review→merge gives the AI-bot review another data point AND keeps the worklog/PR-history machinery exercised AND ensures regression protection. Cost is ~1-2 orchestrator cycles vs ~30 sec of human time. Worth it.
+4. **Expansion comments aging out of SHA-relevance.** The #102 expansion was written at 05:23Z against `main` SHA `ae36f750…`; main has moved past it via PR #104 merge at 06:54Z. The impl worker's prompt explicitly calls this out and tells it to re-locate the target block by searching for the matplotlib `ImportError` handler rather than by line numbers. Future expansions for tiny issues should perhaps cite anchor strings (function names, distinctive imports) rather than just line ranges, since cycle-to-cycle main churn can shift line numbers by tens.
+
+**Next check (~30 min, ~07:51Z):**
+
+- If `87d0f99` is `running` → log status briefly, no action. Tiny PRs typically take 5-15 min for impl workers (set up env, edit 2 files, run tests, push, open PR, wait for bot review, flip to ready). Could complete before next wake-up.
+- If `87d0f99` is `finished` AND a new PR exists (likely `chore/charts-unsupported-ext-usage-error-102` branch) → check PR state per decision tree:
+  - PR draft + bot review pending → wait one more cycle.
+  - PR ready + bot review COMMENTED (positive) + no test results → spawn **testing worker** (this is a tiny change, but tests still gate review per skill).
+  - PR ready + bot review CHANGES_REQUESTED → spawn **review worker** (fix the bot's blockers first).
+- If `87d0f99` is `finished` BUT no PR exists → investigate conversation events; may need `## INSTRUCTION:` from human.
+- If `87d0f99` is `finished` AND the PR is open AND testing AND merge complete before next wake-up (unlikely but possible for ultra-tiny PRs) → next available work is **impl worker for #103** (the only remaining ready issue), same `priority:low`. **Pre-committing the next-next spawn shape here so the 07:51Z (or 08:21Z) orchestrator doesn't need to re-derive: spawn impl worker for #103 if/when PR #102 reaches MERGED state and expansion/PR slots both have nothing else.**
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Auto-disable risk:** Low this cycle (productive spawn). Counter remains 0. The pipeline has at least one more cycle of work (testing/merge of #102 PR) before #103 enters the queue and then nothing-ready-after-#103-merges (#26 and #90 are both `hold`). So expect potentially 2-3 cycles before quiet-period risk materializes.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
