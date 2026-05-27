@@ -1,3 +1,28 @@
+### 2026-05-27 17:26 UTC - Implementation Worker — Issue #107 Complete
+
+**PR opened (ready for review):** [#117 — fix(sync): sort by updated_at DESC in reset_to_n_newest](https://github.com/jpshackelford/ohtv/pull/117)
+
+Implementation summary:
+- `src/ohtv/sync.py` — added `conversations.sort(key=lambda c: c.get("updated_at") or "", reverse=True)` inside `reset_to_n_newest` after `search_all_conversations()`, before the `[:n]` slice. Items with `updated_at=None` coerce to `""` and sort to the end under `reverse=True`, so an unknown timestamp cannot displace a known-recent conversation from the keep set.
+- `src/ohtv/sync.py` — replaced the misleading inline comment that claimed the API returned items in `updated_at` DESC order; new comment correctly states the API returns `created_at` DESC and explains why the client-side sort is needed.
+- `REFERENCE_CLOUD_API.md` L130 — corrected the same false claim about sort order.
+- `tests/unit/test_sync.py` — added `TestResetToNNewest` (4 tests) using the existing `_RecordingCloudClient` fake: regression for the dropped-recently-updated bug, `None`-sorts-last, N ≥ total, and empty-cloud no-op.
+
+Test results: 4/4 new tests pass; full unit suite 1695/1695 pass. No new ruff findings.
+
+**Drift from expansion plan, documented in PR body:**
+1. Dropped the `created_at` fallback term from the sort key. The expansion proposed `c.get("updated_at") or c.get("created_at") or ""`, but that would let a brand-new-but-never-updated item rank as if it were recently updated — directly contradicting the "sort `None` to the END so unknown timestamps don't displace known-recent ones" constraint in the orchestration prompt. The simpler `c.get("updated_at") or ""` honors that constraint and is locked in by `test_missing_updated_at_sorts_last`.
+2. Did **not** touch `src/ohtv/cli.py:329–330` (sync command docstring tightening). The orchestration prompt explicitly scoped that out.
+
+CI: only `pr-review` is configured in `.github/workflows/`, gated on non-draft status. Marked the PR ready immediately after CI gate observation; AI review bot will run on its own. Merge is a separate worker per the workflow.
+
+Out of scope (explicitly): cross-cutting sync rewrite (#110/#111/#112/#113/#114), sub-conversations (#108), concurrency (#109).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+
 ### 2026-05-27 17:25 UTC - Issue #110 expanded
 
 Posted technical-approach comment on [#110](https://github.com/jpshackelford/ohtv/issues/110#issuecomment-4556930022) and applied the `ready` label. #110 is the **foundation** for the sync-rewrite critical path — `#110 + #112` parallelizable; `#111` (headline set-diff fix) blocks on both.
