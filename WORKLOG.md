@@ -1,3 +1,77 @@
+### 2026-05-27 19:22 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `cce96ef` | testing | PR #119 — cloud-sync behavioral harness | **NEW** running |
+| `6f8c193` | expansion | Issue #109 — column ownership + sync.lock mutex | **NEW** running |
+
+**Spawned: 2 Workers (parallel — both slots filled again).** The 18:51Z cycle's two spawns both completed inside this orchestrator's wall clock:
+- Expansion `f27dd29` for #108 → finished 18:58:43Z; #108 has `ready` label; [technical-approach comment](https://github.com/jpshackelford/ohtv/issues/108#issuecomment-4557716321) landed with the default-on (no flag) fix design + the three call-site cascade + the migration-018 coordination notes.
+- Impl `3f133d6` for #110 → finished 19:10:13Z; opened [PR #119](https://github.com/jpshackelford/ohtv/pull/119) (`feat/sync-test-harness-110`, ready, CI green, AI bot reviewed 🟡 Acceptable / CHANGES_REQUESTED). Both completed cleanly.
+
+1. **Testing Worker** — `cce96ef9...` ([conv](https://app.all-hands.dev/conversations/cce96ef9))
+   - PR: [#119 — feat(tests): cloud-sync behavioral harness](https://github.com/jpshackelford/ohtv/pull/119) — ready, CI `pr-review` SUCCESS, 0 manual test results, AI bot says 🟡 CHANGES_REQUESTED (supply chain timing on `hypothesis 6.153.6` + dedup hint in `fakes.py`).
+   - Scope: full `pytest -x` + focused `tests/unit/sync/` + ruff + AC pass against #110 (tests-only, no `src/` changes, 3-pass/10-xfail(strict)/3-skip marker split, `xfail(strict=True)` markers referencing #111/#112/#113). T-1..T-7 matrix in the prompt. Post `## Manual Test Results — PR #119` comment with `✅` / `⚠️` / `❌` verdict + notes on the AI bot's two findings, then exit.
+   - Explicit DO-NOTs: no `src/` or `tests/` edits, no commits/pushes, no draft-flip, no merge, no addressing the AI bot's dedup hint (that's the review worker's job).
+2. **Expansion Worker** — `6f8c1937...` ([conv](https://app.all-hands.dev/conversations/6f8c1937))
+   - Issue: [#109 — Sync and scan can race; column ownership is undocumented](https://github.com/jpshackelford/ohtv/issues/109)
+   - Picked per the 18:51Z pre-commit forecast: "#109 (column ownership + sync.lock mutex — would clarify the impl ordering between #112 schema and #111 engine)." Sits **upstream of #111's impl** because #111 + #112 need agreement on writer-per-column rules and a mutex contract before the set-diff engine can claim atomicity.
+   - Scope: column-ownership table across `conversations` (title, created_at, updated_at, selected_repository, selected_branch, source, post-#112 `cloud_updated_at`, post-#108 `parent_conversation_id`), `sync.lock` mutex contract (scope/location/operations/failure-mode), rewrite issue body, post technical-approach comment with explicit coordination posture vs #108/#110/#111/#112/#113/#114/#116, apply `ready`, prepend WORKLOG entry, exit.
+   - Explicit DO-NOTs: no `src/` or `tests/` edits, no PR, no other-issue label changes, no PR #118/#119 touches, no `db process` runs.
+
+**`/assess-priority` inline (this cycle):**
+- #108 had `ready` label but no `priority:*` after `f27dd29` finished. Applied **`priority:medium`** — independent of the sync-rewrite cluster, small fix (0.06% data growth observed, ~four call-site cascade + one new migration), can land on its own timeline once PR slot opens.
+- #110 already `priority:high` (in flight via PR #119).
+- #111 and #112 already `priority:medium` (blocked on PR #119 + #112's impl PR merging).
+- No other un-prioritized ready issues this cycle.
+
+**Docs-update gate for PR #119 — N/A (re-confirmed):** Tests-only PR. No `src/ohtv/` edits in diff (verified by the AI bot's review; the testing worker re-verifies via `gh pr diff 119 --name-only`). No new CLI flag/env var/output format. README.md untouched and correctly so. Decision tree goes "PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker." Even though AI bot review is CHANGES_REQUESTED, the skill explicitly says testing comes first — review worker runs **after** test results are posted.
+
+**Out-of-band PR #118 noted, not driven:** [PR #118 — feat(embeddings): support EMBEDDING_API_KEY / EMBEDDING_BASE_URL overrides](https://github.com/jpshackelford/ohtv/pull/118) opened 19:06:36Z by a human-initiated AI conversation **outside this orchestrator's spawn tree**. Not tied to any tracked GH issue (no `Fixes #N` in body). Branch `feat/embedding-env-overrides`, ready, CI green (`pr-review` SUCCESS), no review yet, includes its own `docs/reference/configuration.md` update in-diff and 14 new unit tests (full suite 1709 passing per PR body). The orchestrator workflow assumes 0–1 open PRs in its slot; with two open, the **tracked-issue PR (#119) wins the slot**. PR #118 will keep its CI-green state while human or a future review/test pass picks it up — orchestrator will not spawn an unsolicited testing/review worker for an out-of-band PR. Documented here so the next cycle's decision tree doesn't double-count or block.
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → zero matches outside fenced code (the 18:58Z #108 expansion entry pushed older code-fence templates further down; the only literal `## INSTRUCTION:` strings now sit inside ` ```markdown ... ``` ` blocks). **Zero actionable.**
+
+**Decision-tree trace:**
+- **PR slot:** PR #119 — ready ✅, CI green ✅, docs N/A ✅, no manual test results ✅, AI bot CHANGES_REQUESTED (supply-chain timing + dedup hint) — testing required regardless of review state per the skill. → **Spawn testing worker for #119**.
+- **Expansion slot:** OPEN (both 18:51Z workers finished). Issues needing expansion after this cycle's #108-becomes-ready: #109, #113, #114, #116. → **Spawn expansion for #109** per dependency-aware ordering (#109 is upstream of #111's impl; #113/#114 depend on #111 or #112; #116 is orthogonal cleanup with no dependency pressure).
+- PR #118 is **not** considered for the PR slot this cycle (see "Out-of-band PR #118" above).
+
+**Spawn details (both):**
+- API: `X-Access-Token: $OPENHANDS_API_KEY` (canonical, matches the 18:51Z cycle).
+- Plugin block not included (consistent with the 18:51Z cycle's confirmed pattern — the platform's `agent_type=default` + start-task system picks up plugins from cloud-side config).
+- POST `/api/v1/app-conversations` accepted both: task `ca05fed8...` (testing #119) + `9d3ed12b...` (expansion #109) with `status: WORKING`. After ~25s the cloud surfaced them via `/app-conversations/search` as `cce96ef9...` (cloud-renamed "✅ Manual Test Gate: PR #119 Sync Harness") + `6f8c1937...` (cloud-renamed "📝 Document column ownership & sync.lock mutex"). Both `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`. Cloud title rewrites preserved descriptive intent (✅ + 📝 emojis — better than the "Conversation 747e504" placeholder seen on `747e504` from earlier today).
+- Endpoint quirk re-confirmed this cycle: `GET /api/v1/start-tasks/{id}` and `GET /api/v1/start-tasks?ids=...` both return the React app HTML (not JSON) when polled with `X-Access-Token`. Only `/app-conversations/search?limit=N` returns the JSON shape the orchestrator needs. Adding to AGENTS.md memory if not already there.
+
+**Current State (verified 19:23–19:26Z):**
+- **Open PRs:** 2 — [PR #119](https://github.com/jpshackelford/ohtv/pull/119) (in workflow's PR slot, testing in flight via `cce96ef`) + [PR #118](https://github.com/jpshackelford/ohtv/pull/118) (out-of-band, embedding env overrides, not driven by orchestrator this cycle).
+- **Ready issues (4):** #108 (`priority:medium`, newly prioritized this cycle, awaiting impl after PR slot opens), #110 (`priority:high`, in flight via PR #119), #111 (`priority:medium`, blocked on #110 + #112 impl/merge), #112 (`priority:medium`, awaiting impl after PR slot opens).
+- **Needs expansion (3 after this cycle):** #113, #114, #116. #109 in flight via `6f8c193`.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+
+**Pre-commit for next cycle (~19:50–20:00Z window):**
+- **If `cce96ef` is `running`** → PR slot stays filled, log status. Testing typically 15–30 min wall for a tests-only diff this size.
+- **If `cce96ef` finished AND posted `## Manual Test Results — PR #119` with ✅ verdict** → PR slot reopens for next worker. AI bot already requested changes → spawn **review worker for PR #119** to address the `fakes.py` dedup hint (decline the hypothesis-age block respectfully — it's a 7-day policy wait, not a code defect; document the decline in the review thread). Note: supply-chain timing means merge is gated until ~2026-06-03 regardless.
+- **If `cce96ef` finished but verdict is ⚠️/❌** → log the issue, defer spawning until human reviews or wait one cycle for fix push.
+- **If `cce96ef` is `finished` but no test comment was posted** → investigate the conversation events (recall the morning's zombie-blocked stretch).
+- **If `6f8c193` finished AND #109 has `ready` label** → expansion slot opens. Next target: **#113** (`--repair --fix` UX, depends on #112 schema being merged for full implementation but expansion can land independently). Skipped: #114 (depends on #111 impl, premature to expand), #116 (orthogonal cleanup with no dependency pressure, lowest urgency).
+- **If `6f8c193` finishes with `needs-info`/`needs-split`/`blocked`** instead of `ready` → expansion slot opens, pick the next-oldest unexpanded (#113).
+- **If PR #118 grows a review or test comment** → re-evaluate whether it should join the orchestrator's workflow next cycle. Until then, treat it as human-owned.
+- **If a new `## INSTRUCTION:` appears outside fenced code** → follow it first.
+
+**Housekeeping:** WORKLOG.md was **772 lines** pre-this-entry, **~860 lines** post — well below the 1600-line custom threshold established for this repo's heavy productive days. The default 300-line threshold is intentionally not applied — recent context (sync-rewrite cluster planning across 14h + PR #119 review-bot findings + #109 column-ownership work) is still actively referenced cycle-to-cycle. The 18:16Z cycle's archive of 04:21Z–12:17Z into `WORKLOG_ARCHIVE_2026-05-27.md` remains the most recent housekeeping. **Deferred.**
+
+**Auto-disable check:** Productive cycle (2 spawns, 1 priority assignment, 1 out-of-band PR noted) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Lessons re-learned/added this cycle:**
+- **`/start-tasks/{id}` returns HTML, not JSON.** The orchestrator should poll the spawn outcome via `/app-conversations/search?limit=N` filtered by `title` or `created_at` window, NOT via the start-task endpoint. The POST `/app-conversations` response gives a task id + `status: WORKING` synchronously; the actual conversation surfaces in `/app-conversations/search` after ~20–30s with `app_conversation_id` populated (different from the task id).
+- **Multiple open PRs require explicit slot-arbitration.** With PR #118 out-of-band + PR #119 in-workflow, the orchestrator picked PR #119 (tracked-issue) and explicitly documented the decline. The "0 or 1 open PR" assumption in the orchestrate skill is a guideline, not a hard rule.
+- **AI bot review feedback isn't always blocking.** PR #119's supply-chain timing finding (`hypothesis 6.153.6` <7d old) is a policy wait, not a defect. The skill says to evaluate review feedback critically — for this one, the testing worker logs it but doesn't act on it, and a future review worker can document the decline (or just wait until 2026-06-03 to merge).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 18:58 UTC - Issue #108 expanded
 
 Posted [technical-approach comment](https://github.com/jpshackelford/ohtv/issues/108#issuecomment-4557716321) on #108 and applied the `ready` label. Reproduced cleanly against `app.all-hands.dev`: a paginated `/search?limit=100` returns **3580** items with **zero** `parent_conversation_id`, while `?include_sub_conversations=true` returns **3582** items with **2** sub-conversations present — confirming the silent server-side filter. Adjacent finding worth flagging: `/count` returns the inclusive **3582** regardless of the flag, so the existing `sync --repair --check-cloud` path already disagrees with itself when sub-conversations exist on the account. Root cause is one omission at `src/ohtv/sources/cloud.py:76-91` (the param is never added to the request), cascading through four `search_all_conversations` call sites in `sync.py` (lines 206, 751, 936, 1149).
