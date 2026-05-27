@@ -1,3 +1,19 @@
+### 2026-05-27 17:25 UTC - Issue #110 expanded
+
+Posted technical-approach comment on [#110](https://github.com/jpshackelford/ohtv/issues/110#issuecomment-4556930022) and applied the `ready` label. #110 is the **foundation** for the sync-rewrite critical path — `#110 + #112` parallelizable; `#111` (headline set-diff fix) blocks on both.
+
+Recommended a new `tests/unit/sync/` package (mirroring the `tests/unit/db/` precedent) with: `fakes.FakeCloudClient` (duck-typed against the 7 methods today's `CloudClient` exposes — listing/pagination/count/download/update + `__enter__/__exit__`), `builders.make_trajectory_zip` (promoted from the existing inline `_create_minimal_zip` at `test_sync.py:465`), `strategies.py` for hypothesis property tests, `conftest.py` with `fake_cloud` + `sync_manager_factory` + `seeded_local_state` fixtures, plus `test_behavioral.py` and `test_harness_smoke.py`.
+
+**Critical design point baked in**: the existing `_RecordingCloudClient` (`test_sync.py:890`, ~25 call sites) gets folded INTO `FakeCloudClient` with the same `search_calls` / `download_calls` / `update_calls` recorder shape — no parallel-fake fragmentation, the existing `TestUpdateMetadata` suite migrates by import-swap. Until #111 lands and makes `sync()` accept `client=None`, the fixture patches `ohtv.sync.CloudClient` at the import site to inject the fake (the temporary bridge #111 retires).
+
+Enumerated **16 behavioral scenarios** with per-test markers tied to the implementation issue that flips them: 3 pass-today (initial empty sync, ID normalization, manifest-as-canonical-metadata regression), 10 `xfail(strict=True)` flipped by #111 (gap recovery, backdated `updated_at`, visibility flip, pagination dedup, mid-listing item appearance, mid-sync crash, 2 hypothesis property tests, etc.), 3 `skip` flipped by #112/#113 (snapshot atomicity, set-diff vs `cloud_listing`, `--repair` four-category output — these would crash today because the `cloud_listing` table doesn't exist yet, hence `skip` not `xfail`). `strict=True` is the safety net against an accidental partial fix landing out-of-order in #112/#113. Out-of-scope carve-outs explicit: no `src/ohtv/` changes (those are #111/#112/#113/#114), no `cloud_listing` schema (#112), no concurrency tests (#109), no duplication of #107's `reset_to_n_newest` sort tests.
+
+Repeated the **atomic-switch reminder** from the 16:40Z plan: no feature flag, no dual-write phase — this test suite IS the safety net for the #111 atomic switch. Scenarios discovered during #111 implementation get appended in the same PR rather than filed as follow-ups.
+
+Conv `4f1e30d9…` (this expansion worker). Expansion only — no code changes to `src/`, no PR opened, no implementation of the harness itself (per the prompt's explicit "do not pre-implement the test harness" rule — that lands in a separate impl worker).
+
+---
+
 ### 2026-05-27 17:21 UTC - Orchestrator
 
 **Active Workers:**
