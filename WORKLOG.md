@@ -1161,3 +1161,52 @@ Either way, the impl worker did exactly the right thing — picked the next-high
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-27 00:23 UTC — Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0c8c34b5` | orchestrator | this cycle | running |
+| `4e867f21` | review | PR #99 — encoding nits + B-1/B-2 test bugs | **NEW** running |
+
+**Spawned: Review Worker** — `4e867f21d61b473ab186037b9323dc5b` ([conversation](https://app.all-hands.dev/conversations/4e867f21d61b473ab186037b9323dc5b))
+
+PR slot is now occupied by the review worker. Expansion slot remains idle (0 issues need expansion).
+
+**Prior cycle result (testing worker `10d3c12d`):**
+
+Posted a `## Manual Test Results — PR #99` comment at ~23:59Z. Verdict: **🟡 Needs Minor Changes**. Twelve scenarios run against 1289 real conversations + a hand-built fixture DB. Highlights:
+
+- ✅ Bulk classification, mutual-exclusion error, table/JSON/lines/CSV outputs, prefix overrides, `--source human` filter, idempotent `--reset`, persistence across re-runs, `db status` integration, conflicting flags — all behaved correctly.
+- ❌ **Bug B-1 (MAJOR):** README example #5 (`ohtv classify --list-unknown -1 | head -5 | xargs -I {} ohtv classify {} --source human`) is broken. `-1` emits 8-char short IDs, but `set_single` requires the full 32-char ID, so every line errors with `Error: No conversation_human_input row for conversation '<short_id>'`. The documented workflow is fundamentally non-functional.
+- ⚠️ **Bug B-2 (minor):** Error path for "conversation ID not found at all" reuses the "no `conversation_human_input` row" message, which misleads users (it blames the stage, not the missing conversation).
+- Three auto-AI review threads on `src/ohtv/classify.py` (lines 155, 261, 296) about a malformed character sequence in docstrings remain unresolved.
+
+The review worker prompt directs fixing all three issues (encoding nits as one commit, B-1 + B-2 as a related commit with new unit tests for prefix-match success/collision/no-match), with explicit guidance to use approach (a) from AGENTS.md #14 (short-prefix resolution, mirroring `_find_conversation_dir`). Worker also instructed to set PR to draft immediately, reply+resolve the 3 threads after pushing fixes, and move PR back to ready. WORKLOG and merge are off-limits to the worker.
+
+**Spawn hiccup (worth noting for future cycles):** The first spawn attempt at 00:19Z used `initial_user_msg` as the payload key (the `lxa` / older docs spelling), which the V1 API silently accepts as an unknown field — the sandbox came up but no message was queued, so `execution_status=idle` with 0 events. The correct V1 schema is `initial_message.content[{type, text}]` (see `openhands-api` skill). The idle conversation (`fa2fa661`) was paused via `POST /api/v1/sandboxes/{sandbox_id}/pause`. Re-spawn with the right schema worked on the first try (start-task `READY` on the first 5s poll). **Pin for future spawns:** always use `initial_message.content[]`, never `initial_user_msg`.
+
+**Current State:**
+
+- **Open PRs:** 1 — [PR #99](https://github.com/jpshackelford/ohtv/pull/99) (still in ready state per gh; the review worker will flip to draft as its first action).
+- **Manual test verdict on PR #99:** 🟡 Needs Minor Changes (B-1 MAJOR, B-2 minor, 3 docstring encoding threads).
+- **Ready issues unchanged from last cycle:** #83 (in PR #99 review), #90, #92 (`priority:medium`); #82 (now unblocked since #81 merged), #87 (`priority:low`, blocked on #86 — already merged).
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Recently paused sandboxes:** `fa2fa661` (broken-schema spawn from this cycle), `10d3c12d` (testing worker, finished and auto-paused).
+
+**Auto-disable check:** Not applicable — productive spawn this cycle. Counter remains 0.
+
+**Housekeeping:** WORKLOG.md is now ~1215 lines. The 16:21Z + 16:50Z PR #96 entries (both >7h old, PR fully merged) are still good archive candidates. Continuing to defer — next quiet cycle or 1500-line threshold, whichever comes first.
+
+**Next check (~30 min, ~00:53Z):**
+
+- If `4e867f21` is `running` → log status, do nothing. Review rounds for a 3-thread + 2-bug scope typically run 30–60 min.
+- If `4e867f21` is `finished` AND the 3 threads are resolved AND new commits exist AND CI is green AND README example #5 has been verified working → spawn **re-testing worker** (per orchestrator skill: "PR has test results, but significant code changes were made AFTER the last test"; B-1 fix is a substantive behavior change in `set_single`'s lookup path that warrants re-verification of at least the README example + 2-3 affected scenarios from the original test matrix).
+- If `4e867f21` is `finished` BUT one of (threads unresolved / PR still draft / CI red / fixes missing) → diagnose via `gh pr view 99 --comments` + `gh api graphql` thread listing; may need a `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
