@@ -1308,3 +1308,74 @@ A prior orchestrator wake-up (around 03:51Z) appears to have spawned an impl wor
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-27 04:48 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `19dfec8` | testing | PR #101 — `--chart` flag | finished ✓ |
+| `91ed7ea` | merge | PR #101 — `--chart` flag | **NEW** running |
+
+**Spawned: Merge Worker** — `91ed7ea349464a188bb39ad3628c9518` ([conversation](https://app.all-hands.dev/conversations/91ed7ea349464a188bb39ad3628c9518))
+
+Testing worker `19dfec8` completed cleanly at 04:29:16Z (cost $4.96). Test report posted 04:28:21Z on PR #101.
+
+**Test verdict (full report in PR #101 comment):** ✅ **Ready to merge** — all 9 ACs satisfied.
+- T-0 full pytest: **1688/1688 passed** in 26.55s (no regression vs impl-worker baseline)
+- T-0b focused chart tests: **21/21 passed** in 11.49s
+- T-1..T-16 blackbox matrix: all green (PNG/SVG/PDF rendering, 3-panel sharex layout, `--mark-date` axvline on all 3 panels, `--title` suptitle, empty-data path no-file-written, `--repo` filter, lazy matplotlib import error path, `scripts/chart_velocity.py` byte-identical to CLI flag, README example copy-pasteable, AGENTS.md item #30 spot-check, ruff clean on new files)
+- Issue #82 AC roll-up: AC-1..AC-9 all ✅
+
+**Two minor 🟡 nits (explicitly NOT blocking):**
+1. Unsupported `--chart` extension surfaces as raw `ValueError` traceback instead of `click.UsageError` (UX polish — 2-line `try/except` fix in `cli.py`).
+2. Chart cannot visually distinguish NULL `lines_added` from zero (semantic info loss vs. table's `-` vs `0`). Fix options: docs note OR hatched bars for `partial_loc=True`.
+
+**Decision-tree match:**
+- ✅ PR slot empty on wake-up (testing worker `19dfec8` finished; only `d9a994e` orchestrator was running, now also exiting).
+- ✅ Expansion slot empty + 0 issues need expansion.
+- ✅ "PR exists, ready, CI green, docs valid, test results valid, **good rating** → Spawn **merge worker**." Exact match. AI bot review is positive informational (COMMENTED, not CHANGES_REQUESTED). The 1 PR comment is the test report itself, not a review thread requiring reply. Minors are documented in PR for follow-up issues post-merge.
+- ✅ No `## INSTRUCTION:` in WORKLOG.md (only historical narrative refs).
+
+**Merge worker scope (prompt highlights):**
+1. Clone, verify HEAD drift: `gh pr view 101 --json headRefOid` must equal `0a85d36e7d5eb1a7e268f49faaf9d5e644b0b43a`. Bail if drift detected.
+2. Re-verify CI green.
+3. Study full diff + read manual test report + issue #82 ACs.
+4. Update PR description with final state.
+5. Craft conventional commit: `feat(reports): add --chart flag to velocity for publication-quality charts (#82)` with body bullets (3-panel layout, sharex, `--mark-date`, `--title`, extension-driven format, lazy matplotlib via `[charts]` extra, `scripts/chart_velocity.py` standalone CSV-shim). Footer: `Refs #82` or `Closes #82` after verifying issue body.
+6. `gh pr merge 101 --squash --subject ... --body ... --delete-branch`.
+7. Verify `state=MERGED`.
+8. **File two follow-up issues** for the 🟡 minors (no `ready` label — expansion worker will pick them up next cycle).
+9. Update WORKLOG.md on main with merge entry + new issue numbers.
+10. Exit.
+
+**Explicit DO-NOTs:** no source edits, no fixup pushes, no re-open, no `ready` label on new follow-up issues, no other spawns.
+
+**Spawn details:**
+- `POST /api/v1/app-conversations` with `initial_message.content[{type:text, text:...}]` (correct schema, per the openhands-api skill invoked pre-spawn — lesson learned from the 04:21Z cycle applied successfully).
+- Start-task `1e06f067…` → poll at +10s: `READY` → `app_conversation_id=91ed7ea349464a188bb39ad3628c9518`.
+- `GET /app-conversations?ids=…` confirms `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`. Cloud-generated title: "✨ Merge PR #101: --chart flag for velocity report" (good — request title also descriptive enough that the cloud accepted it cleanly).
+
+**Current State (verified 04:46–04:48Z):**
+- **Open PRs:** 1 — [PR #101 — feat: add --chart flag to ohtv report velocity (#82)](https://github.com/jpshackelford/ohtv/pull/101) (ready, CI green, AI-bot positive, manual test ✅, merge in flight via `91ed7ea`).
+- **Ready issues (1 remaining post-merge):** #87 (`priority:low`, manifest cache extension). #82 will close on merge.
+- **Pre-commit:** Once `91ed7ea` lands PR #101 and files the two follow-up issues, the next PR-slot spawn → **#87** (only remaining `ready` issue). The two new follow-up issues will enter the expansion slot.
+- **Needs expansion:** 0 currently (will become 2 once merge worker files the follow-ups).
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none.
+
+**Sync note:** `ohtv sync --since 2026-05-27T00:46:* --quiet` completed (after exporting `OH_API_KEY=$OPENHANDS_API_KEY` in the venv-less environment; `pip install` was used since `uv` rejected the system Python without `--system`).
+
+**Housekeeping:** WORKLOG.md is now ~1370 lines after this entry. The 19:19Z–22:51Z 2026-05-26 block (lines ~9–~660, ~650 lines, all >6 hours old and unrelated to in-flight work) is overdue for archive. **Pre-commit:** the **next quiet cycle** (probably ~05:18Z if `91ed7ea` is still merging, or after follow-up issue triage) will run `/truncate-worklog` against that block → `WORKLOG_ARCHIVE_2026-05-26.md`. Deferring this cycle to keep the orchestrator action-count at 1 (one spawn).
+
+**Auto-disable check:** Not applicable — productive spawn this cycle. Consecutive-quiet counter remains 0. Recent cycles (01:52Z … 04:21Z … this 04:48Z) all productive.
+
+**Next check (~30 min, ~05:18Z):**
+- If `91ed7ea` is `running` → log status, do nothing. Merge prep + 2 follow-up issues filed typically takes 10–20 min.
+- If `91ed7ea` is `finished` AND PR #101 shows `state=MERGED` AND two new follow-up issues exist (no `ready` label) → spawn **expansion worker** for the oldest of the new follow-ups. PR slot is empty post-merge, but only #87 has `ready` — so also potentially spawn **impl worker for #87** in the same cycle (both slots can fill).
+- If `91ed7ea` is `finished` BUT PR #101 still `OPEN` → investigate (drift detected? merge call failed?). May need `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Archive TO-DO (definitely this cycle if quiet):** 19:19Z–22:51Z 2026-05-26 block → `WORKLOG_ARCHIVE_2026-05-26.md`.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
