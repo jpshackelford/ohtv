@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**ohtv (OpenHands Trajectory Viewer)** - A CLI utility for viewing and syncing OpenHands conversation histories. See `README.md` for full command reference and usage documentation.
+**ohtv (OpenHands Trajectory Viewer)** - A CLI utility for viewing and syncing OpenHands conversation histories. See [`README.md`](README.md) for the elevator pitch and [`docs/`](docs/README.md) for command guides + reference.
 
 ## Development
 
@@ -25,7 +25,7 @@ uv run ohtv --help         # Run CLI
 
 ## Architecture & Design Decisions
 
-These decisions explain WHY the code is structured as it is. See `README.md` for command usage.
+These decisions explain WHY the code is structured as it is. See [`docs/guides/`](docs/README.md) for command usage.
 
 1. **Unified data access**: `list` and `show` transparently search both local CLI conversations (~/.openhands/conversations/) and synced cloud conversations (~/.openhands/cloud/conversations/)
 
@@ -51,7 +51,7 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
 
 10. **Output truncation**: `-o` truncates to 2000 chars; `-O` shows full output. Both show exit codes.
 
-11. **SQLite indexing**: Lightweight index for conversations and relationships. See `docs/DATABASE.md`. Key points:
+11. **SQLite indexing**: Lightweight index for conversations and relationships. See `docs/reference/database.md`. Key points:
     - Minimal footprint: metadata only, content stays on filesystem
     - Two-phase: `db scan` (fast registration) + `db process <stage>` (incremental)
     - Change detection: mtime as fast filter, event_count as checkpoint
@@ -86,7 +86,7 @@ These decisions explain WHY the code is structured as it is. See `README.md` for
     - **Push-PR linking**: The `push_pr_links` stage correlates pushes with PRs via branch matching
     - **Conservative approach**: Only links when full owner/repo/branch qualification exists on both sides
     - **Current limitation**: Temporal ordering not yet implemented (pushes before PR creation don't link correctly)
-    - **Design doc**: See `docs/DESIGN_TEMPORAL_PR_LINKING.md` for planned improvements
+    - **Design doc**: See `docs/design/temporal-pr-linking.md` for planned improvements
 
 18. **Processing stage order**: `refs → actions → branch_context → push_pr_links`
     - Each stage can run independently but has dependencies
@@ -207,12 +207,12 @@ Terminal is in corrupted state (usually after OpenHands CLI exits improperly).
 ## Testing
 
 ```bash
-# Unit tests (see docs/TESTING.md)
+# Unit tests (see docs/contributing/testing.md)
 uv run python -m pytest tests/unit/db -v
 uv run python -m pytest tests/unit/test_filters.py -v
 uv run python -m pytest tests/unit/test_errors.py -v
 
-# Manual testing - see README.md for full command reference
+# Manual testing - see docs/reference/cli.md for command index
 uv run ohtv list -A                    # All conversations (refs shown by default)
 uv run ohtv list -A --idle             # Show idle time (red < 7m, green >= 7m)
 uv run ohtv list -A --idle 15          # Custom idle threshold (15 min)
@@ -236,10 +236,11 @@ uv run ohtv prompts show brief         # Show specific prompt content
 
 ## Reference Documentation
 
-- `README.md` - Full command reference and usage
-- `docs/DATABASE.md` - SQLite indexing system
-- `docs/TESTING.md` - Test infrastructure
-- `docs/DESIGN_TEMPORAL_PR_LINKING.md` - Design for temporal push-PR linking (next phase)
+- `README.md` - Pitch + quick start
+- `docs/` - User guides, reference, design notes (see `docs/README.md`)
+- `docs/reference/database.md` - SQLite indexing system
+- `docs/contributing/testing.md` - Test infrastructure
+- `docs/design/temporal-pr-linking.md` - Design for temporal push-PR linking (next phase)
 - `REFERENCE_CLOUD_API.md` - OpenHands Cloud V1 API endpoints
 - `REFERENCE_TRAJECTORY_FORMAT_COMPARISON.md` - Local vs cloud trajectory formats
 
