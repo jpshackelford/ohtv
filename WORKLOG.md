@@ -1,3 +1,74 @@
+### 2026-05-27 19:54 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `703586d` | expansion | Issue #113 — `--repair --fix` cloud-gap recovery UX | **NEW** running |
+
+**Spawned: 1 worker (expansion slot only).** Both workers from the 19:22Z cycle completed cleanly:
+- Testing `cce96ef` for PR #119 → finished, posted [`## Manual Test Results — PR #119`](https://github.com/jpshackelford/ohtv/pull/119#issuecomment-4558039648) at 19:25:40Z with **⚠️ verdict**. All test rows pass (T-2..T-7 ✅, T-1 ⚠️ structural-note positive: "builders.py + strategies.py + conftest.py" split deemed "arguably better factored" than the spec's `helpers.py`). 1779 pass / 3 skip / 10 xfailed full suite, 35 pass / 3 skip / 10 xfailed for `tests/unit/sync/`. **Verdict ⚠️ for two non-defect reasons:** (1) supply-chain timing on `hypothesis 6.153.6` (~2h old vs. 7-day policy), (2) `fakes.py` dedup hint from the AI bot — minor follow-up refactor, low risk.
+- Expansion `6f8c193` for #109 → finished, [technical-approach comment](https://github.com/jpshackelford/ohtv/issues/109#issuecomment-4557975170), `ready` applied. Per the 19:25Z entry: scanner-only ownership for `selected_branch`, `fcntl.flock(LOCK_EX | LOCK_NB)` on `~/.ohtv/sync.lock` over `BEGIN IMMEDIATE`, fail-fast w/ `--lock-timeout=N` opt-in.
+
+1. **Expansion Worker** — `703586d823da456782d4619a8ac1d8a1` ([conv](https://app.all-hands.dev/conversations/703586d823da456782d4619a8ac1d8a1))
+   - Issue: [#113 — `ohtv sync --repair` reports the cloud-side gap but cannot fix it](https://github.com/jpshackelford/ohtv/issues/113)
+   - Picked per the 19:22Z pre-commit forecast: `#113` next after `#109` lands. Sits **downstream of #111 + #112** (consumes both their plumbing) and depends on **#109's `sync.lock` contract** (must take same `fcntl.flock`). Independent of #114 (manifest retirement happens after #113 lands).
+   - Scope (handed to worker): reproduce gap-reporting behavior, define `--repair --fix` semantics post-#111 (suggested boundary: normal sync = incremental set-diff every run; `--repair --fix` = destructive ghost cleanup + full orphan re-scan + optional `cloud_updated_at` revalidation across the entire local set), coordinate with #112's `CloudListingStore` (fresh `start_snapshot(repair=True)`), coordinate with #109's `sync.lock` (must take it), spell out UX (extend repair report with `cloud-only downloaded:` + `cloud-removed recorded:` lines mirroring #111's set-diff categories), confirm xfail-flips for #110 scenarios #4 and #13 (`reason='#113'`), out-of-scope carve-outs explicit for #108/#109/#111/#112/#114/#116. Rewrite issue body, post technical-approach comment, apply `ready`, prepend WORKLOG entry, exit.
+   - Explicit DO-NOTs: no `src/` or `tests/` edits, no PR, no other-issue label changes, no PR #119/#120 touches, no `db process` runs.
+
+**`/assess-priority` inline (this cycle):**
+- **#109 → `priority:medium`** (newly applied this cycle). #109 had `ready` label after `6f8c193` finished but no `priority:*`. Consistent with sister issues in the sync-rewrite cluster: #108/#111/#112 all `priority:medium`. #109's resolution is "land #109 before #111 so #111 inherits serialization for free" — a coordination optimization (one-line `fcntl.flock` wrap in `cli.py` + the column-ownership documentation), not a hard block. `priority:medium` is the right tier.
+- No other un-prioritized ready issues this cycle.
+
+**PR slot decision — DEFERRED (no spawn), explicit:**
+- PR #119 — `feat/sync-test-harness-110`, ready, CI green (`pr-review` SUCCESS), `reviewDecision=CHANGES_REQUESTED`, manual test results posted with **⚠️ verdict** (test-comment SHA `3a05089` matches PR HEAD — results are valid, not outdated).
+- **Decision tree pull:** "PR exists, ready, CI green, test results valid, 💬 > 0 → Spawn review worker." This would normally trigger a review-worker spawn.
+- **Pre-commit forecast pull from 19:22Z:** "If `cce96ef` finished but verdict is ⚠️/❌ → log the issue, defer spawning until human reviews or wait one cycle for fix push."
+- **Pre-commit forecast wins** because (a) merge is gated by the hypothesis-age policy until **~2026-06-03** regardless of when we push fixes (~7 days), (b) any commit on top resets `last_commit > test_timestamp` → would force a re-test cycle that has to happen anyway right before merge, (c) burning a review-worker spawn now to address a "minor refactor, low risk, not worth blocking on" finding wastes LLM budget for work that will be re-validated in a week, (d) the testing worker explicitly wrote "Ready for the review worker once the hypothesis age gate is satisfied (or explicitly waived)." Deferring is the pragmatic call.
+- **What this means in practice:** PR #119 sits with valid test results until either (i) human waives the hypothesis policy, (ii) ~2026-06-03 arrives, or (iii) a `## INSTRUCTION:` directs otherwise. Orchestrator re-evaluates each cycle.
+
+**Out-of-band PRs (noted, not driven):**
+- **PR #118 — MERGED at 19:20:03Z** (squash-merge). The 19:22Z cycle's "out-of-band, embedding env overrides" PR closed cleanly with its own in-diff docs + 14 new unit tests, human-driven outside the orchestrator's spawn tree. No follow-up action needed.
+- **PR #120 — NEW, OPEN, ready, CI all green** (`pr-review SUCCESS`, `lint SUCCESS`, `pytest SUCCESS`). Title: `ci: bootstrap release automation (release-please + tests + PR-title lint)`, branch `chore/release-automation-bootstrap`, opened by `jpshackelford` directly at 19:36:56Z (human-initiated, outside this orchestrator's spawn tree). NOT tied to any tracked GH issue (no `Fixes #N` association). Same posture as PR #118 last cycle: **tracked-issue PR (#119) wins the orchestrator's PR slot; PR #120 is human-owned, orchestrator will not spawn testing/review/merge for it.** Documented here so the next cycle's decision tree doesn't double-count.
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → zero top-level matches (all literal occurrences are inside ` ```markdown ... ``` ` fenced code blocks from earlier suggested-shapes templates). **Zero actionable.**
+
+**Decision-tree trace:**
+- **PR slot:** PR #119 in workflow, test results posted with ⚠️ verdict, merge gated until ~2026-06-03 by hypothesis age policy. **Deferred** per pre-commit forecast — no spawn.
+- **Expansion slot:** OPEN (`6f8c193` finished). Issues needing expansion after this cycle: #114, #116. → **Spawn expansion for #113** per dependency-aware ordering (#113 consumes #111+#112 plumbing, must take #109's lock; #114 depends on #113 + #111 + #112 all landing; #116 is orthogonal cleanup, lowest urgency).
+
+**Spawn details (#113 expansion):**
+- API: `X-Access-Token: $OPENHANDS_API_KEY`, `POST /api/v1/app-conversations` with `selected_repository=jpshackelford/ohtv`, `selected_branch=main`, `agent_type=default`. Task ID `9459421558684581986da7c8091421b9` accepted with `status: WORKING` at 19:53:18Z.
+- Verified ~30s later via `/app-conversations/search?limit=10`: surfaced as `703586d823da456782d4619a8ac1d8a1`, `execution_status=idle`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `selected_branch=main`. Cloud-side title rewrite still pending (currently `Conversation 70358...`); expected to update within ~1-2 min to a descriptive title.
+- Plugin block deliberately NOT included in payload (consistent with the 18:58Z + 19:22Z cycles' confirmed pattern — platform's `agent_type=default` + start-task system picks up plugins from cloud-side config).
+
+**Current State (verified 19:46–19:54Z):**
+- **Open PRs:** 2 — [PR #119](https://github.com/jpshackelford/ohtv/pull/119) (orchestrator's slot, **deferred this cycle** pending hypothesis policy gate or human waiver) + [PR #120](https://github.com/jpshackelford/ohtv/pull/120) (out-of-band, release automation bootstrap, human-driven).
+- **Ready issues (5):** #108 (priority:medium), #109 (priority:medium — **newly applied this cycle**), #110 (priority:high, in flight via PR #119), #111 (priority:medium, blocked on #110+#112 merge), #112 (priority:medium, awaiting impl after PR slot opens).
+- **Needs expansion (2 after this cycle):** #114, #116. #113 in flight via `703586d`.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+
+**Pre-commit for next cycle (~20:20–20:30Z window):**
+- **If `703586d` is `running`** → expansion slot stays filled, log status. Expansion typically 20-40 min for a dependency-coordination-heavy issue.
+- **If `703586d` finished AND #113 has `ready` label** → expansion slot reopens. Next target: **#116** (centralize DB migration — orthogonal cleanup, no dependency pressure, smaller scope than #114). Skip #114 (depends on #113 + #111 + #112 all landing — premature; the #114-vs-#87-manifest interaction can't be fully designed until #113's `--repair --fix` plumbing exists).
+- **If `703586d` adds `needs-info`/`needs-split`/`blocked`** → expansion slot reopens, pick next-oldest unexpanded (#114 or #116 depending on what `703586d` flagged).
+- **If PR #119's test results timestamp falls behind a new commit** (someone pushes to the PR branch) → re-evaluate; may need to spawn re-testing worker. Currently HEAD=`3a05089` matches test SHA.
+- **If a human waives the hypothesis-age policy on PR #119** (comment or instruction) → reopen PR slot decision; spawn review worker first (address `fakes.py` dedup), then re-test, then merge.
+- **If PR #120 grows a review comment or test artifact** → re-evaluate whether to join the orchestrator's workflow (currently treated as human-owned).
+- **If a new `## INSTRUCTION:` appears outside fenced code** → follow it first.
+
+**Housekeeping:** WORKLOG.md is **860 lines** pre-this-entry, **~960 lines** post — still well below the 1600-line custom threshold established for this repo's heavy productive days. The default 300-line threshold is intentionally not applied — recent context (sync-rewrite cluster planning across 16h + PR #119 review-bot findings + #109/#113 column-ownership-and-repair work) is still actively referenced cycle-to-cycle. The 18:16Z cycle's archive of 04:21Z–12:17Z into `WORKLOG_ARCHIVE_2026-05-27.md` remains the most recent housekeeping. **Deferred.**
+
+**Auto-disable check:** Productive cycle (1 spawn + 1 `/assess-priority` priority assignment + 1 explicit deferral decision documented) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Lessons re-learned/added this cycle:**
+- **Pre-commit forecast vs. decision tree:** When the prior cycle's pre-commit forecast explicitly handles the current outcome ("If verdict is ⚠️/❌ → defer"), and the underlying merge gate is policy/calendar-based (not code-defect), the forecast wins over the canonical decision tree. The decision tree gives the default; the forecast applies the cycle-specific reasoning.
+- **`sandbox_status=PAUSED` + `execution_status=null` = FINISHED.** This is the post-completion steady state for worker conversations (observed on `cce96ef`, `6f8c193`, `f27dd29`). The orchestrator should treat this as `finished` for slot-availability purposes, regardless of whether `execution_status` is the string `"finished"` or `null`. The presence of the worker's posted artifact (PR comment, issue label change) is the authoritative completion signal.
+- **Out-of-band PRs accumulate.** Two cycles in a row had a human-initiated PR (#118 last cycle merged, #120 this cycle still open). The orchestrator workflow's "0 or 1 open PR" assumption holds for orchestrator-driven PRs; out-of-band PRs from the human are tracked-but-not-driven indefinitely. As long as orchestrator never claims the PR slot for an out-of-band PR, the workflow stays correct.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 19:25 UTC - Issue #109 expanded
 
 Posted [technical-approach comment](https://github.com/jpshackelford/ohtv/issues/109#issuecomment-4557975170) on #109 and applied the `ready` label. Issue is now the column-ownership + `sync.lock` mutex contract that gates the #111 set-diff engine's safety story without touching #111's algorithm itself. Root-caused the race to two correct-in-isolation writers (`ConversationStore.upsert` at `stores/conversation_store.py:67-112`, called only by `db/scanner.py:441-469`; and `ConversationStore.update_metadata` at `stores/conversation_store.py:232-324`, called only by `sync.py:1053`) racing through the `sync_manifest.json` file, with WAL preventing physical corruption but doing nothing for the logical clobber: scan reads `manifest_map` at scan-start, sync rewrites manifest mid-scan, scan's `upsert` then overwrites sync's `update_metadata` write with stale data. Confirmed via grep there is no `fcntl` / `flock` / `filelock` / `BEGIN IMMEDIATE` / `sync.lock` anywhere in `src/`.
