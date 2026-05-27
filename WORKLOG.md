@@ -1210,3 +1210,77 @@ The review worker prompt directs fixing all three issues (encoding nits as one c
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-27 00:51 UTC — Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7aba725f` | orchestrator | this cycle | running |
+| `06abb078` | re-testing | PR #99 — B-1 / B-2 / B-3 fix verification | **NEW** running |
+
+**Spawned: Re-Testing Worker** — `06abb078ee8c46f1baa03a158fd435b9` ([conversation](https://app.all-hands.dev/conversations/06abb078ee8c46f1baa03a158fd435b9))
+
+PR slot is now occupied by the re-testing worker. Expansion slot remains idle (0 issues need expansion).
+
+**Prior cycle result (review worker `4e867f21`):**
+
+Finished cleanly at 00:38:38Z (~16 min runtime). Did exactly its scope:
+
+- ✅ **Commit `65df4259` pushed at 00:29:25Z:** `fix(classify): resolve conversations by short-ID prefix and improve error messages (#83)`. +99/-2 in `src/ohtv/classify.py`, +9/-0 in `src/ohtv/cli.py`, +143/-0 in `tests/unit/test_classify.py`, +100/-0 in `tests/unit/test_cli_classify.py`.
+- ✅ **B-1 (MAJOR) fixed:** Introduces `_resolve_conversation_id` mirroring `_find_conversation_dir` (AGENTS.md #14): exact match → LIKE prefix match → `NoSuchConversationError` / `AmbiguousConversationIdError`. README example #5 pipeline should now work.
+- ✅ **B-2 (minor) fixed:** Distinct "no such conversation" error vs "stage hasn't run" error.
+- ✅ **B-3 (3 encoding nit threads) RESOLVED:** All 3 `github-actions` review threads on classify.py lines 155/261/296 → `isResolved: true`.
+- ✅ **9 new tests added** (6 unit + 3 CLI smoke), all listed by name in the commit body.
+- ✅ **PR #99 still ready, CI green:** `pr-review` check SUCCESS at 00:37:21Z. `mergeable=MERGEABLE`. `state=OPEN`. `isDraft=false`. `reviewDecision=null` (auto-AI threads count as comments, not decisions).
+- ✅ **No `WORKLOG.md` touch** (review worker correctly stayed off main).
+
+**Decision Path (orchestrate skill decision tree):**
+
+- PR ready ✓ + CI green ✓ + docs in PR diff (impl already updated README) ✓ + manual test report exists ✓ + **significant code changes since last test** (99 lines of non-test code in `set_single`'s lookup path, plus a behavior change in error messages) → match "PR exists, ready, CI green, **test results outdated** → Spawn **re-testing worker**" (per docs/orchestrate.md PR-slot table).
+- The heuristic explicitly calls this out: "Source files changed (`.py` excluding `*_test.py`, `test_*.py`)" + ">50 lines of non-test code changed" → re-test required. Both gates fire.
+
+**Re-testing worker scope (prompt highlights):**
+
+- Setup: clone, checkout `feat/classify-83` at `65df4259`, `uv sync`, read `git diff c4c7ecf1..HEAD -- src/ tests/`.
+- **B-1 verification (PRIORITY):** Run the literal README example #5 pipeline — `ohtv classify --list-unknown -1 | head -5 | xargs -I {} ohtv classify {} --source human` — and confirm exit=0 + DB rows updated for every short ID. The original blocker.
+- **B-2 verification (PRIORITY):** Fabricated 8-char and 32-char IDs must now emit "No such conversation" (NOT "No conversation_human_input row"). Exit non-zero.
+- **NEW: Ambiguous prefix:** Insert two `conversation_human_input` rows sharing a prefix, run `ohtv classify <shared-prefix> --source human`, expect "Ambiguous" error + sample matches.
+- **Regression spot-checks (5 scenarios):** Tests 2 (idempotent override), 4 (md5sum-verified zero-write on previews), 5 (bulk preserves manual overrides), 6 (`--repo` filter narrows both list + bulk), 12 (`ohtv report velocity` integration — the whole-point downstream check).
+- **B-3 spot-check:** `grep` `src/ohtv/classify.py` at lines 155/261/296 to confirm the malformed character sequence is gone (threads resolved, but verify the file).
+- **Test suites:** `uv run pytest -x --tb=no -q` (expect 1651 passed) + targeted classify suite (expect 34 passed including 9 new).
+- **Lint:** `uv run ruff check` on the 4 changed files only (repo-wide ruff debt from prior PRs is not a regression).
+- **Output:** new PR comment with header `## Manual Test Results — Re-test after review round 1`. Do NOT edit prior comment.
+
+**Explicit DO-NOTs encoded in prompt:** no draft flip, no code changes (even for new bugs — report them), no `WORKLOG.md` touch, no review-thread resolution (the 3 from round 1 are already resolved), no approve / merge, no lockfile commits if `uv sync` drifts.
+
+**Current State (verified 00:46–00:51Z):**
+
+- **Open PRs:** 1 — [PR #99](https://github.com/jpshackelford/ohtv/pull/99) (ready, CI green, 0 unresolved review threads, prior test verdict 🟡 from 00:01Z; re-test in flight).
+- **Recently closed/merged:** PR #98 + issue #81 (merged 22:52Z 2026-05-26).
+- **Ready issues (5, all expanded, unchanged from last cycle):** `priority:medium`: #83 (**in PR #99 re-testing**), #90, #92; `priority:low`: #82 (unblocked since #81 merged), #87 (waits on #86 — already merged).
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations (pre-spawn):** only `7aba725f` (this orchestrator cycle, no repo binding). Post-spawn: `7aba725f` + `06abb078` (re-testing). All prior PR-slot workers (`4e867f21`, `10d3c12d`, `3f1844ae`, `235b7713`) are `finished` or `paused`.
+
+**Spawn schema (success on first try):** Used `initial_message.content[{type, text}]` per the openhands-api skill (the same fix that resolved the 00:19Z `fa2fa661` botched spawn in the prior cycle). Start-task `570261642d1e459ea77bf11096278332` → `READY` on the first 5s poll → `app_conversation_id=06abb078ee8c46f1baa03a158fd435b9`. `GET /app-conversations?ids=…` confirms `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `selected_branch=feat/classify-83`. (`pr_number` is empty on the conversation record, but the branch binding is sufficient; prior PR-99 workers `10d3c12d` and `3f1844ae` also had `pr_number=[99]` populated only after the worker started touching the PR.)
+
+**Sync note:** `OPENHANDS_API_KEY=$OPENHANDS_API_KEY ohtv sync --since … --quiet` succeeded silently. The 23:51Z note about the auth env-var bridge applies here too — invoking with the var explicit in the command works; relying on inheritance from `export` apparently doesn't.
+
+**Housekeeping (deferred again):** WORKLOG.md was at 1212 lines pre-cycle (this entry pushes it past ~1300). The 6-hour productive-work preservation window (currently 18:51Z–00:51Z) now leaves the 16:21Z + 16:50Z + 17:51Z PR #96 entries (all 7h+ old, PR fully merged) and the 18:50Z orchestrator entry well past the boundary — safe to archive ~150–200 lines. Deferred this cycle to keep the change minimal alongside a productive spawn. Strong candidate for the next quiet cycle.
+
+**Auto-disable check:** Not applicable — this cycle spawned a worker (productive). Recent orchestrator entries (19:51Z, 20:21Z, 20:51Z, 21:21Z, 21:49Z, 22:20Z, 22:51Z, 23:51Z, 00:23Z, and this one at 00:51Z) have all been spawn cycles. Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min, ~01:21Z):**
+
+- If `06abb078` is `running` → log status, do nothing. Re-testing typically runs 20–60 min for a focused matrix (B-1, B-2, ambiguous prefix, 5 regression spot-checks, full + targeted pytest, 4-file ruff).
+- If `06abb078` is `finished` AND a `## Manual Test Results — Re-test after review round 1` comment is on PR #99 with ✅ Ready verdict → spawn **merge worker** (final step; B-3 is already resolved, no other unresolved threads, no auto-AI re-review expected since the diff is small and self-contained).
+- If `06abb078` is `finished` AND re-test verdict is 🟡 minor changes → spawn **review worker** (another light round for the leftover minor issues).
+- If `06abb078` is `finished` AND re-test verdict is ❌ blocker (e.g. B-1 not actually fixed, regression in spot-checks, pytest red, lint red) → spawn **impl/fix worker** on the same PR branch with bug-specific scope.
+- If `06abb078` is `finished` BUT no test comment was posted → investigate the conversation events; may need a `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Truncation TO-DO (now strongly recommended):** Archive 16:21Z–18:50Z entries (PR #96 + prior cycles, all >6h, all related to merged work) to `WORKLOG_ARCHIVE_2026-05-26.md`. Estimated savings: ~150 lines. Defer if next cycle is also productive; otherwise do it.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
