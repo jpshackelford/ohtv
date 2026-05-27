@@ -1,3 +1,85 @@
+### 2026-05-27 09:53 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `a49fc55` | implementation | Issue #103 → PR #106 | finished ✓ |
+| `f67d987` | testing | PR #106 — hatch partial_loc + NULL LOC docs | **NEW** running |
+
+**Spawned: Testing Worker** — `f67d9875b58d4df7999ffe09ada9c53e` ([conversation](https://app.all-hands.dev/conversations/f67d9875b58d4df7999ffe09ada9c53e))
+
+The 09:35Z impl worker `a49fc55` produced PR #106 (commit `8ba972c`, branch `docs/chart-partial-loc-hatch-103`), flipped it to ready, and the AI bot review landed with a glowing "🟢 LOW / Good taste" verdict. No manual test results comment yet — that's this spawn's job.
+
+**Decision-tree match this cycle:**
+
+- ✅ **No `## INSTRUCTION:` in WORKLOG.md** (`grep -nE '^## INSTRUCTION:' WORKLOG.md` → 0 matches).
+- ✅ **Active workers from prior cycle:** `002d198` (08:22Z merge worker, PR #105) and `a49fc55` (09:24Z impl worker, Issue #103) both `null` / `PAUSED|RUNNING-but-finished` per `/api/v1/app-conversations/search`. PR slot freed for the next stage.
+- ✅ **PR #105 closed-loop:** state=MERGED at 08:23:19Z, Issue #102 auto-closed at 08:23:21Z. The 08:22Z cycle's pre-commit landed exactly as predicted (squash subject `chore(charts): wrap ValueError as click.UsageError ... (#102)`, branch deleted, no follow-ups).
+- ✅ **PR #106 state on inspection** (~09:50–09:53Z, ~28m post-open):
+  - `gh pr view 106`: `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `reviewDecision=""`, `headRefOid=8ba972cb3e8c2bd2c8d0fe8b0eee63502e01779a`.
+  - lxa: `oR green ready 23m 19m ago` — `oR` (opened-and-Ready, no review-bot tag in the history code; the bot review submitted via the `pull_request_reviews` API path, lxa rendered it as `R` not `C` this time — minor lxa display variance, same `COMMENTED` semantic underneath).
+  - CI: `pr-review` ✅ pass (3m50s, single SUCCESS check, no SKIPPED legacy this time because the PR was flipped ready immediately rather than draft-then-ready).
+  - **AI bot review (`github-actions`, 09:29:27Z):** `state=COMMENTED`, body starts "🟢 **Good taste** - Clean, elegant solution with solid test coverage." Risk LOW. No CHANGES_REQUESTED branch triggered.
+  - **0 issue-thread comments, no manual test report.** Gating condition for testing worker.
+- ✅ **Docs-worker skip rationale:** `gh pr diff 106 --name-only` → `AGENTS.md`, `src/ohtv/reports/charts.py`, `tests/unit/reports/test_charts.py`. README **not** modified. Per the impl worker's notes (09:35Z entry): "expansion comment confirmed no 'Reading the chart' subsection exists today; adding one is out of scope." Cross-checked README: only 2 lines mention `--chart` (a copy-pasteable example), zero chart-visual documentation. The visual convention being added (hatch + legend) is documented in **AGENTS.md item #30** (the appropriate location for internal renderer conventions) — and the impl worker already updated it. Decision-tree exclusion clause applies: "Internal refactoring (no user-facing changes)" + "Bug fixes that don't change *documented* behavior" — chart visual semantics aren't documented in README, so no README update is required. **Skipped docs worker by policy.** (Identical rationale to PR #105's 07:50Z skip — second time this orchestrator session has documented an explicit skip.)
+- ✅ **Match: PR exists, ready, CI green, docs N/A, no manual test results → spawn testing worker.** Bot's glowing review does NOT substitute for manual blackbox validation per the workflow's gate; matches the same path PR #105 took at 07:50Z.
+- ✅ **Expansion slot:** No unexpanded issues. `gh issue list --state open` → 3 open issues: #103 (in flight via PR #106), #26 (`hold`), #90 (`hold`). All non-hold issues are `ready` and in flight. Expansion slot idle by design.
+- ✅ **Auto-disable check N/A:** Productive spawn this cycle. Consecutive-quiet counter stays 0.
+
+**Testing worker scope (prompt highlights):**
+
+The prompt is deliberately thorough for an 86/3 LOC PR because the change has two subtle correctness criteria that pytest-with-mocks can't directly verify without execution: (a) the **lazy-import contract** from AGENTS.md item #30 — `import ohtv.reports.charts` must not pull matplotlib into `sys.modules`, and (b) the **legend entry presence** — the new `Patch("Partial LOC (NULL)")` must actually appear in Panel 2's rendered legend, not just be appended to a list.
+
+1. **Unit suite (full)** — `uv run pytest tests/unit/ -q` → expect 1691 passed (1690 baseline + 1 new). Report exact count.
+2. **Chart-tests focus** — all 12 must pass. Specifically the new `test_partial_loc_bars_carry_hatch_marker` AND the extended `test_bar_calls_receive_expected_pr_counts` (with the `"hatch" not in first.kwargs` regression guard for Panel 1).
+3. **Lazy-import contract (AC-7)** — explicit `sys.modules` probe before/after `import ohtv.reports.charts`. Hard FAIL if matplotlib loads.
+4. **Blackbox happy-path** — render a chart with all `partial_loc=False` rows (`/tmp/v106_solid.png`), verify PNG magic bytes via `file(1)`.
+5. **Blackbox change-under-test** — render a chart with mixed partial/full rows (`/tmp/v106_mixed.png`), confirm no crash.
+6. **Legend entry verification** — patch `Figure.savefig` to grab `axes[*].get_legend().get_texts()` before close, assert `"Partial LOC (NULL)"` in the captured texts. Hard FAIL if missing.
+7. **CLI smoke test** — `uv run ohtv report velocity --chart /tmp/v106_cli.png --include-empty`. May exit cleanly with no data (sandbox DB likely empty); just verify no crash.
+8. **AGENTS.md docs check** — `grep -A2 "NULL LOC bar handling" AGENTS.md` → expect the new bullet.
+9. **Post structured `## Manual Test Results`** PR comment with SHA `8ba972cb`, env details, per-test PASS/FAIL, overall verdict.
+10. **EXIT.** No code edits, no review-thread resolves, no merge, no WORKLOG.md touches.
+
+**Spawn details:**
+- `POST /api/v1/app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY`, payload includes `selected_repository`, `selected_branch=docs/chart-partial-loc-hatch-103`, `title`, `pr_number=[106]`, `initial_user_msg` (the testing-worker prompt above), AND the `plugins` block (`[{source: github, id: jpshackelford/.openhands/plugins/ohtv-workflow, ref: feat/ohtv-workflow-plugin}]`).
+- **Plugin block accepted this time** — first attempt succeeded. Start-task `34a4b7253d154f79a4e8081fc1910ae8` → `WORKING` → poll via search-by-id at +8s → `execution_status=idle`, `sandbox_status=RUNNING`, `app_conversation_id=f67d9875b58d4df7999ffe09ada9c53e`, `pr_number=[106]`. Response showed `plugins=null` in the request echo (server may have silently dropped the plugin block on accept) but **NO sandbox-boot 500** like the 08:22Z and 09:20Z attempts. Either the platform recovered, or the plugin block is now being parsed and silently ignored. Either way: the spawn succeeded, and the prompt is fully self-contained (gh + uv + git + python suffice) so plugin availability is non-critical.
+- Cloud-generated title defaulted to `Conversation f67d9` (request title `[Manual Test] PR #106 - hatch partial_loc bars + NULL LOC docs` — same delayed-population pattern as prior cycles, no functional impact).
+
+**Current State (verified 09:50–09:53Z):**
+
+- **Open PRs (1):** [PR #106](https://github.com/jpshackelford/ohtv/pull/106): `oR green ready` 💬0 (only the bot's review, no issue-thread comments), mergeable, manual testing in flight via `f67d987`.
+- **Ready issues (1):** #103 (in flight via PR #106 — will auto-close on merge).
+- **Needs expansion:** 0.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none.
+- **Recently merged (last 24h):** PR #105 (#102 UsageError wrap, 08:23Z), PR #104 (#87 manifest full cache, 06:54Z), PR #101 (#82 charts, 04:52Z), PR #100 (#92 weekly-counts, 03:20Z), PR #99 (#83 classify, 01:22Z), PR #98 (#81 velocity, 22:52Z 2026-05-26).
+
+**Housekeeping note:** WORKLOG.md is at **1556 lines pre-this-entry** (~1620 post). Both the 08:22Z and 09:24Z entries flagged this trend (1500-line local norm); we're now ~120 lines over. The 09:24Z entry explicitly deferred truncation: "Next quiet-period orchestrator run should invoke `/truncate-worklog`." **Pre-committing for the next orchestrator:** if PR #106 merges before the next wake-up AND no new issues land, the next cycle's first action should be `/truncate-worklog` (archive entries older than the most-recent 6 hours of productive work, preserve the Active Workers table). The truncation work fits naturally into a quiet period because it doesn't compete with worker spawns.
+
+**Sync note:** `ohtv sync` skipped this cycle (orchestrator-context-only work; no labeling/analysis depended on fresh sync data). Tools (`lxa`, `ohtv`) installed via `pip install --user` after `uv pip install --system` hit permission errors in this sandbox and `uv venv` wasn't pre-warmed.
+
+**Lessons learned this cycle:**
+
+1. **The 08:22Z pre-commit landed cleanly.** Predicted: "If `002d198` is `finished` AND PR #105 = MERGED AND Issue #102 auto-closed → PR slot empty, but **impl slot has work**: spawn **impl worker for Issue #103**." Reality: merge worker completed at 08:23Z, impl worker spawned at 09:24Z (between cycles, by the prior orchestrator), PR #106 opened at 09:25:24Z, ready at 09:35Z. Eight consecutive cycles of cleanly-fulfilled pre-commits.
+2. **Plugin block: maybe transient, maybe permanent.** This cycle's spawn included the plugin block and succeeded on the first try, but the response showed `plugins=null` in the request echo. Two possible interpretations: (a) the 08:22Z + 09:20Z 500s were transient platform issues that have since resolved, OR (b) the server now silently drops/ignores the plugin block while still accepting the request, sidestepping the sandbox-boot crash. The empirical lesson stays the same: **try-with-plugins-first, fall-back-without-plugins-on-500** is a safe pattern, and **prompts should remain fully self-contained** as a hedge.
+3. **lxa history-code variance: `oR` vs `oC`.** PR #105 showed `oC` (bot review tagged `COMMENTED`), but PR #106 with the same kind of bot review shows `oR` (ready, no review-tag). Could be lxa-side timing: if the bot review submits before the bot-tagging code refreshes, the history stays at `R`. Doesn't affect the decision tree — both cases match "PR exists, ready, CI green, no manual test results → spawn testing worker." But it does mean the orchestrator must always cross-check `reviewDecision` from `gh pr view` rather than trusting lxa's letter codes for the gate decision.
+4. **Docs-worker skip pattern is now a documented rhythm.** Second consecutive cycle (after PR #105's 07:50Z) where docs worker was skipped with explicit reasoning in WORKLOG. The pattern that's emerging: when AGENTS.md (the internal convention doc) is updated by the impl worker AND README has no relevant subsection to update AND the change is visual/internal, skip docs worker. Codifying this as a soft rule: **"docs worker is only required when README has user-facing content to update; AGENTS.md updates by the impl worker do not trigger a separate docs worker."** Worth promoting to the orchestrate skill body if this pattern survives 2–3 more PRs.
+
+**Next check (~30 min, ~10:23Z):**
+
+- If `f67d987` is `running` → log brief status, no action. Testing workers typically take 5–12 min for small PRs (clone, `uv sync --extra charts`, run 8-step blackbox + 1691-test pytest, write comment, post). Likely complete before next wake-up.
+- If `f67d987` is `finished` AND a `## Manual Test Results` comment exists on PR #106 with **overall PASS** verdict → spawn **merge worker**. **Pre-committing the merge-worker shape so the 10:23Z cycle doesn't re-derive:** branch is `docs/chart-partial-loc-hatch-103`, head SHA expected `8ba972cb3e8c2bd2c8d0fe8b0eee63502e01779a`, squash subject `feat(charts): hatch partial_loc bars + document NULL LOC convention (#103)`, squash body should cite (a) hatch kwarg on Panel 2 bars, (b) "Partial LOC (NULL)" legend entry, (c) AGENTS.md item #30 NULL-LOC bullet, (d) 1 new test + 1 extended test, (e) full unit suite at 1691, footer `Closes #103`. No follow-ups expected — this PR closes the dual-fix from #103.
+- If `f67d987` is `finished` AND test results say **FAIL** → spawn **review worker** to fix whatever the test report flagged. Review worker should flip back to draft, fix, push, flip to ready.
+- If `f67d987` is `finished` but no test comment posted → investigate the conversation events; may need `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Pre-commit further out:** Once PR #106 merges, the ready queue is **empty** (#26 + #90 are both `hold` for valid external reasons per multiple prior cycles). Expect the next 1–2 cycles after the merge to be quiet. **Auto-disable risk activates at that point** — if `/orchestrate` posts two consecutive "All quiet" entries in a row after the merge, the disable logic triggers (per the skill's documented behavior + automation ID `c202ca20-60d5-4f5b-9d53-3d7308c1d95b`).
+- **Auto-disable risk this cycle:** Low (productive spawn). Counter stays 0.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 09:35 UTC - Implementation Worker (Issue #103)
 
 **Status:** ✅ PR opened and flipped to ready-for-review.
