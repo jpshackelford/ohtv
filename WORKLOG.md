@@ -1,3 +1,25 @@
+### 2026-05-27 20:26 UTC - Issue #113 expanded
+
+`ohtv sync --repair` four-category UX (`new_on_cloud` / `missing_locally` /
+`removed_from_cloud` / `modified_on_cloud`). Sits downstream of #111+#112;
+consumes `CloudListingStore` (#112) + `_run_set_diff_pass` plumbing (#111).
+Takes `~/.ohtv/sync.lock` per #109 for `--fix` only; read-only `--repair`
+stays lock-free. `--repair --fix` triggers `start_snapshot(repair=True)`
+which abandons any in-flight snapshot for a clean re-anchor. Destructive
+`--prune` gated behind explicit flag for `removed_from_cloud`.
+
+Expansion deliverables:
+- Rewrote body: Problem (cite sync.py:636-748, sync.py:701-707), Proposed
+  Solution (4-category table + lock/snapshot semantics + sample output),
+  AC (11 items), Implementation Plan (7 steps), Files Affected.
+- Posted technical-approach comment: root cause / current gap, per-sibling
+  dependency posture (#108/#109/#110/#111/#112/#114/#116), lock + snapshot
+  coordination matrices, xfail-flip checklist (PR #119 scenarios #4 and
+  #13, both `reason='#113'`), 9 explicit out-of-scope carve-outs.
+- Applied `ready` label.
+
+No `src/` or `tests/` edits. No PR. Per orchestrator expansion-only contract.
+
 ### 2026-05-27 20:22 UTC - Orchestrator
 
 **Active Workers:**
