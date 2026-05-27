@@ -193,11 +193,14 @@ def test_litellm_embedding(model: str) -> tuple[bool, str | None]:
     Returns:
         Tuple of (success, error_message)
     """
-    api_key = os.environ.get("LLM_API_KEY")
-    api_base = os.environ.get("LLM_BASE_URL")
-    
+    api_key = get_effective_embedding_api_key()
+    api_base = get_effective_embedding_base_url()
+
     if not api_key:
-        return False, "LLM_API_KEY environment variable not set"
+        return False, (
+            "No API key configured for embeddings. "
+            "Set EMBEDDING_API_KEY (preferred) or LLM_API_KEY."
+        )
     
     try:
         import litellm
@@ -264,8 +267,8 @@ def get_current_config() -> EmbeddingConfig:
                 source="file",
             )
     
-    # Check if LLM_API_KEY is set (implies cloud embedding might work)
-    if os.environ.get("LLM_API_KEY"):
+    # Check if an embedding/LLM API key is set (implies cloud embedding might work)
+    if get_effective_embedding_api_key():
         return EmbeddingConfig(
             provider=EmbeddingProvider.LITELLM,
             model="openai/text-embedding-3-small",  # Default
@@ -342,6 +345,28 @@ def get_effective_embedding_model() -> str | None:
     return _load_config().get("embedding_model")
 
 
+def get_effective_embedding_api_key() -> str | None:
+    """Get the API key to use for embedding API calls.
+
+    Embeddings often need to be routed to a different LiteLLM proxy /
+    OpenAI-compatible endpoint than chat models (e.g. an evaluation proxy
+    that exposes embedding models, while the main proxy only exposes
+    chat models). Prefer ``EMBEDDING_API_KEY`` when set, otherwise fall
+    back to ``LLM_API_KEY`` to preserve existing behavior.
+    """
+    return os.environ.get("EMBEDDING_API_KEY") or os.environ.get("LLM_API_KEY")
+
+
+def get_effective_embedding_base_url() -> str | None:
+    """Get the base URL to use for embedding API calls.
+
+    Prefer ``EMBEDDING_BASE_URL`` when set, otherwise fall back to
+    ``LLM_BASE_URL``. See :func:`get_effective_embedding_api_key` for
+    motivation.
+    """
+    return os.environ.get("EMBEDDING_BASE_URL") or os.environ.get("LLM_BASE_URL")
+
+
 def is_embedding_configured() -> bool:
     """Check if embedding is configured (either via env or config file).
     
@@ -351,8 +376,8 @@ def is_embedding_configured() -> bool:
     if os.environ.get("EMBEDDING_MODEL"):
         return True
     
-    # Check LLM_API_KEY (implies default model can be used)
-    if os.environ.get("LLM_API_KEY"):
+    # Check whether an embedding/LLM API key is set (implies default model can be used)
+    if get_effective_embedding_api_key():
         return True
     
     # Check config file

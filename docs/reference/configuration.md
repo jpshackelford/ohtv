@@ -20,6 +20,8 @@ Environment variables, data directories, and logging.
 | `LLM_BASE_URL` | Custom LLM base URL | Provider default |
 | `LLM_TIMEOUT` | LLM request timeout in seconds | `300` |
 | `EMBEDDING_MODEL` | Model for embeddings (`db embed`, `search`) | `openai/text-embedding-3-small` |
+| `EMBEDDING_API_KEY` | API key for embedding calls (overrides `LLM_API_KEY` for embeddings only) | Falls back to `LLM_API_KEY` |
+| `EMBEDDING_BASE_URL` | Base URL for embedding calls (overrides `LLM_BASE_URL` for embeddings only) | Falls back to `LLM_BASE_URL` |
 | `GITHUB_TOKEN` | GitHub PAT (read-only is fine) or `gh auth token` output | Required for `fetch-loc` (non-dry-run) |
 
 ### Precedence
