@@ -1505,3 +1505,85 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-27 06:22 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `56b491f` | implementation | Issue #87 → PR #104 | finished ✓ |
+| `761e1d9` | expansion | Issues #102 + #103 | finished ✓ |
+| `5ecbdb7` | testing | PR #104 — Manifest full cache (#87) | **NEW** running |
+
+**Spawned: Testing Worker** — `5ecbdb7c026745ab9b00e1399be1d1e8` ([conversation](https://app.all-hands.dev/conversations/5ecbdb7c026745ab9b00e1399be1d1e8))
+
+Both previously-spawned workers from the 05:18Z cycle completed cleanly:
+- **`56b491f` impl worker (#87):** Created [PR #104](https://github.com/jpshackelford/ohtv/pull/104) at 05:39:38Z. Final commit 05:57:06Z. Head SHA `0d8be62…`. State: open, ready (not draft), MERGEABLE, AI-bot review COMMENTED (positive informational at 05:46:42Z). PR body claims **+50 new tests (1738 total)** across scanner / store / sync. Author already posted a "Documentation updated for: …" comment at 05:59:11Z noting README covers `--update-metadata` widening AND the `selected_branch` not-refreshed caveat. README.md is in the diff. AGENTS.md is in the diff.
+- **`761e1d9` expansion worker:** Spawned for #102 but also handled #103 (excellent initiative). Both issues now have `ready` label + `## Technical Approach` comments. #102 comment at 05:23:28Z; #103 comment at 05:57:16Z (later — clearly a second pass after finishing #102).
+
+**Decision-tree match this cycle:**
+
+- ✅ **PR slot empty on wake-up:** No other PR-slot workers running (`91ed7ea` merge, `19dfec8` testing, etc. all PAUSED).
+- ✅ **PR exists, ready, CI green (no CI configured — only `pr-review.yml` workflow which already ran as github-actions COMMENTED review), docs updated (README+AGENTS.md in diff + author docs-update comment), no manual test results comment yet → Spawn testing worker.** Exact match.
+- ✅ **Expansion slot has no work:** All open issues either have `ready` (#87 → now in PR #104, #102, #103) or `hold` (#26, #90). No issues need expansion this cycle.
+- ✅ **No `## INSTRUCTION:` in WORKLOG.md** (`grep -nE '^## INSTRUCTION:' WORKLOG.md` → 0 matches; all historical references are in old orchestrator entries and already acknowledged).
+- ✅ **Auto-disable check N/A:** Productive spawn this cycle. Consecutive-quiet counter stays 0.
+
+**Testing worker scope (prompt highlights):**
+
+1. **Drift check:** Verify `git rev-parse HEAD` matches `0d8be6204b01c323e284ef678f83a17f558016fa` after `gh pr checkout 104`. Note any drift in the report.
+2. **T-0 full pytest:** Expect **1738 passing** (1688 baseline post-#82 merge + 50 new in this PR).
+3. **T-0 focused new-test runs:** `tests/unit/db/test_scanner.py` (+18, esp. cold-start zero-read regression), `tests/unit/db/stores/test_conversation_store.py` (+10), `tests/unit/test_sync.py` (+22).
+4. **T-1 manifest schema additivity:** Verify pre-#87 entries load with key-absent (not key-present-None) semantics — load-bearing for the fallback signal.
+5. **T-2 cold-start scanner zero-`base_state.json`-open** for cloud convs (headline AC). Whitebox: study the regression test. Blackbox: `strace -e trace=openat` on a real `ohtv db scan` if feasible.
+6. **T-3 local CLI convs unchanged:** strace should still show `base_state.json` opens for local-only convs.
+7. **T-4 `--update-metadata` refreshes repo + created_at but NOT selected_branch** (listing endpoint doesn't return it; documented in code + PR body).
+8. **T-5 MetadataDiff dataclass:** confirm no leftover tuple-unpack callers.
+9. **T-6 `repair --fix` shared-listing fetch + null fallback** for orphans without API key.
+10. **T-7 CLI counter display:** `_show_metadata_result` only prints new counters when nonzero.
+11. **T-8 ruff clean** on all modified files.
+12. **T-9 README + AGENTS.md spot-check** with copy-paste of new examples.
+13. **T-10 backward-compat blackbox** against pre-#87 manifest.
+
+Report header MUST be `## Manual Test Results — PR #104`. Recommendation must be one of: **Ready to merge** / **Needs review round** / **Blocked**. **Read-only worker:** no commits, no pushes, no review-thread resolves, no draft toggles, no merges, no further spawns.
+
+**Spawn details:**
+- `POST /api/v1/app-conversations` with `X-Access-Token` header (per openhands-api skill).
+- Payload schema: `initial_message.content[{type:text, text:...}]` + plugin `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin` + `pr_number: [104]` (so testing worker has PR context bound).
+- Start task `28833dbd…` → `READY` on first +12s poll → `app_conversation_id=5ecbdb7c026745ab9b00e1399be1d1e8`.
+- Verified `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[104]`. Cloud-generated title defaulted to `Conversation 5ecbd` (request title was descriptive — non-issue).
+
+**Current State (verified 06:18–06:22Z):**
+
+- **Open PRs:** 1 — [PR #104 — feat: manifest as full cloud metadata cache (#87)](https://github.com/jpshackelford/ohtv/pull/104) (ready, MERGEABLE, AI-bot COMMENTED, docs updated, testing in flight via `5ecbdb7`).
+- **Ready issues (3):** #87 (now in flight via PR #104 — will auto-close on merge), #102 (`chore(charts): wrap ValueError as click.UsageError`), #103 (`docs(charts): document NULL-vs-zero LOC bar convention OR hatch partial_loc bars`). Neither #102 nor #103 has a `priority:*` label yet.
+- **Needs expansion:** 0.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none.
+- **Recently merged:** PR #101 (#82 charts, 04:52Z 2026-05-27), PR #100 (#92 weekly-counts, 03:20Z), PR #99 (#83 classify, 01:22Z), PR #98 (#81 velocity, 22:52Z 2026-05-26).
+
+**Note on #87 acceptance criteria coverage:** PR body lists 8 ACs all checked. The testing worker should validate each — particularly AC #8 (cold-start zero-`base_state.json` regression test), which is the load-bearing performance/architecture guarantee for this PR.
+
+**Sync note:** `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 2026-05-27T02:22:* --quiet` completed cleanly. Tools installed via `pip install --break-system-packages` to `/home/openhands/.local/bin`.
+
+**Housekeeping deferred AGAIN (now 4 cycles overdue):** WORKLOG.md is now **~1600 lines** after this entry — has crossed the 1500-line trigger. The 19:19Z–22:51Z 2026-05-26 block (lines ~9–~660, ~650 lines, all >7 hours old, completely unrelated to in-flight #87 testing or post-merge #102/#103 work) is overdue for archive to `WORKLOG_ARCHIVE_2026-05-26.md`. Deferred this cycle because the testing spawn is the priority action (PR #104 is waiting to be tested before it can merge). **Pre-commit:** if next cycle (~06:52Z) is quiet (testing worker still running, nothing else to spawn), **run `/truncate-worklog` as the cycle's primary action** — no spawning, just housekeeping.
+
+**Lessons learned this cycle:**
+
+1. **Expansion worker over-delivered.** `761e1d9` was spawned for #102 only, but went on to expand #103 in the same conversation (5:23Z #102 comment, 5:57Z #103 comment, both with `ready` labels added). This saved one orchestrator cycle. The expansion prompt was generic enough ("expand this issue") that the worker reasonably extended to a similar adjacent issue. Worth noting: future expansion prompts could explicitly say "expand ONLY this issue" if we want strict scope, but the bonus expansion here was net-positive.
+2. **No CI workflows configured for code tests** — only the AI `pr-review.yml` runs. This has been the steady state since at least PR #98. The decision tree's "CI green" condition is therefore vacuously true (no failing checks possible). Manual testing carries the full verification load — making the testing worker mandatory and load-bearing.
+3. **Pre-committed two-slot spawn pattern keeps paying off.** The 05:18Z entry pre-committed both spawns (impl #87 + exp #102), both finished within the expected 30-60 min window, and the resulting state matched exactly what the orchestrator predicted ("if 56b491f finished AND a new PR exists … spawn testing worker"). Pre-commits are the orchestrator's compounding asset.
+
+**Next check (~30 min, ~06:52Z):**
+
+- If `5ecbdb7` is `running` → log status briefly, no action. **Run housekeeping (`/truncate-worklog`) this cycle if it's otherwise quiet** — the 1500-line trigger is now active and the 26 May 19:19Z–22:51Z block is 4 cycles overdue.
+- If `5ecbdb7` is `finished` AND test report shows ✅ **Ready to merge** → spawn **merge worker** for PR #104. AI bot review is already positive (COMMENTED, not CHANGES_REQUESTED); the 1 PR comment is the docs-update note (already addressed by the PR itself, not a review thread requiring reply). Merge worker should ALSO add `priority:*` labels to #102 and #103 since they're the only remaining ready issues (or the next orchestrator cycle can run `/assess-priority` inline).
+- If `5ecbdb7` is `finished` AND test report shows 🔴/🟡 with ❌ blockers → spawn **review worker** (fix-then-re-test loop).
+- If `5ecbdb7` is `finished` AND test report shows ⚠️ minor nits only → spawn **review worker** to fold in fixes, then re-test on the cycle after.
+- If `5ecbdb7` is `finished` BUT no test comment was posted → investigate conversation events; may need a `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Archive TO-DO (hard-block next cycle):** 19:19Z–22:51Z 2026-05-26 block → `WORKLOG_ARCHIVE_2026-05-26.md`. Cannot defer again — file size will keep growing each cycle until done.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
