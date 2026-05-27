@@ -3,7 +3,9 @@
 Handles configuration, API interaction, and result types.
 
 Supports two modes:
-- LiteLLM: Uses LLM_API_KEY and LLM_BASE_URL for cloud embeddings
+- LiteLLM: Uses EMBEDDING_API_KEY / EMBEDDING_BASE_URL (preferred when
+  embeddings target a different proxy than chat models), falling back to
+  LLM_API_KEY / LLM_BASE_URL.
 - Ollama: Uses local Ollama server (set EMBEDDING_MODEL=ollama/nomic-embed-text)
 
 Includes a global rate limiter that coordinates backoff across all threads
@@ -18,7 +20,11 @@ from dataclasses import dataclass
 
 import litellm
 
-from ohtv.analysis.embeddings.config import get_effective_embedding_model
+from ohtv.analysis.embeddings.config import (
+    get_effective_embedding_api_key,
+    get_effective_embedding_base_url,
+    get_effective_embedding_model,
+)
 
 # Suppress LiteLLM info messages that spam output during batch operations
 litellm.suppress_debug_info = True
@@ -355,15 +361,18 @@ def get_embedding(text: str, model: str | None = None) -> EmbeddingResult:
     if model.startswith("ollama/"):
         return _get_ollama_embedding(text, model)
 
-    # Use LiteLLM for cloud models
-    api_key = os.environ.get("LLM_API_KEY")
-    api_base = os.environ.get("LLM_BASE_URL")
+    # Use LiteLLM for cloud models. Embeddings can target a different
+    # proxy/provider than chat models via EMBEDDING_API_KEY / EMBEDDING_BASE_URL;
+    # both fall back to LLM_API_KEY / LLM_BASE_URL when unset.
+    api_key = get_effective_embedding_api_key()
+    api_base = get_effective_embedding_base_url()
 
     if not api_key:
         raise RuntimeError(
-            "LLM_API_KEY environment variable not set. "
-            "This is required for embedding generation. "
-            "Or use EMBEDDING_MODEL=ollama/nomic-embed-text for local embeddings."
+            "No API key configured for embeddings. "
+            "Set EMBEDDING_API_KEY (preferred when embeddings use a different "
+            "proxy than chat) or LLM_API_KEY. "
+            "Alternatively use EMBEDDING_MODEL=ollama/nomic-embed-text for local embeddings."
         )
 
     log.debug("Getting embedding with model %s", model)
