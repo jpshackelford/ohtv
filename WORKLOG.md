@@ -1,3 +1,39 @@
+### 2026-05-27 11:17 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `46367c3` | testing | PR #106 — hatch partial_loc + NULL docs | ⚠️ **DEAD** — PAUSED +55min, 3µs Δ, $0 |
+
+🚨 **STILL BLOCKED — Cycle 5/N on PR #106 manual test.** No spawn this cycle (pre-committed by 10:46Z entry: "do NOT immediately re-retry without diagnosis"). No human action since the 10:46Z escalation.
+
+**State delta vs 10:46Z (drift check):**
+
+- **PR #106:** head SHA `8ba972cb` unchanged, 0 comments, only AI bot review (LOW risk, COMMENTED 09:29Z), CI green (`pr-review` SUCCESS). No `## Manual Test Results` comment. No new commits. mergeable=UNKNOWN.
+- **`46367c3` (4th zombie):** still `PAUSED` / `execution_status=null` / `accumulated_cost=null` 55 minutes post-spawn. The microsecond delta (3µs) and zero cost confirm it never advanced beyond start-task. Pattern unchanged.
+- **No new test spawns by anyone** (human or automation) in the 30 min since the 10:46Z log.
+- **No new `## INSTRUCTION:`** in WORKLOG.md (`grep -nE '^## INSTRUCTION:' WORKLOG.md` → 0 actionable matches; the L51/L62 hits are inside the 10:46Z entry's markdown code-block examples).
+- **Open issues unchanged:** #103 (`ready`+`priority:low`, in flight via #106), #90 (`hold`+`enhancement`+`priority:medium`), #26 (`hold`). 0 issues need expansion.
+
+**Decision-tree match this cycle:**
+
+- ✅ **Expansion slot:** idle by design (no unexpanded issues).
+- ✅ **PR slot:** PR #106 sits at "ready, CI green, docs updated (PR is itself the docs update for #103), no manual test results, AI review only" → decision-tree calls for **testing worker**. Pre-commit from 10:46Z overrides: 4 prior zombies in a row → do not retry until human diagnosis. **No spawn this cycle.**
+- ✅ **Auto-disable check N/A** — same reasoning as 10:46Z: this is *blocked*, not *all quiet*. Consecutive-quiet counter remains 0.
+
+**What changed in 30 minutes:** Nothing. PR is in a holding pattern; the platform-side zombie pattern persists (no fifth retry attempted by the orchestrator, so we have no fresh probe — but `46367c3`'s continued PAUSED state at +55min is itself a strong negative signal). Human intervention is still the unblocker.
+
+**Single action human can take to unblock (15 min of work):** clone `docs/chart-partial-loc-hatch-103`, run the test plan from the 09:53Z WORKLOG entry (9 steps), post a `## Manual Test Results` comment on PR #106. Next orchestrator will detect the comment and dispatch the merge worker.
+
+**Pre-commit for next cycle (12:16Z–12:46Z window):**
+
+- If a manual-test comment lands on PR #106 → dispatch **merge worker** (decision-tree: `ready, CI green, test results valid, good rating, docs valid → merge`).
+- If a `## INSTRUCTION:` lands in WORKLOG.md → follow it first.
+- If state is unchanged (6th identical blocked cycle) → still no retry. Consider adding a short "I'm idling on PR #106 — ping me when ready" preamble at top of next entry and dropping the per-cycle redundant detail. The 10:46Z entry already documents the diagnosis paths exhaustively; further cycles should be one-liners until something changes.
+- ⚠️ **Will not spawn a testing worker on next cycle either** unless the conv-listing endpoint shows a fresh non-zombie spawn (test probe) has succeeded — which would require human or another agent to spawn it. Continuing the zombie streak doesn't help.
+
+---
+
 ### 2026-05-27 10:46 UTC - Orchestrator
 
 **Active Workers:**
