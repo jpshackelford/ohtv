@@ -1,3 +1,40 @@
+### 2026-05-27 08:23 UTC - Merge Worker (PR #105)
+
+**PR merged ✅**
+
+- PR: [#105 — chore(charts): wrap ValueError as click.UsageError for unsupported --chart extension](https://github.com/jpshackelford/ohtv/pull/105) (state=MERGED, mergedAt=2026-05-27T08:23:19Z, branch `chore/charts-unsupported-ext-usage-error-102` deleted)
+- Squash commit: [`380aa899`](https://github.com/jpshackelford/ohtv/commit/380aa8994a3872e05df4413f171a6efacb0ebf3a) — `chore(charts): wrap ValueError as click.UsageError for unsupported --chart extension (#102)`
+- Issue [#102 — chore(charts): wrap ValueError as click.UsageError for unsupported --chart extension](https://github.com/jpshackelford/ohtv/issues/102) **closed** at 08:23:21Z (auto-closed by `Closes #102` in squash-commit footer).
+
+**Pre-merge verification:**
+
+- ✅ HEAD drift check: `gh pr view 105 --json headRefOid` → `2b823c79e238bed0fd04432c0500398570307729` (matched expected, no drift).
+- ✅ Mergeable: `state=OPEN` / `mergeable=MERGEABLE` / `isDraft=false`.
+- ✅ Diff sanity: exactly 2 lines added in `src/ohtv/cli.py` (the `except ValueError → click.UsageError` branch immediately after the sibling `except ImportError` handler) and one new 12-line test `test_cli_chart_unsupported_extension` in `tests/unit/reports/test_cli_chart.py`. No edits to `src/ohtv/reports/charts.py`, README, or AGENTS.md.
+- ✅ AI bot review (07:39:08Z): COMMENTED, "🟢 Good taste - Worth merging", risk LOW.
+- ✅ Manual test report (07:56:01Z, posted to PR by AI testing worker): all 8 blackbox CLI scenarios pass (unsupported `.txt`, no extension, missing matplotlib regression, all supported extensions, etc.); full unit suite 1739/1739 green (1738 baseline + 1 new test).
+
+**Squash-merge commit body** (delivered via `--body`):
+
+> - Add a two-line `except ValueError` branch in `src/ohtv/cli.py`'s `report velocity --chart` handler, mirroring the adjacent `ImportError → click.UsageError` pattern. Unsupported/missing extensions now exit 2 with a single-line `Error: …` instead of a Python traceback (exit 1).
+> - The module-level `ValueError` contract in `plot_velocity` (`src/ohtv/reports/charts.py`) is intentionally preserved — only the CLI's reaction to that exception is polished. Other API callers and `tests/unit/reports/test_charts.py::test_unknown_extension_raises` are unaffected.
+> - Add one new test `tests/unit/reports/test_cli_chart.py::test_cli_chart_unsupported_extension` verifying exit code 2, the expected error string, and the absence of `Traceback` in output.
+> - Full unit suite green at 1739 tests (up from 1738); all 8 blackbox CLI scenarios pass per the manual test report comment.
+>
+> Closes #102
+
+**Notes:**
+
+- No follow-up issues filed (PR was a scope-complete 2-line polish; nothing surfaced during merge verification).
+- No new priority labels applied (Issue #103 already has `priority:low` from the PR #104 merge cycle; orchestrator will pick it up next).
+
+**Anomalies:** None. Clean merge.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+
 ### 2026-05-27 07:30 UTC - Implementation Worker [102]
 
 Implemented Issue [#102 — chore(charts): wrap ValueError as click.UsageError for unsupported --chart extension](https://github.com/jpshackelford/ohtv/issues/102). Pure UX polish from PR #101 manual test report — unsupported `--chart` extension (e.g. `.txt` or no extension) now produces a single-line `Error: …` Click usage message (exit 2) instead of a raw 20-line `ValueError` traceback (exit 1).
