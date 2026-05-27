@@ -1,3 +1,14 @@
+### 2026-05-27 23:23 UTC - Issue #123 expanded
+
+- Issue: [`report weekly-counts` over-counts when sub-conversations exist](https://github.com/jpshackelford/ohtv/issues/123)
+- Approach: One-line SQL predicate `AND id = root_conversation_id` added to `_WEEKLY_COUNTS_SQL` in `src/ohtv/reports/weekly_counts.py` (lines 60–69). Recommended this over the `conversations_by_root` view because this report only reads `created_at`/`source` — the view's subtree aggregations (`SUM(event_count)`, `MIN/MAX` timestamps) are irrelevant here, and the root's `created_at` already equals `MIN(created_at)` across its tree by definition. The view stays the right surface for #124 (velocity) which DOES need subtree sums.
+- Decisions made explicit in AC: (1) **No `--include-subs` flag** — CSV semantics ("new conversations per week") cannot meaningfully include subs; a delegation-count report is a separate concern and explicitly out-of-scope per #123's body. (2) **Fail loudly on missing column** — `fetch_rows` raises `RuntimeError("report weekly-counts requires migration 019; ...")` via `PRAGMA table_info` rather than silent fallback, because silent degradation just reintroduces the bug this issue fixes.
+- Dependency chain restated in body and comment: blocked-by #122 (which is blocked-by #108). Did not assume #122's schema is on `main` yet; committed to #122's API/view shape (denormalized column, `conversations_by_root` view, `list_roots(...)`) without re-litigating it.
+- Out of Scope explicitly enumerated: per-conversation tables stay at conversation grain (events, embeddings, refs, contributions, human-input); no refactor of `weekly_counts.py` beyond the count fix; sibling issues #124–#128; "delegations per week" follow-on metric.
+- Test plan covers 4 cases: T-A (root + 2 subs same week → cloud=1), T-B (root week N + sub week N+1 → only N counts), T-C (2-deep chain → cloud=1), T-D (missing-column guardrail). Existing 12 tests + CLI snapshot tests in `test_cli_weekly_counts.py` continue to pass unchanged (they all seed roots only).
+
+---
+
 ### 2026-05-27 22:54 UTC - Issue #122 expanded
 
 - Issue: [Aggregate sub-conversations into their root for analysis and reporting](https://github.com/jpshackelford/ohtv/issues/122)
