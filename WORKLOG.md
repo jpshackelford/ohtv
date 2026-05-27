@@ -1105,3 +1105,118 @@ Finished at 02:30:07Z (~9 min runtime). **PR #100 opened, ready, CI green, READM
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-27 03:21 UTC — Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `af0442e` | orchestrator | this cycle | running |
+| `fc9bde6` | testing | PR #100 — `weekly-counts` manual test | finished ✓ |
+| `0ba9415` | merge | PR #100 — `feat: weekly-counts (#92)` | **NEW** running |
+
+**Spawned: Merge Worker** — `0ba9415f827649fe82102dab06ef1147` ([conversation](https://app.all-hands.dev/conversations/0ba9415f827649fe82102dab06ef1147))
+
+PR slot now occupied by merge worker. Expansion slot stays idle (0 issues need expansion).
+
+**Prior cycle result (testing worker `fc9bde66` for PR #100):**
+
+Finished at 03:00:08Z (~9 min runtime). Posted full `## Manual Test Results — PR #100` comment at 02:59:26Z with **verdict ✅ Ready to merge**. Coverage table maps cleanly to issue #92 ACs; all green. T-1..T-17 are ✅; T-18 (inverted range) is documented as a non-blocking nit ("⚠️ docs note") and explicitly called out as a defensible design choice.
+
+**Test report summary:**
+- **Full pytest:** 1667 passed, 24 warnings, 10.44s. (Caveat noted: an unrelated `tests/integration/test_extra_paths.py` test fails when `OHTV_DIR` is exported pointing at fixture data — that's test-runner pollution from the seed DB, not a PR regression. Confirmed green with `OHTV_DIR` unset.)
+- **Focused:** 16/16 new tests pass in 1.70s, including the named `test_iso_week_boundary_2024_12_30`, `test_naive_timestamp_treated_as_utc`, `test_csv_header_uses_cli_not_local`, `test_sunday_to_monday_crossover`, `test_null_created_at_skipped`. The mandatory year-boundary regression (2024-12-30 → `2025-W01`) is locked in by name.
+- **Ruff:** Clean on the 3 new files. `src/ohtv/cli.py` baseline unchanged (78 errors pre-PR / 78 post-PR — no new errors introduced).
+- **Bugs found:** None blocking. Two informational nits: (a) inverted `--since`/`--until` silently returns empty CSV (T-18) — consistent with codebase conventions, could be a friendlier Click pre-check in a follow-up; (b) latent edge case in `_to_iso_z` lexicographic comparison against non-canonical timestamp shapes — not exercised by any real-world data path, worth a future one-line comment.
+
+**Decision-tree gates verified (03:17–03:21Z):**
+
+- ✅ **Testing worker finished:** `fc9bde66` → `execution_status=finished`, `sandbox_status=RUNNING` (sandbox idle, agent done). `updated_at=03:00:08Z`. Test comment posted at 02:59:26Z.
+- ✅ **PR #100 is READY (not draft):** `gh pr view 100 --json isDraft,state,mergeable` → `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `reviewDecision=""` (review bot uses COMMENTED state, not APPROVED/REQUEST_CHANGES — that's expected for this repo's bot).
+- ✅ **CI green:** Two `pr-review` CheckRuns — first SKIPPED at 02:28:31Z, second SUCCESS at 02:32:50Z. No failing checks.
+- ✅ **Docs updated in diff:** `gh pr diff 100 --name-only` includes `README.md` (new "Weekly conversion counts" quick-ref section) AND `AGENTS.md` (new item #29 — UTC bucketing + cli↔local naming caveat). The impl worker bundled docs with the implementation per the "Docs FIRST" directive — no separate docs worker needed.
+- ✅ **Manual test results valid:** Posted at 02:59:26Z against SHA `ff9fe9c`. No commits to the PR branch since then (`gh pr view 100 --json updatedAt` shows `02:59:26Z`, matching the test comment timestamp — no drift).
+- ✅ **AI bot review:** COMMENTED at 02:32Z with verdict "🟢 Good taste — Worth merging — no issues found". Not a change-request review.
+- ✅ **No competing PR worker:** `GET /app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` → only `af0442e8` running (this orchestrator). All other recent ohtv conversations are `finished` or `paused`.
+- ✅ **No `## INSTRUCTION:` in WORKLOG.md:** `grep -n '^## INSTRUCTION:' WORKLOG.md` → 0 matches.
+- ✅ **Decision tree match:** "PR exists, ready, CI green, test results valid, good rating, docs valid → Spawn **merge worker**." Exact match. No re-test trigger (no commits after last test), no review-round trigger (no human change-request review), no docs-spot-check trigger (no significant code changes during review — there was no review round at all this PR cycle).
+
+**Merge worker scope (prompt highlights):**
+
+- **Defensive re-verification** at worker startup: re-check `isDraft`/`state`/`mergeable`/CheckRun status + branch SHA `ff9fe9c` is still HEAD. If anything drifted since orchestrator wake → STOP and post a comment, do NOT merge.
+- **Study the full diff holistically:** PR title/body, issue #92 expansion, manual test report, AI-bot review. Worker should be able to describe the change in 2-3 sentences before writing the squash commit.
+- **Squash-merge commit message:** Subject `feat: add ohtv report weekly-counts command (#92)` (≤72 chars, Conventional Commits); body has 3 paragraphs (what was added / key impl choices / test-QA gate) + AI-disclosure footer. Explicit DO-NOT on `Co-authored-by` (avoid duplicate credit) and `Closes #92` (already in PR body → auto-close on merge).
+- **Execute:** `gh pr merge 100 --repo jpshackelford/ohtv --squash --subject "<>" --body "<>"` (with optional `--delete-branch` if repo policy needs it).
+- **Verify:** `gh pr view 100 --json state,mergedAt,mergeCommit` → expect `MERGED` + valid `mergeCommit.oid`. Verify new `main` HEAD via `gh api repos/jpshackelford/ohtv/commits/main`. Manually close #92 only if auto-close didn't fire.
+- **Reporting:** Post one-line "Merged via squash as `<sha>`" PR comment with AI-disclosure footer. Exit.
+
+**Explicit DO-NOTs encoded in prompt:** no direct `main` push (use `gh pr merge` only), no `--merge`/`--rebase` (squash only — repo convention), no file edits / no commits / no doc updates / no test changes (PR is frozen at `ff9fe9c`), no spawning other conversations, no touching WORKLOG.md, no `Co-authored-by` in squash message, no resolving review threads, no label changes (except as merge side-effect), do NOT proceed with merge if any gate fails — STOP and post a comment instead.
+
+**Spawn details:**
+
+- `POST /api/v1/app-conversations` with `initial_message.content[{type, text}]` per the openhands-api skill. Start-task `24550f40…` → poll 0 (after 5s): `READY` → `app_conversation_id=0ba9415f827649fe82102dab06ef1147`. Fastest ready transition this orchestrator has seen (≤5s vs. typical 6-10s). `GET /app-conversations?ids=…` confirms `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[100]` (✅ — pinned this cycle per the 02:51Z lesson-learned about forgetting it on the testing worker).
+- `selected_branch=null` is fine: the worker checks out the PR branch via `gh pr checkout 100` rather than pre-binding the sandbox. The merge worker doesn't push to the branch; it merges via the GitHub API.
+- Cloud-generated title pending (initial: `"Conversation 0ba94"`) — the title-from-prompt task takes ~30s and will populate `"✨ Merge PR #100"` or similar shortly. Not blocking.
+
+**Current State (verified 03:17–03:21Z):**
+
+- **Open PRs:** 1 — [PR #100 — feat: add ohtv report weekly-counts command (#92)](https://github.com/jpshackelford/ohtv/pull/100) (ready, CI green, ✅ test report posted, AI-bot positive, merge in flight via `0ba9415f`).
+- **Ready issues (3, unchanged from last cycle):** #92 (in PR #100, merging now), #87 (`priority:low`, manifest cache extension), #82 (`priority:low`, charting for velocity).
+- **Pre-commit (re-affirmed):** when PR #100 lands clean, next cycle's impl spawn → **#82** (downstream of just-landed #92 — directly consumes the CSV; lower issue number than #87 as tie-break since both are `priority:low`).
+- **Needs expansion:** 0.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker, applied 02:11Z).
+- **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations:** `af0442e8` (this orchestrator) + `0ba9415f` (just-spawned merge worker). All else `finished`/`paused`/missing.
+
+**Sync note:** `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync ...` — skipped this cycle (not needed for the decision; saved ~30s). All state queries went through `gh` and the OpenHands Cloud API directly. `gh` worked cleanly after `export GH_TOKEN=$github_token`.
+
+**Housekeeping (no archive this cycle):** WORKLOG.md was 1107 lines pre-cycle; this entry pushes it to ~1180. Still below the 1500-line hard threshold. Last archive landed at 02:22Z; the 19:19Z–22:51Z 2026-05-26 entries are now 4.5–8 hours old, and the older end is now past the 6-hour-post-productive-work age — they're eligible for archive but the queue is short enough that this cycle's spawn (merge) takes priority. **Pre-commit:** archive on the very next cycle if it's quiet OR if WORKLOG.md crosses 1200 lines after the next entry. Whichever comes first.
+
+**Auto-disable check:** Not applicable — productive spawn this cycle. Recent cycles (00:23Z, 00:51Z, 01:21Z, 01:52Z, 02:22Z, 02:51Z, this 03:21Z one) have all been productive spawns. Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min, ~03:51Z):**
+
+- If `0ba9415f` is `running` → log status, do nothing. Merge worker typically runs 3–10 min (clone, diff-read, craft message, squash-merge, verify, comment, exit). If still running at 03:51Z, something is unusual — read the conversation events.
+- If `0ba9415f` is `finished` AND PR #100 is `MERGED` AND issue #92 is `CLOSED` AND `main` HEAD is the new squash commit → 🎉 Ship. Next action: spawn **impl worker for issue #82** (charting for velocity — downstream of just-merged #92).
+- If `0ba9415f` is `finished` AND PR #100 is **still OPEN** AND a "STOP / drift detected" PR comment exists → read the comment to understand what drifted. Most likely re-test trigger; spawn re-test worker if so.
+- If `0ba9415f` is `finished` AND PR #100 is MERGED but issue #92 didn't auto-close → close it manually with `gh issue close 92 --reason completed --comment "Shipped in #100."` (the merge worker is supposed to handle this, but it's idempotent).
+- If `0ba9415f` is `finished` AND issue #92 closed AND no impl worker is running → spawn **impl worker for #82** (priority:low, but it's the highest-priority `ready` issue post-merge by the issue-number tie-break against #87).
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Archive TO-DO (eligible now):** 19:19Z–22:51Z 2026-05-26 entries → `WORKLOG_ARCHIVE_2026-05-26.md` (now past 6h post-productive-work age). Will archive on next quiet cycle or if WORKLOG.md crosses 1200 lines.
+
+**POST-SPAWN UPDATE (within this cycle, ~03:21Z):**
+
+🎉 **Merge worker `0ba9415f` completed in ~25 seconds end-to-end** — the fastest worker turnaround this orchestrator has observed. Timeline:
+
+- 03:20:18Z (approx) — worker `READY`, polled to `running`
+- 03:20:41Z — `gh pr merge 100 --squash` succeeded → `mergeCommit.oid=c3b0f6456e73be147b703a88af79536b167b9570`
+- 03:20:42Z — issue #92 auto-closed (1 second after merge, via `Closes #92` in PR body — no manual `gh issue close` needed)
+- 03:20:43Z — worker `execution_status=finished`
+- 03:20:55Z — worker posted the one-line confirmation comment: `Merged via squash as c3b0f64… Issue #92 closed.` + AI-disclosure footer
+- 03:21Z+ — orchestrator discovered the merge while attempting to push the WORKLOG commit (got `non-fast-forward` from `git push`, then `git pull --rebase` onto `c3b0f64`)
+
+**Squash commit message audit:** ✅ Exact compliance with the prompt — Conventional Commits subject (`feat: add ohtv report weekly-counts command (#92)`, 53 chars, under the 72-char cap); three-paragraph body covering (1) what was added — CSV-only report, 5 flags + `--out`, `cloud`/`cli`/`total` columns, `weekly_counts.py` + Click command; (2) key implementation choices — Python-side ISO bucketing via `analysis.periods` to avoid SQLite `%W`/`%V` regressions, `cli`↔`local` translation in exactly one place, naive timestamps treated as UTC; (3) test/QA gate — 1667/1667 unit tests, 16 new + 3 CLI smoke, ruff clean on new files. No `Co-authored-by` (per prompt). No duplicate `Closes #92` (already in PR body). AI-disclosure footer present.
+
+**Side effects of the merge:**
+- PR #100 state → `MERGED`, `mergedAt=03:20:41Z`.
+- Issue #92 state → `CLOSED`, `closedAt=03:20:42Z`.
+- `main` HEAD advanced from `3e009e3` (prior worklog) to `c3b0f64` (squash merge); this WORKLOG commit rebased on top.
+- `feat/weekly-counts-92` branch: still present on origin (the worker did not pass `--delete-branch` and repo policy didn't force it; harmless — squash-merged branches can be cleaned manually if desired).
+
+**Lessons learned this cycle:**
+1. **Tightly-scoped merge prompts execute in ≤30s.** The merge worker had a sharply-bounded job (verify, study, message, merge, verify, comment, exit) and no decision-making complexity. Future merge spawns can confidently expect <2 min turnaround — orchestrator can skip the "if still running at next check" branch when the spawn is a merge worker.
+2. **`pr_number=[100]` was honored.** Setting `pr_number` in the spawn payload (the 02:51Z lesson-learned) gave the conversation listing clean PR binding from the start; the worker also used it implicitly via `gh pr view 100` without ambiguity.
+3. **Auto-close via `Closes #92` is reliable.** As predicted, GitHub auto-closed #92 from the PR body — no manual `gh issue close` needed. Future PRs should always include the `Closes #N` directive in the body to enable this.
+
+**Revised next check (~30 min, ~03:51Z) given in-cycle merge:**
+
+- PR slot is now **EMPTY** (PR #100 merged, no open PRs).
+- Expansion slot stays idle (0 issues need expansion).
+- Ready issues queue: #87 (priority:low), #82 (priority:low). #92 is now closed.
+- **Pre-committed action:** spawn **impl worker for issue #82** — charting for velocity report (downstream of just-merged #92 — directly consumes the CSV format; lower issue number than #87 as `priority:low` tie-break). However, given that I just merged #100, the impl worker spawn is **deferred to the next orchestrator wake-up** rather than chained-spawned in this cycle, to preserve the one-action-per-wake-up discipline from the orchestrate skill ("Always exit after spawning a worker (one action per wake-up)"). Both #82 and #100-merge happening in this cycle would be two actions.
+- **Decision rationale for deferring:** The orchestrate skill is explicit — "EXIT after spawning a worker, one action per wake-up, do NOT take multiple actions in one wake-up". Even though the merge completed within this cycle (effectively two events: spawn-merge + merge-completed), the SPAWN was the one action. Spawning a second worker for #82 would be a third action and violate the discipline. Next cycle picks up the now-empty PR slot and spawns #82.
+- **Pre-commit for next cycle:** spawn `impl` worker for #82 immediately on next wake. The expansion phase already done by a prior cycle (issue body is well-formed, has `priority:low` + `ready` labels, no `hold`). Implementation prompt template from the orchestrate skill applies directly.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
