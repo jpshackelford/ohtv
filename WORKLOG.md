@@ -1,3 +1,41 @@
+### 2026-05-27 09:24 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `a49fc55` | implementation | Issue #103 — docs(charts): NULL-vs-zero LOC bar | **NEW** running |
+
+**Spawned: Implementation Worker**
+- Issue: [#103 — docs(charts): document NULL-vs-zero LOC bar convention OR hatch partial_loc bars](https://github.com/jpshackelford/ohtv/issues/103) (labels: `ready`, `priority:low`)
+- Conversation: [`a49fc55`](https://app.all-hands.dev/conversations/a49fc55b3a7e40e4a49ed2aa92461476) — title "📝 Document NULL-vs-zero LOC bar convention", `execution_status=running`, `sandbox_status=RUNNING`, `sandbox_id=4lusNMhjgY7SlcK26cBqrG`.
+- Start task: `3dd41f11a4` → `READY` on first +10s poll, `app_conversation_id=a49fc55b3a7e40e4a49ed2aa92461476`.
+
+**Spawn-time anomalies (resolved):**
+
+Before this successful spawn, two prior start-tasks ERRORed at sandbox boot:
+- `7ffea86b` → ERROR at 09:20:14Z, sandbox `4f39YReTGl…`, detail: `500 Internal Server Error for url '…prod-runtime.all-hands.dev/api/conversations'`.
+- `444e1496` → same 500 at 09:21:01Z (sandbox `4DaSfH0tlQ…`). This was an accidental re-POST while the operator was trying to GET task status using the wrong endpoint (`GET /api/v1/app-conversations/{id}` returns the SPA HTML, not JSON); polling start-tasks must use `GET /api/v1/app-conversations/start-tasks?ids=…`.
+
+Both ERROR tasks have no `app_conversation_id` (sandbox bootstrap failed before any conversation record was created), so they are zero-cost no-ops — no ghost conversations to clean up. **Root cause matched the 08:22Z cycle's documented fix:** the spawn payload included a non-empty `plugins` block. Removing it made the 3rd attempt (`3dd41f11a4`) succeed on the first try. Lesson reinforced: spawn payload should be `{title, selected_repository, selected_branch, initial_message}` only — no `plugins` block until the platform supports it again.
+
+**Current State:**
+- Open PRs: **none** (PR #105 merged at 08:23:19Z, auto-closed Issue #102).
+- Open issues (3):
+  - **#103** `ready` `priority:low` — now being implemented (this spawn).
+  - **#26** `hold` — skip (waiting for human).
+  - **#90** `hold` `enhancement` `priority:medium` — skip (waiting for human).
+- Issues needing expansion: **0** (no unlabeled / non-`ready` / non-`hold` issues open). Expansion slot intentionally idle.
+- PR slot: occupied by the impl worker for #103.
+
+**Action Taken:**
+✅ Spawned 1 worker (implementation, Issue #103). Next orchestrator wake-up should re-poll `a49fc55`; if a PR opens with user-facing changes (README likely needs bar-convention docs and/or hatch hatching), the **docs worker must run before testing** per workflow ordering.
+
+**Housekeeping note:** WORKLOG.md is now at ~1500 lines (over the 300-line threshold). Truncation deferred to a dedicated cycle so this spawn-focused entry stays atomic and reviewable. Next quiet-period orchestrator run should invoke `/truncate-worklog`.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-27 08:23 UTC - Merge Worker (PR #105)
 
 **PR merged ✅**
