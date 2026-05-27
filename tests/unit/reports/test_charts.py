@@ -258,3 +258,66 @@ def test_bar_calls_receive_expected_pr_counts(tmp_path: Path) -> None:
     third = bar.call_args_list[2]
     assert list(second.args[2]) == [200, 500, 10]
     assert list(third.args[2]) == [-50, -100, -10]
+
+    # Panel 1 PR-counts bar MUST NOT receive a per-row hatch kwarg
+    # (hatching is reserved for the Panel 2 partial_loc indicator,
+    # issue #103). A solid PR bar is the intentional default.
+    assert "hatch" not in first.kwargs
+
+
+def test_partial_loc_bars_carry_hatch_marker(tmp_path: Path) -> None:
+    """Panel 2 LOC bars carry per-row ``hatch=`` driven by ``partial_loc``.
+
+    Mirrors :func:`test_bar_calls_receive_expected_pr_counts` — patches
+    ``Axes.bar`` and inspects the kwargs of the two Panel 2 calls (indices
+    1 and 2). The Panel 1 PR-counts call (index 0) must still NOT receive
+    a ``hatch=`` kwarg.
+
+    Regression guard for issue #103.
+    """
+    from matplotlib.axes import Axes
+
+    rows = [
+        VelocityRow(
+            week="2024-W01",
+            prs_merged=2,
+            lines_added=200,
+            lines_removed=50,
+            total_loc=150,
+            human_words=300,
+            human_messages=10,
+            words_per_loc=2.0,
+            partial_loc=False,
+        ),
+        VelocityRow(
+            week="2024-W02",
+            prs_merged=3,
+            lines_added=500,
+            lines_removed=100,
+            total_loc=400,
+            human_words=800,
+            human_messages=20,
+            words_per_loc=2.0,
+            partial_loc=True,
+        ),
+        VelocityRow(
+            week="2024-W03",
+            prs_merged=1,
+            lines_added=None,
+            lines_removed=None,
+            total_loc=None,
+            human_words=50,
+            human_messages=4,
+            words_per_loc=None,
+            partial_loc=True,
+        ),
+    ]
+    with patch.object(Axes, "bar", autospec=True) as bar:
+        plot_velocity(rows, tmp_path / "v.png")
+
+    # Panel 2 bar calls are indices 1 (+lines) and 2 (-lines).
+    for call in (bar.call_args_list[1], bar.call_args_list[2]):
+        assert call.kwargs["hatch"] == [None, "///", "///"]
+
+    # Negative control: Panel 1 (PR counts) must stay un-hatched.
+    assert "hatch" not in bar.call_args_list[0].kwargs
