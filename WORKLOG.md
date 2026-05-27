@@ -1402,3 +1402,86 @@ The prompt is unusually detailed for a tiny PR because the new error-handling pa
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-27 08:22 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `2a89daa` | testing | PR #105 — UsageError wrap | finished ✓ |
+| `002d198` | merge | PR #105 — UsageError wrap (#102) | **NEW** running |
+
+**Spawned: Merge Worker** — `002d1988f5884fc69dbd88a328aa9ed8` ([conversation](https://app.all-hands.dev/conversations/002d1988f5884fc69dbd88a328aa9ed8))
+
+Testing worker `2a89daa` from the 07:50Z cycle completed cleanly. Manual test report posted at **07:56:01Z** with overall verdict **✅ PASS**:
+
+- 8 blackbox CLI tests: all green (happy-path `.png`/`.pdf`/`.svg`, the change-under-test `.bogus` → exit 2 + clean stderr no traceback, edge cases `.PNG`/no-ext/trailing-dot all produced friendly UsageError).
+- Verbatim stderr captured for `.bogus` case confirms zero `Traceback`/`ValueError:` lines.
+- Unit suite: **1739 passed** (1738 baseline + 1 new test), 25.00s wall-clock.
+- Both `test_cli_chart_unsupported_extension` (new) AND `test_unknown_extension_raises` (module-level contract) pass — CLI-layer wrap does not leak into `plot_velocity`'s API contract.
+- README check: no documentation of old traceback behavior exists, no docs update needed.
+- Risk: LOW.
+
+**Decision-tree match this cycle:**
+
+- ✅ **No `## INSTRUCTION:` in WORKLOG.md** (`grep -nE '^## INSTRUCTION:' WORKLOG.md` → 0 matches).
+- ✅ **Active workers from last cycle:** `2a89daa` (testing) status=`null` + `sandbox_status=PAUSED` (last updated 07:56:14Z) → finished. PR slot freed.
+- ✅ **PR #105 state** (verified 08:18–08:22Z): `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `reviewDecision=""`, head `2b823c79e238bed0fd04432c0500398570307729` (matches tested SHA — zero drift). CI: 1 SUCCESS (PR Review by OpenHands/pr-review, 3m16s). Bot review COMMENTED positive earlier. Manual test report present with ✅ PASS.
+- ✅ **Docs check N/A — already settled in 07:50Z cycle's testing scope; README has no old-behavior docs to update.** Decision-tree exclusion: "Bug fixes that don't change documented behavior".
+- ✅ **Match: PR exists, ready, CI green, docs valid, test results valid, good rating → spawn merge worker.** Exactly the 07:50Z pre-committed action ("If `2a89daa` is `finished` AND a `## Manual Test Results` comment exists on PR #105 with **overall PASS** verdict → spawn **merge worker**.").
+- ✅ **Expansion slot:** No unexpanded issues (`gh issue list --jq '[…select … not]'` → `[]`). All open issues either `ready` (#102 in flight, #103 next) or `hold` (#26, #90). Expansion slot idle.
+- ✅ **Auto-disable check N/A:** Productive spawn this cycle. Consecutive-quiet counter stays 0.
+
+**Merge worker scope (prompt highlights):**
+
+1. Re-verify PR #105 state and head SHA. **Stop if head SHA differs from `2b823c79e238bed0fd04432c0500398570307729`** (would mean drift after testing → re-test).
+2. Squash-merge with conventional commit:
+   - Subject: `chore(charts): wrap ValueError as click.UsageError for unsupported --chart extension (#102)`
+   - Body bullets: (a) two-line CLI handler mirroring sibling ImportError pattern, (b) module-level ValueError contract preserved in `plot_velocity`, (c) one new test `test_cli_chart_unsupported_extension` verifying exit 2 + clean stderr, (d) full unit suite green at 1739 tests.
+   - Footer: `Closes #102`.
+3. `gh pr merge 105 --squash --delete-branch --subject ... --body ...`.
+4. Verify `state=MERGED` and Issue #102 auto-closed.
+5. Update WORKLOG.md on main with merge entry.
+6. Exit.
+
+**Explicit DO-NOTs in prompt:** no source edits, no fixup pushes, no README/AGENTS.md changes, no re-open, no new follow-up issues (this PR is a clean 2-line scope-complete polish — distinct from PR #104's merge worker which DID file priority-label follow-ups for #102/#103, because those were the actual continuation tickets; PR #105's continuation is just `#103`, which is already labeled and ready), no `priority:*` re-labeling, no other worker spawns.
+
+**Spawn details:**
+
+- `POST /api/v1/app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY`.
+- **First two attempts ERRORED** with 500s from the runtime sandbox boot (`Server error '500 Internal Server Error' for url '…prod-runtime…/api/conversations'`) — both used the `plugins: [{source: github, id: jpshackelford/.openhands/plugins/ohtv-workflow, ref: feat/ohtv-workflow-plugin}]` block that prior cycles claimed worked. Service health was OK (this orchestrator conv `29b3f2b5` was running, and 7 of the last 9 conversations were in PAUSED/finished state — no broad outage).
+- **Third attempt succeeded** by dropping the `plugins` block entirely. Start task `5435677e…` → `READY` on **first** +8s poll → `app_conversation_id=002d1988f5884fc69dbd88a328aa9ed8`.
+- The merge-worker prompt is fully self-contained (gh/git only, no ohtv-workflow plugin skills required), so the missing plugin is non-blocking. **This is a regression from prior cycles' spawn shapes** — flagging for the next orchestrator: the plugin block format may have changed server-side, or the worktree at `feat/ohtv-workflow-plugin` may have broken in a way that crashes sandbox boot. Either way: try-with-plugins-first, fall-back-without-plugins-on-500 is a safe pattern for now.
+- Verified `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[105]`. Cloud-generated title defaulted to `Conversation 002d1` (request title `[Merge] PR #105 - chore(charts): wrap ValueError as click.UsageError` — same delayed-population pattern as prior cycles).
+
+**Current State (verified 08:18–08:22Z):**
+
+- **Open PRs (1):** [PR #105](https://github.com/jpshackelford/ohtv/pull/105): `oC green ready` 💬1 (manual test report), mergeable, in flight via `002d198`.
+- **Ready issues (2):** #102 (in flight via PR #105 — will auto-close on merge), #103 (`priority:low`, `docs(charts): document NULL-vs-zero LOC bar convention OR hatch partial_loc bars`, next in queue).
+- **Needs expansion:** 0.
+- **On hold:** #26 (mcp server), #90 (Cloud API PATCH-tags blocker).
+- **Blocked / needs-info / needs-split:** none.
+- **Recently merged (last 24h):** PR #104 (#87 manifest full cache, 06:54Z 2026-05-27), PR #101 (#82 charts, 04:52Z), PR #100 (#92 weekly-counts, 03:20Z), PR #99 (#83 classify, 01:22Z), PR #98 (#81 velocity, 22:52Z 2026-05-26).
+
+**Housekeeping note:** WORKLOG.md is at 1367 lines pre-this-entry (~1420 post). Approaching but below the 1500-line trigger restored after the 06:51Z truncation. Next archive likely around the 08:51Z–09:21Z window if the cadence holds.
+
+**Sync note:** `ohtv sync` was skipped this cycle (orchestrator-context-only work; no labeling/analysis depended on fresh sync data). Tools installed via `uv venv` + `uv pip install git+...` inside repo `.venv` (the system `pip install --system` ran into permission errors in this sandbox; venv approach worked cleanly — same finding as the 07:21Z cycle).
+
+**Lessons learned this cycle:**
+
+1. **The 07:50Z pre-commit landed.** Predicted: "If `2a89daa` is `finished` AND a `## Manual Test Results` comment exists on PR #105 with **overall PASS** verdict → spawn **merge worker**." Reality: testing finished at 07:56Z with all 8 blackbox + 1739 unit tests passing, zero drift on head SHA. Seven consecutive cycles of cleanly-fulfilled pre-commits.
+2. **Plugin block now causes runtime 500s.** First time in this orchestrator run that the canonical `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin` shape produced runtime errors. Two consecutive 500s with the plugin, instant success without. Either the plugin's `feat/ohtv-workflow-plugin` branch has broken in a way that crashes sandbox boot, OR the API schema changed. The fall-back-without-plugins worked because the prompt is self-contained (gh + git suffice for merge work). **Action for next cycle:** if plugin-shaped spawns continue to 500, may need a `## INSTRUCTION:` from human to investigate the plugin branch state, OR future spawns should default to no-plugins until the plugin issue is resolved.
+3. **Tiny PR pipeline cost-justifies itself.** End-to-end for PR #105 (impl 07:21Z → test 07:50Z → merge 08:22Z, ~1 hour wall-clock total) was 3 orchestrator cycles for a 2-line + 1-test fix. ~3 minutes of agent compute total. A human reviewer with merge perms could have done it in 30 seconds. Worth it? The yardstick continues to be: AI-bot review + manual blackbox tests + reproducible CI = regression armor that benefits ALL future ohtv users. For a 2-line CLI error-message change, that's marginally over-engineered, but the cost is bounded and the audit trail is exemplary. Worth-it threshold remains: yes for any PR with user-facing output changes, no for pure refactoring/typo PRs (none of which have come through the pipeline yet).
+4. **Plugin missing ≠ worker broken.** The merge-worker prompt enumerates every step in concrete detail (specific commands, specific SHA to verify, specific commit subject/body). Self-contained prompts are robust to plugin removal. Future prompts in this orchestrator's session should remain self-contained as a hedge against the plugin issue persisting.
+
+**Next check (~30 min, ~08:52Z):**
+
+- If `002d198` is `running` → log brief status, no action. Merge workers typically take 3–7 min (PR #104 baseline: ~7 min including issue-filing; this PR is simpler, no follow-ups). Could complete before next wake-up.
+- If `002d198` is `finished` AND PR #105 = MERGED AND Issue #102 auto-closed → PR slot empty, but **impl slot has work**: spawn **impl worker for Issue #103** (`docs(charts): document NULL-vs-zero LOC bar convention OR hatch partial_loc bars`, `priority:low`, `createdAt=2026-05-27T04:53:09Z`). **Pre-committing #103 impl-worker shape now so the 08:52Z cycle doesn't re-derive:** branch off freshly-pulled `main`, follow the expansion comment on #103, target a single PR with either docs-only OR docs+hatch-impl (the issue lets the implementer choose), make sure the implementation choice is documented in PR description. **If plugin spawn still 500s,** fall back to no-plugins (same as this cycle).
+- If `002d198` is `finished` BUT PR #105 still OPEN → investigate (drift? merge call failed? CI failed mid-merge? plugin-missing skill failure?). May need `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Auto-disable risk this cycle:** Low (productive spawn). Counter stays 0. After #103 merges, the queue empties (#26 + #90 are `hold` for valid external reasons) — expect quiet-period risk in 2–3 cycles thereafter.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
