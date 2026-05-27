@@ -9,7 +9,7 @@ behavioral scenarios on top of it.
 from __future__ import annotations
 
 import zipfile
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 

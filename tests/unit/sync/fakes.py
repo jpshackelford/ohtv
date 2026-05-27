@@ -397,3 +397,42 @@ class FakeCloudClient:
 
     def __exit__(self, *_exc) -> None:
         self.close()
+
+
+class RecordingCloudClient(FakeCloudClient):
+    """Back-compat shim for the inline ``_RecordingCloudClient`` in
+    ``tests/unit/test_sync.py``.
+
+    The constructor accepts a raw ``list[dict]`` listing payload (the shape
+    the cloud API returns) instead of :class:`FakeConversation` instances.
+    Useful when a test wants to drive ``update_metadata`` with a sparse,
+    handcrafted listing where the field shape itself is part of the
+    assertion (e.g., ``{"id": ..., "tags": None}`` for a "no tags" probe).
+
+    Subclassing :class:`FakeCloudClient` rather than reimplementing keeps
+    the migration painless: existing tests just swap the import. The shim
+    overrides ``search_all_conversations`` to return the verbatim listing
+    so the tests' dict literals reach the production code unchanged.
+    """
+
+    def __init__(self, listing: list[dict]):
+        super().__init__()
+        self._raw_listing: list[dict] = listing
+
+    def search_all_conversations(
+        self, updated_since: datetime | None = None
+    ) -> list[dict]:
+        self.search_calls.append(updated_since)
+        self.search_log.append(
+            SearchCall(
+                method="search_all_conversations", updated_since=updated_since
+            )
+        )
+        return list(self._raw_listing)
+
+    def download_trajectory(self, conversation_id: str) -> bytes:  # pragma: no cover
+        # Tests that use this shim never expect downloads to happen — record
+        # the call so they can assert ``client.download_calls == []``, but
+        # do NOT raise LookupError (the underlying store is empty by design).
+        self.download_calls.append(conversation_id)
+        return b""

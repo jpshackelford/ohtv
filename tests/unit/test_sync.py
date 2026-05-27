@@ -18,6 +18,13 @@ from ohtv.sync import (
     _normalize_labels,
     _read_selected_branch,
 )
+# Issue #110: _RecordingCloudClient (formerly inline at line 890) and
+# _create_minimal_zip (formerly inline at line 465) have moved into the
+# shared cloud-sync test harness. Keep the local names so the 27+ existing
+# call sites stay untouched while the harness becomes the single source of
+# truth for cloud-sync fakes.
+from unit.sync.builders import make_trajectory_zip as _create_minimal_zip
+from unit.sync.fakes import RecordingCloudClient as _RecordingCloudClient
 
 
 class TestSyncResult:
@@ -462,26 +469,6 @@ class TestSyncManagerParallel:
         assert result.new < 20
 
 
-def _create_minimal_zip() -> bytes:
-    """Create a minimal valid trajectory zip file."""
-    import io
-    import zipfile
-    
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w") as zf:
-        zf.writestr("meta.json", json.dumps({
-            "id": "test123",
-            "title": "Test",
-            "created_at": "2024-01-01T00:00:00Z",
-            "updated_at": "2024-01-01T00:00:00Z",
-        }))
-        zf.writestr("event_000001_abc.json", json.dumps({
-            "id": "abc",
-            "kind": "MessageEvent",
-        }))
-    return buffer.getvalue()
-
-
 class TestRepairResult:
     """Tests for RepairResult dataclass."""
 
@@ -885,37 +872,6 @@ class TestMetadataRefreshResult:
     def test_has_errors_true_when_nonempty(self):
         r = MetadataRefreshResult(errors=[("conv1", "boom")])
         assert r.has_errors is True
-
-
-class _RecordingCloudClient:
-    """Stub CloudClient that records every method call.
-
-    Used by the update_metadata tests to assert that download_trajectory
-    is NEVER called during a metadata refresh.
-    """
-
-    def __init__(self, listing: list[dict]):
-        self._listing = listing
-        self.search_calls: list = []
-        self.download_calls: list = []
-
-    def search_all_conversations(self, updated_since=None):
-        self.search_calls.append(updated_since)
-        return self._listing
-
-    def download_trajectory(self, conversation_id: str) -> bytes:  # pragma: no cover
-        # Recorded so tests can assert it is never invoked
-        self.download_calls.append(conversation_id)
-        return b""
-
-    def close(self) -> None:
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        self.close()
 
 
 class TestUpdateMetadata:
