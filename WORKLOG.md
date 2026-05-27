@@ -1284,3 +1284,71 @@ Finished cleanly at 00:38:38Z (~16 min runtime). Did exactly its scope:
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-27 01:21 UTC — Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `97b143b` | orchestrator | this cycle | running |
+| `66d0620` | merge | PR #99 — squash merge | **NEW** running |
+
+**Spawned: Merge Worker** — `66d062072b664e07a11cf436ebb10480` ([conversation](https://app.all-hands.dev/conversations/66d062072b664e07a11cf436ebb10480))
+
+PR slot occupied by the merge worker. Expansion slot remains idle (0 issues need expansion — every open issue carries `ready` or `hold`).
+
+**Prior cycle result (re-testing worker `06abb078`):**
+
+Finished cleanly at 00:56:23Z (~6 min runtime — fast turnaround for a focused matrix). Posted comment `## Manual Test Results — Re-test after review round 1` at 00:56:09Z. **Verdict: ✅ Ready for merge.**
+
+- ✅ **B-1 (MAJOR) verified fixed:** README example #5 pipeline `ohtv classify --list-unknown -1 | head -5 | xargs -I {} ohtv classify {} --source human` runs end-to-end with `exit=0` per line. Five short-prefix targets flipped `unknown → human`, DB md5 changed (`c70d5a72…` → `f5c4d4c7…`), unrelated rows untouched.
+- ✅ **B-2 (minor) verified fixed:** Fabricated short (`12345678`) and full (`99…`) IDs both emit `Error: No such conversation '<id>'. Check the ID or run 'ohtv db scan' to index new conversations.` (exit=2). Distinct from the "stage hasn't run" error.
+- ✅ **NEW ambiguous-prefix case:** `ohtv classify abc --source human` on a fixture with two rows sharing the `abc` prefix → `Error: Ambiguous conversation ID 'abc': 2 matches (abc1deadbeef, abc2deadbeef). Provide more characters.` (exit=2).
+- ✅ **B-3 (encoding):** `src/ohtv/classify.py` greps clean for U+FFFD and Windows-1252 mojibake; all non-ASCII chars are legitimate em-dashes. The 3 auto-AI threads (lines 155/261/296) all show `isResolved: true` on GitHub.
+- ✅ **Regression spot-checks (5/5):** Test 2 (idempotent override), 4 (zero-write dry-run, md5sum verified), 5 (bulk preserves manual overrides), 6 (`--repo` filter narrows list + bulk), 12 (`ohtv report velocity` integration — downstream check on PR #98 fully closes).
+
+**Decision Path (orchestrate skill decision tree, last row of PR-slot table):**
+
+PR ready ✓ + CI green (`pr-review` SUCCESS @ 00:37:21Z) ✓ + docs in PR diff (README.md, impl bundled) ✓ + test results valid ✓ + good rating (✅ Ready for merge) ✓ + docs valid (re-test verified README example #5 works) ✓ + 0 unresolved review threads (all 3 auto-AI threads resolved) ✓ + `mergeable=MERGEABLE` ✓ + no commits since test (last commit `65df4259` @ 00:29Z, re-test @ 00:56Z, no pushes since) ✓ → **Spawn merge worker**. Exact match.
+
+**Merge worker scope (prompt highlights):**
+
+- Quick safety re-check (state/draft/mergeable/CI/no new commits/no new threads) — STOP and post a PR comment if any gate flipped.
+- Read full diff + both manual-test comments to internalize verified behavior.
+- **Update PR description** to final state: What / Why / Key design points (short-ID prefix resolution via `_resolve_conversation_id` mirroring AGENTS.md #14; distinct `NoSuchConversationError` vs stage-not-run; 9 new tests in review round, 1651 passing); Testing section linking both test comments; `Closes #83`.
+- **Craft squash commit message:** subject `feat: add ohtv classify command (#83)` (matches PR title, ≤72 chars); body = one tight paragraph + bulleted user-facing capabilities + migration 016 callout + short-ID fix mention + `Closes #83.` (Prompt explicitly told the worker NOT to include the LOC=`-` vs `0` nits — those were for PR #98, not #99.)
+- `gh pr merge 99 --squash --subject "…" --body "…"` (or `--body-file` if quoting is tricky).
+- Verify: `gh pr view 99` → MERGED, `gh issue view 83` → CLOSED, branch HEAD = new merge commit.
+- **DO NOT** touch `WORKLOG.md` (orchestrator owns it). **DO NOT** delete the remote branch (let repo auto-delete settings handle it).
+
+**Edge-case branches encoded in prompt:** conflicts after re-check, CI flip to failure, new commit appeared, `gh pr merge` non-zero — each STOPs and posts a comment rather than retrying blindly.
+
+**Current State (verified 01:17–01:21Z):**
+
+- **Open PRs:** 1 — [PR #99](https://github.com/jpshackelford/ohtv/pull/99) (head `65df4259`, ready, CI green, 0 unresolved threads, `mergeable=MERGEABLE`, both manual test comments PASS).
+- **Recently merged:** PR #98 (Issue #81 velocity report, merged 2026-05-26 22:52Z).
+- **Ready issues queue (4, post-#83-merge):** `priority:medium`: #90, #92; `priority:low`: #82 (unblocked since #81 merged), #87 (waits on #86 — already merged). Next impl target after #99 lands: tie between #90 and #92 (both medium); `/assess-priority` can break the tie inline next cycle.
+- **Needs expansion:** 0. **On hold:** #26. **Blocked / needs-info / needs-split:** none.
+- **Other running OH conversations (pre-spawn):** only `97b143be` (this orchestrator cycle, no repo binding). Post-spawn: `97b143be` + `66d06207`. All prior PR-slot workers (`06abb078`, `4e867f21`, `10d3c12d`, `3f1844ae`) are `finished` or `paused`.
+
+**Spawn schema:** Used the `initial_message.content[{type, text}]` V1 schema per the `openhands-api` skill. Start-task `2da61ad1…` → `WORKING` → `SETTING_UP_SKILLS` (5s) → `STARTING_CONVERSATION` (10s) → `READY` (15s) → `app_conversation_id=66d062072b664e07a11cf436ebb10480`. `GET /app-conversations?ids=…` confirms `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `selected_branch=feat/classify-83`. `pr_number` empty on first read — same pattern as prior PR-99 workers; will populate once the worker touches the PR.
+
+**Sync note:** Both `ohtv sync` (silent success with `OPENHANDS_API_KEY` in env) and `gh` (after `export GH_TOKEN=$github_token`) worked. The 23:51Z + 00:51Z notes about env-var bridging still apply for future cycles: `OPENHANDS_API_KEY` and `GH_TOKEN` both need to be set in the immediate shell scope, not just inherited.
+
+**Housekeeping (deferred again, intentionally):** WORKLOG.md is now ~1290 lines. The 16:21Z–18:50Z PR #96 entries (all >8h old, PR fully merged) are still strong archive candidates — would save ~150 lines. Deferring to keep this cycle's change minimal alongside the productive spawn. **Pre-commitment for next quiet cycle:** if `66d0620` finishes with PR #99 merged and there are no other actions to take, do the archive then.
+
+**Auto-disable check:** Not applicable — productive spawn this cycle. Recent cycles (00:23Z, 00:51Z, 01:21Z) have all been productive. Two-consecutive-quiet-period counter remains at 0.
+
+**Next check (~30 min, ~01:51Z):**
+
+- If `66d0620` is `running` → log status, do nothing. Merge work is typically 2–5 min; if it's still running at 01:51Z, something unusual happened — peek at the conversation events to confirm it's not stuck on a safety check.
+- If `66d0620` is `finished` AND `gh pr view 99` shows `state=MERGED` + `mergeCommit.oid populated` AND `gh issue view 83` shows `state=CLOSED` → no PR worker needed; consider next-impl candidate. Ready queue post-merge: #90 (medium) vs #92 (medium) — assess priority inline (or break tie by ascending issue number → #90 wins) and spawn **impl worker**. Expansion slot stays idle (no unexpanded issues).
+- If `66d0620` is `finished` BUT PR #99 is NOT merged AND a "Merge blocked: …" PR comment exists → read the comment to diagnose. Most likely causes: (a) `mergeable` flipped to `CONFLICTING` if main moved (unlikely — no other PRs merging right now), (b) CI flipped to failure (unlikely — only `pr-review` runs and it's green), (c) `gh pr merge` errored on a permissions / branch-protection check. Address via `## INSTRUCTION:` if needed.
+- If `66d0620` is `finished` AND no merge comment AND PR not merged → investigate the conversation events; may need a `## INSTRUCTION:` from human.
+- If a new `## INSTRUCTION:` appears in WORKLOG.md → follow it first.
+- **Archive TO-DO when next quiet cycle hits:** Move 16:21Z–18:50Z PR #96 entries to `WORKLOG_ARCHIVE_2026-05-26.md`. ~150 lines saved.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
