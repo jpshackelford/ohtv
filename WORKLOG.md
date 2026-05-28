@@ -1,3 +1,55 @@
+### 2026-05-28 12:18 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `52eb840` | expansion | Issue #125 — `gen objs/titles/run` multi-conv treats subs as independent | **NEW** running ([conv](https://app.all-hands.dev/conversations/52eb840fc2b04edcb89b0bb44f1fa382)) |
+
+**Spawned: Expansion Worker**
+- Issue: [#125 — `gen objs/titles/run` multi-conv mode treats sub-conversations as independent units of human intent](https://github.com/jpshackelford/ohtv/issues/125)
+- Conversation: [`52eb840`](https://app.all-hands.dev/conversations/52eb840fc2b04edcb89b0bb44f1fa382)
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+- Prompt covered: 7-step code-archaeology checklist (entry points in `cli.py`, `ConversationStore.list_with_filters` shape, A/B/C fix-shape recommendation, flag-name verification, single-conv-mode confirmation, cache implication w/ migration story, regression-test surface) + 5 explicit gating questions (method shape, default-on-all-three-commands incl. `gen run`/`InputConfig` divergence, filter interaction policy for `--pr 42 --include-sub-conversations`, exact help-text strings, cache-key roots-only? question) + block-on-`needs-info`/`needs-split` rules. #122's committed shape (`root_conversation_id` column + `conversations_by_root` view + `list_roots()` API) referenced as the dependency contract.
+
+**State delta vs 11:52Z entry (~26 min gap):**
+- **PR #120 merged at 12:16:48Z** by @jpshackelford (`chore/release-automation-bootstrap`, was out-of-band human-driven). PR slot now has only #119 open — but the Hypothesis-age policy gate (~2026-06-03) still defers #119, so the PR slot remains effectively idle.
+- **`4f3fbb8` (Issue #124 expansion) finished** between 11:52Z and 12:16Z. Issue #124 now carries `ready` label (per `gh issue list --label ready` snapshot), confirming completion of the worker spawned 13 minutes earlier. The 11:55Z "Issue #124 expanded" log entry confirms the Design-B SQL-substitute approach was committed to.
+- Issue #129 (`bug` + `ready` + `priority:high` — cache-miss-on-every-run) still queued as next impl candidate, still blocked by 0-or-1-PR rule.
+- Cluster status: #123, #124 expanded ✓. #125 in flight this cycle. #126, #127, #128 remain to be expanded.
+
+**Decision-tree trace:**
+- **Expansion slot:** OPEN (only `ba5b99a` = this orchestrator was `running` per `/app-conversations/search`; `4f3fbb8` aged out). Issues needing expansion (oldest-first, deferred-aware): **#114** (still deferred — #111 and #112 have no PR yet, ordering-risk policy holds), then **#125** (next sub-conv cluster sibling per the 11:52Z forecast: "If `4f3fbb8` finishes with `ready` on #124 → expansion slot reopens, next dispatch likely #125") → dispatched. One-expansion-at-a-time rule honored: #126/#127/#128 deferred to subsequent cycles.
+- **PR slot:** IDLE.
+  - PR #119 (cloud-sync harness, head `3a05089`): `CHANGES_REQUESTED`, `mergeStateStatus=CLEAN`, CI green. Canonical action would be "spawn review worker (💬>0)" but **Hypothesis-age policy gate (~2026-06-03)** still in force — today is 2026-05-28, ~6 days early. **Deferred** for consistency with last 4 orchestrator entries (22:20Z, 21:46Z, 11:52Z, and this one).
+  - #129 (`priority:high` bug, ready): cannot start a new impl worker while #119 is open per the 0-or-1-PR rule. **Queued** — when #119 clears, #129 becomes the next impl candidate, ahead of #108–#112 (none of which have opened a PR despite being `ready` since 18:58Z–18:30Z yesterday).
+
+**Current State:**
+- [PR #119](https://github.com/jpshackelford/ohtv/pull/119): ready, CI green, CHANGES_REQUESTED — deferred (Hypothesis-age gate, ~6 days remaining)
+- ✅ ~~PR #120~~ merged at 12:16:48Z (release-automation-bootstrap)
+- **Needs expansion (4):** #114 (deferred), **#125 (in flight)**, #126, #127, #128
+- **Ready w/ priority:** #108 (medium), #109 (medium), #110 (high — PR #119 in progress), #111 (medium), #112 (medium), #129 (high — next impl candidate when PR slot opens)
+- **Ready w/o priority:** #113, #116, #121, #122 (umbrella, blocked-by #108), #123 (blocked-by #122), #124 (blocked-by #122, just-expanded)
+- **On hold:** #26, #90
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → one match at line 84 (the #122-dependency-graph directive from 22:45Z), already `[ACKNOWLEDGED]` in the 11:52Z cycle. Zero remaining actionable. Note: instruction rule 2 ("expansion of #123–#128 deferred until #122's expansion produces concrete shape") is satisfied — #122 expanded 22:54Z, #123/#124 already used the committed shape, #125 dispatch this cycle continues that pattern.
+
+**Auto-disable check:** Productive cycle (1 expansion worker dispatched + PR #120 merge observed) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Housekeeping:** WORKLOG.md at 1213 lines pre-entry. Repo-custom threshold ~1500 (per prior cycles). Deferred.
+
+**Sync note:** `OPENHANDS_API_KEY` as `X-Access-Token` for POST `/app-conversations` clean; same key as `Authorization: Bearer` for `/search` GET clean. `gh` via `GH_TOKEN=$github_token` clean. Tools (`lxa`, `ohtv`) installed into per-run `.venv` via `uv sync` — same pattern as recent cycles. `ohtv sync --since 4h --quiet` ran without output (no new conversations in the window).
+
+**Pre-commit forecast for next cycle (~12:48Z window):**
+- **If `52eb840` finishes** with `ready` on #125 → expansion slot reopens, next dispatch likely #126 (next sibling in `classify` → sub-conv path).
+- **If `52eb840` returns `needs-info`/`needs-split`** (e.g., `gen objs`/`gen titles`/`gen run` use different pipelines) → log the block, do not respawn, wait for human triage.
+- **If PR #119 closes/merges OR the Hypothesis-age gate clears (~2026-06-03)** → PR slot opens → #129 (priority:high bug) becomes next impl candidate.
+- **If PR #111 or #112 opens a PR before next wake-up** → #114 expansion unblocks (next candidate after #126–#128 cluster sweep).
+- **If a new `## INSTRUCTION:` (outside fenced code) appears** → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 11:55 UTC - Issue #124 expanded
 
 - Issue: [`report velocity` double-counts human input when sub-conversations share a PR](https://github.com/jpshackelford/ohtv/issues/124)
