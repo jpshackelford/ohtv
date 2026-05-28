@@ -3,6 +3,22 @@
 ## Log
 
 
+### 2026-05-28 23:22 UTC - PR #133 merged
+
+- PR: [#133 - feat(sync): recover from cloud/local gap via set-diff engine (#111)](https://github.com/jpshackelford/ohtv/pull/133)
+- **Merge commit:** [`92a2805b9ffe04282e5e08dd7a19aa42793a5d31`](https://github.com/jpshackelford/ohtv/commit/92a2805b9ffe04282e5e08dd7a19aa42793a5d31)
+- **Squashed subject:** `feat(sync): recover from cloud/local gap via set-diff engine (#111)` — `feat` scope drives a `minor` release-please bump per AGENTS.md commit contract.
+- **Issue #111** auto-closed as COMPLETED at 2026-05-28T23:21:53Z via the `Closes #111` footer.
+- Pre-merge state was CLEAN/MERGEABLE; all three checks SUCCESS (`lint` 3s, `pytest` 51s, `pr-review` 4m17s); 0 unresolved review threads; round-2 re-test verdict APPROVE (LGTM) at 22:56:47Z.
+- Squash body documents the set-diff engine architecture (new `cloud_listing` snapshot table, Phase 1 listing / Phase 2 set-diff), the three review-cycle fixes folded in (`a4a5f92` JSON-encode `pr_number`, `5184d1f` warn-on-removals + scalability docs, `9f23eca` `--since` UTC normalization), and the test coverage delta (**1805 passed**, 3 skipped, 4 xfailed — remaining xfails owned by #112/#113 or fake-only pagination artifacts).
+- PR description rewritten before merge to fold in the three review-cycle fixes and bump the test count from the original 1801 to the final 1805.
+- Sync rewrite arc status: #110 harness ✅ → #112 schema ✅ → **#111 engine ✅ (this merge)** → #113 repair UX (next) → #114 manifest retirement (final).
+- Hard rules honored: no direct pushes to `main` except this worklog; feature branch untouched after dispatch SHA `9f23eca`; PR #130 not touched.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 21:35 UTC - PR #133 re-tested after review round 1
 
 - PR: [#133 - feat(sync): recover from cloud/local gap via set-diff engine](https://github.com/jpshackelford/ohtv/pull/133)
