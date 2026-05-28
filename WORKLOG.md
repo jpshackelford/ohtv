@@ -1120,3 +1120,81 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-28 22:22 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `8f6fa87` | review (retry) | PR #133 — fix T6 `--since` datetime crash | **NEW** running ([conv](https://app.all-hands.dev/conversations/8f6fa878307e460aa31418f26c721c4e)) |
+
+**Spawned: Review Worker (round 2, retry after silent-spawn-failure)**
+
+- PR: [#133 — feat(sync): recover from cloud/local gap via set-diff engine (#111)](https://github.com/jpshackelford/ohtv/pull/133)
+- Conversation: [`8f6fa87`](https://app.all-hands.dev/conversations/8f6fa878307e460aa31418f26c721c4e)
+- Start task `69391cca…` → POST 200 → status READY on first 5s poll → `8f6fa87…` visible at 22:21:10Z, `execution_status=running`, `sandbox_status=RUNNING`, `accumulated_cost=$1.13` after 10s (real LLM activity, not a ghost), `pr_number=[133]`, `selected_repository=jpshackelford/ohtv`.
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Prompt scope: identical to the 21:48Z dispatch (single blocker T6 fix, one commit + one test, no scope-creep, no docs, no merge), with an added "RE-SPAWN" header instructing the agent that this is a retry after the prior spawn ghosted.
+
+**🚨 Silent-spawn-failure pattern detected and surfaced**
+
+The 21:48Z orchestrator cycle dispatched `78c0ebea5fbf4c6496ca74e4fcadb6b7` (review round 2 for the same T6 fix). 33 minutes later, the OH search API reports it with:
+- `execution_status: null` (not `running`, not `finished`)
+- `sandbox_status: PAUSED`
+- `metrics.accumulated_cost: 0.0`
+- `metrics.accumulated_token_usage`: all zeros
+- `created_at == updated_at == 2026-05-28T21:47:58Z` (no events after creation)
+
+Cross-checks confirming the ghost:
+- `ohtv list --repo ohtv --since 2026-05-28 --idle 15` returned 9 conversations; `78c0ebe` does **not** appear (would have been #1 by start time if it had emitted any events).
+- PR #133's HEAD is unchanged at `5184d1f` (last commit 20:55:33Z).
+- No new PR comments since the re-test at 21:37:57Z.
+
+This is the **first** documented silent-spawn-failure of this orchestrator series. Surfacing it here so a future cycle can:
+1. **Detect**: after a spawn, if `execution_status` is `null` AND `accumulated_cost == 0` AND `created_at == updated_at` after ≥10 min → treat as ghost, re-spawn.
+2. **Disambiguate from "finished" PAUSED**: finished workers show `accumulated_cost > 0` and `created_at < updated_at` (or non-null `execution_status`).
+3. **Not** auto-disable on this — productive work was queued, not absent.
+
+The retry `8f6fa87` was verified non-ghost (`accumulated_cost=$1.13` within 10s of READY) before logging this entry, so we're confident the underlying infrastructure issue (whatever it was at 21:47Z) is transient.
+
+**State delta vs 21:48Z entry:**
+
+- Re-test worker `a4ad854` confirmed finished (172 events, posted T6 blocker report at 21:37:57Z). Already accounted for.
+- Review-round-2 worker `78c0ebe` confirmed ghost-spawned (see above) — superseded by `8f6fa87`.
+- PR #133 status: `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, three checks `SUCCESS` (lint / pytest / pr-review), head `5184d1f` unchanged, 4 commits total, `reviewDecision=""`.
+- PR #130 (out-of-band draft): unchanged, `mergeStateStatus=DIRTY` (now has merge conflict with main — likely from #131 / #132 having merged earlier today). Still untouched per established convention.
+- 0 new `## INSTRUCTION:` entries on main (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0).
+
+**Decision-tree trace:**
+
+- **Expansion slot:** OPEN, IDLE. `gh issue list` → 16 open total. 14 `ready`, 2 `hold` (#26, #90), **0 need expansion**. No new issues since prior cycle. Slot stays idle.
+- **PR slot:** OPEN at start of cycle (78c0ebe ghosted, treated as not-running per the silent-spawn-failure heuristic).
+  - PR #133: ready ✓, CI green ✓, docs ✓, test results valid ❌`Needs work` (T6), HEAD unchanged. Canonical row: **"PR ready, CI green, test results valid, 💬 > 0 → Spawn review worker."** → dispatched `8f6fa87` (retry).
+  - PR #130: out-of-band, untouched.
+
+**Current State:**
+
+- [PR #133](https://github.com/jpshackelford/ohtv/pull/133): ready, CI green ✓, docs ✓, re-test ❌`Needs work` (T6 only), **review round 2 retry in flight** (`8f6fa87`)
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): draft, out-of-band, `mergeStateStatus=DIRTY` (human to resolve)
+- **Need expansion (0):** ✓ board fully expanded
+- **Ready w/ priority:medium (3):** #108, #109, #111 (in flight via PR #133). Queued behind PR slot.
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128
+- **On hold:** #26, #90
+
+**Housekeeping:** WORKLOG.md at 1122 lines pre-entry — below the repo-custom ~1500-line threshold. Truncation deferred (consistent with prior cycles).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — review-retry dispatched). Five consecutive productive cycles now: testing → review → re-testing → review-r2 (ghost) → review-r2 (retry, this cycle).
+
+**Pre-commit forecast for next cycle (~22:52Z window):**
+
+- **If `8f6fa87` finishes with the T6 fix committed + PR back to ready** → PR slot advances to **re-testing worker** (per AGENTS.md re-test heuristic: `sync.py` source file changed, not just tests/docs). Re-tester focuses on T6 verification (`ohtv sync --since 2024-01-01 --dry-run` no crash; new unit test present) plus regression spot-check on T1–T5 + T7–T8. Report header: "Manual Test Results for PR #133 — Re-test after review round 2".
+- **If `8f6fa87` is still running** → log status and wait. Single-line fix + one test + CI should take 20–40 min.
+- **If `8f6fa87` ALSO ghosts** (third spawn attempt fails) → STOP and surface to human. Two consecutive silent-spawn-failures on the same task = infrastructure issue beyond the orchestrator's scope.
+- **If `8f6fa87` hits its STOP-and-surface guardrail** (fix breaks other tests, `_parse_datetime` contract differs from the test report's analysis, CI fails for unrelated reasons) → investigate before another worker round.
+- **If a new `## INSTRUCTION:` (outside fenced code) appears on main** → follow it first.
+- **Expansion slot:** likely stays idle until human files a new issue.
+
+**Sync notes:** `ohtv` and `lxa` installed via `pip install git+...` (uv pip env didn't carry through across container respawn — fell back to pip on `$PATH`). `gh` 2.92.0 via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY`. Spawn POST via `X-Access-Token: $OPENHANDS_API_KEY` per the spawn-conversation skill. Plugins in canonical `{source, repo_path, ref}` object form. `git pull --ff-only` on `main` confirmed up-to-date before commit.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
