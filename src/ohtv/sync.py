@@ -420,6 +420,14 @@ class SyncManager:
         work: list[tuple[dict, str]] = []
         seen_in_cloud: set[str] = set()  # for the removed-from-cloud reconciliation below
 
+        # Streaming SELECT — sqlite3 returns a cursor we iterate row-by-row,
+        # so peak memory tracks one row at a time, not the full result set.
+        # The local accumulators (``work``, ``seen_in_cloud``, ``manifest_norm``)
+        # do scale with the catalog size: at ~200 bytes/row they comfortably
+        # absorb the low-thousands catalogs we see today and are still well
+        # under 10 MB at 10k conversations. Chunked queries are deferred to a
+        # follow-up if anyone actually hits a scale wall — added in response
+        # to bot-review feedback on PR #133.
         for row in conn.execute("SELECT * FROM cloud_listing"):
             cid = row["conversation_id"]
             seen_in_cloud.add(cid)
@@ -455,14 +463,25 @@ class SyncManager:
             # on CloudListingStore exposes the same partition to #113
             # without us recomputing it.
 
-        # Removed-from-cloud reconciliation: silently drop manifest
-        # entries that disappeared from the listing. #113 will add the
+        # Removed-from-cloud reconciliation: drop manifest entries
+        # that disappeared from the listing. #113 will add the
         # user-facing report; #111 just keeps the manifest coherent so
-        # the property tests pass (scenario #15).
+        # the property tests pass (scenario #15). Emit a WARNING so
+        # accidental cloud-side data loss or permission changes
+        # surface in the log rather than silently shrinking the
+        # manifest — bot-review feedback on this PR.
+        removed_count = 0
         for normalized, manifest_key in list(manifest_norm.items()):
             if normalized in seen_in_cloud:
                 continue
             del self.manifest.conversations[manifest_key]
+            removed_count += 1
+        if removed_count:
+            log.warning(
+                "Removed %d conversation(s) from manifest "
+                "(no longer visible in cloud listing).",
+                removed_count,
+            )
 
         return work
 

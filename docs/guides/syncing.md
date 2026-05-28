@@ -89,6 +89,30 @@ Every `ohtv sync` runs two phases:
 Downloads commit incrementally per item. A re-run against a fully
 synced cloud produces zero downloads.
 
+### Scalability boundary
+
+Phase 1 always paginates the full cloud listing — the architectural
+inversion that makes gap recovery automatic costs an unconditional
+listing round-trip. Phase 2 then streams `SELECT * FROM cloud_listing`
+row-by-row through the set-diff cursor, so memory tracks one row at a
+time (not the whole result set). The in-memory accumulators (work
+list, "seen in cloud" set, manifest-key normalization map) scale
+linearly with the catalog size and are well under 10 MB at 10k
+conversations. Chunked queries would be the next mitigation if a real
+catalog ever grew an order of magnitude beyond that — deferred to a
+follow-up issue rather than baked in pre-emptively.
+
+### Removed-from-cloud reconciliation
+
+When the listing pass observes that a conversation present in the
+local manifest no longer appears in the cloud listing, the engine
+removes the manifest entry so the work list stays coherent and emits
+a `WARNING`-level log line (`Removed N conversation(s) from manifest
+(no longer visible in cloud listing).`). The full user-facing report
++ prune action is tracked under a follow-up issue (#113); the warning
+is the interim signal so accidental cloud-side data loss or permission
+changes do not silently shrink the manifest.
+
 ### Automatic gap recovery
 
 The old cursor-based sync (`updated_since >= last_sync_at`) could
