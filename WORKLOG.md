@@ -1,3 +1,9 @@
+### 2026-05-28 16:11 UTC - Issue #129 fix implemented
+
+- Issue: [`gen objs` cache miss on every run: write uses auto-promoted `context_level`, read uses requested](https://github.com/jpshackelford/ohtv/issues/129)
+- PR: [#131](https://github.com/jpshackelford/ohtv/pull/131) — `fix(cache): alias auto-promoted context_level so re-runs hit the cache (#129)`. CI green (lint + pytest), marked ready for review.
+- One-liner: when `analyze_objectives` auto-promotes `context_level` for worker-style conversations (no user messages but with actions), the cache write now ALSO upserts an alias entry — both in the on-disk cache file and in the `analysis_cache` DB row — under the originally-requested level, so subsequent `gen objs` runs hit the cache instead of re-billing the LLM. Two narrow tolerances added in `load_cached` (skip `context_level` per-attr check + skip `content_hash` check on alias hits); `detail_level` / `assess` / `prompt_hash` validation stays strict. Two regression tests pinned in `tests/unit/analysis/test_cache_alias_promoted_context.py` — verified to FAIL on main pre-fix and PASS post-fix.
+
 ### 2026-05-28 14:25 UTC - Issue #128 expanded
 
 - Issue: [RAG `ask` and `search` cite sub-conversation IDs the user doesn't recognize](https://github.com/jpshackelford/ohtv/issues/128)
