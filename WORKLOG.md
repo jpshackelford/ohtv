@@ -3,6 +3,21 @@
 ## Log
 
 
+### 2026-05-28 20:55 UTC - PR #133 review feedback addressed
+
+- PR: [#133 - feat(sync): recover from cloud/local gap via set-diff engine](https://github.com/jpshackelford/ohtv/pull/133)
+- Two pieces of feedback worked this cycle: testing-worker BLOCKER + bot-review IMPROVEMENT OPPORTUNITIES.
+- **BLOCKER fix (`a4a5f92`, `fix(sync): json-encode pr_number list in cloud_listing (#111)`):** the cloud API returns `pr_number` as `Array<int>` (e.g. `[133]`, `[]`); `_JSON_COLUMNS` in `src/ohtv/db/stores/cloud_listing_store.py` only encoded `tags` and `sub_conversation_ids`, so the raw Python list hit `sqlite3.execute(...)` and crashed the first listing page with `ProgrammingError: type 'list' is not supported`. The set-diff engine never committed a snapshot page, so every downstream manual test (T2–T6) was blocked. Fix: added `pr_number` to `_JSON_COLUMNS`. Regression coverage: two new tests in `tests/unit/db/stores/test_cloud_listing_store.py` (the `[N]` and `[]` shapes) — verified they fail on pre-fix code with the exact `ProgrammingError`, pass after. Also populated `pr_number` on `FakeConversation.to_listing_dict` in `tests/unit/sync/fakes.py` so the full sync behavioral suite exercises the encoded path.
+- **Bot-review accepted (`5184d1f`, `feat(sync): warn on cloud-side removals + document scalability boundary (#111)`):** (1) `_categorize_via_set_diff` now emits a `WARNING` log when manifest entries are removed because they disappeared from the cloud listing — cheap operational signal, surfaces accidental cloud-side data loss or permission changes (full prune UX still tracked under #113). (2) Documented the `SELECT * FROM cloud_listing` scalability boundary inline at the SELECT site and added a "Scalability boundary" + "Removed-from-cloud reconciliation" section to `docs/guides/syncing.md`. The cursor is streaming (one row at a time); in-memory accumulators are linear and well under 10 MB at 10k conversations. Chunked queries deferred to a follow-up if a real catalog hits that wall.
+- **Bot-review declined:** (1) `_download_parallel` future-handling loop extraction — would need 11 captured names + thread two mutable counters back through return value; reviewer-recommended threshold ("5+ params or breaks SQLite-connection contract") both apply. (2) `_is_buffering_enabled()` helper — sentinel is checked in only 2 call sites, both already hold `_db_writer_lock` for other reasons; reviewer-recommended threshold ("decline unless checked in 3+ places") applies.
+- Bot-review reply: single consolidated PR comment ([#issuecomment-4568190200](https://github.com/jpshackelford/ohtv/pull/133#issuecomment-4568190200)) since the bot review had no inline review threads (top-level COMMENTED review body with bullet points, not separate review-thread comments).
+- Test results: 1803 passed, 3 skipped, 4 xfailed (+2 from PR-pre-fix baseline of 1801). CI green on the new head (`5184d1f`): lint pass 5s, pytest pass 48s.
+- PR moved back to ready-for-review. Re-testing + final review + merge belong to the next orchestrator cycle.
+
+_This update was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 19:55 UTC - PR #133 docs updated for set-diff engine
 
 - PR: [#133 - feat(sync): recover from cloud/local gap via set-diff engine](https://github.com/jpshackelford/ohtv/pull/133)
