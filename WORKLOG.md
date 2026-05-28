@@ -1,3 +1,49 @@
+### 2026-05-28 16:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `2b56158` | testing | PR #131 | **NEW** running ([conv](https://app.all-hands.dev/conversations/2b561582cd1e4f8bb8533c45ef0463df)) |
+| `dd954a9` | implementation | PR #131 (Issue #129) | finished ✓ (PR opened at 16:09:19Z) |
+
+**Spawned: Testing Worker** for PR #131.
+- Start task `fb48d2a3…` → READY in ~1s; `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[131]`.
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Prompt highlights: full `uv run pytest -q`, verify two new regression tests (`tests/unit/analysis/test_cache_alias_promoted_context.py`) PASS on branch + FAIL on main, real blackbox repro of cache-hit on second `gen objs` run, alias entries on disk + in `analysis_cache` DB rows, edge-case check that changing `detail_level`/`assess` still triggers fresh LLM, then post `## Manual Test Results` to PR #131 with the signed AI-on-behalf-of footer. Testing only — no merge, no review work.
+
+**Current State:**
+- **Open PRs:**
+  - **[PR #131](https://github.com/jpshackelford/ohtv/pull/131)** — `fix(cache): alias auto-promoted context_level so re-runs hit the cache (#129)` by @jpshackelford, head SHA `b03a736d`, ready (not draft), CI all green (`lint` ✅, `pytest` ✅, `pr-review` ✅), AI `pr-review` verdict at 16:14:00Z: ✅ "Worth merging" / 🟢 LOW risk / "Good taste — elegant dual-key aliasing solution." 0 human reviews, 0 user comments. Files: `src/ohtv/analysis/cache.py` + `objectives.py` + new regression test. No README/AGENTS.md changes — internal bug fix to caching, no documented-behavior shift, so **docs worker NOT required** per decision-tree rule "Do NOT require docs update if only: Bug fixes that don't change documented behavior."
+  - **[PR #130](https://github.com/jpshackelford/ohtv/pull/130)** — `chore(worklog): instruct orchestrator to proceed on PR #119`, draft, out-of-band. **Untouched** per the 14:23Z + earlier orchestrator rationale (it's a human-authored worklog instruction vehicle; substance was already honored when #119 merged at 14:24:40Z).
+- **Ready w/ priority:** #112 (medium), #111 (medium), #109 (medium), #108 (medium). (#129 high-priority bug closed by PR #131 once merged.)
+- **Ready w/o priority:** #128, #127, #126, #125, #124, #123, #122 (cluster — all blocked on #122's migration-019 landing), #121, #116, #114, #113.
+- **Need expansion:** 0 (✓ — all 18 open issues carry `ready` or `hold`).
+- **On hold:** #26 (mcp server), #90 (`ohtv label` batch).
+
+**Decision-tree trace:**
+- Expansion slot: 0 issues need expansion → idle. ✓
+- PR slot: `PR exists (#131), ready, CI green, docs N/A (internal bugfix), no manual test results → spawn testing worker.` ✓
+- PR #130 (draft, worklog instruction) does not count toward the PR-slot "open PR" gate per established orchestrator convention (the impl/test/review/merge pipeline does not apply to it).
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → 1 match at line 520 (the #122 dependency-graph directive from 22:45Z 2026-05-27), `[ACKNOWLEDGED]` since 11:51Z 2026-05-28. Zero remaining actionable.
+
+**Active workers — cross-check via API:** `curl /api/v1/app-conversations/search?limit=30`:
+- `23ad863` (this orchestrator, `running` / `RUNNING`, `trigger=automation`, no repo) — me.
+- `0ec0d08` (`running` / `RUNNING`, `trigger=automation`, no repo, updated 16:15:57Z) — unrelated automation, NOT in WORKLOG, no `selected_repository`, not an ohtv worker. Ignored.
+- Several PAUSED ohtv conversations (`e316b39`, `da00363`, `ccebe7c`, `fa7f86d`, `2d9416b`, `5212ee8`, `972c883`, `8fe56d3`, `25421b1`, `3f2c71a`, `75891aa`, `d3a01a4`, `1633227`, `ed920fb`, `b9be894`, `c667698`) — all dated 13:30Z–15:50Z 2026-05-28, no longer active, residue from the PR #119 merge cycle and #128 expansion cycle. None hold the testing slot.
+
+**Auto-disable counter:** Reset to 0 (productive cycle — testing worker dispatched). Last cycle was also productive (impl worker `dd954a9` opened PR #131 at 16:09Z).
+
+**Next cycle (~16:51Z window):** Expect testing worker `2b56158` to be in flight (manual blackbox + cache repro typically takes ~15–25 min) or just finished. If completed: PR #131 will carry a `## Manual Test Results` comment, no review comments yet (no human reviewer assigned), CI still green. Decision-tree path will be `PR ready, CI green, docs N/A, test results valid, 💬 = 0` → **merge worker** (decision-tree row "test results valid, good rating, docs valid → merge worker"). If testing worker is still running: log "All quiet — testing in flight, expansion slot idle (board fully expanded)." This would be the FIRST "All quiet" entry since the counter reset; auto-disable would not trigger until a second consecutive quiet.
+
+**Worklog housekeeping note:** WORKLOG.md is now at **1650 lines** (1649 + this entry's seed). Exceeds the customary 1500-line truncation trigger I've been using locally. Not running `/truncate-worklog` this cycle because the productive action (testing-worker spawn + state-of-board snapshot) is the priority and a partial truncate during a hot cycle risks losing context for the next merge worker. **Flagging for next cycle** — a quiet cycle (or the post-merge cycle after #131 lands) is the right moment to archive everything above the 22:24Z 2026-05-27 #121-expansion entry into `WORKLOG_ARCHIVE_2026-05-28.md`.
+
+**Sync note:** Tools available: `gh` 2.92.0 (`GH_TOKEN=$github_token`). `lxa`/`ohtv` not installed in this orchestrator run — skipped `ohtv sync` since state-gathering came entirely from `gh` API + OpenHands API (sufficient for this decision). No regression.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 16:11 UTC - Issue #129 fix implemented
 
 - Issue: [`gen objs` cache miss on every run: write uses auto-promoted `context_level`, read uses requested](https://github.com/jpshackelford/ohtv/issues/129)
