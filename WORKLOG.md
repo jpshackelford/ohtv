@@ -962,3 +962,76 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-28 21:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `a4ad854` | re-testing | PR #133 — post-blocker-fix re-test | **NEW** running ([conv](https://app.all-hands.dev/conversations/a4ad8546fa234ca3b4e93aba5f6f4da3)) |
+
+**Spawned: Re-Testing Worker**
+
+- PR: [#133 — feat(sync): recover from cloud/local gap via set-diff engine (#111)](https://github.com/jpshackelford/ohtv/pull/133)
+- Conversation: [`a4ad854`](https://app.all-hands.dev/conversations/a4ad8546fa234ca3b4e93aba5f6f4da3)
+- Start task `38805b1d…` → READY on poll #1 (~0s); `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[133]`.
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Prompt scope: T1 (regression for the blocker `pr_number list[int]` crash) + T2–T6 (gap recovery, mid-sync resume, fresh install, `--repair`, `--since` semantics — all previously blocked behind T1) + T7 (NEW — warn-on-cloud-removal from `5184d1f`) + T8 (NEW — scalability boundary docs from `5184d1f`). Plus full unit suite + doc-example verification. Expected verdict line: `✅ Ready for merge` / `❌ Needs work` / `⚠️ Acceptable with notes`.
+
+**State delta vs 20:50Z entry:**
+
+- Review worker `8bce7ee` **finished** (`execution_status=finished`, `sandbox_status=RUNNING`). Posted "Response to bot review (improvement opportunities)" PR comment at 20:57:44Z + two commits:
+  - **`a4a5f92`** at 20:52:59Z — `fix(sync): json-encode pr_number list in cloud_listing (#111)`. Adds `pr_number` to `_JSON_COLUMNS` in `src/ohtv/db/stores/cloud_listing_store.py` + regression test. Resolves the T1 blocker from the 20:26Z manual test report.
+  - **`5184d1f`** at 20:55:33Z — `feat(sync): warn on cloud-side removals + document scalability bounda…`. Addresses two of the four bot IMPROVEMENT OPPORTUNITIES (silent-deletion log + scalability boundary docs). Declined the other two per the review worker's stated guidance (memory-bounded `SELECT *` chunking → premature; nested helper extraction → would have required 5+ params).
+- Bot review fired a **second time at 21:02:35Z** (`github-actions`, `COMMENTED`). Taste still 🟡 Acceptable, risk still 🟡 MEDIUM. `[TESTING GAPS]` section now reads "None - test coverage is excellent with 25 new unit tests and 6 behavioral scenarios now passing." Only 1 `[IMPROVEMENT OPPORTUNITY]` carried forward — the same scalability-docs item already addressed by `5184d1f` (the bot likely commented before that commit landed in its analysis window). No `[CHANGES REQUESTED]`.
+- 0 unresolved review threads (`reviewThreads.nodes | length == 0`). Bot reviews are at the PR level, not as inline threads.
+- PR #133 status pre-dispatch: `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, all three checks `SUCCESS` (`lint`, `pytest`, `pr-review`), head `5184d1f`, last commit 20:55:33Z, `reviewDecision=""` (no formal approval).
+- No new `## INSTRUCTION:` entries on main (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 matches).
+- PR #130 (out-of-band human draft `chore/worklog-proceed-on-119`): still open, still `UNKNOWN`/`UNKNOWN` mergeability, untouched per established convention.
+
+**Decision-tree trace:**
+
+- **Expansion slot:** OPEN, IDLE. `gh issue list` → 16 open total. 14 carry `ready`, 2 carry `hold` (#26, #90), **0 need expansion**. No new issues since prior cycle. Slot stays idle.
+- **PR slot:** OPEN at start of cycle.
+  - PR #133: ready ✓, CI green ✓ (all three checks), docs updated ✓ (`de3b478` + 19:57Z comment), test results posted but **outdated** ✓ (last test at 20:26Z verdict ❌ `Needs work`; two source-code commits `a4a5f92` + `5184d1f` landed afterward at 20:53Z and 20:55Z — both modify `.py` files, not just tests/docs, so AGENTS.md re-test heuristic applies). Canonical decision-tree row: **"PR ready, CI green, test results outdated → Spawn re-testing worker."** → dispatched `a4ad854`.
+  - PR #130: out-of-band human draft, conflicting; orchestrator does not advance human drafts. Skipped.
+
+**Re-testing worker prompt highlights** (full prompt embedded in spawn payload):
+
+1. **T1 must pass** — reproduce the 20:26Z crash scenario (fresh `OHTV_DIR`, real cloud, ≥1 PR-tagged conv), confirm `pr_number` round-trips as `list[int]` in `cloud_listing` table. Verify regression test from `a4a5f92` is present.
+2. **T2–T6 are now reachable** — previously blocked behind T1's crash; these are the originally-planned set-diff scenarios (gap recovery, mid-sync resume, fresh install, `--repair`, `--since`).
+3. **T7–T8 are new** — covering `5184d1f`'s additions (warn-on-cloud-removal + scalability docs spot-check).
+4. **Full unit suite** — expect ~1801–1802 passed (one new regression test from `a4a5f92`).
+5. **Doc-example verification** — confirm `docs/guides/syncing.md` examples are copy-pasteable as updated by `de3b478`.
+6. **Post a NEW test report** (don't edit the old one), header `## Manual Test Results for PR #133 — Re-test after review round 1`, end with explicit verdict.
+7. **Append WORKLOG.md on main** with `chore(worklog): ...` subject (release-please ignored).
+8. **Hard rules:** no draft toggle, no approval, no merge, no new docs update, 60-min cap.
+
+**Current State:**
+
+- [PR #133](https://github.com/jpshackelford/ohtv/pull/133): ready, CI green ✓, docs ✓, review round 1 ✓ (2 commits + 1 response comment), **re-test in flight** (`a4ad854`)
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): draft, out-of-band, mergeability `UNKNOWN` (human to resolve)
+- **Need expansion (0):** ✓ board fully expanded
+- **Ready w/ priority:medium (3):** #108, #109, #111 (in flight via PR #133). Queued behind PR slot.
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128
+- **On hold:** #26, #90
+
+**Housekeeping:** WORKLOG.md at 964 lines pre-entry — below repo-custom ~1500-line threshold. Truncation deferred (consistent with prior cycles).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — re-testing worker dispatched). Three consecutive productive cycles now: testing dispatch (20:20Z) → review dispatch (20:50Z) → re-testing dispatch (this cycle).
+
+**Sync note:** `gh` 2.92.0 via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY`. Spawn POST via `X-Access-Token: $OPENHANDS_API_KEY` per `/spawn-conversation` skill mechanics. Initial spawn attempt rejected the `plugins` array as a string-shorthand; corrected to the canonical `{source, repo_path, ref}` object form and it accepted cleanly. `ohtv sync --since 4h --quiet` ran clean against `$OPENHANDS_API_KEY`. `lxa repo add jpshackelford/ohtv` — already on board (no-op). Tools (`lxa`, `ohtv`) installed via `uv venv .venv` + `uv pip install git+...` per the per-run-venv pattern used in recent cycles.
+
+**Pre-commit forecast for next cycle (~21:51Z window):**
+
+- **If `a4ad854` finishes with verdict `✅ Ready for merge`** → PR slot decision-tree advances to **merge worker** (PR is approved-equivalent: CI green, docs ✓, re-test ✓, no CHANGES REQUESTED, 0 unresolved threads). Bot's IMPROVEMENT-OPPORTUNITY-only reviews don't block merge.
+- **If `a4ad854` finishes with verdict `⚠️ Acceptable with notes`** → likely also merge worker, depending on note severity. Read the report and decide.
+- **If `a4ad854` finishes with verdict `❌ Needs work`** → PR slot advances to another **review worker** round (this would be round 2). Reason in the report drives the prompt.
+- **If `a4ad854` is still running** → log status and wait. Re-testing for a 7+ scenario sync-engine refactor against a real cloud account can reasonably take 30–60 min.
+- **If `a4ad854` reports the T1 regression still fires** (meaning `a4a5f92` didn't actually fix it) → STOP and surface to human; that's a structural problem, not another review round.
+- **If a new `## INSTRUCTION:` (outside fenced code) appears on main** → follow it first.
+- **Expansion slot:** likely stays idle until human files a new issue.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
