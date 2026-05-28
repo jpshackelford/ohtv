@@ -1,3 +1,46 @@
+### 2026-05-28 17:19 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `2f041bf` | implementation | Issue #112 - Schema additions for set-diff sync | **NEW** running ([conv](https://app.all-hands.dev/conversations/2f041bfb12ba433182be8c43953721fb)) |
+| `f396ebb` | orchestrator | this cycle | running (me) |
+
+**Spawned: Implementation Worker** for Issue #112 (priority:medium).
+- Start task `e9d92d28…` → READY in ~12s; `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`.
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Prompt highlights: implement migration `018_set_diff_sync_schema.py` exactly per @jpshackelford's 17:58:13Z technical-approach comment (three additive schema objects — `cloud_listing` table, `conversations.cloud_updated_at` column, `sync_kv` K/V table — dashless IDs per AGENTS.md #14, backfill from `sync_manifest.json`, strict scope guarantee that no consumer code is added in this PR), regression tests for fresh-DB + populated-DB + backfill + idempotency + older-binary compatibility, baseline ~1795 passed / 3 skipped / 10 xfailed, draft PR with `Fixes #112`, then ready-for-review and worklog `chore(worklog):` on main. Hard constraint: no reads/writes of the new schema — that work belongs to #111 / #114.
+
+**Current State (verified 17:17–17:19Z):**
+
+- **Open PRs:**
+  - **[PR #130](https://github.com/jpshackelford/ohtv/pull/130)** — `chore(worklog): instruct orchestrator to proceed on PR #119` by @jpshackelford, draft, out-of-band. **Untouched** per established convention (it's a human-authored worklog instruction vehicle; substance was honored when #119 merged at 14:24:40Z 2026-05-28). Does not gate the PR slot.
+  - No workflow PR open ✓ (PR #131 merged 16:50:14Z as `29c3b705`, closing #129).
+- **Ready w/ priority:medium:** #108, #109, #111, **#112** (now in-flight), → dispatched **#112** as the unblocked foundation (#111 and #109 both list #112 as a dep; #108 is the only one of the four without a stated dep on #112).
+- **Ready w/o priority:** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128 (the #122 cluster — #123/124/125/126/127/128 — remains blocked on #122's migration-019 landing, which itself is downstream of the current sync-rewrite cluster). #114 is also flagged "deferred — #111 and #112 still have no PR, ordering-risk policy holds" in the 14:21Z entry; that ordering risk **starts to lift this cycle** with #112 in flight.
+- **Need expansion:** 0 (✓ — all 17 open issues carry `ready` or `hold`).
+- **On hold:** #26 (mcp server), #90 (`ohtv label` batch).
+
+**Decision-tree trace:**
+- **Expansion slot:** OPEN, but 0 issues need expansion → idle. ✓
+- **PR slot:** OPEN (no workflow PR; #130 doesn't count). Ready prioritized issues exist (#108/#109/#111/#112). Per decision tree row "No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue." Tie-break on equal `priority:medium`: **dependency order wins** — #112 is the foundation that #111 and #109 explicitly depend on. **Dispatched #112.**
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → 1 match at line 579 (the #122 dependency-graph directive from 22:45Z 2026-05-27), `[ACKNOWLEDGED]` since 11:51Z 2026-05-28. Zero remaining actionable. (PR #130's INSTRUCTION block on its branch was honored when #119 merged; substance already absorbed.)
+
+**Active workers — cross-check via OH API:** `curl /api/v1/app-conversations/search?limit=40` → only one `running` (besides me as `f396ebb`): the newly-spawned `2f041bf`. All prior workers (`23ad863`, `dd954a9`, `2b56158`, etc.) finished/paused. No zombies, no race risk.
+
+**Auto-disable counter:** Reset to 0 (productive cycle — impl worker dispatched). Last cycle (16:21Z) was also productive (spawned testing worker for PR #131 → merged at 16:50Z).
+
+**Next cycle (~17:49Z window):** Expect impl worker `2f041bf` to be in flight (migration + tests typically takes ~20–40 min for a clean schema-only change). If completed: a new draft-or-ready PR will be open for #112; decision-tree path is likely `PR exists, draft, CI green → wait` or `PR exists, ready, CI green, no manual test results → docs check then test worker` (note: schema migration is internal — no CLI/README/AGENTS.md user-facing change required, so docs step likely N/A; will confirm next cycle from PR diff). If still running: log "All quiet — impl in flight" and counter goes 0→1.
+
+**Worklog housekeeping (flagged again):** WORKLOG.md is now at **~1755 lines** post-this-entry, over the 1500-line trigger. Same precedent as 16:21Z: defer truncation during a hot productive cycle to preserve context for the next docs/test/review/merge worker. Will run `/truncate-worklog` at the first quiet cycle (or post-#112 merge cycle) to archive everything above the 2026-05-27 22:24Z #121-expansion entry into `WORKLOG_ARCHIVE_2026-05-28.md`. Target: drop ~1100 lines, keep the last ~6h of productive context.
+
+**Sync note:** Tools installed via `uv tool install` (`lxa`, `ohtv` both present at `~/.local/bin`). `ohtv sync` not run this cycle — state-gathering came entirely from `gh` API + OpenHands API which was sufficient for the decision. `gh` 2.92.0 via `GH_TOKEN=$github_token`, OH API via `X-Access-Token: $OH_API_KEY` for spawn, `Authorization: Bearer $OPENHANDS_API_KEY` for search (both work).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 16:50 UTC - PR #131 merged (Issue #129 fix)
 
 - **Merge commit**: `29c3b705` on `main` (squash of head SHA `b03a736d`, `mergedAt=2026-05-28T16:50:14Z`).
