@@ -1052,3 +1052,71 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-28 21:48 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `78c0ebe` | review | PR #133 — fix T6 `--since` datetime crash | **NEW** idle→running ([conv](https://app.all-hands.dev/conversations/78c0ebea5fbf4c6496ca74e4fcadb6b7)) |
+
+**Spawned: Review Worker (round 2)**
+
+- PR: [#133 — feat(sync): recover from cloud/local gap via set-diff engine (#111)](https://github.com/jpshackelford/ohtv/pull/133)
+- Conversation: [`78c0ebe`](https://app.all-hands.dev/conversations/78c0ebea5fbf4c6496ca74e4fcadb6b7)
+- Start task `995de64…` → POST 200 at 21:47:50Z → conversation `78c0ebe…` visible in search at 21:47:58Z (`execution_status=idle`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[133]`).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Prompt scope: **single blocker only** — fix T6 (`_passes_since_filter` crashing on offset-naive vs offset-aware datetime comparison at sync.py:1706) + add 1 regression test. Explicit guidance to NOT re-open already-declined bot suggestions, NOT post a new manual test report (next cycle's job), NOT change docs.
+
+**State delta vs 21:21Z entry:**
+
+- Re-testing worker `a4ad854` **finished** (`execution_status=finished`, `sandbox_status=RUNNING`). Posted "Manual Test Results for PR #133 — Re-test after review round 1" PR comment at 21:37:57Z. Verdict: ❌ **Needs work** — single new bug T6 (`--since` crash). T1 blocker confirmed fixed + regression-tested. T2–T5 + T7 + T8 all PASS. Unit suite: 1803 passed, 3 skipped, 4 xfailed.
+- Bot review at 21:02:35Z (the second `github-actions` COMMENTED review) carries forward a single stale IMPROVEMENT OPPORTUNITY (scalability docs) which `5184d1f` had already addressed before the bot's analysis window — no action required.
+- PR #133 status pre-dispatch: `state=OPEN`, `isDraft=false`, all three checks `SUCCESS` (`lint`, `pytest`, `pr-review`), head `5184d1f`, `mergeable=UNKNOWN` / `mergeStateStatus=UNKNOWN` (GitHub mergeability check pending — typical for a freshly-pushed branch with no rebase pressure). `reviewDecision=""`.
+- 0 unresolved review threads (bot reviews are PR-level, not inline).
+- No new `## INSTRUCTION:` entries on main (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 matches).
+- PR #130 (out-of-band human draft `chore/worklog-proceed-on-119`): still open, still draft, still `UNKNOWN`/`UNKNOWN`. Untouched per established convention.
+
+**Decision-tree trace:**
+
+- **Expansion slot:** OPEN, IDLE. `gh issue list` → 16 open total. 14 carry `ready`, 2 carry `hold` (#26, #90), **0 need expansion**. No new issues since prior cycle. Slot stays idle.
+- **PR slot:** OPEN at start of cycle.
+  - PR #133: ready ✓, CI green ✓, docs updated ✓ (carried from prior cycle), test results posted ✓ valid (re-test at 21:37:57Z is current — HEAD has not moved since `5184d1f` at 20:55:33Z), verdict ❌ `Needs work` with a single concrete bug + fix sketch. Canonical decision-tree row: **"PR ready, CI green, test results valid, 💬 > 0 → Spawn review worker."** → dispatched `78c0ebe`.
+  - PR #130: out-of-band human draft, untouched.
+
+**Review worker prompt highlights** (full prompt embedded in spawn payload):
+
+1. **The blocker is fully scoped already** — root cause, file, line, two fix options (Option A preferred: normalize at top of `_passes_since_filter`; Option B: normalize at CLI boundary), and explicit "do NOT change `_parse_datetime`'s contract" guardrail.
+2. **One commit, one test** — `fix(sync): normalize offset-naive --since to UTC (#111)`. Test must fail on `main` without the fix and pass with it. Expected suite count: 1804 passed (1803 + 1).
+3. **Bot review status:** no action — first review's IMPROVEMENT OPPORTUNITIES already responded to (20:57:44Z comment) and addressed (`5184d1f`); second review's stale carryover already addressed. No CHANGES REQUESTED in either bot review. Don't re-open declined items.
+4. **PR-state workflow:** `gh pr ready 133 --undo` on entry → fix + test → CI green → PR comment ("Response to re-test (T6 fix)") → `gh pr ready 133`.
+5. **Hard rules:** No new manual test report (next cycle), no docs update (no user-facing behavior changed — `--since` is already documented), no approve/merge, no touching PR #130. 60-minute cap.
+6. **WORKLOG commit subject contract:** `chore(worklog): ...` (release-please ignored).
+
+**Current State:**
+
+- [PR #133](https://github.com/jpshackelford/ohtv/pull/133): ready, CI green ✓, docs ✓, re-test ❌`Needs work` (T6 only), **review round 2 in flight** (`78c0ebe`)
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): draft, out-of-band, mergeability `UNKNOWN` (human to resolve)
+- **Need expansion (0):** ✓ board fully expanded
+- **Ready w/ priority:medium (3):** #108, #109, #111 (in flight via PR #133). Queued behind PR slot.
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128
+- **On hold:** #26, #90
+
+**Housekeeping:** WORKLOG.md at 1054 lines pre-entry — below repo-custom ~1500-line threshold. Truncation deferred (consistent with prior cycles).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — review worker dispatched). Four consecutive productive cycles now: testing dispatch (20:20Z) → review dispatch (20:50Z) → re-testing dispatch (21:21Z) → review-round-2 dispatch (this cycle).
+
+**Sync note:** `gh` 2.92.0 via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY`. Spawn POST via `X-Access-Token: $OPENHANDS_API_KEY` per `/spawn-conversation` skill mechanics; plugins in canonical `{source, repo_path, ref}` object form. Start-task GET endpoint returned HTML (UI route, not API) — verified spawn success via the search endpoint, which is the more reliable path anyway. `git pull --ff-only` on `main` confirmed up-to-date before commit.
+
+**Pre-commit forecast for next cycle (~22:18Z window):**
+
+- **If `78c0ebe` finishes with the T6 fix committed + PR back to ready** → PR slot decision-tree advances to **re-testing worker** (per AGENTS.md re-test heuristic: source file `sync.py` changed, not just docs/tests — retest required). The re-tester should focus on T6 (verify `ohtv sync --since 2024-01-01 --dry-run` no longer crashes; verify the unit test from this round is present and passing) plus a regression spot-check on T1–T5 + T7–T8. Test report header: "Manual Test Results for PR #133 — Re-test after review round 2".
+- **If `78c0ebe` is still running** → log status and wait. A single-line fix + one test + WORKLOG commit should take well under 30 min, but pytest + CI can stretch it to 20–40 min.
+- **If `78c0ebe` reports the fix breaks other tests** (per its STOP-and-surface guardrail) → STOP and surface to human; investigate before another worker round.
+- **If `78c0ebe` is finished but PR is still in draft** → it likely hit an issue before the `gh pr ready 133` step; read its final messages and decide.
+- **If a new `## INSTRUCTION:` (outside fenced code) appears on main** → follow it first.
+- **Expansion slot:** likely stays idle until human files a new issue.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
