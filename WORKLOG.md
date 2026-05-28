@@ -3,6 +3,23 @@
 ## Log
 
 
+### 2026-05-28 21:35 UTC - PR #133 re-tested after review round 1
+
+- PR: [#133 - feat(sync): recover from cloud/local gap via set-diff engine](https://github.com/jpshackelford/ohtv/pull/133)
+- Re-test triggered by the prior worker's two follow-up commits (`a4a5f92` blocker fix + `5184d1f` warn-on-removal + scalability docs). Prior verdict was ❌ Needs work, blocked on T1 only; T2–T6 were SKIP.
+- Test report posted: [#issuecomment-4568560756](https://github.com/jpshackelford/ohtv/pull/133#issuecomment-4568560756).
+- **T1 (the prior blocker) ✅:** ran `ohtv sync -n 5` against the live `app.all-hands.dev` account on a fresh `OHTV_DIR`. No `sqlite3.ProgrammingError`; 3,707 listing rows committed; `pr_number` round-trips as `list[int]` (5 rows with `[133]`, 2,984 with `[]`). Two regression tests in `tests/unit/db/stores/test_cloud_listing_store.py` are named meaningfully and pass.
+- **T2–T5 + T7 + T8 all ✅** — previously-blocked scenarios now exercise cleanly: true gap recovery (manifest-missing → "new" → re-download), SIGINT mid-listing leaves a valid partial snapshot that the next sync atomically swaps out, fresh `OHTV_DIR` syncs without prior `db scan` (all 18 migrations apply lazily incl. `018_set_diff_sync_schema`), `--repair` detects + prunes ghost manifest entries, the new `WARNING Removed N conversation(s) from manifest` log line fires on phantom-entry sync, and the scalability docs accurately describe the streaming `SELECT * FROM cloud_listing` cursor at `sync.py:431` with an actionable boundary statement.
+- **T2 nuance worth flagging:** the literal "delete dir, keep manifest" scenario the orchestrator described is NOT covered by the set-diff engine (only manifest presence is checked, not on-disk presence at `sync.py:443`). That's actually correct per design — disk drift is `--repair`'s job, which T5 confirms still works. The set-diff *gap* recovery path is "manifest-missing → re-download" and that works.
+- **T6 ❌ NEW BUG surfaced** (single blocker for this re-test): `ohtv sync --since 2024-01-01` (and any `--since` value) crashes with `TypeError: can't compare offset-naive and offset-aware datetimes` at `src/ohtv/sync.py:1706`. Root cause: `click.option("--since", type=click.DateTime())` returns offset-naive; `_passes_since_filter` parses `conv["updated_at"]` via `_parse_datetime` which sets `tzinfo=timezone.utc`; `parsed >= since` then crashes. Traced via `git log -L 1690,1710:src/ohtv/sync.py` to commit `92b1896` — the original PR #133 commit, NOT introduced by `a4a5f92` or `5184d1f`. Previous test worker missed it because T1 crashed earlier in the same code path. No unit-test coverage exists (`grep -rn "_passes_since_filter\|passes_since" tests/` returns nothing). The same crash breaks the literal `ohtv sync --since 2024-01-01` example in `docs/guides/syncing.md`. Suggested fix scope for the next worker: normalize `since` to UTC-aware in the CLI wrapper or at the top of `_passes_since_filter`, plus one unit test.
+- Unit suite: **1803 passed**, 3 skipped, 4 xfailed (matches the +2 delta from `a4a5f92`'s two new regression tests; orchestrator's pre-flight count of ~1801–1802 was off by one).
+- Verdict: ❌ Needs work, single blocker = T6. Everything else passes cleanly. Recommended next cycle: address T6 (single-line tz fix + one test), then re-run T6 + final review + merge.
+- Hard rules honored: did not draft, approve, or merge the PR; did not post a separate docs update (`de3b478` already covered docs); test report attribution to AI agent included.
+
+_This update was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 20:55 UTC - PR #133 review feedback addressed
 
 - PR: [#133 - feat(sync): recover from cloud/local gap via set-diff engine](https://github.com/jpshackelford/ohtv/pull/133)
