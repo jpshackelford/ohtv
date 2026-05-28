@@ -876,3 +876,74 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-28 20:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `8bce7ee` | review | PR #133 — fix `pr_number` JSON + bot feedback | **NEW** running ([conv](https://app.all-hands.dev/conversations/8bce7eed447344d9907811bbda832961)) |
+
+**Spawned: Review Worker**
+
+- PR: [#133 — feat(sync): recover from cloud/local gap via set-diff engine (#111)](https://github.com/jpshackelford/ohtv/pull/133)
+- Conversation: [`8bce7ee`](https://app.all-hands.dev/conversations/8bce7eed447344d9907811bbda832961)
+- Start task `9e906b72…` → READY on poll #1 (~0s); `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[133]`.
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+
+**State delta vs 20:20Z entry:**
+
+- Testing worker `651c1d0` **finished** at 20:26:25Z (`execution_status=null`, `sandbox_status=RUNNING`). Posted a structured manual-test report at 20:26:23Z with verdict **`❌ Needs work` — single blocker bug**:
+  - **Root cause (diagnosed by worker):** Cloud listing API returns `pr_number` as a `list[int]` (e.g. `[133]`, `[]`). `_JSON_COLUMNS` in `src/ohtv/db/stores/cloud_listing_store.py` only JSON-encodes `tags` and `sub_conversation_ids`, so the raw Python list is passed straight into `sqlite3.execute(...)` and rejected.
+  - **Repro:** 100% on a fresh `OHTV_DIR` against `app.all-hands.dev` with any account having ≥1 PR-tagged conversation (which this repo's account does).
+  - **Test-coverage gap:** `tests/unit/sync/fakes.py` fixtures never populate `pr_number` as a list, so CI's 1801 passed didn't catch it.
+  - **Blast radius:** Crash happens inside the listing pass before a single page commits, so T2–T6 (gap recovery, mid-sync resume, `--repair`, fresh install, `--since` semantics) were all blocked behind T1's crash, not independently failing.
+- Bot review at 19:29:33Z (`github-actions`, `COMMENTED`, taste `🟡 Acceptable`, risk `🟡 MEDIUM`) lists 4 IMPROVEMENT OPPORTUNITIES on `src/ohtv/sync.py` — all non-blocking, none are CHANGES REQUESTED.
+- PR #133 status pre-dispatch: ready, CI green (lint + pytest), `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, head `de3b478a`, 0 unresolved review threads, 1 PR comment (the test report) + 1 docs-update comment.
+- No new `## INSTRUCTION:` entries on main (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 matches).
+- PR #130 (out-of-band human draft): still open, still `CONFLICTING`, untouched per established convention.
+
+**Decision-tree trace:**
+
+- **Expansion slot:** OPEN, IDLE. `gh issue list` → 16 open, 14 `ready`, 2 `hold` (#26, #90), **0 need expansion**. No new issues since prior cycle. Slot stays idle.
+- **PR slot:** OPEN at start of cycle.
+  - PR #133: ready ✓, CI green ✓, docs updated ✓, test results valid ✓ (verdict `Needs work` with a concrete fix sketch), 💬 > 0 ✓ (1 bot review COMMENTED + 1 testing-worker comment with actionable diagnosis). Canonical decision-tree row: **"PR ready, CI green, test results valid, 💬 > 0 → Spawn review worker."** → dispatched `8bce7ee`.
+  - PR #130: out-of-band human draft, conflicting; orchestrator does not advance human drafts. Skipped.
+
+**Review worker prompt highlights (full prompt logged in spawn payload):**
+
+1. **BLOCKER first** — add `pr_number` to `_JSON_COLUMNS` in `cloud_listing_store.py`; add a regression test that round-trips `pr_number=[N]` (the gap that let CI pass). Commit subject `fix(sync): json-encode pr_number list in cloud_listing (#111)`.
+2. **Bot suggestions with judgment guidance** —
+   - Memory-bounded `SELECT *` from `cloud_listing` (line ~423): **accept docstring/comment, decline chunking** (premature for <10k catalogs).
+   - 3+ level nesting in `_download_parallel` (lines 706–760): **accept extraction only if cleaner**; decline if the helper would need 5+ parameters or break the SQLite connection contract.
+   - Silent deletion log (lines 462–465): **accept** — cheap operational signal, #113 acknowledges silent deletion as known limitation.
+   - `_is_buffering_enabled()` sentinel helper (lines 858–863): **decline** if it's a single call site (over-engineering); accept if 3+ call sites.
+3. **PR-state workflow:** `gh pr ready 133 --undo` immediately on entry → fix → CI green → reply + resolve threads → `gh pr ready 133`. Do NOT post a new manual test report (that's the next cycle's re-testing worker).
+4. **WORKLOG commit subject contract:** `chore(worklog): ...` (release-please ignored).
+
+**Current State:**
+
+- [PR #133](https://github.com/jpshackelford/ohtv/pull/133): ready, CI green ✓, docs ✓, test results posted ❌`Needs work`, **review/fix in flight** (`8bce7ee`)
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): draft, out-of-band, `CONFLICTING` (human to resolve)
+- **Need expansion (0):** ✓ board fully expanded
+- **Ready w/ priority:medium (3):** #108, #109, #111 (in flight via PR #133). Queued behind PR slot.
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128
+- **On hold:** #26, #90
+
+**Housekeeping:** WORKLOG.md at 878 lines pre-entry — below the repo-custom ~1500-line threshold established in prior cycles. Truncation deferred.
+
+**Auto-disable counter:** **0 → 0** (productive cycle — review worker dispatched). Two consecutive productive cycles (testing dispatch at 20:20Z → review dispatch at 20:50Z).
+
+**Sync note:** `gh` 2.92.0 via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY`. Spawn POST via `X-Access-Token: $OPENHANDS_API_KEY` (per `/spawn-conversation` skill mechanics). `git pull --ff-only` on `main` confirmed up-to-date before commit. `lxa`/`ohtv` install skipped this cycle — used direct API/`gh` queries since we only needed PR/issue state and worker status.
+
+**Pre-commit forecast for next cycle (~21:20Z window):**
+
+- **If `8bce7ee` finishes with the blocker fixed + PR moved back to ready** → PR slot decision-tree advances to **re-testing worker** (per AGENTS.md re-test heuristic: source files changed, not just docs/tests — definitely retest). The re-tester should replicate the testing worker's T1–T6 against the real cloud with the fix applied; new test report must note "Re-test after review round 1" per `manual-test` skill convention.
+- **If `8bce7ee` is still running** → log status, wait. Review work for a clearly-scoped blocker + 4 bot suggestions (some declined) can reasonably take 30–45 min.
+- **If `8bce7ee` returns with the fix but skipped the bot suggestions** → still re-testable; declined-but-unreplied threads are a minor process issue, not a re-test blocker.
+- **If a new `## INSTRUCTION:` (outside fenced code) appears on main** → follow it first.
+- **Expansion slot:** likely stays idle until human files a new issue.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
