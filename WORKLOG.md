@@ -1,3 +1,67 @@
+### 2026-05-28 14:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `da00363` | merge | PR #119 — feat(tests): cloud-sync behavioral harness (#110) | **NEW** running ([conv](https://app.all-hands.dev/conversations/da00363fe72343668ddf49303a8bfb9b)) |
+| `e316b39` | expansion | Issue #128 — RAG ask/search cite sub-conv IDs | **NEW** running ([conv](https://app.all-hands.dev/conversations/e316b39ad5fe4a0180106a83d70de629)) |
+
+**Spawned: 2 Workers (parallel — both slots open)**
+
+1. **Merge Worker — PR #119**
+   - Conv: [`da00363`](https://app.all-hands.dev/conversations/da00363fe72343668ddf49303a8bfb9b) (start-task `946b5a3a` → READY in <10s; `execution=running`, `sandbox=RUNNING`)
+   - Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+   - PR number wired: 119
+   - Prompt covered: full context (head SHA `3cfad657`, CI green on lint+pytest+pr-review, two new commits since 19:25Z manual test = `c06de5c` test-only refactor + `3cfad65` AGENTS.md-only docs, both fall under "do not re-test" heuristics); explicit task to dismiss the `github-actions[bot]` CHANGES_REQUESTED review (since threads were resolved but review wasn't dismissed) before merging; conventional-commit shape with subject `feat(tests): cloud-sync behavioral harness (#110)`, 5 body bullets, footer `Closes #110`, `--delete-branch`; verification steps (state=MERGED, #110 auto-closed); explicit do-not-touch fences on PR #130 (the worklog INSTRUCTION PR), AGENTS.md, and test code. Block-on-conflict / block-on-new-human-review rules included.
+
+2. **Expansion Worker — Issue #128**
+   - Conv: [`e316b39`](https://app.all-hands.dev/conversations/e316b39ad5fe4a0180106a83d70de629) (start-task `386717bc` → READY in <10s; `execution=running`, `sandbox=RUNNING`)
+   - Plugin: same
+   - Prompt covered: full #122 cluster context (umbrella's committed shape — migration 019 + `root_conversation_id` + `conversations_by_root` view + `list_roots()` API); explicit contrast against the five other sibling cut shapes (#123 predicate, #124 join-key-substitute, #125 thread-a-flag, #126 self-healing UPDATE, #127 two-layer-fix-with-`expand_to_roots`-helper); 7-step code archaeology checklist (citation rendering path in `rag.py` + `RAGAnswerer.format_answer`, embedding store JOIN column, `ohtv search` CLI cut site, `embeddings` table key shape, per-conv-grain cluster rule citation, temporal-filter composition); 8 explicit gating questions ((a) citation-rendering cut site file:line, (b) dedup key + flag-gating, (c) MAX vs SUM score policy, (d) backfill rule for top-N, (e) render-time vs retrieval-time rejection rationale, (f) `ohtv search` table output parity with `ask`, (g) title resolution path, (h) migration-019 guardrail location); rejected alternatives codified (no pre-aggregation, no hide-all-subs, no defer-to-follow-up); explicit reuse of #127's `expand_to_roots` helper in `OrderedDict`-style preserve-order dedup; test plan with 7 named tests + 1 shared fixture; LOC estimate per file; explicit AGENTS.md do-not-touch fence; block-on-`needs-info` / `needs-split` rules.
+
+**State delta vs 13:22Z entry (~60min gap, 4 productive entries landed in between):**
+
+- **`7f95a63` (Issue #127 expansion)** finished — issue #127 now `ready` (confirmed in `gh issue list --label ready`). 13:26Z worklog entry documents the two-layer cut shape.
+- **`e3c7dc2`** (the parallel expansion worker that picked up #114) finished at 13:55Z. Issue #114 now `ready`. Notable: #114's expansion proposed a phased 4-PR plan (Phase A docs-only standalone, Phase B bundled into #111, Phase C after #109+#112, Phase D final manifest retirement). PR #119 interlock called out for scenario #14 marker flip.
+- **`fa7f86d`** (a review worker) finished at 13:59Z — addressed PR #119 review feedback. Pushed two commits: `c06de5c` (extract `_filter_by_updated_since` helper in `FakeCloudClient` per inline bot suggestion) and `3cfad65` (AGENTS.md paragraph documenting cloud-sync harness + strict-xfail convention per manual-test recommendation). Both inline review threads resolved on GraphQL. PR flipped draft→ready at 13:59Z. **`reviewDecision: CHANGES_REQUESTED` persists** because the github-actions bot review wasn't dismissed — only the threads were resolved. Worker explicitly punted to orchestrator: "Re-testing / merge is the orchestrator's next call."
+- **`302547c` ("🐛 Investigate stalled ohtv orchestrator on PR #119")** finished. This was a human-initiated meta-investigation that produced draft PR #130 (`chore/worklog-proceed-on-119`) with a `## INSTRUCTION:` block waiving the fabricated "Hypothesis-age policy gate" and a companion `.openhands#29` plugin PR narrowing the supply-chain rule to runtime deps only.
+
+**Decision-tree trace (this cycle):**
+
+- **`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → one match on main at line 353 (the #122-dependency-graph directive), `[ACKNOWLEDGED]` since 11:51Z. **Zero remaining actionable on main.** The new "proceed on #119" INSTRUCTION exists only on PR #130's branch (still draft, not merged) but its substance was honored by the 13:59Z review worker. Treating that as effectively in force per the planning trace in PR #130's body.
+- **Expansion slot:** OPEN. Only un-`ready` issue is **#128** (last sibling of the #122 cluster; #114 finished expansion this hour) → dispatched.
+- **PR slot:** OPEN. PR #119 — head `3cfad657`, CI green (lint + pytest + pr-review all SUCCESS), test results valid (last manual test at 19:25Z on `3a05089`; new commits since are test-helper refactor + docs only, both excluded from re-test triggers per orchestrate.md heuristics), 2 review threads resolved, manual-test verdict "Ready to merge", "Hypothesis-age policy gate" disavowed by @jpshackelford. **Next step per decision tree: spawn merge worker** (the standard `ready/CI green/test valid/good rating/docs valid` → merge transition). Dispatched.
+- **PR #130 (draft):** `chore(worklog)` shape per release-please contract — does not gate any release. Left for @jpshackelford to merge at their discretion.
+- **#129 (priority:high bug, `gen objs` cache miss):** queued behind PR slot — next impl candidate once #119 merges and PR slot reopens.
+
+**Current State:**
+
+- [PR #119](https://github.com/jpshackelford/ohtv/pull/119): ready, CI green, CHANGES_REQUESTED (github-actions bot only; threads resolved), head `3cfad657` — **merge worker in flight**
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): draft, out-of-band (worklog instruction PR by @jpshackelford)
+- **Needs expansion (1):** **#128 (in flight)**
+- **Ready w/ priority:** #108 (medium), #109 (medium), #110 (high — PR #119 merging), #111 (medium), #112 (medium), **#129 (high — next impl candidate when PR slot opens)**
+- **Ready w/o priority:** #113, #114 (newly added 13:55Z), #116, #121, #122 (umbrella, blocked-by #108), #123–#127 (blocked-by #122)
+- **On hold:** #26, #90
+
+**Auto-disable check:** Productive cycle (2 workers dispatched) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Housekeeping:** WORKLOG.md at ~1482 lines pre-entry. Repo-custom truncation threshold is ~1500. **Deferred this cycle** (under threshold; productive activity in progress means context is being used). Next cycle should consider archiving the 2026-05-27 18:16Z–22:24Z block (~6h+ old, post-PR #119-creation context only) if WORKLOG crosses 1500.
+
+**Sync note:** `OH_API_KEY="$OPENHANDS_API_KEY" ohtv sync --since 4h --quiet` ran clean. `gh` API with `GH_TOKEN=$github_token` clean. Tools (`lxa`, `ohtv`) installed via `uv tool install --force` (system-Python is read-only for non-root — confirmed; switched to per-user `uv tool` install pattern this cycle). Spawn API: both start-tasks reached READY on the first 10s poll, sandboxes RUNNING.
+
+**Pre-commit forecast for next cycle (~14:51Z window):**
+
+- **If `da00363` succeeds in merging PR #119** → expect a "PR #119 merged" entry on main, issue #110 closed, branch `feat/sync-test-harness-110` deleted. PR slot reopens → **#129 (priority:high bug) becomes the next impl candidate** (ahead of #108–#112 which are still un-PR'd cluster work). Next cycle should spawn impl worker for #129.
+- **If `da00363` returns blocked** (e.g., merge conflict, new human review, or refusal to dismiss bot review) → log the block, do not respawn, wait for triage. PR #119 stays open.
+- **If `e316b39` finishes** with `ready` on #128 → expansion slot reopens. With #128 done, the **entire #122 cluster (umbrella + 6 siblings) is fully expanded**. Next expansion target unclear — possibly re-examining if #114's Phase B-C-D needs follow-up issues, or simply idling. Worth a short status entry rather than aggressive new-issue scaffolding.
+- **If `e316b39` returns `needs-info`/`needs-split`** (e.g., render-time dedup turns out insufficient and retrieval-time aggregation needed) → log the block, do not respawn, wait for human triage. The cluster status flips from "fully expanded" to "5/6 expanded + 1 needs decision".
+- **If a new top-level `## INSTRUCTION:` (outside fenced code) appears on main** → follow it before normal workflow.
+- **If PR #130 gets merged to main before next cycle** → its INSTRUCTION block becomes canonical on main and should be `[ACKNOWLEDGED]` retroactively (already effectively honored this cycle by the merge worker dispatch).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 13:59 UTC - PR #119 review-feedback round addressed
 
 - **Context**: review worker invoked against PR #119 ("feat(tests): cloud-sync behavioral harness (#110)") after @jpshackelford filed the `## INSTRUCTION: proceed on PR #119 — no Hypothesis-age / supply-chain gate applies` block (branch `chore/worklog-proceed-on-119`, commit `2e9eaf3`).
