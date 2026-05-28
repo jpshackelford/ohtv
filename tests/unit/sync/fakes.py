@@ -227,6 +227,32 @@ class FakeCloudClient:
         # Stable secondary key on id keeps ties reproducible.
         return sorted(visible, key=key, reverse=True)
 
+    @staticmethod
+    def _filter_by_updated_since(
+        candidates: list[FakeConversation], updated_since: datetime | None
+    ) -> list[FakeConversation]:
+        """Filter ``candidates`` to those with ``updated_at >= updated_since``.
+
+        Both the threshold and each candidate's ``updated_at`` are normalized to
+        UTC before comparison; naive datetimes are treated as UTC. Returns
+        ``candidates`` unchanged when ``updated_since`` is ``None``.
+        """
+        if updated_since is None:
+            return candidates
+        since = updated_since
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        return [
+            c
+            for c in candidates
+            if (
+                c.updated_at
+                if c.updated_at.tzinfo
+                else c.updated_at.replace(tzinfo=timezone.utc)
+            )
+            >= since
+        ]
+
     def search_conversations(
         self,
         updated_since: datetime | None = None,
@@ -250,17 +276,9 @@ class FakeCloudClient:
         if page_number in self._fail_listing_at_page:
             raise self._fail_listing_at_page[page_number]
 
-        candidates = self._visible_sorted()
-        if updated_since is not None:
-            since = updated_since
-            if since.tzinfo is None:
-                since = since.replace(tzinfo=timezone.utc)
-            candidates = [
-                c
-                for c in candidates
-                if (c.updated_at if c.updated_at.tzinfo else c.updated_at.replace(tzinfo=timezone.utc))
-                >= since
-            ]
+        candidates = self._filter_by_updated_since(
+            self._visible_sorted(), updated_since
+        )
 
         page = candidates[offset : offset + limit]
         next_offset = offset + len(page)
@@ -318,17 +336,9 @@ class FakeCloudClient:
         extra ``SearchCall`` per page, which clutters assertions.
         """
         offset = int(page_id) if page_id else 0
-        candidates = self._visible_sorted()
-        if updated_since is not None:
-            since = updated_since
-            if since.tzinfo is None:
-                since = since.replace(tzinfo=timezone.utc)
-            candidates = [
-                c
-                for c in candidates
-                if (c.updated_at if c.updated_at.tzinfo else c.updated_at.replace(tzinfo=timezone.utc))
-                >= since
-            ]
+        candidates = self._filter_by_updated_since(
+            self._visible_sorted(), updated_since
+        )
         page = candidates[offset : offset + self._page_size]
         next_offset = offset + len(page)
         next_page_id = str(next_offset) if next_offset < len(candidates) else None
