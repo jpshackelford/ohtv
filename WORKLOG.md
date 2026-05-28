@@ -659,3 +659,52 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 - Downstream now unblocked: **#111** (set-diff sync engine — populates `cloud_listing` and writes snapshot-state keys to `sync_kv`) and **#114** (manifest retirement — drains the remaining `sync_manifest.json` scalars into `sync_kv` and retires the JSON file). #113 will consume the set-diff query helpers once #111 lands. Per the issue body's scope-guarantee, no code outside the migration touches the new schema yet — that work is the next orchestrator cycle's dispatch decision, not this merge worker's responsibility.
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+### 2026-05-28 18:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `77e4a97` | implementation | Issue #111 — sync gap recovery (set-diff engine) | **NEW** running |
+
+**Spawned: Implementation Worker for Issue #111**
+
+- Issue: [#111 — `ohtv sync` can't recover from a gap between local store and cloud](https://github.com/jpshackelford/ohtv/issues/111) (`ready`, `priority:medium`)
+- Conversation: [`77e4a97`](https://app.all-hands.dev/conversations/77e4a97344664851a7771dfef9516d8e)
+- Start task `5ead2add…` → READY on first poll (<5s); execution_status=running, sandbox_status=RUNNING.
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Prompt: implement set-diff sync engine on top of #110's harness and #112's migration-018 schema; flip xfail-strict scenarios in `tests/unit/sync/test_behavioral.py` to passing by dropping the markers (not modifying the assertions); open draft PR titled `feat(sync): recover from cloud/local gap via set-diff engine (#111)` with `Fixes #111`; scope-guard against #113/#114 work.
+
+**Decision-tree trace (verified 18:48–18:50Z):**
+
+- **`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 matches on main. Zero actionable.
+- **Active workers cross-check via API:** all three recent ohtv workers — impl `2f041bf`, test `033acff`, merge `bdc4089` — show `execution_status=null` / `sandbox_status=PAUSED` (= finished/aged out). The two `running` conversations in the global feed (`be278a2`, `13d5d82` "Review Shipped PR #669") have no `selected_repository` set to ohtv and are unrelated automations. No live ohtv workers in either slot at decision time.
+- **Expansion slot: IDLE.** Open issues: 16 total, 14 `ready` (post-#112 close), 2 `hold` (#26, #90), **0 need expansion**. The full #122-cluster (#108–#114, #122–#128) was expanded in prior cycles. Slot remains idle this cycle.
+- **PR slot: OPEN.** Only open PR is **#130** (draft, `chore/worklog-proceed-on-119`, authored by @jpshackelford) — out-of-band per established convention, does not gate orchestrator dispatches. PR #132 merged at 18:22Z as `f2ccbab`, branch deleted, #112 auto-closed. Per decision-tree row "**No open PR + ready issues with priority → spawn impl worker (highest priority ready issue).**"
+- **Priority queue (post-#112 close):**
+  - `priority:medium` (3): #108 (sub-conv exclusion), #109 (sync/scan race + column ownership), **#111 (set-diff sync engine)**.
+  - Unprioritized (11): #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128.
+- **Why #111 over #108/#109:** all three are `priority:medium` (decision-tree tie), so resolved by **dependency-chain ordering**:
+  - #111 is the direct downstream consumer of the schema #112 just landed — it populates `cloud_listing` and writes snapshot-state keys to `sync_kv` (per the migration's scope-guarantee, nothing else has touched the schema yet).
+  - #110's harness in `tests/unit/sync/test_behavioral.py` carries `xfail(strict=True, reason="#111")` scenarios that flip on with this work.
+  - #113 (repair fix) and #114 (manifest retirement) explicitly depend on #111 landing first.
+  - #108 (sub-conv exclusion) and #109 (sync/scan race) are independent of the set-diff rewrite — eligible after #111's PR is in flight or on the next `priority:medium` rotation.
+  - Previous orchestrator (18:21Z entry) explicitly forecast "**#111 is the natural next dispatch**" — this cycle honors that forecast.
+
+**PR #130 unchanged:** still open as draft from @jpshackelford. Out-of-band chore PR; the orchestrator does not gate or advance human-authored drafts.
+
+**Housekeeping:** WORKLOG.md at 661 lines pre-entry — below the repo-custom ~1500-line threshold established in prior cycles. Truncation deferred.
+
+**Auto-disable counter:** Reset to 0 (productive cycle — impl worker dispatched). Four consecutive productive cycles in the PR #132 lifecycle plus this dispatch.
+
+**Next cycle (~19:20Z window):** Expect impl worker `77e4a97` to have either:
+1. Opened a draft PR titled `feat(sync): recover from cloud/local gap via set-diff engine (#111)` against `main` — CI may still be settling. → Log status, exit (PR slot occupied).
+2. Pushed several commits but PR still draft / CI failing → Log status, exit (worker still active).
+3. Completed and moved PR to ready with CI green → Next decision-tree row applies (docs check → testing).
+4. Blocked on a foundation issue → Worker should have commented on #111 with diagnosis and left PR draft.
+
+Either way, the next cycle's responsibility is to assess PR state, not to monitor the worker mid-flight.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
