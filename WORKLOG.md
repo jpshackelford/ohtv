@@ -825,3 +825,54 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-28 20:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `651c1d0` | testing | PR #133 — set-diff sync engine manual test | **NEW** running ([conv](https://app.all-hands.dev/conversations/651c1d032401437fa729f8edc3ae7f94)) |
+
+**Spawned: Testing Worker**
+
+- PR: [#133 — feat(sync): recover from cloud/local gap via set-diff engine (#111)](https://github.com/jpshackelford/ohtv/pull/133)
+- Conversation: [`651c1d0`](https://app.all-hands.dev/conversations/651c1d032401437fa729f8edc3ae7f94)
+- Start task `796127f7…` → READY on poll #2 (~4s); `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `pr_number=[133]`.
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Prompt focus areas: **gap recovery** (delete-local-keep-manifest scenario), **`last_sync_at` is UX-only** (no longer gates fetches), **mid-sync resume safety** (Ctrl-C + restart), **fresh install** (no prior `db scan` required, just `ohtv sync`), **documented examples** (copy-paste from `docs/guides/syncing.md`), **`--repair` interaction** with new schema. Plus full unit suite: expect 1801 passed / 3 skipped / 4 xfail (6 of 8 prior xfails on `tests/unit/sync/test_behavioral.py` were flipped to passing).
+
+**State delta vs 19:48Z entry:**
+- Docs worker `b1b76e3` **finished** — `execution_status=null` / `sandbox_status=PAUSED`. Posted the "Documentation updated" PR comment at 19:57:02Z (covers `docs/guides/syncing.md`: top-of-file "Behavior change" callout, set-diff section, removed-stale-sections cleanup, `last_sync_at` clarification, mid-sync resume note, `--repair` interaction blurb). README untouched — guide is the right surface; README links to it. Last commit on the PR branch is `de3b478a` ("docs: update syncing guide for set-diff engine (#111)") at 19:54:54Z. **All checks still green** (lint + pytest, 47s).
+- No new `## INSTRUCTION:` entries since prior cycle (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 matches on main).
+- PR #130 (out-of-band human draft, `chore/worklog-proceed-on-119`): still open, still `CONFLICTING` against main, untouched per established convention.
+- Impl worker `77e4a97` for #111: still showing `pr=[133]` in search index (its produced PR), `execution_status=null` (finished/paused) — no recent activity.
+
+**Decision-tree trace:**
+- **Expansion slot:** OPEN, IDLE. `gh issue list` → 16 open, 14 `ready`, 2 `hold` (#26, #90), **0 need expansion**. No new issues since prior cycle. Slot stays idle.
+- **PR slot:** OPEN at start of cycle.
+  - PR #133: ready ✓, CI green ✓ (lint + pytest), docs updated ✓ ("Documentation updated" comment 19:57Z + `docs/guides/syncing.md` in diff), **no manual test results yet** ✓, no review comments yet → canonical decision-tree row: **"PR ready, CI green, docs updated, no manual test results → spawn testing worker."** → dispatched `651c1d0`.
+  - PR #130: out-of-band human draft, conflicting; orchestrator does not advance human drafts. Skipped.
+
+**Current State:**
+- [PR #133](https://github.com/jpshackelford/ohtv/pull/133): ready, CI green ✓, docs updated ✓, **testing in flight** (`651c1d0`)
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): draft, out-of-band, `CONFLICTING` (human to resolve)
+- **Need expansion (0):** ✓ board fully expanded
+- **Ready w/ priority:medium (3):** #108, #109, #111 (in flight via PR #133). Queued behind PR slot.
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128
+- **On hold:** #26, #90
+
+**Housekeeping:** WORKLOG.md at ~830 lines pre-entry — below the repo-custom ~1500-line threshold established in prior cycles. Truncation deferred (consistent with recent pattern).
+
+**Sync note:** Tools installed via `uv sync` + `uv pip install git+https://github.com/jpshackelford/lxa.git` into project venv (`.venv`). `ohtv sync --since 4h --quiet` was launched but timed out on the polling layer (no observable hang on the API); skipped since we query the conversation API directly for active-worker checks. `gh` via `GH_TOKEN=$github_token`, OH API via `Authorization: Bearer $OPENHANDS_API_KEY` and spawn POST via `X-Access-Token: $OPENHANDS_API_KEY` — all clean.
+
+**Auto-disable counter:** **1 → 0** (productive cycle — testing worker dispatched). The 19:20Z "All quiet" entry was the only consecutive quiet entry in this PR #133 lifecycle; the 19:48Z docs dispatch and this cycle's testing dispatch keep the workflow in productive flow.
+
+**Pre-commit forecast for next cycle (~20:50Z window):**
+- **If `651c1d0` finishes with a PASS verdict** → PR slot decision-tree advances. Default next step: review worker only if review comments / changes-requested appear; otherwise merge worker can be considered (PR-slot serialization permitting). Likely intermediate state: test report posted, no review yet, no review-bot comments yet → log status and wait for the next cycle for the review bot to weigh in (the bot triggers off ready PRs and may take a cycle to comment).
+- **If `651c1d0` finishes with a FAIL / Needs-work verdict** → PR slot decision-tree advances to review worker (to address the test-surfaced regressions before re-test).
+- **If `651c1d0` is still running** → log status and wait. Manual test work for a sync-engine refactor with mid-sync-resume + fresh-install + gap-recovery scenarios can reasonably take 30–45 min — not a stuck indicator.
+- **If a new `## INSTRUCTION:` (outside fenced code) appears on main** → follow it first.
+- **Expansion slot:** likely stays idle until human files a new issue.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
