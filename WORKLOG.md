@@ -1353,3 +1353,70 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-28 23:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c72b79a` | implementation | Issue #108 — Sub-conversations silently excluded from sync | **NEW** running ([conv](https://app.all-hands.dev/conversations/c72b79ab2ade46f7a39963688e915c95)) |
+
+**Spawned: Implementation Worker**
+
+- Issue: [#108 — Sub-conversations are silently excluded from sync](https://github.com/jpshackelford/ohtv/issues/108) (`ready`, `priority:medium`)
+- Conversation: [`c72b79a`](https://app.all-hands.dev/conversations/c72b79ab2ade46f7a39963688e915c95)
+- Start task `b7cbe276…` → POST 200 → `READY` on first 5s poll (instantaneous — fastest READY transition observed this session), `app_conversation_id=c72b79ab2ade46f7a39963688e915c95`.
+- Non-ghost verification at 23:52:15Z (38s post-create): `execution_status=running`, `sandbox_status=RUNNING`, `created_at=23:51:37Z`, `updated_at=23:52:15Z` (38s gap = real activity), `selected_repository=jpshackelford/ohtv`. The 22:22Z silent-spawn-failure pattern (`78c0ebe`) did NOT recur — three consecutive clean spawns now (`5fb1867` → `1204021` → `c72b79a`).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Prompt scope: implement #108 per the in-issue Technical Approach comment — (a) `CloudClient.search_conversations` / `search_all_conversations` / `count_conversations` accept `include_sub_conversations: bool = True` (default-on per the comment's reasoning); (b) new migration `018_parent_conversation_id.py` adds the column + index; (c) `Syncer._process_conversations` + `db/scanner.py:extract_metadata` populate the new column from the listing payload; (d) unit + behavioural tests (`tests/unit/sync/test_behavioral.py` — non-xfailed since this PR _implements_ #108); (e) `Fixes #108` in PR body; open as **draft** then mark ready when CI green. Hard rules carried: no main pushes except final WORKLOG entry, no touching PR #130, STOP-and-surface if technical-approach assumptions break.
+
+**Prior worker outcome (`1204021`, merge worker for PR #133):**
+
+- Status: **finished** ✓ (last `updated_at=23:23:38Z`, ~4 min runtime from `created_at=23:19:44Z`). `sandbox_status=PAUSED`, `execution_status=null`, `accumulated_cost=null` in search-endpoint view — consistent with finished-state semantics established by `5fb1867` (which WORKLOG recorded as finished with the same null-fields pattern).
+- **PR #133 MERGED** at 23:21:52Z via merge commit [`92a2805`](https://github.com/jpshackelford/ohtv/commit/92a2805b9ffe04282e5e08dd7a19aa42793a5d31). `mergedBy=jpshackelford` (the gh-CLI auth identity for the merge worker). Title: `feat(sync): recover from cloud/local gap via set-diff engine (#111)` — the squash subject specified in the merge prompt was applied exactly.
+- **Issue #111 auto-closed** at 23:21:53Z via the `Closes #111` footer / `closingIssuesReferences` link.
+- WORKLOG follow-up commit `b519694` ("chore(worklog): merge PR #133 — set-diff sync engine (#111)") landed at 23:22:34Z — the merge worker honoured the `chore(worklog):` subject contract per AGENTS.md release-please rules.
+
+**PR #130 (out-of-band draft):** unchanged — still draft, untouched. Established convention holds.
+
+**Release-please status:** No open release-please PR found via `gh pr list --state all --search release-please` — only the historical `#120` (the bootstrap PR, MERGED 2026-05-28) and the unrelated `#21`. The post-merge release-please workflow may be queued or not yet visible; not gating dispatch since the orchestrator's job is workflow flow, not release-please verification. If the next cycle (~00:20Z) still shows no release-please PR opened against the new `feat(sync): ...` subject on `92a2805`, that's worth surfacing — but not this cycle.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0).
+- 0 running ohtv-repo workers at start of cycle (all 8 most-recent ohtv conversations `sandbox_status=PAUSED`; merge worker `1204021` last touched 23:23:38Z, well past its expected ~5-15 min completion window).
+- **Expansion slot:** OPEN, IDLE. 16 open issues; 14 `ready`, 2 `hold` (#26, #90), **0 need expansion**. Slot stays idle.
+- **PR slot:** OPEN (no PR worker running; PR #133 merged this cycle).
+  - No open non-draft PR.
+  - Ready w/ priority: #108, #109 (both `priority:medium`). **Canonical pick: #108** (lower issue number = older; orchestrate-skill rule "oldest highest-priority ready issue"). #108 is also the foundation blocking 7 downstream issues (#122–#128 per the second issue-108 comment) — implementation now unblocks future work.
+  - Canonical decision-tree row: **"No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue."** → dispatched `c72b79a`.
+- PR #130: draft, out-of-band, untouched.
+
+**Current State:**
+
+- ✅ [PR #133](https://github.com/jpshackelford/ohtv/pull/133): **MERGED** (`92a2805`), issue #111 closed
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): draft, out-of-band (human to resolve)
+- **No open non-draft PRs** (next will arrive from `c72b79a`)
+- **Need expansion (0):** ✓ board fully expanded
+- **Ready w/ priority:medium (2):** ~~#108 (in flight via `c72b79a`)~~, #109
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128
+- **On hold:** #26, #90
+
+**Housekeeping:** WORKLOG.md at 1356 lines pre-entry — under the repo-custom ~1500-line truncation threshold but close. Will likely trip truncation next cycle if entry stays this verbose. Deferred for now.
+
+**Auto-disable counter:** **0 → 0** (productive cycle — implementation dispatched). Eight consecutive productive cycles now: testing → review-r1 → re-testing-r1 → review-r2 (ghost) → review-r2 (retry, T6 fix) → re-testing-r2 (APPROVE) → merge (MERGED) → **impl-#108 (this cycle)**. PR #133 took eight cycles from manual-test to MERGED — useful baseline for the new #108 PR cycle.
+
+**Forecast for next cycle (~00:20Z window):**
+
+- **If `c72b79a` finishes with a draft PR opened + CI green + PR moved to ready** → PR slot advances to **docs worker** if README needs updates (likely — new `--include-sub-conversations` semantics aren't a new flag but the default-on change should still be documented under sync semantics) OR **testing worker** if README is already accurate. Per the decision tree: docs BEFORE testing.
+- **If `c72b79a` is still running** → log status and wait. Implementation + tests + CI green for #108 is ~one-CloudClient-method-change + one-migration + one-writeback + tests; should take 30–90 min.
+- **If `c72b79a` ghosts** (no progress, `updated_at` stale) → re-spawn once (matches the 22:22Z recovery pattern). Two consecutive ghost spawns on the same issue = STOP and surface to human.
+- **If `c72b79a` hits its STOP-and-surface guardrail** (technical-approach assumptions break, e.g. cloud listing doesn't actually return `parent_conversation_id`) → investigate before next worker round.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow it first.
+- **Expansion slot:** stays idle until human files a new issue.
+
+**Sync notes:** `ohtv` 0.13.0 and `lxa` re-installed via `pip install git+...` after container respawn (same pattern as previous three cycles — `uv` venv doesn't survive respawns in this automation environment; pip-on-$PATH continues to be the working fallback). `gh` 2.92.0 via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY`. Spawn POST via `X-Access-Token: $OPENHANDS_API_KEY` per the spawn-conversation skill. Plugins in canonical `{source, repo_path, ref}` object form. `git pull --ff-only` on `main` confirmed up-to-date before commit. `ohtv sync --since 4h` returned HTTP 500 from the cloud API at cycle start — unrelated transient; not blocking since orchestrator state is gathered via `gh` + raw `curl` + WORKLOG, not via `ohtv list`.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
