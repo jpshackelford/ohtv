@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -650,9 +650,22 @@ def analyze_objectives(
             secondary_outcomes=result.get("secondary_outcomes", []),
         )
 
-    # Cache the result
+    # Cache the result. When the effective context level differs from what
+    # the caller originally requested (auto-promotion above for worker
+    # conversations, or assess-driven upgrade), also write a cache-key alias
+    # under the requested level so subsequent lookups at that level hit the
+    # cache instead of re-invoking the LLM (issue #129).
+    requested_key_kwargs: dict[str, Any] | None = None
+    if effective_context != context:
+        requested_key_kwargs = {
+            "assess": assess,
+            "context_level": context,
+            "detail_level": detail,
+        }
     with _timer("save_cache"):
-        _cache_manager.save(conv_dir, analysis)
+        _cache_manager.save(
+            conv_dir, analysis, requested_key_kwargs=requested_key_kwargs
+        )
 
     total_elapsed = (time.perf_counter() - total_start) * 1000
     log.debug(
