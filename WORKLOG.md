@@ -1749,3 +1749,16 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 - Approach: Three-PR split — (1) new `setup_logging()` signature + `--log-level`/`--log-file`/`OHTV_LOG_LEVEL` env-var wiring; (2) audit + fix every batch-swallow site (`_analyze_one`, post-sync hooks, embedding writer, `parallel.run_parallel`) and make `--quiet` print a one-line stderr summary + exit non-zero across all formats; (3) deprecate `--verbose` (keep as alias for the 17 logging commands; rename to `--show-migrations`/`--explain` for the 2 commands where it's a domain flag) + docs. `analysis/titles.py` is the reference implementation. Documented `OHTV_LOG_LEVEL` env var is currently unimplemented — fixed in Phase A.
 
 ---
+
+### 2026-05-28 17:32 UTC - Implementation Worker — Issue #112 Complete
+
+- Issue: [Schema additions for set-diff sync](https://github.com/jpshackelford/ohtv/issues/112)
+- Branch: `feat/set-diff-sync-schema-112`
+- PR: [#132](https://github.com/jpshackelford/ohtv/pull/132) (ready for review, lint + pytest green)
+- Head SHA: `601e5a8f5c5d48591b164b2a50162d455c67a454`
+- Tests: baseline 1795 → post-PR 1820 (+25), 3 skipped, 10 xfailed, 0 regressions
+- Lint: `ruff check` clean on new files; 100% line coverage on migration 018
+- Scope: schema-only DDL — no consumer reads/writes (`sync_kv` brand new, `cloud_listing`/`cloud_updated_at` only pre-existing local-var collisions in `sync.py`; pinned by `TestScopeGuarantee` in CI)
+- Next domino: **#111** (set-diff sync engine) consumes the new tables; #114 drains the manifest into `sync_kv`. Most #110 behavioral scenarios marked `skip` (waiting on `cloud_listing` table) can now flip to `xfail(strict=True)` in #111's PR.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
