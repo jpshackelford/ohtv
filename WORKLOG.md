@@ -1,3 +1,28 @@
+### 2026-05-28 13:55 UTC - Issue #114 expanded
+
+- Issue: [Two sources of truth for sync state (manifest + DB) makes correctness brittle](https://github.com/jpshackelford/ohtv/issues/114)
+- **Framing rather than implementation.** #114 is the architectural umbrella that #109 (column ownership / mutex), #111 (set-diff sync), #112 (schema additions), #113 (`--repair` four-category UX) are subproblems of. Per spawn-prompt guidance, did NOT propose ripping out the manifest in a single PR — current #27 contract has the manifest as canonical for cloud-side editable metadata (`title`, `labels`, `selected_repository`, `created_at`) and a single-PR retirement would invalidate #86/#87.
+- **Ownership map** (verified against `main` @ `ba7d92c`): three buckets — manifest-only (sync-state scalars `last_sync_at`/`sync_count`/`failed_ids`; per-conv cloud `updated_at`, `downloaded_at`, `event_count`, `selected_branch`), DB-only (`id`, `location`, `registered_at`, `events_mtime`, `event_count` scan-time, `source`, `summary`, events-derived `updated_at`), overlap (`title`, `labels`, `selected_repository`, `created_at` — manifest canonical, DB mirror). File:line citations in technical-approach comment for every entry.
+- **Brittle-spot catalogue** (10 items, file:line cited): scanner clobbers concurrent sync writes via stale `manifest_map` snapshot (`scanner.py:397`); non-atomic `write_text` manifest save (`sync.py:155-165`); `_apply_metadata_diff` manifest-first/DB-second with no transaction (`sync.py:1023-1056`); `gen titles` writeback same shape (`cli.py:9634-9685`); `event_count` duplicated with `--status` summing the stale copy (`sync.py:623`); `selected_branch` has no DB column at all (`sync.py:580`); scanner's title precedence ignores explicit-None for `title`/`labels` but respects it for `created_at` (`scanner.py:189-191` vs `:217-228`); `load_manifest_metadata` read amplification (`scanner.py:397`); long-lived in-memory manifest on `SyncManager` (`sync.py:172-173`); repair healing asymmetry — manifest eager, DB lazy (`sync.py:717-733`).
+- **Phased plan (4 PRs)**:
+  - **Phase A** (this PR, docs-only, standalone) — new `docs/reference/sync-state-ownership.md` + AGENTS.md #27 update; no production code.
+  - **Phase B** (bundled into #111) — sync-state scalars move to `sync_state` k/v table once #112 lands; dual-write manifest top-level for one release.
+  - **Phase C** (separate PR, after #109 + #112 merge) — switch overlay path off the manifest. Sync writes `cloud_updated_at` to DB directly; new `selected_branch` DB column (migration 018-ish); `extract_metadata` overlays from DB columns; one-time backfill migration via `maintenance_tasks`. **PR #119 interlock**: scenario #14 ("Manifest as canonical metadata source survives sync (#87 guard)") flips to "DB columns survive sync" — do not touch the marker until #119 merges to avoid moving target.
+  - **Phase D** (final PR, after Phase C ships a release) — remove all 6 manifest reader sites, rename file to `.legacy` on first run, satisfies all 4 original-body acceptance criteria.
+- **Coordination with sibling issues**:
+  - #109 (column ownership / mutex) — Phase A documents the contract #109 will encode in the mutex; #109's "column ownership table" referenced verbatim against the AGENTS.md #27 + Phase A doc.
+  - #110 / PR #119 (test harness) — no blocking dependency in either direction; only scenario #14 needs marker flip during Phase C (called out explicitly).
+  - #111 (set-diff) — Phase B is bundled here; sequencing rationale captured (sync_state would be write-only for a release otherwise).
+  - #112 (schema additions) — hard dependency for Phase C (`cloud_updated_at` column, `sync_state` table).
+  - #113 (`--repair` UX) — independent; both work compose well once they land.
+- **Decision against `needs-split`**: original spawn prompt allowed splitting but the right shape is the phased plan within one architectural issue. Phases A/B/C/D each track to a separate PR but share the same acceptance contract.
+- **Risks documented**: `selected_branch` migration gap (no current DB column); concurrent older+newer binaries during dual-write phases; brittle-spot #7's latent explicit-None bug must be fixed on the DB-overlay path during Phase C; `--status` event-count number changes (correct number, but visible change for users).
+- Labels: `ready` applied. No `needs-info` / `needs-split`. Priority deliberately not set — orchestrator's `/assess-priority` step owns that.
+
+---
+
+_WORKLOG entry by an AI agent (OpenHands) on behalf of @jpshackelford._
+
 ### 2026-05-28 13:26 UTC - Issue #127 expanded
 
 - Issue: [`ohtv list` and `refs` surface sub-conversations as siblings of their roots](https://github.com/jpshackelford/ohtv/issues/127)
