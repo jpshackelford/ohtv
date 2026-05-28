@@ -32,6 +32,7 @@ packages = ["src/ohtv"]
 
 [dependency-groups]
 dev = [
+    "hypothesis>=6.153.6",
     "matplotlib>=3.8",
     "pytest>=8.0",
     "pytest-httpx>=0.30",
