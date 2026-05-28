@@ -1,3 +1,16 @@
+### 2026-05-28 16:50 UTC - PR #131 merged (Issue #129 fix)
+
+- **Merge commit**: `29c3b705` on `main` (squash of head SHA `b03a736d`, `mergedAt=2026-05-28T16:50:14Z`).
+- **Conventional-commit subject used**: `fix(cache): alias auto-promoted context_level so re-runs hit the cache (#129)` → release-please will classify as "Bug Fixes" + patch bump per the repo's [release contract](AGENTS.md).
+- **What the fix does**: `AnalysisCacheManager.save` now writes a SECOND `analysis_cache` row (and on-disk cache entry) under the originally-*requested* `context_level` key whenever auto-promotion has fired (e.g. worker-style conversations promoted `minimal` → `full`). `load_cached` relaxes the per-attribute `context_level` and `content_hash` checks for alias hits only; `detail_level`, `assess`, and `prompt_hash` validation remain strict. `make_cache_key` and `get_cache_status_batch` deliberately untouched.
+- **Test evidence**: full `uv run pytest -q` → **1795 passed, 3 skipped, 10 xfailed in 32.59s**. Two new regression tests in `tests/unit/analysis/test_cache_alias_promoted_context.py` verified to **FAIL on `main`** (reproducing the bug) and **PASS on the branch**. 9/9 manual blackbox test plan rows PASS, including confirmation that `detail_level` and `assess` changes still trigger fresh LLM calls (no over-aliasing).
+- **Issue #129 auto-closed** as `COMPLETED` at `2026-05-28T16:50:15Z` via the `Closes #129` footer in the squash body.
+- **Branch `fix/cache-key-context-promotion-129` deleted** from the remote (`DELETE /repos/jpshackelford/ohtv/git/refs/heads/...` → 204, follow-up `GET` → 404).
+
+_This worklog entry was committed by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 16:21 UTC - Orchestrator
 
 **Active Workers:**
