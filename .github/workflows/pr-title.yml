@@ -1,0 +1,36 @@
+name: lint-pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Allowed conventional-commit types. Anything outside this list
+          # will fail the check, so release-please always sees a parseable
+          # squash-merge subject.
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            chore
+            test
+            build
+            ci
+            revert
+          requireScope: false
+          subjectPattern: '^[A-Za-z0-9`].+$'
+          subjectPatternError: |
+            The PR title subject must start with a letter, digit, or backtick.
+            Example: "feat(sync): add --update-metadata to refresh cached title and labels"

@@ -11,6 +11,28 @@ uv sync                    # Install dependencies
 uv run ohtv --help         # Run CLI
 ```
 
+## Releases & Commit Contract
+
+Releases are automated by [release-please](https://github.com/googleapis/release-please) on every push to `main`. It opens (and keeps current) a single "release PR" that bumps the version in `pyproject.toml` and `src/ohtv/__init__.py`, regenerates `CHANGELOG.md`, and on merge tags `vX.Y.Z` and creates the GitHub release.
+
+Release-please reads the **subject line** of each commit on `main` and classifies it by [Conventional Commits](https://www.conventionalcommits.org/). The contract:
+
+| Subject pattern                                            | Bumps version | Appears in CHANGELOG |
+|------------------------------------------------------------|---------------|----------------------|
+| `feat: …` / `feat(scope): …`                               | minor         | yes — "Features"     |
+| `fix: …` / `fix(scope): …`                                 | patch         | yes — "Bug Fixes"    |
+| `feat!: …` or any commit with a `BREAKING CHANGE:` footer  | **major**     | yes — "⚠ BREAKING CHANGES" |
+| `chore:` / `chore(worklog):` / `docs:` / `docs(worklog):` / `refactor:` / `test:` / `build:` / `ci:` / `style:` | no | no (hidden) |
+| Anything not matching conventional-commit grammar          | no            | no                   |
+
+Concrete rules for this repo:
+
+- **PR squash-merges** become the release-triggering commits. The PR title is the squash subject, so every PR title MUST be a conventional-commit subject. This is enforced by `.github/workflows/pr-title.yml`.
+- **Direct pushes to `main` for orchestrator / worklog activity** MUST use `chore(worklog):` or `docs(worklog):` subjects so they are silently ignored by release-please. Never write `Update WORKLOG.md` or similar — that bypasses every safeguard by accident.
+- **PyPI publish is intentionally not configured.** If we ever want it, hang a `release-published` workflow off the GitHub Release event.
+
+See `.github/workflows/release-please.yml`, `release-please-config.json`, and `CHANGELOG.md`.
+
 ## Code Structure
 
 - `src/ohtv/cli.py` - Main CLI commands (list, show, refs, errors, sync, gen, db, prompts)
