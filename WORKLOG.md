@@ -1,3 +1,55 @@
+### 2026-05-28 13:22 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7f95a63` | expansion | Issue #127 — `ohtv list`/`refs` surface subs as siblings | **NEW** running ([conv](https://app.all-hands.dev/conversations/7f95a637dec44be5b39bb2ad9fcbc6e2)) |
+
+**Spawned: Expansion Worker**
+- Issue: [#127 — `ohtv list` and `refs` surface sub-conversations as siblings of their roots](https://github.com/jpshackelford/ohtv/issues/127)
+- Conversation: [`7f95a63`](https://app.all-hands.dev/conversations/7f95a637dec44be5b39bb2ad9fcbc6e2)
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+- Prompt covered: full #122 cluster context (committed shape — migration 019 + `root_conversation_id` column + `conversations_by_root` view + `list_roots()` API) + #123/#124/#125/#126 sibling-pattern references with explicit contrast (predicate vs join-key-substitute vs flag vs self-healing-auto-step); 6-step code-archaeology checklist (`list_with_filters` location + signature + callers, `refs` query path single-conv vs multi-conv, `conversation_refs`/`conversation_labels` population by sub vs root via processing stages, `filters.py` resolution path, `root_conversation_id` non-existence today, dedup-key alignment with multi-conv `refs -D`); A/B/C cut-shape comparison (default-exclude predicate + sub-select for filter-match-via-subtree vs `conversations_by_root` view-query vs CLI post-filter dedup); 8 explicit gating questions ((a) flag name vs #125, (b) `list_with_filters` shape + signature, (c) exact filter-match-via-subtree WHERE clause, (d) `refs <id>` root-detection SQL preserving `refs <sub-id>` semantics, (e) `--tree` deferral confirmation, (f) dedup-key alignment with `refs -D`, (g) flag-ON × `--pr`-matches-sub render policy, (h) single-conv-mode bypass confirmation for `show`/`refs <sub-id>`); explicit do-not-touch fences on `AGENTS.md` and migrations; block-on-`needs-info`/`needs-split` rules.
+
+**State delta vs 12:50Z entry (~28 min gap):**
+- **`9fd1509` (Issue #126 expansion) finished** at 12:58:05Z. Issue #126 now carries `ready` label, confirmed via `gh issue list --label ready`. The 12:55Z "Issue #126 expanded" worklog entry documents the cut-shape-B self-healing auto-step in `classify.py` (depends on migration 018 via #108, not 019), with the premise correction that current `classify` is pure-DB (not LLM-driven).
+- Cluster status: #122, #123, #124, #125, #126 expanded ✓. **#127 in flight this cycle.** #128 remains.
+- Three `running` conversations observed in `/app-conversations/search` (`e3c7dc2`, `cd60542`, `302547c` — the last titled "🐛 Investigate stalled ohtv orchestrator on PR #119", a human-driven meta-investigation, NOT an orchestrator-spawned PR-slot worker → does not block the orchestrator's expansion or PR slots).
+- PR #119 unchanged (head still `3a05089`, CI green, `CHANGES_REQUESTED`, 💬2, 17h since last update per `lxa pr list`) — Hypothesis-age policy gate still deferring (~2026-06-03, ~6 days remaining).
+- No new `## INSTRUCTION:` entries since 22:45Z (line 228, already `[ACKNOWLEDGED]`).
+
+**Decision-tree trace:**
+- **Expansion slot:** OPEN (`9fd1509` finished; no other ohtv-relevant workers running per `/app-conversations/search`). Issues needing expansion (oldest-first, deferred-aware): **#114** (still deferred — #111 and #112 still have no PR, ordering-risk policy holds), then **#127** (next sibling in #122 cluster — `list`/`refs` CLI display surface, per pre-commit forecast in 12:50Z entry: "If `9fd1509` finishes with `ready` on #126 → expansion slot reopens, next dispatch likely #127") → dispatched. One-expansion-at-a-time rule honored: #128 deferred to next cycle.
+- **PR slot:** IDLE.
+  - PR #119: canonical action would be "spawn review worker (💬>0)" since `CHANGES_REQUESTED` exists, but **Hypothesis-age policy gate** (~2026-06-03) still in force — today is 2026-05-28, ~6 days early. **Deferred** for consistency with last 6 orchestrator entries.
+  - #129 (`priority:high` bug, ready): cannot start a new impl worker while #119 is open per the 0-or-1-PR rule. **Queued** — when #119 clears, #129 becomes the next impl candidate.
+
+**Current State:**
+- [PR #119](https://github.com/jpshackelford/ohtv/pull/119): ready, CI green, `CHANGES_REQUESTED`, 💬2, 17h since last update — deferred (Hypothesis-age gate, ~6 days remaining)
+- **Needs expansion (3):** #114 (deferred), **#127 (in flight)**, #128
+- **Ready w/ priority:** #108 (medium), #109 (medium), #110 (high — PR #119 in progress), #111 (medium), #112 (medium), #129 (high — next impl candidate when PR slot opens)
+- **Ready w/o priority:** #113, #116, #121, #122 (umbrella, blocked-by #108), #123 (blocked-by #122), #124 (blocked-by #122), #125 (blocked-by #122), #126 (blocked-by #108)
+- **On hold:** #26, #90
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → one match at line 228, already `[ACKNOWLEDGED]`. Zero remaining actionable.
+
+**Auto-disable check:** Productive cycle (1 expansion worker dispatched + 1 worker completion observed) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Housekeeping:** WORKLOG.md at 1357 lines pre-entry. Repo-custom threshold ~1500. Deferred.
+
+**Sync note:** `OPENHANDS_API_KEY` as `X-Access-Token` for POST `/app-conversations` clean; same key as `Authorization: Bearer` for `/search` GET clean. `gh` via `GH_TOKEN=$github_token` clean. Tools (`lxa`, `ohtv`) installed into per-run `.venv` via `uv pip install` (this session's `uv pip --system` hit permission denied on `multidict`; switched to venv install — non-issue). `ohtv sync --since 4h --quiet` ran clean (no output). Spawn task `2f15639e` → `READY` on first poll, `app_conversation_id=7f95a637dec44be5b39bb2ad9fcbc6e2`, sandbox `RUNNING`.
+
+**Pre-commit forecast for next cycle (~13:50Z window):**
+- **If `7f95a63` finishes** with `ready` on #127 → expansion slot reopens, next dispatch likely **#128** (RAG `ask`/`search` sub-conv citation dedup — final sibling in #122 cluster).
+- **If `7f95a63` returns `needs-info`/`needs-split`** (e.g., `list_with_filters` shape unexpected, `conversations_by_root` view doesn't carry rendering columns, or `refs` single/multi-conv code paths entangle) → log the block, do not respawn, wait for human triage.
+- **If PR #119 closes/merges OR the Hypothesis-age gate clears (~2026-06-03)** → PR slot opens → #129 (priority:high bug) becomes next impl candidate, ahead of #108–#112.
+- **If PR #111 or #112 opens a PR before next wake-up** → #114 expansion unblocks (next candidate after #128 closes out the #122 cluster sweep).
+- **If a new `## INSTRUCTION:` (outside fenced code) appears** → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 12:55 UTC - Issue #126 expanded
 
 - Issue: [`classify` should short-circuit sub-conversations to `initial_prompt_source='automation'`](https://github.com/jpshackelford/ohtv/issues/126)
