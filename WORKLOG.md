@@ -1,3 +1,53 @@
+### 2026-05-28 11:52 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `4f3fbb8` | expansion | Issue #124 — `report velocity` double-counts human input | **NEW** running ([conv](https://app.all-hands.dev/conversations/4f3fbb8c65c84f0b9283ce726eb7e89c)) |
+
+**Spawned: Expansion Worker**
+- Issue: [#124 — `report velocity` double-counts human input when sub-conversations share a PR](https://github.com/jpshackelford/ohtv/issues/124)
+- Conversation: [`4f3fbb8`](https://app.all-hands.dev/conversations/4f3fbb8c65c84f0b9283ce726eb7e89c)
+- Prompt covered: full dependency context (#122's denormalized `root_conversation_id` column + `conversations_by_root` view + `list_roots()` API shape, all from the 22:54Z #122 expansion); explicit contrast with #123's 1-line-predicate approach; two-design A/B comparison (view roll-up vs. DISTINCT boundary change) with required justification; per-AC enumeration including the `RuntimeError` guardrail pattern #123 committed to; out-of-scope list naming sibling cluster issues + #125's `--include-subs` flag question; explicit handoff to `needs-info`/`needs-split` paths for the "should #124 collapse into #122?" judgment call (per instruction rule 3 — orchestrator deliberately left that to the expansion worker).
+
+**State delta vs 22:20Z entry (~13h gap):**
+- `## INSTRUCTION:` at line 21 (filed 22:45Z) was unacknowledged when this orchestrator woke up — now marked `[ACKNOWLEDGED]` inline. Primary directive ("next expansion slot picks up #122 first") was already honored manually between cycles: #122 expanded at 22:54Z (denormalized column + view + API shape committed to), #123 expanded at 23:23Z (1-line SQL predicate fix). Instruction's rule 2 ("expansion of #123–#128 deferred until #122 expansion produces concrete shape") is now SATISFIED → expansion of #124–#128 unblocked.
+- `62277b1` (#121 expansion, spawned 22:20Z): `status=null` in the API search (= finished/aged out). #121 now carries `ready` label, confirming successful completion.
+- **New issue #129** (`bug`, `priority:high`, `ready`): `gen objs` cache miss on every run due to write/read asymmetry on `cache_key` (write uses auto-promoted `context_level`, read uses requested). Already self-expanded in the body (clear root cause + file/line refs + evidence) — does NOT need an expansion worker. Becomes the **next implementation candidate** once a PR slot opens.
+
+**Decision-tree trace:**
+- **Expansion slot:** OPEN (no running workers per `/app-conversations/search`; `62277b1` finished). Issues needing expansion (oldest-first, deferred-aware): #114 (still deferred — neither #111 nor #112 has opened a PR, so the ordering-risk policy from 22:20Z still applies), then #124 → dispatched. Did NOT batch-dispatch #125–#128 (one expansion at a time per workflow rules); next quiet cycle picks up #125.
+- **PR slot:** IDLE.
+  - PR #119 (cloud-sync harness, head `3a05089` per 22:20Z entry — verify next cycle): `CHANGES_REQUESTED`, CI green, `mergeStateStatus=CLEAN`. Canonical decision-tree action is "spawn review worker (💬>0)", but **Hypothesis-age policy gate (~2026-06-03)** still in force — today is 2026-05-28, 6 days early. **Deferred.** Consistent with last 2 orchestrator entries (22:20Z, 21:46Z).
+  - PR #120 (`chore/release-automation-bootstrap`): out-of-band, human-driven. No spawn.
+  - #129 (`priority:high` bug, ready): cannot start a new impl worker while #119/#120 are open per the "0 or 1 PRs at a time" rule + decision tree's "No open PR → impl worker" precondition. Queued for the cycle after one of the open PRs clears.
+
+**Current State:**
+- [PR #119](https://github.com/jpshackelford/ohtv/pull/119): ready, CI green, CHANGES_REQUESTED — deferred (Hypothesis-age gate, ~6 days remaining)
+- [PR #120](https://github.com/jpshackelford/ohtv/pull/120): out-of-band, human-driven
+- **Needs expansion (5):** #114 (deferred), **#124 (in flight)**, #125, #126, #127, #128
+- **Ready w/ priority:** #108 (medium), #109 (medium), #110 (high — PR #119 in progress), #111 (medium), #112 (medium), **#129 (high — NEW, next impl candidate)**
+- **Ready w/o priority:** #113, #116, #121 (newly ready since 22:20Z), #122 (umbrella; blocked-by #108), #123 (blocked-by #122)
+- **On hold:** #26, #90
+
+**`## INSTRUCTION:` re-check:** one entry at line 21, now `[ACKNOWLEDGED]` this cycle. No other top-level `## INSTRUCTION:` blocks outside fenced code. Zero remaining actionable.
+
+**Auto-disable check:** Productive cycle (1 expansion worker dispatched + 1 acknowledgement) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Housekeeping:** WORKLOG.md at 1150 lines pre-entry. Repo-custom threshold ~1500 (per 22:20Z entry). Deferred.
+
+**Sync note:** `OPENHANDS_API_KEY` works as `X-Access-Token` for `/app-conversations` POST (per skill spec) and as `Authorization: Bearer` for `/search` GET (per recent precedent). `$github_token` via `GH_TOKEN` clean. Tools (`lxa`, `ohtv`) installed into per-run `.venv` via `uv sync` — same pattern as last cycle.
+
+**Pre-commit forecast for next cycle (~12:20Z window):**
+- **If `4f3fbb8` finishes** with `ready` on #124 → expansion slot reopens, next dispatch likely #125 (next per-command sibling).
+- **If `4f3fbb8` returns `needs-info`/`needs-split`/"collapses into #122"** → log the block, do not respawn, wait for human triage (instruction rule 3 explicitly invited this outcome).
+- **If PR #119 head moves past `3a05089`** before Hypothesis-age gate clears → re-test required (re-testing worker).
+- **If PR #119 closes/merges OR PR #120 closes/merges** → PR slot opens → #129 (priority:high bug, ready) becomes next impl candidate, ahead of #108–#112 (#108 priority:medium has not opened a PR despite being `ready` since 18:58Z).
+- **If a new `## INSTRUCTION:` (outside fenced code) appears** → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-27 23:23 UTC - Issue #123 expanded
 
 - Issue: [`report weekly-counts` over-counts when sub-conversations exist](https://github.com/jpshackelford/ohtv/issues/123)
@@ -18,9 +68,9 @@
 
 ---
 
-## INSTRUCTION: be aware of #122 and the dependency graph it implies — sequence work around it
+## INSTRUCTION: be aware of #122 and the dependency graph it implies — sequence work around it  [ACKNOWLEDGED]
 
-**Filed by @jpshackelford, 2026-05-27 22:45 UTC.**
+**Filed by @jpshackelford, 2026-05-27 22:45 UTC. Acknowledged by orchestrator 2026-05-28 11:51 UTC** — primary directive ("next expansion slot picks up #122 first") was already honored by a manual dispatch (#122 expanded at 22:54 UTC, #123 at 23:23 UTC). #122's expansion produced the concrete `root_conversation_id` + `conversations_by_root` view + `list_roots()` API shape, which unblocks expansion of #124–#128 per the instruction's rule 2 ("expansion deferred until #122's expansion produces a concrete shape"). This orchestrator cycle dispatches expansion of #124 next; the per-command issues from here on reference #122's shape directly and do not re-litigate.
 
 Read [issue #122](https://github.com/jpshackelford/ohtv/issues/122) ("Aggregate sub-conversations into their root for analysis and reporting") in full before expanding or implementing anything in the #122–#128 cluster. The orchestrator and any worker it spawns must respect the following dependency graph:
 
