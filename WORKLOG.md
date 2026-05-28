@@ -1,3 +1,55 @@
+### 2026-05-28 12:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `9fd1509` | expansion | Issue #126 — `classify` short-circuit subs to `automation` | **NEW** running ([conv](https://app.all-hands.dev/conversations/9fd1509df6ed465689619ed1dd7fed9f)) |
+
+**Spawned: Expansion Worker**
+- Issue: [#126 — `classify` should short-circuit sub-conversations to `initial_prompt_source='automation'`](https://github.com/jpshackelford/ohtv/issues/126)
+- Conversation: [`9fd1509`](https://app.all-hands.dev/conversations/9fd1509df6ed465689619ed1dd7fed9f)
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+- Prompt covered: full #122 cluster context (committed shape from 22:54Z — migration 019 + `root_conversation_id` column + `conversations_by_root` view + `list_roots()` API) + #123/#124/#125 sibling-pattern references; 7-step code-archaeology checklist (classify Click command location in `cli.py`, `analysis/` module name verification, `initial_prompt_source` write site, `parent_conversation_id` availability at call site, A/B/C cut-shape comparison, `--refresh` semantics, migration-019 guardrail mirroring #123/#124, regression test design using `tests/unit/test_cli_gen.py:520-531` monkey-patch pattern) + 5 explicit gating questions (flag-gating, parent-id SELECT-ability, ID-normalization for test fixture, sub-with-no-events short-circuit ordering, LLM-spend-saved estimate from `AGENTS.md` item 20) + block-on-`needs-info`/`needs-split` rules. Explicit do-not-touch fences on `AGENTS.md`, migrations, and sibling-issue code surfaces.
+
+**State delta vs 12:18Z entry (~32 min gap):**
+- **`52eb840` (Issue #125 expansion) finished** between 12:18Z and 12:50Z (per `/app-conversations/search` → `status=finished` at 12:27:03Z). Issue #125 now carries `ready` label, confirmed via `gh issue list --label ready`. The 12:25Z "Issue #125 expanded" worklog entry documents the Design-B `include_subs` flag threaded through `_apply_conversation_filters` → `_load_all_conversations` → `get_conversations` → `ConversationStore.list_by_date_range`.
+- Cluster status: #122, #123, #124, #125 expanded ✓. **#126 in flight this cycle.** #127, #128 remain.
+- Issue #129 (`bug`, `priority:high`, `ready`) still queued as next impl candidate, still blocked by 0-or-1-PR rule (PR #119 open).
+- PR #119 unchanged (head still `3a05089`, last commit 2026-05-27 19:07Z, CI `CLEAN`, review `CHANGES_REQUESTED`) — Hypothesis-age policy gate still deferring (~2026-06-03, 6 days remaining).
+- No new `## INSTRUCTION:` entries since 22:45Z (line 156, already `[ACKNOWLEDGED]`).
+
+**Decision-tree trace:**
+- **Expansion slot:** OPEN (`52eb840` finished, no other ohtv-relevant workers running per `/app-conversations/search`; four currently-`running` conversations at 12:45–12:48Z have generic auto-titles and were not spawned by this orchestrator's worklog history). Issues needing expansion (oldest-first, deferred-aware): **#114** (still deferred — #111 and #112 still have no PR, ordering-risk policy holds from 22:20Z entry), then **#126** (next sibling in #122 cluster — `classify` surface, per pre-commit forecast in 12:18Z entry: "If `52eb840` finishes with `ready` on #125 → expansion slot reopens, next dispatch likely #126") → dispatched. One-expansion-at-a-time rule honored: #127/#128 deferred to subsequent cycles.
+- **PR slot:** IDLE.
+  - PR #119: canonical action would be "spawn review worker (💬>0)" since `CHANGES_REQUESTED` exists, but **Hypothesis-age policy gate** (~2026-06-03) still in force — today is 2026-05-28, ~6 days early. **Deferred** for consistency with last 5 orchestrator entries.
+  - #129 (`priority:high` bug, ready): cannot start a new impl worker while #119 is open per the 0-or-1-PR rule. **Queued** — when #119 clears, #129 becomes the next impl candidate.
+
+**Current State:**
+- [PR #119](https://github.com/jpshackelford/ohtv/pull/119): ready, CI `CLEAN`, `CHANGES_REQUESTED` — deferred (Hypothesis-age gate, ~6 days remaining)
+- **Needs expansion (3):** #114 (deferred), **#126 (in flight)**, #127, #128
+- **Ready w/ priority:** #108 (medium), #109 (medium), #110 (high — PR #119 in progress), #111 (medium), #112 (medium), #129 (high — next impl candidate when PR slot opens)
+- **Ready w/o priority:** #113, #116, #121, #122 (umbrella, blocked-by #108), #123 (blocked-by #122), #124 (blocked-by #122), #125 (blocked-by #122, just-expanded)
+- **On hold:** #26, #90
+
+**`## INSTRUCTION:` re-check:** `grep -nE "^## INSTRUCTION:" WORKLOG.md` → one match at line 156, already `[ACKNOWLEDGED]` in the 11:52Z cycle. Zero remaining actionable.
+
+**Auto-disable check:** Productive cycle (1 expansion worker dispatched + 1 worker completion observed) → consecutive-quiet counter remains 0. No auto-disable trigger.
+
+**Housekeeping:** WORKLOG.md at 1285 lines pre-entry. Repo-custom threshold ~1500. Deferred.
+
+**Sync note:** `OPENHANDS_API_KEY` as `X-Access-Token` for POST `/app-conversations` clean; same key as `Authorization: Bearer` for `/search` GET clean. `gh` via `GH_TOKEN=$github_token` clean. Tools (`lxa`, `ohtv`) installed into `~/.local` via `pip install --user` (this session's `uv pip --system` hit permission denied on `multidict`; switched to user-site install — non-issue for orchestrator workflow). `ohtv sync --since 4h --quiet` ran clean (no output, no new conversations in window). Spawn task `319d7495` → `READY` on first poll, `app_conversation_id=9fd1509df6ed465689619ed1dd7fed9f`, sandbox `5W6WmCmrkBsfQHvYtho3dH`.
+
+**Pre-commit forecast for next cycle (~13:20Z window):**
+- **If `9fd1509` finishes** with `ready` on #126 → expansion slot reopens, next dispatch likely #127 (`list`/`refs` sub-conv display surface).
+- **If `9fd1509` returns `needs-info`/`needs-split`** (e.g., classify entry-point shape unclear, or `parent_conversation_id` not accessible at the cut site) → log the block, do not respawn, wait for human triage.
+- **If PR #119 closes/merges OR the Hypothesis-age gate clears (~2026-06-03)** → PR slot opens → #129 (priority:high bug) becomes next impl candidate.
+- **If PR #111 or #112 opens a PR before next wake-up** → #114 expansion unblocks (next candidate after #127/#128 cluster sweep).
+- **If a new `## INSTRUCTION:` (outside fenced code) appears** → follow it first.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 12:25 UTC - Issue #125 expanded
 
 - Issue: [`gen objs/titles/run` multi-conv mode treats sub-conversations as independent units of human intent](https://github.com/jpshackelford/ohtv/issues/125)
