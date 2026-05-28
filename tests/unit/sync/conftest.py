@@ -88,6 +88,13 @@ def sync_manager_factory(
             "ohtv.sync.get_manifest_path", lambda: manifest_path
         )
 
+        # Route the set-diff sync engine's DB writes (Issue #111) into a
+        # per-test sqlite file. The engine opens its own connection via
+        # ``ohtv.sync.get_db_path`` so a single monkeypatch covers every
+        # sync()/repair() invocation inside this fixture's scope.
+        db_path = tmp_path / "index.db"
+        monkeypatch.setattr("ohtv.sync.get_db_path", lambda: db_path)
+
         # The import-site patch is the bridge until #111 lands.
         # ``CloudClient(...)`` is the production-code constructor call; we
         # discard the (base_url, api_key) args and hand back the
@@ -95,6 +102,15 @@ def sync_manager_factory(
         # context manager.
         monkeypatch.setattr(
             "ohtv.sync.CloudClient", lambda *_a, **_kw: cloud
+        )
+
+        # Silence the maintenance-task progress UI in tests; the
+        # behavioral suite asserts on result counts, not stderr noise.
+        monkeypatch.setattr(
+            "ohtv.sync.ensure_db_ready",
+            lambda conn, show_progress=False: __import__(
+                "ohtv.db", fromlist=["migrate"]
+            ).migrate(conn),
         )
 
         return SyncManager(config)

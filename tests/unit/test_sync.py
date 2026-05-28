@@ -16,6 +16,7 @@ from ohtv.sync import (
     SyncResult,
     _metadata_differs,
     _normalize_labels,
+    _passes_since_filter,
     _read_selected_branch,
 )
 # Issue #110: _RecordingCloudClient (formerly inline at line 890) and
@@ -2072,3 +2073,29 @@ class TestResetToNNewest:
         assert result.new == 0
         assert result.skipped_new == 0
 
+
+
+class TestPassesSinceFilterNaiveDatetime:
+    """Regression for T6 (PR #133): ``--since`` is wired through
+    ``click.DateTime()`` which yields offset-naive ``datetime`` values;
+    ``_parse_datetime`` returns UTC-aware values. The pre-fix code did
+    ``parsed >= since`` directly and raised
+    ``TypeError: can't compare offset-naive and offset-aware datetimes``.
+    """
+
+    @pytest.mark.parametrize(
+        "since_naive,expected",
+        [
+            # click.DateTime() returns naive datetimes. Past since -> kept.
+            (datetime(2024, 1, 1), True),
+            # Future since -> conv predates it, dropped.
+            (datetime(2099, 1, 1), False),
+        ],
+    )
+    def test_naive_since_compared_against_utc_aware_updated_at(
+        self, since_naive, expected
+    ):
+        assert since_naive.tzinfo is None
+        conv = {"updated_at": "2025-06-15T12:00:00Z"}
+        # Pre-fix: TypeError. Post-fix: ``expected`` boolean.
+        assert _passes_since_filter(conv, since_naive) is expected
