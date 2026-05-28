@@ -3,6 +3,21 @@
 ## Log
 
 
+### 2026-05-28 18:55 UTC - Issue #111 implemented (PR #133)
+
+- Issue: [`ohtv sync` can't recover from a gap between local store and cloud](https://github.com/jpshackelford/ohtv/issues/111)
+- PR: [#133 - feat(sync): recover from cloud/local gap via set-diff engine](https://github.com/jpshackelford/ohtv/pull/133) (ready for review; CI green: lint pass, pytest pass 48s)
+- Conversation: this orchestrator cycle
+- **Keystone of the sync rewrite landed.** Replaces cursor-based listing (`updated_since=last_sync_at`) with a set-diff engine that always lists the full cloud catalog into `cloud_listing` (migration 018) and reconciles against the local manifest. The 1126-item local gap that motivated the issue is now impossible to reproduce.
+- **First consumer of #112 schema:** `CloudListingStore` (snapshot lifecycle + set-diff helpers), `SyncStateStore` (k/v over `sync_kv`), `ConversationStore.record_cloud_download` (cloud_updated_at upsert that never touches scanner-owned metadata). `TestScopeGuarantee` from #112 retired (with a one-line marker test left in place).
+- **Six behavioral xfail markers dropped** (all scenarios the cursor-only sync could not satisfy): cursor-advance recovery, backdated `updated_at`, visibility flip, mid-sync crash resume, same-listing idempotency, Hypothesis-property idempotency. Two scenarios (#8, #9) stay xfail with updated reasons - both are fake-only artifacts of `FakeCloudClient` naive offset pagination (production cloud uses keyset). A follow-up issue is needed to model keyset in the fake.
+- **Test results:** 1801 passed, 3 skipped, 4 xfailed (3 of those 4 owned by #112/#113; one #111 scenario blocked by fake-only paginator). 25 new unit tests across two store-level test modules.
+- **AGENTS.md compliance:** #27 manifest-as-canonical preserved (manifest stays source-of-truth for set-diff; `cloud_updated_at` is opportunistic, not engine-primary); #11 DB stage order untouched; #14 id-form normalization symmetric in `CloudListingStore.get` (accepts both dashed and undashed forms).
+- **Out of scope (deliberately):** #113 repair-fix UX (removed-from-cloud reporting + repair flow), #114 manifest retirement (engine source-of-truth flip), and the fake keyset-pagination model.
+- Handoff to next orchestrator cycle: PR #133 is ready for review; the only remaining xfails are documented as either owned by sibling issues or by the fake pagination model.
+
+---
+
 ### 2026-05-27 23:23 UTC - Issue #123 expanded
 
 - Issue: [`report weekly-counts` over-counts when sub-conversations exist](https://github.com/jpshackelford/ohtv/issues/123)
