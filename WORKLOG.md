@@ -644,3 +644,18 @@ If completed: PR slot opens → next decision-tree path is "No open PR + ready i
 **Sync note:** `lxa` and `ohtv` installed via `uv tool install` (both at `~/.local/bin`). `lxa repo add jpshackelford/ohtv` ran once (idempotent). `ohtv sync --since 4h` deferred (state-gathering came entirely from `gh` API + OpenHands API which was sufficient for the decision). `gh` 2.92.0 via `GH_TOKEN=$github_token`, OH API via `X-Access-Token: $OH_API_KEY` for spawn, `Authorization: Bearer $OPENHANDS_API_KEY` for search (both work).
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+
+### 2026-05-28 18:22 UTC - PR #132 merged
+
+- PR: [feat(db): add set-diff sync schema (migration 018) (#112)](https://github.com/jpshackelford/ohtv/pull/132)
+- Merge commit: [`f2ccbab`](https://github.com/jpshackelford/ohtv/commit/f2ccbab54b59c988c239e2405fc7d327cc6e8297) (squash) on `main`
+- Issue auto-closed: [#112](https://github.com/jpshackelford/ohtv/issues/112) (`COMPLETED`)
+- Remote branch `feat/set-diff-sync-schema-112` deleted as part of the merge
+- Squash subject: `feat(db): add set-diff sync schema (migration 018) (#112)` → release-please classifies as "Features" / minor bump per AGENTS.md release contract
+- Diff size at merge: 2 new files, +1033 lines (`src/ohtv/db/migrations/018_set_diff_sync_schema.py` 260 LOC + `tests/unit/db/test_018_set_diff_sync_schema.py` 773 LOC); 0 changes to existing files (schema-only, scope-guarantee preserved)
+- Pre-merge verification: CI green (lint + pytest + pr-review all SUCCESS on head `601e5a8f`); manual test report from worker `033acff` at 17:55:52Z verdict "Ready to merge" (T1–T6 all PASS, T4 full unit suite 0 failures); bot review COMMENTED "🟢 Good taste / Worth merging / risk = 🟢 LOW"; 0 review threads / 0 changes requested; `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`
+- Non-blocking note addressed: PR description originally quoted baseline 1795 → 1820 passing; actual was 1746 → 1771 (deltas match: +25 new, 0 failures, 3 skipped / 10 xfailed unchanged). Worklog/copy-paste artifact flagged by testing worker. Corrected in PR description body before merging — no schema or test changes required.
+- Downstream now unblocked: **#111** (set-diff sync engine — populates `cloud_listing` and writes snapshot-state keys to `sync_kv`) and **#114** (manifest retirement — drains the remaining `sync_manifest.json` scalars into `sync_kv` and retires the JSON file). #113 will consume the set-diff query helpers once #111 lands. Per the issue body's scope-guarantee, no code outside the migration touches the new schema yet — that work is the next orchestrator cycle's dispatch decision, not this merge worker's responsibility.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
