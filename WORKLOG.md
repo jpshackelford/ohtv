@@ -1,3 +1,34 @@
+### 2026-05-28 13:26 UTC - Issue #127 expanded
+
+- Issue: [`ohtv list` and `refs` surface sub-conversations as siblings of their roots](https://github.com/jpshackelford/ohtv/issues/127)
+- **Premise correction** (verified via code archaeology, surfaced in technical-approach comment): the orchestrator's spawn prompt referenced `ConversationStore.list_with_filters` — that method does not exist. The actual cut points are `ConversationStore.list_by_date_range` (`db/stores/conversation_store.py:140`) at the SELECT layer, and the four `_filter_by_pr/repo/action/label` helpers (`cli.py:1899/2072/2106/2179`) at the Python post-load layer. The two layers share `_apply_conversation_filters` (cli.py:1992) as their single funnel.
+- Approach: **Cut shape A — two-layer fix.** (1) Default-hide subs at the SELECT layer by threading `include_subs: bool = False` through `_apply_conversation_filters` → `_load_all_conversations` → `get_conversations` → `list_by_date_range` (predicate: `AND id = root_conversation_id`); this **reuses #125's exact thread** — if #125 lands first, #127 only needs the additional `--include-sub-conversations` Click flag plus parts (2)+(3). (2) Root-expand the filter ID set: new `expand_to_roots(conn, set)` helper in `src/ohtv/filters.py` called between each `get_conversation_ids_for_*` lookup and the `filter_conversations_by_ids` reduce, but only when `include_subs is False`. All four filter helpers (`--pr`/`--repo`/`--action`/`--label`) share the same `set → filter_conversations_by_ids` reduce, so one helper covers all four. (3) `refs <id>` subtree rollup: pre-query `SELECT root_conversation_id FROM conversations WHERE id = ?` to detect root-vs-sub; for root-id queries, enumerate subtree members and union the per-conv `_extract_refs_from_conversation` outputs (sets — natural dedup-by-URL); for sub-id queries, preserve the current single-conv path unchanged.
+- Rejected alternatives:
+  - **Shape B (`conversations_by_root` view)** — the view from #122 is `SUM(event_count)`-shaped only; does not carry `title`, `created_at`, `selected_repository`, `source`, `labels` rendering columns. Would require a new wider view (out of scope here; deferred until `--tree` lands).
+  - **Shape C (Python-side dedup in CLI)** — wastes DB rows, breaks filesystem-fallback symmetry, breaks `-n 20` pagination. Same rationale #125 used to reject its option C.
+  - **`refs` DB-only rollup via new `get_subtree_refs(root_id)` JOIN** — would lose the existing extractor's noise-filter behavior (`_is_noisy_event`, context-URL filtering at `cli.py:5751-5805`).
+- Contrast vs sibling fixes (codified in body + comment):
+  - **#123** = one-line `WHERE id = root_conversation_id` predicate in a single report SQL. #127's predicate-style change in `list_by_date_range` is the same shape, applied at the list-rendering SELECT layer.
+  - **#124** = substitute join key inside a DISTINCT sub-select. Not applicable here — `list` reads `conversations` directly, no aggregation pipeline.
+  - **#125** = `include_subs: bool` flag threaded through the load pipeline. **#127 reuses the exact same thread.** Soft sibling-coordination noted as a dependency.
+  - **#126** = self-healing `parent_conversation_id` UPDATE. Orthogonal — uses migration 018, not 019.
+- Gating questions all resolved without `needs-info`:
+  - **(a) Flag name**: `--include-sub-conversations` (matches #125's spelling for cluster consistency). Justified against `--include-subs` shorter form — users read this flag once on a list, not repeatedly; the longer form is also self-documenting in `--help`.
+  - **(b) `list_with_filters` shape**: doesn't exist; the actual method is `list_by_date_range`. Updated both the body and the comment with file:line citations for `_apply_conversation_filters` (1992), `_load_all_conversations` (3333), `get_conversations` (conversations.py:22), and `list_by_date_range` (conversation_store.py:140).
+  - **(c) Filter-match-via-subtree predicate**: single `expand_to_roots(conn, conv_ids)` helper inserted between lookup and reduce. SQL is `SELECT id, root_conversation_id FROM conversations WHERE id IN (?, ?, …)`; replace sub-ids with root-ids. Composes with `--repo`/`--label`/`--action` because all four helpers share the same reduce step.
+  - **(d) `refs <id>` root-detection**: option (i) "always query as `root_conversation_id IN (id, root_conversation_id_of_id)`" is too coarse — it would erase the `refs <sub-id>` AC. Chose option (ii) — branch on a pre-query of `root_conversation_id`: if it equals the queried id, root-rollup; else direct single-conv path.
+  - **(e) Tree rendering**: `--tree` deferred. Documented in Out of Scope as a separate UX follow-on.
+  - **(f) Deduplication**: AC's "`(ref_id, link_type)`" key matches existing `refs -D` multi-conv mode's set-based dedup. At the extractor level (`_extract_refs_from_conversation`), refs are sets of URL strings — set-union dedups by URL, which is the same effective key. Documented this convergence in the body's AC and the comment.
+  - **(g) Flag-ON interaction with `--pr`/`--repo`**: codified in AC as an explicit bullet — when `--include-sub-conversations` is ON, the filter ID set is **not** root-expanded; each matched conversation (root or sub) renders as its own row. When OFF, the set is root-expanded and the load layer guarantees roots-only rendering.
+  - **(h) Single-conv bypasses**: `show <id>` and direct `refs <sub-id>` are unchanged. Documented the cut-site asymmetry — `list` and multi-conv `refs` change; single-conv `show`/`refs` do not.
+- Migration-019 guardrail: mirrors #123/#124/#125/#126 — `PRAGMA table_info(conversations)` check for `root_conversation_id` at the cut sites in `list` and `refs` Click command bodies, `RuntimeError` raised at runtime (not import).
+- Test plan: 3 DB-layer tests (`tests/unit/db/test_conversation_store.py` new), 4 filter helper tests (`tests/unit/test_filters.py`), 6 CLI integration tests (`tests/unit/test_cli_helpers.py` or new `test_cli_list_refs_subs.py`), 1 subtree fixture in `tests/unit/db/conftest.py`. Names listed explicitly in the comment.
+- Files: `src/ohtv/db/stores/conversation_store.py` (~10 LOC; skip if #125 first), `src/ohtv/filters.py` (~15 LOC), `src/ohtv/cli.py` (~50 LOC), `src/ohtv/conversations.py` (~4 LOC; skip if #125 first), tests (~260 LOC). `AGENTS.md` deliberately NOT touched (owned by #122 per cluster convention). No new migration — depends on #122's 019.
+- Cluster status: #122 (umbrella), #123, #124, #125, #126, **#127** expanded ✓. #128 (RAG citation dedup) remains.
+- Labels: `ready` applied. No `needs-info` / `needs-split`.
+
+---
+
 ### 2026-05-28 13:22 UTC - Orchestrator
 
 **Active Workers:**
