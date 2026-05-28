@@ -764,3 +764,51 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-28 19:48 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `b1b76e3` | docs | PR #133 — set-diff sync engine docs | **NEW** running ([conv](https://app.all-hands.dev/conversations/b1b76e3438fb4e729e027521d43c5de3)) |
+
+**Spawned: Documentation Worker**
+- PR: [#133 — feat(sync): recover from cloud/local gap via set-diff engine (#111)](https://github.com/jpshackelford/ohtv/pull/133)
+- Conversation: [`b1b76e3`](https://app.all-hands.dev/conversations/b1b76e3438fb4e729e027521d43c5de3)
+- Target docs: `docs/guides/syncing.md` (primary); `README.md` (verify still accurate)
+- Prompt highlights: set-diff engine + automatic gap recovery (replaces cursor-based listing); clarified `--since` work-list semantics; `last_sync_at` is now UX-only; fresh-install `ohtv sync` works without prior `db scan`; mid-sync resume safety. Migration callout requested at top of guide for the one-time catch-up download users will observe on first upgrade.
+
+**State delta vs 19:20Z entry:**
+- Impl worker `77e4a97` (#111) **finished** — produced PR #133 (`feat/sync-gap-recovery-111`, head `7af80c8`, CI: lint ✓, pytest ✓ 48s, pr-review ✓). 11 files changed (4 stores + sync.py + 6 test modules), 1801 passed / 3 skipped / 4 xfail. Ready, not draft, `mergeStateStatus=CLEAN`, no review yet, no manual test results, **no docs update**.
+- Old 18:55Z impl-completion entry at top of file (post-merge-style chronology) corroborates: 6 of 8 behavioral xfails dropped, 2 remain as fake-only paginator artifacts.
+- PR #130 (out-of-band human draft, `chore/worklog-proceed-on-119`): still `CONFLICTING` against main; unchanged. Not touched.
+- No new `## INSTRUCTION:` entries since 22:45Z (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 matches).
+- Auto-disable counter: **1 → 0** (productive cycle: docs worker dispatched). Last cycle's expected outcome materialized exactly per the 19:20Z pre-commit forecast item #1 ("Opened a draft (or ready) PR... decision tree advances to 'PR ready, CI green, docs?' — likely **docs check** worker").
+
+**Decision-tree trace:**
+- **Expansion slot:** OPEN, IDLE. Board fully expanded (16 open issues; 14 `ready`, 2 `hold`; **0 need expansion**). No new issues filed since last cycle. Nothing to dispatch.
+- **PR slot:** OPEN at the start of this cycle → now OCCUPIED.
+  - PR #133 (sync-gap recovery): ready ✓, CI green ✓, README/docs **not updated** ✓, no manual test results, no review comments → canonical decision-tree row: "PR exists, ready, CI green, README not updated → Spawn **docs worker**." → dispatched.
+  - PR #130 (human-driven worklog draft): out-of-band, conflicting; orchestrator does not advance human drafts. Skipped per established convention.
+- **#129** has already merged (PR #131, 16:50Z). All priority:high ready issues now have either landed PRs or are blocked behind the PR slot.
+
+**Current State:**
+- [PR #133](https://github.com/jpshackelford/ohtv/pull/133): ready, CI green, **docs update in flight** (`b1b76e3`)
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): draft, out-of-band, `CONFLICTING` (human to resolve)
+- **Need expansion (0):** ✓ board fully expanded
+- **Ready w/ priority:medium (3):** #108, #109, #111 (in flight via PR #133). Queued behind PR slot.
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128
+- **On hold:** #26, #90
+
+**Housekeeping:** WORKLOG.md at ~766 lines pre-entry — below repo-custom ~1500-line threshold. Truncation deferred (consistent with last several cycles).
+
+**Sync note:** Tools (`lxa`, `ohtv`) installed via `uv tool install` (per-user, no system perms). `ohtv sync --since 4h --quiet` clean with `OH_API_KEY=$OPENHANDS_API_KEY`. Spawn POST used `X-Access-Token: $OPENHANDS_API_KEY`; start-task poll returned `READY` on first iteration (1 poll, ~0s); verification GET via `Authorization: Bearer` confirmed `execution_status=running` with `selected_repository=jpshackelford/ohtv` and `pr_number=[133]`.
+
+**Pre-commit forecast for next cycle (~20:18Z window):**
+- **If `b1b76e3` finishes** with docs committed + "Documentation updated" PR comment → PR slot decision-tree advances to "PR ready, CI green, docs updated, no manual test results → spawn **testing worker**."
+- **If `b1b76e3` returns docs-not-needed determination** (unlikely given the magnitude of #111's behavior change) → still need a PR comment marking docs as verified; then testing worker spawns.
+- **If a new `## INSTRUCTION:` (outside fenced code) appears** → follow it first.
+- **Expansion slot:** likely to stay idle until human files a new issue.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
