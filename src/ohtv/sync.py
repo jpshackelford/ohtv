@@ -1694,9 +1694,16 @@ def _passes_since_filter(conv: dict, since: datetime | None) -> bool:
     filter. Items whose ``updated_at`` is missing OR newer-or-equal to
     ``since`` are retained (we don't drop unknown timestamps lest a
     stale cloud row hide a fresh local sync).
+
+    ``click.DateTime()`` hands us offset-naive datetimes; normalize them
+    to UTC-aware here so the ``parsed >= since`` comparison doesn't
+    raise ``TypeError`` against the tz-aware values returned by
+    :func:`_parse_datetime` (T6 regression, PR #133).
     """
     if since is None:
         return True
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
     updated_at = conv.get("updated_at")
     if not updated_at:
         return True
