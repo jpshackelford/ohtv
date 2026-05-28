@@ -370,8 +370,27 @@ class AnalysisCacheManager:
             log.warning("Failed to parse cached analysis for key '%s': %s", cache_key, e)
             return None
 
-        # Validate content hash (specific to this analysis's context level)
-        if analysis.content_hash != content_hash:
+        # Detect alias hits (issue #129): the stored analysis carries its true
+        # effective ``context_level`` (the level the LLM actually saw). When
+        # that differs from the requested level encoded in the cache_key, we
+        # are reading the analysis through its alias entry — the caller asked
+        # for ``minimal`` but the writer auto-promoted to ``default``/``full``
+        # and stored a key alias pointing at the promoted content.
+        requested_context = validation_kwargs.get("context_level")
+        is_alias_hit = (
+            requested_context is not None
+            and getattr(analysis, "context_level", requested_context)
+            != requested_context
+        )
+
+        # Validate content hash (specific to this analysis's context level).
+        # On an alias hit we skip this check: the cached analysis's
+        # ``content_hash`` was computed from the *promoted* transcript while
+        # ``content_hash`` here is computed from the *requested* (typically
+        # narrower) transcript — they will always differ. The event-count
+        # check above already guards against the conversation actually
+        # changing under us.
+        if not is_alias_hit and analysis.content_hash != content_hash:
             log.debug("Cache invalidated for key '%s': content hash mismatch", cache_key)
             return None
 
@@ -386,8 +405,20 @@ class AnalysisCacheManager:
                 )
                 return None
 
-        # Validate that stored parameters match requested parameters
+        # Validate that stored parameters match requested parameters.
+        # NOTE (issue #129): we deliberately skip ``context_level`` here.
+        # The cache_key already encodes context_level (it's a kwarg in
+        # ``_make_cache_key``), so a key match is sufficient. We need the
+        # tolerance for "alias" entries written by ``save(requested_key_kwargs=...)``
+        # — when ``analyze_objectives`` auto-promotes a worker conversation
+        # from ``minimal`` to ``default``/``full``, the LLM result is stored
+        # under BOTH cache keys (effective and requested) but the analysis
+        # content retains its true ``context_level`` (the level the LLM saw).
+        # Re-validating equality on context_level would reject the alias hit
+        # and re-trigger an LLM call on every run.
         for key, expected_value in validation_kwargs.items():
+            if key == "context_level":
+                continue
             cached_value = getattr(analysis, key, None)
             if cached_value != expected_value:
                 log.debug(
@@ -407,6 +438,7 @@ class AnalysisCacheManager:
         conv_dir: Path,
         analysis: T,
         update_embeddings: bool = False,
+        requested_key_kwargs: dict[str, Any] | None = None,
         **key_kwargs,
     ) -> None:
         """Save analysis to cache.
@@ -417,6 +449,15 @@ class AnalysisCacheManager:
             update_embeddings: Whether to update the analysis embedding in the
                 database. This triggers an API call to generate embeddings.
                 Default is False to avoid hidden side effects.
+            requested_key_kwargs: Optional alternative key parameters
+                representing what the caller originally asked for, when that
+                differs from the *effective* parameters reflected on the
+                analysis itself (see issue #129). When the resulting alias key
+                differs from the primary key, this method writes a SECOND
+                cache entry under the alias key pointing at the SAME analysis
+                content. Use this when the analysis pipeline auto-promotes
+                context level for worker conversations so that a subsequent
+                lookup at the originally-requested level still hits the cache.
             **key_kwargs: Parameters that identify the analysis type.
                 If not provided, extracts from analysis object attributes
                 matching common parameter names.
@@ -438,21 +479,43 @@ class AnalysisCacheManager:
 
         cache_key = _make_cache_key(**key_kwargs)
 
-        # Store analysis under its key
         if "analyses" not in cache_data:
             cache_data["analyses"] = {}
 
-        cache_data["analyses"][cache_key] = analysis.model_dump(mode="json")
+        # Build the set of keys this analysis should be discoverable under.
+        # Always includes the primary (effective) key; optionally includes an
+        # alias key derived from the originally-requested parameters (see
+        # issue #129).
+        keys_to_write = [cache_key]
+        if requested_key_kwargs:
+            alias_key = _make_cache_key(**requested_key_kwargs)
+            if alias_key != cache_key:
+                keys_to_write.append(alias_key)
+
+        # Store analysis under each key. The stored content is the SAME for
+        # primary and alias (per issue #129 AC: "only the cache_key mapping is
+        # duplicated, not the stored analysis content"). The dumped dict
+        # retains the analysis's true effective ``context_level`` regardless
+        # of which key it's stored under.
+        analysis_dump = analysis.model_dump(mode="json")
+        for write_key in keys_to_write:
+            cache_data["analyses"][write_key] = analysis_dump
 
         # Clear any skip marker since we successfully analyzed
         cache_data.pop("skipped", None)
 
         self._save_cache_data(cache_file, cache_data)
-        log.debug("Analysis cached to %s (key: %s)", cache_file, cache_key)
-        
-        # Sync to database if available
-        self._sync_cache_to_db(conv_dir.name, cache_key, analysis)
-        
+        log.debug(
+            "Analysis cached to %s (keys: %s)",
+            cache_file,
+            ", ".join(keys_to_write),
+        )
+
+        # Sync to database if available — one row per key, all pointing at
+        # the same content_hash / event_count.
+        for write_key in keys_to_write:
+            self._sync_cache_to_db(conv_dir.name, write_key, analysis)
+
         # Update analysis embedding only if explicitly requested
         if update_embeddings:
             self._update_analysis_embedding(conv_dir, analysis, cache_key)
