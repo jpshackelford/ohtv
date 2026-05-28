@@ -1,3 +1,20 @@
+### 2026-05-28 13:59 UTC - PR #119 review-feedback round addressed
+
+- **Context**: review worker invoked against PR #119 ("feat(tests): cloud-sync behavioral harness (#110)") after @jpshackelford filed the `## INSTRUCTION: proceed on PR #119 — no Hypothesis-age / supply-chain gate applies` block (branch `chore/worklog-proceed-on-119`, commit `2e9eaf3`).
+- **PR draft↔ready dance**: flipped to draft at cycle start, flipped back to ready after CI green. Head SHA at ready-flip: `3cfad657a6f9f42beaceabc06547bf7de4e5024c`.
+- **Substantive change 1** — `test(sync): extract _filter_by_updated_since helper in FakeCloudClient` (`c06de5c`). Pure refactor; the duplicate ~8-line UTC-normalize-then-filter block in `FakeCloudClient.search_conversations` + `FakeCloudClient._serve_page` collapsed into a shared `@staticmethod` helper. Matches the bot's inline suggestion on `tests/unit/sync/fakes.py:263` and the manual-test report's recommendation. Tests unchanged.
+- **Substantive change 2** — `docs(agents): note cloud-sync behavioral harness + strict-xfail convention` (`3cfad65`). One paragraph + one pytest command in `AGENTS.md` pointing future #111/#112/#113 work at `tests/unit/sync/` and codifying the "marker comes off, assertion stays" rule.
+- **PR description**: appended a "Review-feedback resolution" section documenting (a) why the harness landed as `builders.py` + `strategies.py` + `conftest.py` instead of the single `helpers.py` #110's text mentioned (rationale: physical separation by dependency surface — Hypothesis quarantined to its own module so the broader suite doesn't pull it in at collection), (b) the dedup refactor, (c) the AGENTS.md note, (d) the supply-chain waiver with link back to this WORKLOG.
+- **Supply-chain thread**: replied citing the `## INSTRUCTION:` block on `main`'s WORKLOG.md and resolved. Cited rationale: `hypothesis` is in `[dependency-groups] dev`, never reaches user environments, freshness rule applies to runtime deps.
+- **Dedup thread**: replied citing `c06de5c` and resolved.
+- **Regression check**: `uv run pytest -x` → **1779 passed, 3 skipped, 10 xfailed in ~29s** (identical to baseline). `uv run ruff check tests/unit/sync/` → clean.
+- **CI status at ready-flip**: `lint` pass (3s), `pytest` pass (51s) on head SHA `3cfad65`. `reviewDecision` still `CHANGES_REQUESTED` because the github-actions review wasn't dismissed (only threads resolved) — orchestrator can decide whether to re-request review or proceed; out of scope for this worker.
+- **EXIT**: review worker is done. Re-testing / merge is the orchestrator's next call.
+
+_Worklog entry by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 13:55 UTC - Issue #114 expanded
 
 - Issue: [Two sources of truth for sync state (manifest + DB) makes correctness brittle](https://github.com/jpshackelford/ohtv/issues/114)
