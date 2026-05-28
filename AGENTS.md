@@ -206,11 +206,14 @@ Terminal is in corrupted state (usually after OpenHands CLI exits improperly).
 
 ## Testing
 
+**Cloud-sync behavioral harness (`tests/unit/sync/`, Issue #110)**: shared test scaffolding consumed by #111/#112/#113. `fakes.py` (`FakeCloudClient` + `RecordingCloudClient` subclass), `builders.py` (`make_trajectory_zip`, `ConvFactory`), `strategies.py` (Hypothesis), and `conftest.py` (fixtures: `fake_cloud`, `conv_factory`, `sync_manager_factory`, `seeded_local_state`). Pending-behavior scenarios in `test_behavioral.py` use `pytest.mark.xfail(strict=True, reason="#11x")` so a behavior accidentally landing before its issue fails CI. When the corresponding issue ships, drop the marker — do not change the assertion.
+
 ```bash
 # Unit tests (see docs/contributing/testing.md)
 uv run python -m pytest tests/unit/db -v
 uv run python -m pytest tests/unit/test_filters.py -v
 uv run python -m pytest tests/unit/test_errors.py -v
+uv run python -m pytest tests/unit/sync -v   # cloud-sync behavioral harness (#110)
 
 # Manual testing - see docs/reference/cli.md for command index
 uv run ohtv list -A                    # All conversations (refs shown by default)
