@@ -1,3 +1,23 @@
+### 2026-05-28 12:55 UTC - Issue #126 expanded
+
+- Issue: [`classify` should short-circuit sub-conversations to `initial_prompt_source='automation'`](https://github.com/jpshackelford/ohtv/issues/126)
+- **Premise correction** (verified via code archaeology, surfaced in body + comment): `ohtv classify` is **pure-DB today**, not LLM-driven. `src/ohtv/classify.py` has zero `litellm` / `openhands.llm` imports, zero prompt loading. The issue body's "wasted LLM spend" framing was incorrect about current state; the actual value is **correctness** (preventing mis-attribution in `report velocity` / `report weekly-counts` when subs land as `'unknown'` then get flipped to `'human'` by `--has-followups`). AC2 reframed from "≤1 LLM call" to "zero LLM calls; deterministic SQL UPDATE."
+- Approach: **Cut shape B** — single auto-step `apply_sub_classification(conn)` helper in `src/ohtv/classify.py`, called once at the top of the `classify` Click command body (cli.py:~10225, between `is_db_available()` check and mode dispatch). Self-healing on every invocation; no new `--refresh` flag needed (AC4 satisfied implicitly). Rejected A (duplicate the call across `_classify_single`/`_classify_bulk`/`_classify_list_unknown` — three sync points) and C (move logic into `human_input` stage — violates its docstring's explicit "counts-only, classification deferred to later stages" contract).
+- **Dependency correction**: #126 depends on **#108 only**, NOT #122. The predicate is `parent_conversation_id IS NOT NULL` (migration 018, added by #108). The roll-up column `root_conversation_id` (migration 019, added by #122) is irrelevant — #126 doesn't aggregate, it just checks "is this a sub?". User-prompt's "blocked by #122 (which is blocked by #108)" was over-stated for #126 specifically; documented in both body's "Dependencies" section and the technical-approach comment.
+- Guardrail mirrors #123/#124/#125 pattern but checks for **migration 018** (`parent_conversation_id` column) not 019: `RuntimeError("classify requires migration 018; …")` via `PRAGMA table_info(conversations)` at the cut site, raised at runtime not import time.
+- Gating questions all resolved without `needs-info`:
+  - **(a) `--refresh` flag**: doesn't exist today (`grep` confirmed); cut shape B makes self-healing the default → flag-free design.
+  - **(b) classify reads `parent_conversation_id`?**: No — current classify reads `conversation_human_input` joined with `repositories`/`conversations` only for display fields. New helper adds one `EXISTS (SELECT 1 FROM conversations c WHERE c.id = chi.conversation_id AND c.parent_conversation_id IS NOT NULL)` sub-select.
+  - **(c) ID normalization**: tests insert via existing `_insert_conversation` helper which already stores dash-stripped form; new helper uses straight column-on-column SQL — no normalization layer needed.
+  - **(d) Sub with no `conversation_human_input` row**: `UPDATE … WHERE EXISTS` simply won't match — silently skipped. T-D test documents this. No exception, no special branch.
+  - **(e) LLM cost saved per sub**: N/A — current classify makes zero LLM calls. Reframed as correctness value, not $.
+- Test plan: 5 unit tests in `tests/unit/test_classify.py` (T-A unknown→automation, T-B residual human→automation, T-C idempotent automation→automation, T-D no human-input row silent-skip, T-E manual override survives one invocation) + 2 CLI smoke tests in `tests/unit/test_cli_classify.py` (T-F all 3 modes invoke auto-step, T-G missing-migration-018 guardrail).
+- Files: `src/ohtv/classify.py` (~25 LOC: `apply_sub_classification` + `_assert_parent_column_present`), `src/ohtv/cli.py` (~4 LOC at line 10225), `tests/unit/test_classify.py` (~80 LOC), `tests/unit/test_cli_classify.py` (~50 LOC). `AGENTS.md` deliberately NOT touched (owned by #122 per cluster convention). No new migration — depends on #108's 018.
+- Cluster status: #122, #123, #124, #125, **#126** expanded ✓. #127, #128 remain.
+- Labels: `ready` applied. No `needs-info` / `needs-split`.
+
+---
+
 ### 2026-05-28 12:50 UTC - Orchestrator
 
 **Active Workers:**
