@@ -3,6 +3,19 @@
 ## Log
 
 
+### 2026-05-28 19:55 UTC - PR #133 docs updated for set-diff engine
+
+- PR: [#133 - feat(sync): recover from cloud/local gap via set-diff engine](https://github.com/jpshackelford/ohtv/pull/133)
+- Docs worker cycle: updated `docs/guides/syncing.md` ahead of manual testing so testers verify documented behavior.
+- Changes (commit `de3b478`): added a top-of-doc "Behavior change" callout flagging the one-time catch-up download on first run after upgrade; rewrote the example block to drop cursor-incremental language; added new sections — "How the set-diff engine works" (two-phase listing + dispatch, four-way categorization), "Automatic gap recovery" (no more `--since <very-old-date>` workaround), "How `--since` works (post-#111)" (filters the work list, not the listing), "Fresh-install behavior" (`ensure_db_ready` on entry), "Interruption safety" (Ctrl+C resumes from last committed snapshot page), and "Status field: `last_sync_at`" (now informational only). Added the previously-undocumented `-n, --max-new` flag to the options table. Fixed a stray-backtick typo in the `--update-metadata` section.
+- `README.md`: left as-is — `ohtv sync --process` works identically; "incremental, with metadata refresh" bullet is still accurate from a user perspective (a steady-state run still only downloads what's missing or stale).
+- Full test suite re-run as a sanity check (markdown-only change, but still): `1850 passed, 3 skipped, 4 xfailed`. CI green on the branch (lint pass 6s, pytest pass 47s).
+- [Posted on PR](https://github.com/jpshackelford/ohtv/pull/133#issuecomment-4567703835) — handoff to the testing worker.
+
+_This update was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 18:55 UTC - Issue #111 implemented (PR #133)
 
 - Issue: [`ohtv sync` can't recover from a gap between local store and cloud](https://github.com/jpshackelford/ohtv/issues/111)
