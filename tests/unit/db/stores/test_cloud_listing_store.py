@@ -283,3 +283,41 @@ class TestJSONColumnSerialization:
         row = listing.get("x")
         assert isinstance(row["sub_conversation_ids"], str)
         assert "a" in row["sub_conversation_ids"]
+
+    def test_pr_number_list_round_trip(self, listing, db_conn):
+        """Regression: the live cloud API returns ``pr_number`` as an
+        ``Array<int>`` (e.g. ``[133]``). The PR-#133 fixture set never
+        populated this field so CI missed the
+        ``sqlite3.ProgrammingError: type 'list' is not supported``
+        crash that the first manual sync hit. Asserting the list shape
+        round-trips locks in the JSON encoding."""
+        snap = listing.start_snapshot()
+        listing.upsert_row(
+            snap,
+            {
+                "id": "x",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "pr_number": [133],
+            },
+        )
+        db_conn.commit()
+        row = listing.get("x")
+        # Stored as JSON text — matches tags / sub_conversation_ids policy.
+        assert isinstance(row["pr_number"], str)
+        assert "133" in row["pr_number"]
+
+    def test_pr_number_empty_list_round_trip(self, listing, db_conn):
+        """The common case for non-PR conversations: ``pr_number=[]``.
+        sqlite3 would still reject the raw list before JSON encoding."""
+        snap = listing.start_snapshot()
+        listing.upsert_row(
+            snap,
+            {
+                "id": "x",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "pr_number": [],
+            },
+        )
+        db_conn.commit()
+        row = listing.get("x")
+        assert row["pr_number"] == "[]"

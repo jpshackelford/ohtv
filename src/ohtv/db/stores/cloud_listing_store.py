@@ -56,8 +56,13 @@ _LISTING_COLUMNS = (
 
 
 # Columns whose listing-payload value may be a dict/list and must be
-# JSON-encoded before binding into sqlite3.
-_JSON_COLUMNS = frozenset({"tags", "sub_conversation_ids"})
+# JSON-encoded before binding into sqlite3. ``pr_number`` is an
+# ``Array<int>`` in the live cloud API (e.g. ``[133]`` for a
+# PR-tagged conversation, ``[]`` otherwise — see
+# ``REFERENCE_CLOUD_API.md``); without JSON-encoding sqlite rejects
+# the bind with ``ProgrammingError: type 'list' is not supported``
+# and the listing pass crashes on the first PR-tagged row.
+_JSON_COLUMNS = frozenset({"tags", "sub_conversation_ids", "pr_number"})
 
 
 def _serialize(col: str, value):

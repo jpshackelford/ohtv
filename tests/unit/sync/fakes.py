@@ -72,6 +72,13 @@ class FakeConversation:
             listing but blob still on disk" case).
         selected_repository: Optional repo for Issue #87 metadata. Surfaces
             in the listing payload only.
+        pr_number: Cloud-side PR-number tag list. The real API returns
+            this as an ``Array<int>`` (e.g. ``[133]`` for a PR-tagged
+            conversation, ``[]`` for plain ones — see
+            ``REFERENCE_CLOUD_API.md``). Defaults to ``None`` so existing
+            scenarios stay opt-in; populate it on at least one fixture
+            per sync scenario to exercise the cloud_listing JSON-encoding
+            path (PR #133 regression).
     """
 
     id: str
@@ -82,6 +89,7 @@ class FakeConversation:
     trajectory_zip: bytes | None = None
     visible: bool = True
     selected_repository: str | None = None
+    pr_number: list[int] | None = None
 
     def to_listing_dict(self) -> dict:
         """Serialize to the dict shape the real listing API returns."""
@@ -92,6 +100,10 @@ class FakeConversation:
             "updated_at": _iso_z(self.updated_at),
             "tags": self.tags,
             "selected_repository": self.selected_repository,
+            # Mirror the real API: empty list when no PR is associated,
+            # ``[N]`` when a PR is tagged. ``None`` is preserved so tests
+            # can deliberately probe the "key absent" path.
+            "pr_number": self.pr_number if self.pr_number is not None else [],
         }
 
 
