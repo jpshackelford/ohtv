@@ -375,3 +375,43 @@ class ConversationStore:
             "SELECT COUNT(*) FROM conversations WHERE labels IS NOT NULL AND labels != '{}'"
         )
         return cursor.fetchone()[0]
+
+    def record_cloud_download(
+        self,
+        conversation_id: str,
+        *,
+        location: str,
+        cloud_updated_at: str | None,
+    ) -> None:
+        """Record that the cloud trajectory for ``conversation_id`` was just synced.
+
+        Inserts a minimal row if the conversation has not been seen
+        before (location + source='cloud' + cloud_updated_at), or
+        updates only ``location`` and ``cloud_updated_at`` on an
+        existing row. Crucially, this method NEVER overwrites
+        metadata columns (``title``, ``event_count``, ``labels``,
+        etc.) — those are owned by the scanner / LLM analysis paths.
+
+        This is the writer for the column reserved by migration 018
+        (Issue #112); Issue #111 is the first consumer.
+        """
+        normalized = conversation_id.replace("-", "")
+        registered_at = datetime.now(timezone.utc).isoformat()
+        # INSERT path: we don't know the metadata yet. The scanner will
+        # backfill on its next run. We set event_count=0 so a
+        # subsequent scanner mtime check still treats the row as
+        # "needs work" (an mtime delta vs the freshly-extracted events
+        # dir always wins).
+        self.conn.execute(
+            """
+            INSERT INTO conversations (
+                id, location, registered_at, event_count, source,
+                cloud_updated_at
+            )
+            VALUES (?, ?, ?, 0, 'cloud', ?)
+            ON CONFLICT(id) DO UPDATE SET
+                location = excluded.location,
+                cloud_updated_at = excluded.cloud_updated_at
+            """,
+            (normalized, location, registered_at, cloud_updated_at),
+        )

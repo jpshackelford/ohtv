@@ -259,7 +259,30 @@ class FakeCloudClient:
         limit: int = 100,
         page_id: str | None = None,
     ) -> tuple[list[dict], str | None]:
-        """Mirror :meth:`CloudClient.search_conversations`."""
+        """Mirror :meth:`CloudClient.search_conversations`.
+
+        Post-#111 the production sync engine drives pagination through
+        ``search_conversations`` directly (it commits each page to
+        ``cloud_listing`` between calls). For ``mutate_between_pages``
+        to fire in that flow, this method runs registered mutators
+        when called with a non-empty ``page_id`` — i.e. on every
+        page *after* the first. ``search_all_conversations`` continues
+        to run them through its private ``_serve_page`` path, so the
+        two surfaces produce the same observable behaviour.
+        """
+        # Run inter-page mutators on subsequent pages so the production
+        # set-diff engine's manual pagination loop exercises the same
+        # injection knob as ``search_all_conversations``.
+        if page_id:
+            for mutator in self._mutators_between_pages:
+                mutator(self)
+        else:
+            # First page of a fresh listing — record the cursor value on
+            # ``search_calls`` so back-compat tests built around the
+            # pre-#111 ``search_all_conversations`` recording surface keep
+            # working. (One entry per logical sync, not per page.)
+            self.search_calls.append(updated_since)
+
         self.search_log.append(
             SearchCall(
                 method="search_conversations",
@@ -353,11 +376,29 @@ class FakeCloudClient:
         return sum(1 for c in self._store.values() if c.visible)
 
     def download_trajectory(self, conversation_id: str) -> bytes:
-        """Mirror :meth:`CloudClient.download_trajectory`."""
+        """Mirror :meth:`CloudClient.download_trajectory`.
+
+        Production ``CloudClient`` accepts either the dashed or
+        undashed conversation-id form; the real cloud API normalizes
+        internally. We mirror that here by trying both the verbatim
+        id AND the normalized (dashed) form so callers downstream of
+        the #111 set-diff engine (which stores ids in their normalized
+        undashed form) can still resolve to the original
+        :class:`FakeConversation`.
+        """
         self.download_calls.append(conversation_id)
         if conversation_id in self._fail_downloads:
             raise self._fail_downloads[conversation_id]
         conv = self._store.get(conversation_id)
+        if conv is None:
+            # Try matching by normalized id — the fake may have been
+            # populated with a dashed UUID while the engine is asking
+            # for the undashed form (or vice versa).
+            target = conversation_id.replace("-", "")
+            for stored_id, candidate in self._store.items():
+                if stored_id.replace("-", "") == target:
+                    conv = candidate
+                    break
         if conv is None:
             # The real API returns 404 → httpx raises HTTPStatusError; we
             # raise a plain LookupError here so tests can distinguish a

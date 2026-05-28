@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -663,111 +662,20 @@ class TestBackfill:
 
 
 class TestScopeGuarantee:
-    """The migration is observable but no consumer code touches it.
+    """Migration 018 schema is now consumed by #111.
 
-    The user-facing acceptance criterion is:
+    This class previously enforced that no production code touched
+    ``cloud_listing`` / ``sync_kv`` / ``conversations.cloud_updated_at``
+    until the set-diff engine landed. With Issue #111 merged the
+    schema has legitimate consumers — :mod:`ohtv.db.stores.cloud_listing_store`,
+    :mod:`ohtv.db.stores.sync_state_store`, the
+    :meth:`ConversationStore.record_cloud_download` method, and the
+    :meth:`SyncManager.sync` engine itself.
 
-        grep -rE 'cloud_listing|cloud_updated_at|sync_kv' \
-            src/ohtv/ --include='*.py'
-        # should match ONLY the new migration file
-
-    That literal grep is a useful smoke check but is intentionally
-    coarse — it produces incidental matches against pre-existing
-    identifiers in ``src/ohtv/sync.py``:
-
-    * ``cloud_updated_at`` — a local variable / parameter holding the
-      cloud's ``updated_at`` from the listing API response (predates
-      this PR by months).
-    * ``cloud_listing`` — substring inside the method names
-      ``_fetch_cloud_listing_for_repair`` and
-      ``_fetch_cloud_listing_by_id`` (the "cloud listing" API
-      endpoint, not the new table).
-
-    Neither reference is an SQL read/write of the new schema. To
-    keep the scope guarantee enforceable in CI we test two stronger
-    properties:
-
-    1. ``sync_kv`` is brand new — it must appear *only* in the
-       migration file. (No prior collisions possible.)
-    2. No file other than the migration contains an SQL-shaped
-       reference to ``cloud_listing``, ``sync_kv``, or
-       ``cloud_updated_at`` — i.e. preceded by ``FROM``, ``JOIN``,
-       ``INTO``, ``UPDATE``, ``TABLE``, or appearing inside a SET /
-       WHERE clause on those tables/columns.
+    The class is intentionally left in place (rather than deleted) as
+    a marker that the scope-guarantee invariant was retired by #111.
     """
 
-    @staticmethod
-    def _grep(pattern: str, src_dir: Path) -> set[Path]:
-        result = subprocess.run(
-            [
-                "grep",
-                "-rE",
-                pattern,
-                str(src_dir),
-                "--include=*.py",
-                "-l",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return {
-            Path(line).resolve()
-            for line in result.stdout.splitlines()
-            if line.strip()
-        }
-
-    def test_sync_kv_only_in_migration(self):
-        """Brand-new identifier; should appear in exactly one file."""
-        repo_root = Path(__file__).resolve().parents[3]
-        src_dir = repo_root / "src" / "ohtv"
-        migration_file = (
-            src_dir / "db" / "migrations" / MIGRATION_NAME
-        ).resolve()
-        assert self._grep(r"\bsync_kv\b", src_dir) == {migration_file}
-
-    def test_no_sql_consumer_of_new_schema(self):
-        """No SQL operation outside the migration touches the new schema.
-
-        Looks for SQL-context references: keywords that bind a name
-        to a table or column in SQLite DML/DDL. The migration file
-        is the only legitimate match; any other hit means a consumer
-        has snuck in.
-        """
-        repo_root = Path(__file__).resolve().parents[3]
-        src_dir = repo_root / "src" / "ohtv"
-        migration_file = (
-            src_dir / "db" / "migrations" / MIGRATION_NAME
-        ).resolve()
-
-        # Anything in ``src/ohtv`` that mentions a new-schema token
-        # at all. We then filter the matches against a pre-existing
-        # allow-list (see below).
-        sql_token_pattern = r"(?:cloud_listing|sync_kv|cloud_updated_at)"
-        candidates = self._grep(sql_token_pattern, src_dir)
-        offenders = candidates - {migration_file}
-
-        # For each offender, verify the mentions are only the known
-        # pre-existing local-variable / method-name collisions in
-        # ``sync.py``. Anything else is a consumer leak.
-        allowed_collisions = {
-            (src_dir / "sync.py").resolve(): {
-                # Local variable name; predates the column.
-                "cloud_updated_at",
-                # Substring of two pre-existing method names.
-                "cloud_listing",
-            },
-        }
-
-        unexplained: list[str] = []
-        for offender in offenders:
-            allowed = allowed_collisions.get(offender, set())
-            text = offender.read_text()
-            for token in ("cloud_listing", "sync_kv", "cloud_updated_at"):
-                if token in text and token not in allowed:
-                    unexplained.append(f"{offender}: contains '{token}'")
-
-        assert not unexplained, (
-            "Unexpected consumer references to the migration-018 schema:\n"
-            + "\n".join(unexplained)
-        )
+    def test_schema_is_consumed_by_issue_111(self):
+        """The #112 schema now has at least one production consumer."""
+        from ohtv.db.stores import CloudListingStore, SyncStateStore  # noqa: F401

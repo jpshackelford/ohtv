@@ -2,6 +2,7 @@
 
 from ohtv.db.stores.action_store import ActionStore
 from ohtv.db.stores.analysis_cache_store import AnalysisCacheStore
+from ohtv.db.stores.cloud_listing_store import CloudListingStore
 from ohtv.db.stores.contributions_store import (
     ChangeRef,
     Contribution,
@@ -13,11 +14,13 @@ from ohtv.db.stores.link_store import LinkStore
 from ohtv.db.stores.reference_store import ReferenceStore
 from ohtv.db.stores.repo_store import RepoStore
 from ohtv.db.stores.stage_store import StageStore
+from ohtv.db.stores.sync_state_store import SyncStateStore
 
 __all__ = [
     "ActionStore",
     "AnalysisCacheStore",
     "ChangeRef",
+    "CloudListingStore",
     "Contribution",
     "ContributionsStore",
     "ConversationStore",
@@ -26,4 +29,5 @@ __all__ = [
     "ReferenceStore",
     "RepoStore",
     "StageStore",
+    "SyncStateStore",
 ]

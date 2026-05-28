@@ -13,6 +13,13 @@ from typing import Callable
 import httpx
 
 from ohtv.config import Config, get_manifest_path
+from ohtv.db.connection import get_db_path
+from ohtv.db.maintenance import ensure_db_ready
+from ohtv.db.stores import (
+    CloudListingStore,
+    ConversationStore,
+    SyncStateStore,
+)
 from ohtv.exporter import TrajectoryExporter, count_events
 from ohtv.sources.cloud import CloudClient, RateLimitExceededError
 
@@ -172,6 +179,13 @@ class SyncManager:
         self.manifest_path = get_manifest_path()
         self.manifest = SyncManifest.load(self.manifest_path)
         self.exporter = TrajectoryExporter(config.synced_conversations_dir)
+        # Thread-coordination for the parallel download path. SQLite
+        # connections are not thread-safe; we buffer ``record_cloud_download``
+        # writes from worker threads and flush them on the main thread
+        # after the pool drains. ``None`` means "no buffering, write
+        # directly" (sequential / non-pool path).
+        self._db_writer_lock = threading.Lock()
+        self._pending_cloud_updated_at: list[tuple[str, str, str | None]] | None = None
 
     def sync(
         self,
@@ -183,33 +197,70 @@ class SyncManager:
         parallel: bool = True,
         shutdown_check: Callable[[], bool] | None = None,
     ) -> SyncResult:
-        """Sync conversations from cloud.
-        
+        """Sync conversations from cloud using the set-diff engine (Issue #111).
+
+        The engine runs in two phases on every invocation:
+
+        1. **Listing pass** — paginate the full cloud listing into the
+           ``cloud_listing`` snapshot table under a fresh ``snapshot_id``.
+           Pages commit incrementally so an interrupted sync can resume
+           mid-listing without losing committed pages. On success the
+           snapshot is atomically swapped; on any failure the in-flight
+           snapshot is abandoned and the previous one stays usable.
+        2. **Set-diff dispatch** — query ``cloud_listing`` against
+           ``conversations`` to produce three categories:
+           ``missing_locally`` (download), ``stale_locally`` (refetch),
+           and ``removed_from_cloud`` (record only — #113 owns the
+           prune UX).
+
+        ``last_sync_at`` survives as a UX field only — it is *not* used
+        as a sync gate. The cursor-based ``updated_since`` filter from
+        the pre-#111 implementation is gone; full listing IS the gate.
+
         Args:
-            force: Re-download all conversations (clears local before re-download)
-            since: Only sync conversations updated after this date
-            dry_run: Show what would sync without downloading
-            max_new: Maximum number of NEW conversations to sync (no limit on updates)
-            on_progress: Callback for progress updates (conv_id, title, action)
-            parallel: Use parallel downloads (default True, uses 20 workers)
-            shutdown_check: Optional function that returns True to request graceful shutdown
+            force: Re-download every cloud conversation regardless of
+                ``cloud_updated_at`` state. Treats every ``cloud_listing``
+                row as ``missing_locally``.
+            since: Filter applied to the WORK LIST (not the listing). The
+                listing is always full per #111's architectural inversion.
+                Useful when the user wants "the last week's deltas only".
+            dry_run: Report what would sync without downloading.
+            max_new: Maximum number of NEW conversations to sync (no
+                limit on updates).
+            on_progress: Callback for progress updates (conv_id, title,
+                action[, total]).
+            parallel: Use parallel downloads (default True).
+            shutdown_check: Optional function returning True to request
+                graceful shutdown between listing pages or downloads.
         """
         if not self.config.api_key:
             raise ValueError("API key required. Set OPENHANDS_API_KEY or OH_API_KEY environment variable.")
 
-        cutoff = self._determine_cutoff(force, since)
-        log.info("Starting sync (force=%s, cutoff=%s, dry_run=%s, max_new=%s, parallel=%s)", 
-                 force, cutoff, dry_run, max_new, parallel)
+        log.info(
+            "Starting set-diff sync (force=%s, since=%s, dry_run=%s, max_new=%s, parallel=%s)",
+            force, since, dry_run, max_new, parallel,
+        )
+
+        # Schema-readiness gate. Runs migrations + maintenance tasks so
+        # a fresh-install ``ohtv sync`` works without a prior ``db scan``.
+        with get_connection_for_sync() as conn:
+            ensure_db_ready(conn, show_progress=False)
+            conn.commit()
 
         try:
             with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
-                conversations = client.search_all_conversations(updated_since=cutoff)
-                conversations = self._add_failed_conversations(conversations)
-                log.info("Found %d conversations to process", len(conversations))
-                return self._process_conversations(
-                    client, conversations, force, dry_run, max_new, on_progress, 
-                    parallel=parallel, shutdown_check=shutdown_check
-                )
+                with get_connection_for_sync() as conn:
+                    return self._run_set_diff_pass(
+                        client,
+                        conn,
+                        force=force,
+                        since=since,
+                        dry_run=dry_run,
+                        max_new=max_new,
+                        on_progress=on_progress,
+                        parallel=parallel,
+                        shutdown_check=shutdown_check,
+                    )
         except httpx.HTTPStatusError as e:
             log.error("HTTP error during sync: %s %s", e.response.status_code, e.response.reason_phrase)
             if e.response.status_code in (401, 403):
@@ -219,96 +270,313 @@ class SyncManager:
             log.error("Network error during sync: %s", e)
             raise SyncAbortedError(f"Network error: {e}")
 
-    def _add_failed_conversations(self, conversations: list[dict]) -> list[dict]:
-        """Add previously failed conversations to the sync list for retry."""
-        if not self.manifest.failed_ids:
-            return conversations
+    def _run_set_diff_pass(
+        self,
+        client: CloudClient,
+        conn,
+        *,
+        force: bool,
+        since: datetime | None,
+        dry_run: bool,
+        max_new: int | None,
+        on_progress: Callable[[str, str, str], None] | None,
+        parallel: bool,
+        shutdown_check: Callable[[], bool] | None,
+    ) -> SyncResult:
+        """The Issue #111 set-diff sync engine.
 
-        existing_ids = {c["id"] for c in conversations}
+        See :meth:`sync` for the user-facing contract.
+        """
+        listing = CloudListingStore(conn)
+        state = SyncStateStore(conn)
+
+        # Phase 1: rebuild cloud_listing under a fresh snapshot.
+        snapshot_id, total_listed = self._run_listing_pass(
+            client, listing, conn, shutdown_check=shutdown_check
+        )
+
+        # Phase 2: persist snapshot bookkeeping in sync_kv. Read by
+        # ``--status`` UX, ``--repair`` (#113), and a future freshness
+        # gate. The engine itself does NOT branch on these values.
+        state.set("last_snapshot_id", snapshot_id)
+        state.set("last_snapshot_completed_at", _utc_now_iso())
+        state.set("last_snapshot_count", total_listed)
+        conn.commit()
+
+        # Phase 3: compute the set-diff work list.
+        work_items = self._categorize_via_set_diff(
+            listing, conn, force=force, since=since, max_new=max_new
+        )
+
+        # Phase 4: include retry items from previous failed downloads.
+        # The manifest stays the source of truth for "failed last time"
+        # until #114 retires it.
+        work_items = self._add_failed_conversations(work_items)
+        log.info("Set-diff: %d items to process (listing=%d)", len(work_items), total_listed)
+
+        # Phase 5: process the work list (existing pipeline).
+        return self._process_work_items(
+            client,
+            conn,
+            work_items,
+            dry_run=dry_run,
+            max_new=max_new,
+            on_progress=on_progress,
+            parallel=parallel,
+            shutdown_check=shutdown_check,
+        )
+
+    def _run_listing_pass(
+        self,
+        client: CloudClient,
+        listing: CloudListingStore,
+        conn,
+        *,
+        shutdown_check: Callable[[], bool] | None,
+    ) -> tuple[str, int]:
+        """Paginate the full cloud listing into ``cloud_listing``.
+
+        Per #111: NO ``updated_since`` filter. The listing is unconditional;
+        set-diff IS the gate. Returns ``(snapshot_id, total_rows)``.
+
+        On any exception during listing the in-flight snapshot is
+        abandoned (leaving the previous snapshot intact) and the
+        exception re-raises.
+        """
+        snapshot_id = listing.start_snapshot()
+        total = 0
+        page_id: str | None = None
+
+        try:
+            while True:
+                if shutdown_check and shutdown_check():
+                    raise SyncAbortedError("Listing interrupted by shutdown request")
+
+                items, next_page_id = client.search_conversations(
+                    # NO updated_since: the architectural inversion of #111.
+                    limit=100,
+                    page_id=page_id,
+                )
+
+                for row in items:
+                    listing.upsert_row(snapshot_id, row)
+                conn.commit()  # per-page incremental commit
+                total += len(items)
+
+                if not next_page_id:
+                    break
+                page_id = next_page_id
+
+            # Atomic swap: prune rows from prior snapshots.
+            listing.commit_snapshot(snapshot_id)
+            conn.commit()
+        except Exception:
+            # Failure path: abandon only the in-flight snapshot rows so
+            # any previously-committed snapshot stays intact.
+            try:
+                listing.abandon_snapshot(snapshot_id)
+                conn.commit()
+            except Exception as cleanup_exc:  # pragma: no cover
+                log.warning("Failed to abandon snapshot %s: %s", snapshot_id, cleanup_exc)
+            raise
+
+        return snapshot_id, total
+
+    def _categorize_via_set_diff(
+        self,
+        listing: CloudListingStore,
+        conn,
+        *,
+        force: bool,
+        since: datetime | None,
+        max_new: int | None,
+    ) -> list[tuple[dict, str]]:
+        """Build the work list from cloud_listing vs manifest diff.
+
+        Returns ``[(conv_dict, action), ...]`` where ``action`` is one
+        of ``"new"`` (missing locally), ``"updated"`` (stale locally),
+        or — implicitly — items not yielded at all (present and fresh).
+        ``force`` collapses every listing row to ``"new"`` (with
+        cleanup-and-redownload semantics handled by the download path).
+
+        ``since`` filters the work list (not the listing) — items with
+        ``updated_at`` older than ``since`` drop out, matching the
+        ``--since`` UX after #111.
+
+        **Source-of-truth**: the manifest (per AGENTS.md item #27 —
+        "manifest stays authoritative until #114"). The conversations
+        table is consulted as a *consistency check* on
+        ``cloud_updated_at`` (set-diff helpers on
+        :class:`CloudListingStore`), but the manifest is what the
+        engine compares against and what the engine mutates.
+        """
+        # Pre-strip every manifest key into its dashless form for O(1)
+        # set-diff comparisons. Manifest may carry either shape per
+        # AGENTS.md item #14.
+        manifest_norm: dict[str, str] = {
+            mid.replace("-", ""): mid for mid in self.manifest.conversations
+        }
+
+        work: list[tuple[dict, str]] = []
+        seen_in_cloud: set[str] = set()  # for the removed-from-cloud reconciliation below
+
+        for row in conn.execute("SELECT * FROM cloud_listing"):
+            cid = row["conversation_id"]
+            seen_in_cloud.add(cid)
+            conv = _listing_row_to_conv_dict(row)
+
+            if force:
+                # Force mode bypasses the diff: every cloud row is
+                # treated as missing and downloaded.
+                if _passes_since_filter(conv, since):
+                    work.append((conv, "new"))
+                continue
+
+            manifest_key = manifest_norm.get(cid)
+            if manifest_key is None:
+                # Missing locally — download as "new".
+                if _passes_since_filter(conv, since):
+                    work.append((conv, "new"))
+                continue
+
+            # Present locally: compare cloud_updated_at to detect drift.
+            cloud_ts = conv.get("updated_at") or ""
+            manifest_entry = self.manifest.conversations.get(manifest_key) or {}
+            manifest_ts = manifest_entry.get("updated_at") or ""
+
+            if not manifest_ts or cloud_ts != manifest_ts:
+                # Stale (or never recorded). Use != not > so a
+                # server-side rewind also reconciles. Scenario #3.
+                if _passes_since_filter(conv, since):
+                    work.append((conv, "updated"))
+                continue
+
+            # Present-both-synced: no work. Issue #112's set-diff helper
+            # on CloudListingStore exposes the same partition to #113
+            # without us recomputing it.
+
+        # Removed-from-cloud reconciliation: silently drop manifest
+        # entries that disappeared from the listing. #113 will add the
+        # user-facing report; #111 just keeps the manifest coherent so
+        # the property tests pass (scenario #15).
+        for normalized, manifest_key in list(manifest_norm.items()):
+            if normalized in seen_in_cloud:
+                continue
+            del self.manifest.conversations[manifest_key]
+
+        return work
+
+    def _add_failed_conversations(
+        self, work_items: list[tuple[dict, str]]
+    ) -> list[tuple[dict, str]]:
+        """Append retry entries for previously-failed downloads.
+
+        Returns ``[(conv_dict, action), ...]`` with ``failed_ids`` from
+        the manifest folded in as ``"new"`` items (the existing retry
+        contract). Items already present in the work list are deduped.
+        """
+        if not self.manifest.failed_ids:
+            return work_items
+
+        existing_ids = {c["id"].replace("-", "") for c, _ in work_items}
         retry_count = 0
 
         for failed_id in self.manifest.failed_ids:
-            if failed_id not in existing_ids:
-                conversations.append({
+            normalized = failed_id.replace("-", "")
+            if normalized in existing_ids:
+                continue
+            work_items.append((
+                {
                     "id": failed_id,
                     "title": "(retry)",
                     "updated_at": "",
-                })
-                retry_count += 1
+                },
+                "new",
+            ))
+            retry_count += 1
 
         if retry_count > 0:
             log.info("Adding %d previously failed conversations for retry", retry_count)
 
-        return conversations
+        return work_items
 
-    def _determine_cutoff(self, force: bool, since: datetime | None) -> datetime | None:
-        """Determine the cutoff date for syncing."""
-        if force:
-            return None
-        if since:
-            return since
-        return self.manifest.last_sync_at
-
-    def _process_conversations(
+    def _process_work_items(
         self,
         client: CloudClient,
-        conversations: list[dict],
-        force: bool,
+        conn,
+        work_items: list[tuple[dict, str]],
+        *,
         dry_run: bool,
         max_new: int | None,
         on_progress: Callable[[str, str, str], None] | None,
         parallel: bool = True,
         shutdown_check: Callable[[], bool] | None = None,
     ) -> SyncResult:
-        """Process each conversation that needs syncing.
-        
-        Args:
-            client: Cloud API client
-            conversations: List of conversation dicts from API
-            force: Re-download all conversations
-            dry_run: Don't actually download, just report what would happen
-            max_new: Limit on number of new conversations to sync
-            on_progress: Callback for progress updates
-            parallel: Use parallel downloads (default True)
-            shutdown_check: Optional function that returns True to request graceful shutdown
+        """Process the pre-categorized work list from :meth:`_categorize_via_set_diff`.
+
+        ``work_items`` arrives as ``[(conv_dict, action), ...]`` where
+        ``action`` is one of ``"new"``, ``"updated"``, or ``"unchanged"``.
+        This method:
+
+        * Applies ``max_new`` (a count-based skip on ``"new"`` items).
+        * Routes ``"unchanged"`` / ``"skipped"`` / ``dry_run`` items
+          straight to the result tally.
+        * Forwards the remainder to the existing
+          :meth:`_download_parallel` / :meth:`_download_sequential` paths
+          (carrying the open DB connection so successful downloads can
+          write ``conversations.cloud_updated_at``).
         """
         result = SyncResult()
-        
-        # Phase 1: Determine what action to take for each conversation
-        # This handles max_new limit correctly before parallel processing
-        work_items = self._categorize_conversations(conversations, force, max_new, result)
-        
-        # Set total for progress display (excluding skipped items)
-        result.total_to_process = sum(1 for _, action in work_items if action != "skipped")
-        
-        # Phase 2: Handle dry-run or unchanged (no download needed)
-        # Also notify progress callback of total on first call
-        first_progress_call = True
-        to_download = []
+
+        # Phase 1: Apply max_new (count-based skip).
+        capped_items: list[tuple[dict, str]] = []
+        new_count = 0
         for conv, action in work_items:
+            if action == "new":
+                if max_new is not None and new_count >= max_new:
+                    capped_items.append((conv, "skipped"))
+                    result.skipped_new += 1
+                    continue
+                new_count += 1
+            capped_items.append((conv, action))
+
+        # Total for progress display (excludes "skipped" items).
+        result.total_to_process = sum(1 for _, a in capped_items if a != "skipped")
+
+        # Phase 2: Route unchanged / skipped / dry-run straight to tally.
+        first_progress_call = True
+        to_download: list[tuple[dict, str]] = []
+        for conv, action in capped_items:
             if action in ("unchanged", "skipped") or dry_run:
                 self._update_result(result, action)
                 if on_progress:
-                    # Pass total on first call so progress bar can set its total
                     if first_progress_call:
-                        on_progress(conv["id"], conv.get("title", "")[:50], action, result.total_to_process)
+                        on_progress(
+                            conv["id"], conv.get("title", "")[:50],
+                            action, result.total_to_process,
+                        )
                         first_progress_call = False
                     else:
                         on_progress(conv["id"], conv.get("title", "")[:50], action)
             else:
                 to_download.append((conv, action))
-        
-        # Phase 3: Download conversations (parallel or sequential)
+
+        # Phase 3: Download.
         if to_download:
-            # If no items were processed in phase 2, pass total on first download callback
             pass_total = first_progress_call
             if parallel and len(to_download) > 1:
-                self._download_parallel(client, to_download, result, on_progress, shutdown_check, pass_total)
+                self._download_parallel(
+                    client, to_download, result, on_progress,
+                    shutdown_check, pass_total, conn=conn,
+                )
             else:
-                self._download_sequential(client, to_download, result, on_progress, shutdown_check, pass_total)
+                self._download_sequential(
+                    client, to_download, result, on_progress,
+                    shutdown_check, pass_total, conn=conn,
+                )
 
         if not dry_run:
-            self._finalize_sync(result)
+            self._finalize_sync(result, conn=conn)
         return result
 
     def _categorize_conversations(
@@ -318,9 +586,13 @@ class SyncManager:
         max_new: int | None,
         result: SyncResult,
     ) -> list[tuple[dict, str]]:
-        """Determine action for each conversation, respecting max_new limit.
-        
-        Returns list of (conv, action) tuples.
+        """Legacy cursor-based categorizer.
+
+        Retained for backward compatibility with existing unit tests in
+        ``tests/unit/test_sync.py`` (``TestSyncManagerMaxNew``). The
+        production sync path goes through
+        :meth:`_categorize_via_set_diff` (Issue #111). New code should
+        not call this method.
         """
         work_items = []
         new_count = 0
@@ -350,6 +622,7 @@ class SyncManager:
         on_progress: Callable[[str, str, str], None] | None,
         shutdown_check: Callable[[], bool] | None = None,
         pass_total_on_first: bool = False,
+        conn=None,
     ) -> None:
         """Download conversations sequentially."""
         consecutive_failures = 0
@@ -370,7 +643,7 @@ class SyncManager:
                 self._cleanup_conversation_dir(conv_id)
             
             actual_action = self._download_and_update(
-                client, conv, conv_id, cloud_updated_at, planned_action, result
+                client, conv, conv_id, cloud_updated_at, planned_action, result, conn=conn,
             )
             self._update_result(result, actual_action)
             if on_progress:
@@ -390,6 +663,7 @@ class SyncManager:
         on_progress: Callable[[str, str, str], None] | None,
         shutdown_check: Callable[[], bool] | None = None,
         pass_total_on_first: bool = False,
+        conn=None,
     ) -> None:
         """Download conversations in parallel using a thread pool.
         
@@ -400,7 +674,13 @@ class SyncManager:
         max_workers = min(DEFAULT_MAX_WORKERS, len(work_items))
         log.info("Starting parallel download with %d workers for %d conversations", 
                  max_workers, len(work_items))
-        
+
+        # Enable the cloud_updated_at write buffer for the duration of
+        # this parallel pass. SQLite connections are not thread-safe;
+        # workers append, the main thread flushes below.
+        with self._db_writer_lock:
+            self._pending_cloud_updated_at = []
+
         # Thread-safe lock for result updates
         lock = threading.Lock()
         total_failures = 0
@@ -419,7 +699,7 @@ class SyncManager:
                 self._cleanup_conversation_dir(conv_id)
             
             actual_action = self._download_and_update(
-                client, conv, conv_id, cloud_updated_at, planned_action, result
+                client, conv, conv_id, cloud_updated_at, planned_action, result, conn=conn,
             )
             return conv, planned_action, actual_action
         
@@ -478,6 +758,14 @@ class SyncManager:
                         else:
                             on_progress(conv["id"], conv.get("title", "")[:50], actual_action)
 
+        # Flush the cloud_updated_at writes accumulated by worker
+        # threads onto the main-thread DB connection, then disable
+        # buffering so subsequent (sequential) calls write directly.
+        if conn is not None:
+            self._flush_cloud_updated_at_writes(conn)
+        with self._db_writer_lock:
+            self._pending_cloud_updated_at = None
+
     def _check_abort(self, action: str, consecutive_failures: int, max_failures: int) -> int:
         """Check if we should abort due to too many consecutive failures."""
         if action == "failed":
@@ -512,13 +800,26 @@ class SyncManager:
         cloud_updated_at: str,
         action: str,
         result: SyncResult,
+        conn=None,
     ) -> str:
-        """Download conversation and update manifest."""
+        """Download conversation, update manifest, write conversations.cloud_updated_at.
+
+        ``conn`` (optional) is the sync-wide DB connection. When passed,
+        the method writes ``conversations.cloud_updated_at`` via
+        :meth:`ConversationStore.record_cloud_download` so the next
+        sync's set-diff sees this conversation as in-sync. A DB-side
+        failure does NOT count as a download failure — manifest +
+        on-disk export are the user-facing success criteria.
+        """
         try:
             log.debug("Downloading %s", conv_id)
             zip_bytes = client.download_trajectory(conv_id)
             conv_dir = self.exporter.export_from_zip_bytes(conv_id, zip_bytes)
             self._update_manifest_entry(conv, conv_id, cloud_updated_at, conv_dir)
+            if conn is not None:
+                self._record_cloud_download_in_db(
+                    conn, conv_id, conv_dir, cloud_updated_at
+                )
             log.debug("Downloaded %s (%s)", conv_id, action)
             return action
         except httpx.HTTPStatusError as e:
@@ -531,6 +832,75 @@ class SyncManager:
             log.warning("Failed to download %s: %s", conv_id, e)
             self._record_failure(result, conv_id, str(e))
             return "failed"
+
+    def _record_cloud_download_in_db(
+        self,
+        conn,
+        conv_id: str,
+        conv_dir: Path,
+        cloud_updated_at: str,
+    ) -> None:
+        """Persist ``conversations.cloud_updated_at`` after a successful download.
+
+        Best-effort: a DB-side failure is logged but does not bubble up
+        through the download path. SQLite connections are not
+        thread-safe — parallel workers handing the connection from the
+        main thread will trigger ``ProgrammingError: SQLite objects
+        created in a thread can only be used in that same thread.``
+        We serialize all writes through a lock and pin them to a
+        single thread by buffering instead: workers append to
+        :attr:`_pending_cloud_updated_at` (guarded by
+        :attr:`_db_writer_lock`) and the main thread flushes after the
+        thread pool drains. See :meth:`_flush_cloud_updated_at_writes`.
+        """
+        # If we have a writer queue, defer (parallel case). Otherwise
+        # write directly (sequential case).
+        with self._db_writer_lock:
+            if self._pending_cloud_updated_at is not None:
+                self._pending_cloud_updated_at.append(
+                    (conv_id, str(conv_dir), cloud_updated_at or None)
+                )
+                return
+        try:
+            store = ConversationStore(conn)
+            store.record_cloud_download(
+                conv_id,
+                location=str(conv_dir),
+                cloud_updated_at=cloud_updated_at or None,
+            )
+            conn.commit()
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning(
+                "Failed to record cloud_updated_at for %s in DB: %s",
+                conv_id, exc,
+            )
+
+    def _flush_cloud_updated_at_writes(self, conn) -> None:
+        """Drain the queued ``record_cloud_download`` writes onto ``conn``.
+
+        Called from the main thread after the parallel download pool
+        drains. Safe to call with an empty queue (no-op).
+        """
+        with self._db_writer_lock:
+            queued = list(self._pending_cloud_updated_at or [])
+            if self._pending_cloud_updated_at is not None:
+                self._pending_cloud_updated_at.clear()
+        if not queued:
+            return
+        try:
+            store = ConversationStore(conn)
+            for conv_id, location, cloud_updated_at in queued:
+                store.record_cloud_download(
+                    conv_id,
+                    location=location,
+                    cloud_updated_at=cloud_updated_at,
+                )
+            conn.commit()
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning(
+                "Failed to flush %d queued cloud_updated_at writes: %s",
+                len(queued), exc,
+            )
 
     def _record_failure(self, result: SyncResult, conv_id: str, error: str) -> None:
         """Record a download failure."""
@@ -594,29 +964,50 @@ class SyncManager:
         elif action == "skipped":
             result.skipped_new += 1
 
-    def _finalize_sync(self, result: SyncResult) -> None:
-        """Update and save manifest after sync."""
+    def _finalize_sync(self, result: SyncResult, conn=None) -> None:
+        """Update and save manifest after sync.
+
+        Post-#111: ``last_sync_at`` is a pure UX field. The engine never
+        consumes it as a gate. We dual-write it to ``sync_kv`` so #114
+        can drain the manifest without a flag-day.
+        """
         self.manifest.failed_ids = result.failed_ids
         self.manifest.sync_count += 1
 
-        # Don't advance cutoff if there were failures or skipped new conversations
+        # Advance last_sync_at unless there are unresolved gaps (failures
+        # / skipped-by-max_new). The UX value is "what was the wall-clock
+        # time of the last clean reconciliation" — not consulted by the
+        # set-diff engine.
+        advanced = False
         if result.has_failures:
             log.warning(
-                "Sync complete with %d failures. Not advancing cutoff. "
+                "Sync complete with %d failures. Not advancing last_sync_at. "
                 "Run 'ohtv sync' again to retry failed conversations.",
                 result.failed,
             )
         elif result.has_skipped_new:
             log.info(
                 "Sync complete. Synced %d new, %d additional available. "
-                "Not advancing cutoff so skipped conversations remain visible.",
+                "Not advancing last_sync_at so skipped conversations stay visible.",
                 result.new, result.skipped_new,
             )
         else:
             self.manifest.last_sync_at = datetime.now(timezone.utc)
+            advanced = True
             log.info("Sync complete. Total conversations: %d", len(self.manifest.conversations))
 
         self.manifest.save(self.manifest_path)
+
+        # Dual-write to sync_kv (Issue #114 transition state). Engine
+        # never reads from this key.
+        if advanced and conn is not None:
+            try:
+                SyncStateStore(conn).set(
+                    "last_sync_at", _format_datetime(self.manifest.last_sync_at)
+                )
+                conn.commit()
+            except Exception as exc:  # pragma: no cover - defensive
+                log.warning("Failed to mirror last_sync_at into sync_kv: %s", exc)
 
     def get_status(self) -> dict:
         """Get current sync status."""
@@ -1224,6 +1615,103 @@ def _format_datetime(dt: datetime | None) -> str | None:
     if not dt:
         return None
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _utc_now_iso() -> str:
+    """ISO 8601 UTC timestamp for ``sync_kv`` bookkeeping."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _redash(undashed: str) -> str:
+    """Reinsert canonical UUID dashes into a 32-char hex string.
+
+    Returns the input verbatim if it does not look like a 32-char hex.
+    """
+    if len(undashed) != 32 or not all(c in "0123456789abcdef" for c in undashed.lower()):
+        return undashed
+    return f"{undashed[0:8]}-{undashed[8:12]}-{undashed[12:16]}-{undashed[16:20]}-{undashed[20:32]}"
+
+
+def _listing_row_to_conv_dict(row) -> dict:
+    """Adapt a ``cloud_listing`` table row into the dict shape used by
+    the download pipeline (``conv["id"]``, ``conv["title"]``, etc.).
+    """
+    return {
+        "id": row["conversation_id"],
+        "title": row["title"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "selected_repository": row["selected_repository"],
+        "selected_branch": row["selected_branch"],
+        "tags": _maybe_json_loads(row["tags"]),
+    }
+
+
+def _maybe_json_loads(value):
+    """Best-effort JSON decode for stringified columns.
+
+    The cloud listing API returns ``tags`` as a dict / None; we store
+    it verbatim in :meth:`CloudListingStore.upsert_row`. SQLite
+    coerces dicts/lists to TEXT silently, so this round-trip may
+    receive either a real dict (in-memory store), a JSON string (after
+    an INSERT round-trip), or ``None``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            return value
+    return value
+
+
+def _passes_since_filter(conv: dict, since: datetime | None) -> bool:
+    """Return True if ``conv`` should be retained given a ``--since`` filter.
+
+    ``since`` is interpreted as a UTC datetime; ``None`` disables the
+    filter. Items whose ``updated_at`` is missing OR newer-or-equal to
+    ``since`` are retained (we don't drop unknown timestamps lest a
+    stale cloud row hide a fresh local sync).
+    """
+    if since is None:
+        return True
+    updated_at = conv.get("updated_at")
+    if not updated_at:
+        return True
+    parsed = _parse_datetime(updated_at)
+    if parsed is None:
+        return True
+    return parsed >= since
+
+
+def get_connection_for_sync():
+    """Open a fresh sqlite3 connection at the configured DB path.
+
+    Mirrors :func:`ohtv.db.connection.get_connection` but isolated so
+    tests can monkeypatch ``ohtv.sync.get_db_path`` without affecting
+    other call sites. The returned context manager configures the same
+    pragmas as the canonical connection helper.
+    """
+    import sqlite3
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ctx():
+        db_path = get_db_path()
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    return _ctx()
 
 
 def _normalize_labels(value: object) -> dict[str, str] | None:
