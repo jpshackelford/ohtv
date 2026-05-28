@@ -1,3 +1,40 @@
+### 2026-05-28 14:25 UTC - Issue #128 expanded
+
+- Issue: [RAG `ask` and `search` cite sub-conversation IDs the user doesn't recognize](https://github.com/jpshackelford/ohtv/issues/128)
+- **Final sibling in the #122 cluster.** With #128 expanded, the full #122 sub-conversation aggregation cluster (umbrella + 6 siblings: #123 / #124 / #125 / #126 / #127 / #128) is `ready` and waiting on #122's migration-019 PR to unblock implementation.
+- Approach: **Cut shape — render-layer dedup only.** Retrieval stays at chunk grain (per #122 cluster rule that per-conv data — including embeddings — stays at conv grain). `ContextChunk` gains a `root_conversation_id` field populated in `_results_to_context_chunks` (rag.py:223); `source_conversation_ids` set comprehensions at rag.py:373 (`RAGRetriever.retrieve`) + rag.py:517 (`RAGAnswerer.answer_question`) flip to `.root_conversation_id` (two one-liners); `ohtv ask` Sources table (cli.py:3184–3266) groups by `root_conversation_id` and resolves title/date/cloud-URL from the **root** via `conv_store.get(root_id)`; `ohtv search` (cli.py:2640) gets a new `_dedup_by_root(results, conv_store, limit)` helper applied after `embed_store.search_conversations`; `_build_context_text`'s `_format_chunk_header` (rag.py:633) cites the root with `(via sub: <hex8>)` annotation so the LLM cites root IDs in its answer text; `--explain` breakdown (cli.py:2767/2858) shows **both** grains (closes #35 alignment).
+- Rejected alternatives (codified in the body's "Rejected Alternatives" section):
+  - **Pre-aggregate embeddings to root grain** — violates #122 cluster rule; loses signal (subs are often highest-relevance match for the query).
+  - **Hide all sub-conv citations entirely** — same signal loss.
+  - **Backfill to N unique-root citations** — would change `max_chunks` semantics; AC explicitly requires "`min_score` / `max_chunks` semantics are unaffected." Documented as default-NO answer to spawn-prompt gating question (d).
+  - **`--include-sub-conversations` flag (mirror of #125's spelling)** — citation dedup has no legitimate opt-out (the bug is "users don't recognize sub IDs"); the existing `--show-context` and `--explain` flags already expose chunk-grain truth for debugging.
+- **Score aggregation policy: MAX** (spawn-prompt gating question (c) resolved). Defensible against SUM because chunk-level `min_score` semantics would be lied-about by SUM; the cited snippet comes from the max-scoring chunk regardless of which sub it came from — preserves "user sees the most relevant evidence" property.
+- Contrast vs sibling fixes (codified in body + comment):
+  - **#123** = one-line SELECT predicate. **#128** = post-SELECT result-construction-and-render-layer dedup.
+  - **#124** = JOIN-key substitution in DISTINCT sub-select. Not applicable — RAG retrieval is chunk-grain and stays that way.
+  - **#125** = Python `include_subs: bool` flag. **#128 deliberately does NOT add the flag** — no legitimate opt-out for citation dedup.
+  - **#126** = self-healing UPDATE. Orthogonal — different migration (018 not 019), different table.
+  - **#127** = SELECT-layer flag + filter-reduce expansion + subtree rollup. Closest sibling shape; **#128** uses the same conceptual "map sub-id → root-id" trick, but list-shaped (preserves rank order via `OrderedDict`-style dedup) rather than set-shaped. If #127 lands first and exposes `expand_to_roots(conn, set)` in `filters.py`, #128 will add a sibling `map_to_roots(conn, list)` and the two helpers become natural neighbors.
+- Gating questions all resolved without `needs-info`/`needs-split`:
+  - **(a) Cut site**: `RAGRetriever.retrieve` (rag.py:373) + `RAGAnswerer.answer_question` (rag.py:517) for `source_conversation_ids`; `ohtv ask` Sources block (cli.py:3184–3266) and `ohtv search` caller (cli.py:2640) for table-level dedup; `_format_chunk_header` (rag.py:633) for LLM-prompt grain. Single helper `_dedup_by_root` reused across `ask` and `search`. File:line citations in the comment.
+  - **(b) Dedup key**: `root_conversation_id`. No flag-gated opt-out (vs #125's `--include-sub-conversations`) — the bug is "users don't recognize sub IDs," so dedup is unconditional. `--show-context` / `--explain` cover the chunk-grain debugging use case.
+  - **(c) Score aggregation**: MAX. Spawn-prompt's recommendation taken; justification in body's "Score aggregation policy" paragraph.
+  - **(d) Re-ranking / backfill**: **NO backfill.** Body AC explicitly requires `max_chunks` semantics unchanged; backfill would violate that. Spawn-prompt's default-YES recommendation was reversed after re-reading the issue body's AC4.
+  - **(e) Retrieval-time vs render-time**: render-time only. Rejected retrieval-time per #122 cluster rule; codified in "Rejected Alternatives."
+  - **(f) `ohtv search` table output**: dedup applies here too. Same helper as `ohtv ask`. Consistent with #127's flag-on behavior (in spirit — no flag here, but the dedup-by-default policy mirrors #127's roots-only-by-default).
+  - **(g) Title resolution**: from `conversations.title` via `conv_store.get(root_id)`. Confirmed that `conversations_by_root` view (from #122) does NOT carry rendering columns per the cluster spec, so the lookup goes to `conversations` directly.
+  - **(h) Migration-019 guardrail**: `_assert_root_column_present(conn)` called at top of `RAGRetriever.retrieve` and `RAGAnswerer.answer_question` (runtime, not import — keeps tests that don't touch a DB safe).
+- **Verified `expand_to_roots` does not exist yet** (`grep -r expand_to_roots src/ohtv/` returned empty). #127 expanded but unimplemented; #128 introduces its own `_dedup_by_root` + a private `_map_to_roots(conn, list)` helper inside cli.py for now, lift-able into `filters.py` after #127 lands.
+- **Verified `Conversation` model does NOT carry `root_conversation_id` today** (`src/ohtv/db/models/conversation.py:8` inspected). Comment documents a defensive SQL fallback (`SELECT root_conversation_id FROM conversations WHERE id = ?`) for the case where #128 implementation precedes #122's model-field landing. Hard dependency on #122 stated explicitly.
+- Test plan: 4 unit tests for `_dedup_by_root` (collapses-subtree / preserves-standalone / mixed-set / preserves-rank-order), 4 integration tests for `ohtv ask` (groups-by-root / no-backfill / LLM-prompt-cites-root / `source_conversation_ids`-are-roots), 2 integration tests for `ohtv search` (table-dedupes / `--exact`-mode-also-dedupes), 3 regression tests (embeddings-table-unchanged / `--explain`-shows-both-grains / `RuntimeError`-when-migration-missing), 1 subtree fixture in `tests/unit/db/conftest.py` (root R + sub1 + sub2 chained via parent_id + standalone Y; 2-hop chain exercises N-level resolution; deterministic 4-dim vectors for predictable ranking).
+- Files: `src/ohtv/analysis/rag.py` (~30 LOC), `src/ohtv/cli.py` (~50 LOC), tests (~180 LOC), fixture (~25 LOC). `src/ohtv/db/stores/embedding_store.py` = **0 LOC** (just a docstring note clarifying the chunk-grain invariant). `src/ohtv/filters.py` = 0 LOC. `AGENTS.md` deliberately NOT touched (owned by #122 per cluster convention). No new migration — depends on #122's 019.
+- **Cluster status: COMPLETE.** #122 (umbrella), #123, #124, #125, #126, #127, **#128** all expanded ✓. All 7 issues carry `ready` label. Awaiting #122's PR to unblock implementation of the siblings.
+- Labels: `ready` applied. No `needs-info` / `needs-split`.
+
+---
+
+_WORKLOG entry by an AI agent (OpenHands) on behalf of @jpshackelford._
+
 ### 2026-05-28 14:26 UTC - Orchestrator (follow-up)
 
 🎉 **PR #119 merged by @jpshackelford manually** at 14:24:40Z (squash commit `d2465f3e`) — between my merge-worker spawn (~14:20Z) and my worklog push (~14:23Z). Same no-op race pattern as PR #106 on 2026-05-27 15:50Z. Issue #110 auto-closed at 14:24:42Z via `Closes #110`.
