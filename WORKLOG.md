@@ -18,6 +18,46 @@ _This follow-up was created by an AI agent (OpenHands) on behalf of @jpshackelfo
 
 ---
 
+### 2026-05-28 14:24 UTC - Merge Worker
+
+**✅ PR #119 merged.** Squash commit `d2465f3e89b55ba62e4f7b6c6fff323072cd55d1` on `main` at 2026-05-28T14:24:40Z. Branch `feat/sync-test-harness-110` deleted on merge (both local + remote, via `--delete-branch`).
+
+**Issue #110 auto-closed** at 2026-05-28T14:24:42Z (stateReason `COMPLETED`) via the `Closes #110` footer.
+
+**Attribution correction**: the 14:26Z Orchestrator (follow-up) entry above attributes the merge to "@jpshackelford manually". That's incorrect — it was *this* merge worker (`gh pr merge 119 --squash --delete-branch` via the merge worker's `$GITHUB_TOKEN`). The orchestrator wrote that entry before this worker's worklog push and inferred a manual merge from the timing. The squash commit's GitHub-actor is the token-holder for the merge; the substantive content of the orchestrator's entry (commit SHA, time, #110 auto-close, next-cycle dispatch forecast) is unaffected. Not editing the prior entry; this clarification is the canonical record.
+
+**Conventional commit shape used**:
+- Subject: `feat(tests): cloud-sync behavioral harness (#110)`
+- Body bullets: (a) `tests/unit/sync/` lands with `builders.py` + `strategies.py` + `conftest.py` (physical separation; Hypothesis quarantined to its own module so collection-time imports stay cheap), (b) 16 behavioral scenarios covering #110's surface (full-resync, partial-resync, manifest-canonical-metadata, sub-conv exclusion, repair categories), (c) strict-xfail markers gate #111/#112/#113 behaviors; markers come off as features ship, assertions stay, (d) `_RecordingCloudClient` migrated to the new harness; ~8-line dedup refactor in `FakeCloudClient._filter_by_updated_since` per review feedback, (e) `AGENTS.md` paragraph pointing future #111/#112/#113 work at `tests/unit/sync/` and codifying the marker convention
+- Footer: `Closes #110`
+
+**Pre-merge gate verification** (all on head SHA `3cfad657a6f9f42beaceabc06547bf7de4e5024c`):
+- HEAD SHA unchanged since orchestrator handoff — no new commits landed during this cycle.
+- CI: `lint-pr-title/lint` ✅, `tests/pytest` ✅, `PR Review by OpenHands/pr-review` ✅ (3 successful, 0 failing).
+- `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`.
+- Two inline review threads both `isResolved: true` (supply-chain on `uv.lock`, dedup on `tests/unit/sync/fakes.py`) — resolved by the prior review worker at 13:59 UTC per the 13:59Z WORKLOG entry.
+- The blocking `reviewDecision: CHANGES_REQUESTED` came from the `github-actions[bot]` review (id `4375323462`) submitted at 2026-05-27T19:11:59Z on the **old SHA `3a05089`**. That bot's later review on the current SHA `3cfad65` (submitted 14:02:58Z today) flipped to ✅ `COMMENTED` "Worth merging — solid test infrastructure foundation."
+- No human `CHANGES_REQUESTED` review present. @jpshackelford's two reviews on `3cfad65` (13:58:04Z, 13:58:11Z) are `COMMENTED` state, used only to resolve the inline threads.
+
+**Action taken**: dismissed the stale bot `CHANGES_REQUESTED` review with `gh api -X PUT repos/jpshackelford/ohtv/pulls/119/reviews/4375323462/dismissals` and message: _"All inline threads addressed in 3cfad65 / c06de5c; manual test verdict was Ready-to-merge with only test+docs commits since; resolving per ## INSTRUCTION in WORKLOG."_ Response: `DISMISSED`. `reviewDecision` then cleared to `""`, gating released, squash-merge proceeded.
+
+**Manual test re-test decision**: NOT re-run. The manual test was posted by @jpshackelford at 2026-05-27T19:25Z on the earlier SHA `3a05089` with verdict "Ready to merge" (1779 passed, 3 skipped, 10 xfailed). The two commits added since (`c06de5c` dedup refactor in `tests/unit/sync/fakes.py` — test infrastructure only; `3cfad65` docs addition to `AGENTS.md` only) do not touch production code, so per the orchestrate skill's heuristics no re-test is required. The 13:59Z review worker's local `uv run pytest -x` on `3cfad65` produced the same numeric result (1779/3/10), independently corroborating the manual test's verdict on the current SHA.
+
+**`## INSTRUCTION:` honored**: @jpshackelford's draft-PR #130 (`chore/worklog-proceed-on-119`) instruction "no Hypothesis-age policy gate applies; resume the standard PR-slot decision tree on #119" was the gate that allowed merge despite the bot's supply-chain finding (hypothesis 6.153.6 < 7 days old). Rationale already documented in the 13:59Z PR-description "Review-feedback resolution" section: `hypothesis` is in `[dependency-groups] dev`, never ships to user runtime, freshness rule applies to runtime deps only. PR #130 itself **not touched** — leaving it for @jpshackelford to decide whether to merge.
+
+**🟡 Non-blocking observations (NOT filed as issues, per orchestrator instructions)**:
+1. **Stale-SHA bot review pattern is recurring** — this is the 2nd merge in 2 days where a `github-actions[bot]` `CHANGES_REQUESTED` review on an outdated SHA had to be manually dismissed despite all inline threads being resolved and a follow-up bot review on the new SHA explicitly approving. GitHub's behavior is intentional (any unresolved blocking review gates merge) but the bot's own re-review doesn't auto-dismiss the prior verdict. A workflow tweak — having the pr-review action POST a dismissal of its prior `CHANGES_REQUESTED` reviews when the new run lands a non-`CHANGES_REQUESTED` verdict — would close this hole. Not filing because (a) it's a workflow-config change, not an `ohtv` code change, (b) the manual dismissal is fast and well-understood, (c) the orchestrator already has it scripted into the merge-worker spawn prompts.
+2. **`reviewDecision` field is now `""` (empty string) post-dismissal, not `APPROVED`**. PR #119 merged with `mergeStateStatus: CLEAN` regardless because branch protection on `main` does not require an approving review (only that no review is in `CHANGES_REQUESTED`). If branch protection ever tightens to require explicit approval, the dismissal path won't suffice and the bot's positive `COMMENTED` review would need to be a real `APPROVE` instead. Out of scope for today.
+3. **Concurrent-worker race against orchestrator** — orchestrator's 14:26Z follow-up was written after this worker's `gh pr merge` succeeded but before this worker's worklog push (~14:30Z due to rebase-conflict handling). Same race pattern as 2026-05-27 15:50Z PR #106 noted in that entry. Benign — both entries now land on `main` in correct chronological order.
+
+**Files NOT modified during this cycle** (per orchestrator instructions): `AGENTS.md`, any test code, PR #130 / `chore/worklog-proceed-on-119` branch.
+
+**Exit.** No follow-up issues filed. No further workers spawned. WORKLOG entry committed to `main` as `chore(worklog): merge worker — PR #119 merged`.
+
+_Worklog entry by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 14:21 UTC - Orchestrator
 
 **Active Workers:**
