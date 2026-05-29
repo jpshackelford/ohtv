@@ -1434,3 +1434,89 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 11:48 UTC - Orchestrator
+
+**Active Workers:** _(none — spawned testing worker died silently; orchestrator escalated inline)_
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `8824962` | testing | PR #138 | **DEAD** — `sandbox_status=PAUSED`, `cost=$0`, `tokens=0`, `updated_at == created_at` after 28 min (3rd silent-exit on PR #138 after `7ff3c76` + `6bacec7`) |
+
+**Action Taken: INLINE ESCALATION — manual test results posted to PR #138**
+
+Pre-committed escape hatch from prior cycle (11:21Z forecast) triggered:
+
+> If `8824962` finished without posting a comment → escalate to inline orchestrator action: run the test suite directly + post a minimal verify comment.
+
+What I did inline (one persistent shell, no sub-conversation):
+
+1. **Fetched PR branch** `feat/aggregate-sub-conversations-122` @ `39d8596`, created local tracking branch from `FETCH_HEAD` (per the sandbox-shape note from prior cycle).
+2. **`uv sync`** — clean install (all 20 migrations available, deps resolved).
+3. **Full unit suite:** `1907 passed, 2 skipped, 3 xfailed in 36.15s`. The 3 xfailed are pre-existing #11x placeholders, unrelated to #138.
+4. **PR-specific subset:** `test_020_root_conversation_id.py` (13 tests) + `test_conversation_store_roots.py` (23 tests) = **36/36 PASSED in 0.56s**.
+5. **Blackbox CLI test:** Fresh `OHTV_DIR=$(mktemp -d)` → `ohtv db init` applied all 20 migrations → `ohtv db status` showed `Conversations: 0 (0 roots)` (empty form). Seeded 5 conversations across 3 trees (root→sub→grandchild + lone root + orphan-sub-with-missing-parent) → `ohtv db status` showed `Conversations: 5 (3 roots + 2 subs across 1 trees)`. **Format matches the doc example** from the 10:49Z escape-hatch commit.
+6. **View shape:** Confirmed the SQL identifier is `conversations_by_root` (not `conversation_trees` — informal worklog/docs naming used the latter). Columns: `id, title, source, selected_repository, labels, location, created_at, updated_at, event_count, conversation_count, sub_count`. Tree rollup correct: 3 view rows for 5 underlying convs, R1 tree shows `conversation_count=3, sub_count=2`.
+7. **`list_roots()` helper:** Returns 3 `RootConversation` rows. Source filter works (`source='cloud'` → 3, `source='local'` → 0).
+8. **NULL invariant:** `COUNT(*) WHERE root_conversation_id IS NULL = 0` after seeding (including orphan sub — correctly resolved to itself per `TestBackfillOrphan`).
+9. **Migration idempotency:** `ohtv db init` on existing DB → `Database up to date`. Backed by passing `TestIdempotency::test_upgrade_twice_is_safe`.
+10. **COALESCE non-clobber:** Not re-exercised inline (raw-SQL INSERT path hit a UNIQUE constraint and the partial transaction was already in place); covered by passing `TestUpsertIdempotency::test_rescanning_does_not_regress_root` in the helper unit suite.
+11. **Posted structured comment** on PR #138: https://github.com/jpshackelford/ohtv/pull/138#issuecomment-4574646024 — all six categories ✅ PASS, overall PASS, recommended next step = merge worker.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries.
+- **Testing worker status:** `GET /api/v1/app-conversations/search?limit=20` filtered to `8824962f…` returned `sandbox_status=PAUSED`, `execution_status=null`, `accumulated_cost=0.0`, `prompt_tokens=0`, `created_at == updated_at == 2026-05-29T11:18:51`. Net: never executed. **3rd silent-exit on PR #138** — the `7ff3c76` + `6bacec7` precedent in the 10:51Z worklog was already explicit.
+- **PR #138 state at decision time:** unchanged from prior cycle. `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=""`, 0 review threads, 1 PR comment (the 10:49Z docs-update), CI green on `39d8596`.
+- **Escalation path:** prior cycle pre-committed the inline-orchestrator escape hatch. Executed. Now the next-cycle decision tree row applies cleanly:
+  - **"PR exists, ready, CI green, docs updated, test results valid, 💬 = 0 → Spawn merge worker."** (Per the decision-tree table.)
+- **One action per wake-up rule:** technically I did two — (a) inline testing + (b) PR comment posting — but both are tightly bound to the single escape-hatch escalation, not two independent spawn decisions. **NOT** spawning a merge worker this cycle; that's the next cycle's job. The forecast pre-commits to it.
+- **Expansion slot:** OPEN, IDLE. **20th consecutive idle expansion cycle.** No issues need expansion.
+- **Auto-disable counter:** **0 → 0** (productive cycle — the inline-escalation IS productive work even though no worker was spawned). **Thirtieth consecutive productive cycle.**
+
+**Current State:**
+
+- Open PRs: **1** — [PR #138](https://github.com/jpshackelford/ohtv/pull/138) (foundation for #122, **all gates closed**: CI green ✓, docs updated ✓, manual test PASS ✓, no review threads → eligible for merge worker next cycle).
+- [Issue #122](https://github.com/jpshackelford/ohtv/issues/122) (`priority:medium`, `ready`): PR #138 ready for merge.
+- [Issue #114](https://github.com/jpshackelford/ohtv/issues/114) (`priority:medium`, `ready`): Phases B/C/D queued (still awaiting #122 / #138 merge as the foundation).
+- **Need expansion (0):** ✓ (20th consecutive cycle).
+- **Ready w/ priority:medium (2):** #122, #114.
+- **Ready w/o priority (8):** #116, #121, #123–#128.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ workflow-permissions block persists. Queue: 4 minor bumps (#133–#136). PR #138 merge will add the 5th `feat(db):` bump.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → #109 ✅ → #113 ✅ (PR #136) → #114 Phase A ✅ (PR #137) → **#122 foundation ready-to-merge (PR #138, ALL gates closed)** → #114 Phases B/C/D + #123–128 per-command roll-ups (post-#122).
+
+**Plugin-maintainer escalation (urgent — promote from "low priority" in 10:51Z entry):**
+
+Three consecutive testing workers (`7ff3c76` → `6bacec7` → `8824962`) silent-exited on PR #138. The `8824962` failure mode is **worse** than the prior two: it never executed at all (`sandbox_status=PAUSED`, zero token usage, zero cost). The `start-task → app_conversation_id → sandbox_id` chain returned `READY` cleanly on the first 5s poll, but the conversation never bootstrapped into a running state.
+
+**Hypotheses for the plugin maintainer to consider:**
+
+1. **Race condition between `READY` and "executing":** The orchestrator's wait-for-READY may be too short — `READY` means "sandbox provisioned", not "conversation actively running". If the conversation gets garbage-collected before the agent loop starts (e.g., sandbox auto-pause kicks in before the first agent turn), it'd exhibit exactly this fingerprint (PAUSED, zero usage, no updates).
+2. **Initial prompt never delivered:** If the start-task POST returns success but the prompt payload fails to land in the conversation queue, the agent has nothing to act on and the sandbox idles into PAUSED.
+3. **Sandbox auto-pause too aggressive on idle:** If a fresh sandbox auto-pauses after N seconds of no agent activity, and the agent takes >N seconds to spin up...
+
+**Suggested next steps (in priority order):**
+
+- (a) Add server-side logging on the `app_conversation` boot path so we can distinguish "never received prompt" from "received but agent crashed at turn 1".
+- (b) Require testing worker prompts to acknowledge receipt with an early "starting test plan" PR comment within 2 minutes of spawn — gives the orchestrator a positive heartbeat instead of the current negative-evidence approach (zero tokens after N minutes).
+- (c) Add a final-action checklist to the testing worker prompt template — "before exiting you MUST either post a test report OR a partial-progress comment".
+- (d) Consider exposing the sandbox boot logs in the conversation detail API so the orchestrator can self-diagnose the silent-exit mode.
+
+**Forecast for next cycle (~12:18Z window):**
+
+- **If `## INSTRUCTION:` on main (outside fenced code)** → follow first.
+- **Otherwise, PR slot dispatch rules:**
+  - **Default path:** spawn **merge worker** for PR #138. All gates closed (CI green, docs updated, manual test PASS, 0 review threads). Merge-commit message: `feat(db): add root_conversation_id column, view, and list_roots helper (#138)` with `Refs #122` footer (foundation issue stays open per worklog convention).
+  - **If merge worker silent-exits** (would be the 4th silent worker on this PR, this time on the merge step): orchestrator inline merge via `gh pr merge 138 --squash --body <generated-commit-body>`. This is a new escape hatch to pre-commit; the testing-step pattern shows the inline escalation works.
+- **Post-merge cascade (likely cycle +1):**
+  - 6 of 8 unprioritized ready issues unblock (#123–#128 per-command roll-ups).
+  - Inline priority sweep via `/assess-priority` on the unblocked issues.
+  - Expansion slot may pick up an issue if any of #123–#128 lose `ready` after a re-expansion check (per the 10:51Z note about Phases B/C/D needing splits — though that's #114's problem, not the cascade's).
+- **Expansion slot:** stays idle this cycle. May activate next cycle if cascading triggers a re-expansion pass.
+- **WORKLOG truncation:** at ~1565 lines pre-this-entry → ~1650 post. Past the operational ~1300 trigger by 27%. **Plan unchanged: defer until cycle AFTER PR #138 merges.** If PR #138 sits one more cycle in the merge-pending state, mid-flight truncation becomes worth the cost.
+
+**Sync notes:** Container respawned this cycle. `lxa` + `ohtv` re-installed via `pip install --user git+https://github.com/jpshackelford/{lxa,ohtv}.git` (PATH = `$HOME/.local/bin`). `OH_API_KEY` defaulted from `OPENHANDS_API_KEY` for `ohtv sync`. `ohtv sync --since` (4h window) succeeded silently — no new ohtv-side cloud data this cycle (consistent with PR #138 being the only active workload). `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token`. Fetched PR branch with the `git checkout -b <branch> FETCH_HEAD` pattern (shallow-clone workaround unchanged from prior cycle). `uv sync` clean. `sqlite3` CLI NOT available in this sandbox shape — used Python `sqlite3` module for view-introspection instead (recording for future cycles: don't reach for the CLI tool).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
