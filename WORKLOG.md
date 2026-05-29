@@ -1271,3 +1271,101 @@ Per decision-tree row *"PR exists, ready, test results valid, good rating, docs 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 19:51 UTC - Orchestrator
+
+**Active Workers (at cycle entry):**
+
+_Merge worker `a3c3ba0` for PR #146 finished cleanly at 18:52Z. PR #146 was MERGED at 18:52:34Z (commit `604df79`) and Issue #126 auto-closed at 18:52:36Z via `Fixes #126` footer. Two other major events occurred outside the orchestrator pipeline during the gap (see below). PR slot CLEAR at cycle entry._
+
+**Active Workers (at cycle exit):**
+| Conv ID   | Type           | Working On                                          | Status      |
+|-----------|----------------|-----------------------------------------------------|-------------|
+| `456e8f9` | implementation | Issue #121 — CLI logging refactor (priority:high)   | **NEW** running |
+
+**Action Taken: Spawned implementation worker for Issue #121.**
+
+Per decision-tree row *"No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue"*. The only `priority:high` ready issue is #121 (just re-prioritized at 19:46:25Z, ~5 min before this cycle started — see below).
+
+**Major events during the gap (18:52Z → 19:51Z):**
+
+1. **🎉 PR #141 MERGED at 19:31:41Z** by @jpshackelford (human action — the cycle-12 Actions-policy gate was finally resolved). Commit `58d4bdd` on main. Title: `ci: replace release-please with python-semantic-release (tag-on-push) (#141)`. Per `AGENTS.md` (pre-merged in #141), the new release model is: parse conventional-commit subjects since the last `ohtv-vX.Y.Z` tag → bump `pyproject.toml` + `src/ohtv/__init__.py` → append to `CHANGELOG.md` → commit `chore(release): ohtv X.Y.Z [skip ci]` directly to main → push tag → create GitHub Release. End-to-end ~30s. **No release PR.**
+2. **🎉 ohtv-v0.15.0 RELEASED at 19:38:35Z** by the new python-semantic-release workflow. Triggered by `7ff0c4e` ("chore: trigger CI after workflow changes" — also @jpshackelford manual push at 19:37:14Z). Tag `ohtv-v0.15.0` now points at `78de536` (`chore(release): ohtv 0.15.0 [skip ci]`). The `fix(classify):` commit from PR #146 was cleanly batched into 0.15.0 alongside all prior `feat:` commits since `ohtv-v0.14.0` (#138, #133, #135, etc.). Workflow ID 26658188906, ~80s total. Both `release` and `tests` workflows passed.
+3. **🎯 Issue #121 re-prioritized `low` → `high` at 19:46:25Z** by @jpshackelford. This was the 1273-line-WORKLOG triggering signal — the human bumped the next-up after #126 to high-priority CLI logging work. This overrides the 18:51Z forecast that #123/#124 would be next (they remain priority:medium).
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced blocks).
+- **Expansion slot:** OPEN, IDLE. **34th consecutive idle expansion cycle.** 0 issues need expansion (`gh issue list --state open --label - … contains(["ready"]) or contains(["hold"]) | not` → empty array). #145 was previously listed `on-hold`; still on-hold or already absent.
+- **Active conv check:** merge worker `a3c3ba0` paused 18:52:36Z (job complete). No ohtv-tagged worker in `running` status across last 100 convs. PR slot CLEAR.
+- **Open PRs (1):**
+  - **[PR #142](https://github.com/jpshackelford/ohtv/pull/142)**: orphaned release-please PR. Now functionally dead — the release-please workflow that maintained it no longer exists (replaced by python-semantic-release in #141). Last `updatedAt=2026-05-29T18:53:00Z`. Title: `chore(main): release ohtv 0.15.0`. The actual 0.15.0 release was already cut from main by the new workflow (tag `ohtv-v0.15.0` at `78de536`), so this PR's body now references work that is *already merged and released*. **Orchestrator action: SKIP (not blocking workflow; awaiting human close).** I considered inline-closing it but per the orchestrator skill PR #142 has always been "bot-managed/skip" — closing it is a one-shot maintenance action that ideally goes with @jpshackelford's next visit, possibly with a cleanup commit (e.g. removing the `chore: bootstrap releases-please` config file if any remains).
+- **Ready issues with priority:**
+  - `priority:high` (1): **#121** ← spawn target.
+  - `priority:medium` (6): #116, #123, #124, #125, #127, #128.
+  - `priority:low` (0): #121 graduated up.
+- **On hold:** #26, #90 (and possibly #145).
+
+**Why #121 (not #123/#124):**
+
+#121 was re-prioritized to `priority:high` at 19:46Z, AFTER the 17:23Z assess-priority that recommended #123/#124 as next-up. The orchestrator skill's decision tree explicitly says *"Spawn impl worker for highest priority ready issue"* — the priority label is canonical. The 18:51Z forecast is now superseded by the 19:46Z human re-prioritization. The reasoning is sound: #121 fixes a real production-debuggability gap (the `gen objs -D --quiet` "7 err" silent-failure case mentioned in the issue body) that affects every operator using batch operations; #123/#124 are sub-conversation aggregation bugs that #146 just established the schema foundation for (lower urgency, can land in a follow-up cycle).
+
+**Spawn details:**
+
+- **Conv:** [`456e8f9`](https://app.all-hands.dev/conversations/456e8f90236647b392fe6a4d31274577). Start task `d3598f67…` → READY on poll #2 (~10 s) → `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 19:50:48Z. Cosmetic title "Conversation 456e8" (same sandbox-display quirk as prior spawns).
+- **Plugin:** `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- **Prompt highlights (pre-baked, 6007 chars / 75 lines):**
+  - Pointer to the 4-phase technical-approach comment on #121 as the implementation blueprint.
+  - Explicit guidance on the new python-semantic-release model: choice between `feat(cli):` (minor bump → 0.16.0) and `fix(cli):` (patch bump → 0.15.1) framing, with a recommendation to use `feat(cli):` since `--log-level`/`--log-file` are net-new user surface.
+  - Mandatory floor: Phase A (setup_logging refactor) + Phase B (CLI/env wiring with `--verbose` deprecation) + Phase C (batch-swallow audit with `log.exception`) + Phase D (docs truth-up for `OHTV_LOG_LEVEL`/`OHTV_LOG_FILE` and README mention of `~/.ohtv/logs/ohtv.log`).
+  - Acceptable scope-cut: ship A+B and defer C+D to a follow-up issue, with explicit PR-body documentation of the cut.
+  - Reproducer scenario baked in: `gen objs -D --quiet` reporting `7 err` should produce file-log entries (file channel independent of console even when `--quiet`).
+  - Backward-compat: `--verbose` must keep working, marked deprecated, pointing to `--log-level DEBUG`.
+  - Branch: `feat/cli-logging-121` (or `fix/cli-logging-121` if `fix:` framing).
+  - DO NOT list: touch PR #142, push to main (except final WORKLOG update), run `ohtv sync` against real cloud, modify `~/.openhands/`.
+  - AI-attribution footer required on all PR comments/descriptions.
+  - Docs land in-PR (Phase D), not via a follow-up docs worker.
+
+**Silent-exit risk:** Low-medium. Implementation workers with this codebase's prompt structure have a clean track record (most recently `2c12c07` on PR #146 successfully implemented a 4-phase fix INCLUDING a mid-conversation design pivot). The work itself is well-scoped — Phase A is a clear refactor, Phase B is mechanical CLI wiring, Phase C is grep-and-augment, Phase D is docs. The main risk is Phase C scope: "audit batch paths" could expand beyond intended if the implementer finds many sites; the prompt explicitly allows scope-cutting C+D to a follow-up.
+
+**PR #142 disposition:**
+
+Considered three options:
+- **(a) Inline-close PR #142** as orchestrator cleanup. Rejected — touches a PR not in our normal workflow lane, and the orchestrator skill principle is *one action per wake-up*.
+- **(b) Spawn a cleanup conversation** to close #142 + remove any release-please config files. Rejected — would consume the PR slot that's better used for #121.
+- **(c) Leave #142 open and note for human cleanup.** Selected. The next orchestrator cycle that's not at-capacity can pick this up if @jpshackelford hasn't already.
+
+**Worklog truncation deferred (still):** WORKLOG.md was 1273 lines pre-this-entry. The impedance mismatch noted in the 18:51Z entry stands — the truncate-worklog skill's productive-indicator regex doesn't match this codebase's prose-first log style. Will not run truncation this cycle; this is a documented known issue. The size is not yet operationally problematic (1273 lines is ~135 KB, well under the recently-truncated 357 KB archive in `WORKLOG_ARCHIVE_2026-05-27.md`).
+
+**One action per wake-up:** ✓ one spawn (truncation deferred, PR #142 close deferred).
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned implementation worker). **44th consecutive productive cycle.** Not at risk.
+
+**Current State (post-spawn):**
+
+- **Open PRs (1):**
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): orphaned release-please PR; awaiting human close. SKIP.
+- **Active workers (1):** `456e8f9` (implementation, #121).
+- **Released:** [`ohtv-v0.15.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.15.0) at 19:38Z (tag `78de536`).
+- **Need expansion (0):** ✓ (34th consecutive idle cycle).
+- **Ready w/ priority:high (1):** #121 in implementation pipeline.
+- **Ready w/ priority:medium (6):** #116, #123, #124, #125, #127, #128.
+- **Ready w/ priority:low (0):** ⬇ from 1 (#121 graduated up).
+- **On hold (2-3):** #26, #90, (possibly #145).
+
+**Forecast for next cycle (~20:21Z window):**
+
+1. **PR slot — most-likely action:** check `456e8f9`. Implementation envelope: 60-120 min for a 4-phase CLI refactor + tests + docs. Likely NOT done by 20:21Z. If still `running` → status-check only, no action. If `finished`:
+   - Expected: draft PR opened with title `feat(cli): …` or `fix(cli): …`, CI running or green. Next action depends on draft/ready state.
+   - If draft + CI green + all phases delivered → spawn docs spot-check OR move to testing (need to assess what the impl worker decided about Phase D).
+   - If draft + CI failing → wait (impl worker may still be active in retry).
+   - If ready + CI green + no manual test → spawn testing worker.
+2. **Expansion slot:** unchanged, IDLE (35th cycle pending).
+3. **PR #142:** unchanged unless @jpshackelford closes it manually.
+4. **Worklog truncation:** would be ideal candidate for next non-spawn cycle if PR #142 stays put and #121 is still in flight.
+5. **Issue #145 status check:** verify whether it's still `on-hold` or has been re-labeled — the previous 18:51Z entry mentioned it inconsistently.
+
+**Sync notes:** Fresh container this cycle. Tools installed via `.venv` (system-path permission-blocked, same as prior cycles). `ohtv sync` skipped — decision data sourced from `gh` 2.92.0 (`GH_TOKEN=$github_token`) + OpenHands conv API (`OPENHANDS_API_KEY` via `X-Access-Token` header). HEAD pulled at `78de536` (ohtv-v0.15.0).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
