@@ -283,6 +283,36 @@ def test_initial_prompt_source_unknown_counts_as_human(conn: sqlite3.Connection)
     assert report.rows[0].human_messages == 3  # 1 + 2
 
 
+def test_initial_prompt_source_sub_agent_contributes_zero(
+    conn: sqlite3.Connection,
+) -> None:
+    """Issue #126: ``'sub_agent'`` rows contribute 0 words and 0 messages.
+
+    A sub-conversation is an extension of its parent, not an independent
+    triggered run. Counting its words against the change_ref the parent
+    contributed to would double-count work that is already rolled up in
+    the parent's totals. The velocity CASE statement maps ``'sub_agent'``
+    explicitly to ``0`` (rather than relying on the ``ELSE 0`` fallback)
+    so the intent is visible in the SQL.
+    """
+    repo_id = seed_repo(conn, canonical_url="https://github.com/x/y")
+    seed_conversation(conn, "c1")
+    seed_human_input(
+        conn,
+        conversation_id="c1",
+        initial_prompt_words=500,       # ignored
+        initial_prompt_source="sub_agent",
+        followup_word_count=200,        # ignored
+        followup_message_count=10,      # ignored
+    )
+    pr_id = seed_pr(conn, repo_id=repo_id, pr_number=1, merged_at="2024-03-05T12:00:00Z")
+    seed_contribution(conn, conversation_id="c1", change_ref_id=pr_id)
+
+    report = aggregate_velocity(conn=conn)
+    assert report.rows[0].human_words == 0
+    assert report.rows[0].human_messages == 0
+
+
 def test_words_per_loc_zero_denominator(conn: sqlite3.Connection) -> None:
     """All LOC NULL → words_per_loc is None (no divide-by-zero crash)."""
     repo_id = seed_repo(conn, canonical_url="https://github.com/x/y")

@@ -30,6 +30,13 @@ Design notes:
                      msgs  = ``followup_message_count``
   - ``'unknown'``   → treated as ``'human'`` (optimistic default;
                      see issue #83 for proper classification)
+  - ``'sub_agent'`` → contributes ``0`` words and ``0`` messages
+                     (issue #126). A sub-conversation is a delegated
+                     continuation of its parent — its words are already
+                     accounted for in the parent's roll-up, so counting
+                     them again would double-count. The parent's actual
+                     trigger type is recoverable by walking up
+                     ``parent_conversation_id``.
 
 * LOC NULL handling per bucket:
 
@@ -74,6 +81,7 @@ SELECT
             WHEN 'human'      THEN chi.initial_prompt_words + chi.followup_word_count
             WHEN 'automation' THEN chi.followup_word_count
             WHEN 'unknown'    THEN chi.initial_prompt_words + chi.followup_word_count
+            WHEN 'sub_agent'  THEN 0  -- issue #126: subs are extensions of the parent
             ELSE 0
         END
     ), 0) AS human_words,
@@ -82,6 +90,7 @@ SELECT
             WHEN 'human'      THEN 1 + chi.followup_message_count
             WHEN 'automation' THEN chi.followup_message_count
             WHEN 'unknown'    THEN 1 + chi.followup_message_count
+            WHEN 'sub_agent'  THEN 0  -- issue #126: subs are extensions of the parent
             ELSE 0
         END
     ), 0) AS human_messages

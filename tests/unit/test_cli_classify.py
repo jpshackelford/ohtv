@@ -110,6 +110,46 @@ def _read_source(db_path: Path, cid: str) -> str | None:
     return row["initial_prompt_source"] if row else None
 
 
+def _seed_root_and_sub(db_path: Path) -> tuple[str, str]:
+    """Seed 1 root + 1 sub-conversation, both ``initial_prompt_source='unknown'``.
+
+    Used by the issue #126 auto-classification smoke tests. Returns
+    ``(root_id, sub_id)`` (normalised, no dashes).
+    """
+    root_id = "rootcli" + "0".zfill(25)
+    sub_id = "subcli0" + "0".zfill(25)
+    created = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc).isoformat()
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    # Root: parent_conversation_id IS NULL.
+    conn.execute(
+        "INSERT INTO conversations "
+        "(id, location, event_count, title, created_at, parent_conversation_id) "
+        "VALUES (?, ?, ?, ?, ?, NULL)",
+        (root_id, "/tmp/fake/root", 1, "root", created),
+    )
+    # Sub: parent_conversation_id = root_id.
+    conn.execute(
+        "INSERT INTO conversations "
+        "(id, location, event_count, title, created_at, parent_conversation_id) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (sub_id, "/tmp/fake/sub", 1, "sub", created, root_id),
+    )
+    for cid in (root_id, sub_id):
+        conn.execute(
+            """
+            INSERT INTO conversation_human_input (
+                conversation_id, initial_prompt_words, initial_prompt_source,
+                followup_word_count, followup_message_count, processed_at, event_count
+            ) VALUES (?, ?, 'unknown', ?, ?, ?, ?)
+            """,
+            (cid, 5, 0, 0, "2024-06-01T12:00:00+00:00", 1),
+        )
+    conn.commit()
+    conn.close()
+    return root_id, sub_id
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -381,3 +421,147 @@ def test_classify_single_no_such_conversation_distinct_error(
     assert "ohtv db process human_input" not in result.output
     # And it should point at the real remediation.
     assert "ohtv db scan" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Issue #126 — sub-conversation auto-classification, end-to-end
+# ---------------------------------------------------------------------------
+
+
+def test_classify_list_unknown_auto_classifies_subs(
+    runner: CliRunner, isolated_db: Path
+) -> None:
+    """T-F (--list-unknown): auto-step runs ahead of mode dispatch.
+
+    Seeds 1 root + 1 sub (both ``'unknown'``). Runs
+    ``ohtv classify --list-unknown``. After the auto-step the sub is
+    ``'sub_agent'``, so --list-unknown only shows the root.
+    """
+    root_id, sub_id = _seed_root_and_sub(isolated_db)
+
+    result = runner.invoke(main, ["classify", "--list-unknown"])
+
+    assert result.exit_code == 0, result.output
+    # Auto-step notice fires (1 sub flipped).
+    assert "Auto-classified 1 sub-conversation(s) as 'sub_agent'" in result.output
+    # Sub is now 'sub_agent'; root is unchanged.
+    assert _read_source(isolated_db, sub_id) == "sub_agent"
+    assert _read_source(isolated_db, root_id) == "unknown"
+    # --list-unknown output mentions the root's short_id but NOT the sub's.
+    assert root_id[:8] in result.output
+    assert sub_id[:8] not in result.output
+
+
+def test_classify_bulk_auto_classifies_subs(
+    runner: CliRunner, isolated_db: Path
+) -> None:
+    """T-F (bulk): auto-step runs ahead of the bulk apply path.
+
+    Even on the bulk path that only touches 'unknown' rows for roots,
+    the auto-step has already moved subs to 'sub_agent' first — so the
+    subsequent ``--source automation`` heuristic only flips the root.
+    """
+    root_id, sub_id = _seed_root_and_sub(isolated_db)
+
+    result = runner.invoke(
+        main,
+        ["classify", "--no-followups", "--source", "automation", "--confirm"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Auto-classified 1 sub-conversation(s) as 'sub_agent'" in result.output
+    # Sub is 'sub_agent' (auto-step); the bulk heuristic only touches
+    # 'unknown' rows so it does NOT clobber the sub back to 'automation'.
+    assert _read_source(isolated_db, sub_id) == "sub_agent"
+    # The bulk apply flipped the root (no followups, --source automation).
+    assert _read_source(isolated_db, root_id) == "automation"
+
+
+def test_classify_single_auto_classifies_subs(
+    runner: CliRunner, isolated_db: Path
+) -> None:
+    """T-F (single): auto-step runs ahead of ``set_single``.
+
+    The single-conversation override path is the only one where the
+    operator's intent can outlive the auto-step within a single
+    invocation — set_single runs after the auto-step and is allowed to
+    flip already-classified rows (AC5). Target the root here to keep
+    the assertion clean: the auto-step touched the sub, then
+    set_single touched the root.
+    """
+    root_id, sub_id = _seed_root_and_sub(isolated_db)
+
+    result = runner.invoke(
+        main, ["classify", root_id, "--source", "human"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Auto-classified 1 sub-conversation(s) as 'sub_agent'" in result.output
+    # Sub flipped by auto-step.
+    assert _read_source(isolated_db, sub_id) == "sub_agent"
+    # Root flipped by set_single (operator override).
+    assert _read_source(isolated_db, root_id) == "human"
+
+
+def test_classify_auto_step_is_idempotent_across_invocations(
+    runner: CliRunner, isolated_db: Path
+) -> None:
+    """Running classify twice in a row only changes rows on the first call.
+
+    Models AC2 + AC3 idempotency at the CLI surface: invocation #1
+    flips the sub and emits the "Auto-classified 1 sub-conversation(s)"
+    notice; invocation #2 finds nothing to change and emits no notice.
+    """
+    _seed_root_and_sub(isolated_db)
+
+    first = runner.invoke(main, ["classify", "--list-unknown"])
+    second = runner.invoke(main, ["classify", "--list-unknown"])
+
+    assert first.exit_code == 0, first.output
+    assert second.exit_code == 0, second.output
+    # First call: notice present.
+    assert "Auto-classified 1 sub-conversation(s)" in first.output
+    # Second call: no rows changed -> no notice.
+    assert "Auto-classified" not in second.output
+
+
+def test_classify_guardrail_missing_migration_019(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-G (AC7): pre-019 schema raises a clear migration error.
+
+    Builds a tmp DB with just a minimal ``conversations`` table missing
+    ``parent_conversation_id``. Any classify mode must surface the
+    guardrail message before doing any DB work.
+    """
+    ohtv_dir = tmp_path / "ohtv"
+    ohtv_dir.mkdir()
+    db_path = ohtv_dir / "index.db"
+
+    monkeypatch.setenv("OHTV_DIR", str(ohtv_dir))
+    monkeypatch.setenv("OHTV_DB_PATH", str(db_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    # Pre-migration-019 shape: conversations table without
+    # parent_conversation_id. conversation_human_input table present so
+    # the CLI doesn't fail earlier on a different missing-table error.
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT)")
+    conn.execute(
+        "CREATE TABLE conversation_human_input ("
+        "conversation_id TEXT PRIMARY KEY, "
+        "initial_prompt_source TEXT NOT NULL DEFAULT 'unknown', "
+        "followup_message_count INTEGER NOT NULL DEFAULT 0"
+        ")"
+    )
+    conn.commit()
+    conn.close()
+
+    result = runner.invoke(main, ["classify", "--list-unknown"])
+
+    assert result.exit_code == 1, result.output
+    assert "migration 019" in result.output
+    # Rich may wrap "ohtv db scan" mid-string with a soft newline; collapse
+    # whitespace before asserting on the remediation hint.
+    normalized = " ".join(result.output.split())
+    assert "ohtv db scan" in normalized

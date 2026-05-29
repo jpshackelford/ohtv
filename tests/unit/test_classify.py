@@ -41,7 +41,9 @@ from ohtv.classify import (
     InvalidSourceError,
     MissingHumanInputRowError,
     NoSuchConversationError,
+    _assert_parent_column_present,
     apply_classification,
+    apply_sub_classification,
     count_matching,
     list_unknown,
     set_single,
@@ -77,14 +79,20 @@ def _insert_conversation(
     created_at: str | None = None,
     location: str = "/tmp/fake",
     event_count: int = 1,
+    parent_conversation_id: str | None = None,
 ) -> None:
-    """Insert a row into ``conversations``. ID is stored normalised."""
+    """Insert a row into ``conversations``. ID is stored normalised.
+
+    ``parent_conversation_id`` is optional (issue #126); pass a non-NULL
+    value to mark the row as a sub-conversation.
+    """
     if created_at is None:
         created_at = datetime(2024, 6, 1, 12, 0, tzinfo=timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO conversations (id, location, event_count, title, created_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (conv_id, location, event_count, title, created_at),
+        "INSERT INTO conversations "
+        "(id, location, event_count, title, created_at, parent_conversation_id) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (conv_id, location, event_count, title, created_at, parent_conversation_id),
     )
 
 
@@ -602,3 +610,205 @@ class TestListUnknown:
         _insert_conversation(conn, cid)
         _insert_human_input(conn, cid, initial_prompt_source="automation")
         assert list_unknown(conn) == []
+
+
+# ---------------------------------------------------------------------------
+# Issue #126 — sub-conversation auto-classification
+# ---------------------------------------------------------------------------
+
+
+def _seed_root_and_sub(
+    conn: sqlite3.Connection,
+    *,
+    root_source: str = "unknown",
+    sub_source: str = "unknown",
+) -> tuple[str, str]:
+    """Seed one root + one sub. Returns ``(root_id, sub_id)`` (normalised)."""
+    root_id = "root1" + "0".zfill(27)
+    sub_id = "sub01" + "0".zfill(27)
+    _insert_conversation(conn, root_id, title="root")
+    _insert_conversation(
+        conn, sub_id, title="sub", parent_conversation_id=root_id
+    )
+    _insert_human_input(conn, root_id, initial_prompt_source=root_source)
+    _insert_human_input(conn, sub_id, initial_prompt_source=sub_source)
+    return root_id, sub_id
+
+
+def _read_source(conn: sqlite3.Connection, cid: str) -> str | None:
+    row = conn.execute(
+        "SELECT initial_prompt_source FROM conversation_human_input "
+        "WHERE conversation_id = ?",
+        (cid,),
+    ).fetchone()
+    return row["initial_prompt_source"] if row else None
+
+
+class TestApplySubClassification:
+    """Issue #126 — :func:`apply_sub_classification`.
+
+    Test plan (the auto-step writes the system-managed ``'sub_agent'``
+    value introduced by migration 022; see the PR discussion on #146 for
+    why ``'sub_agent'`` is distinct from ``'automation'``):
+
+    * T-A — sub gets auto-classified from ``unknown``.
+    * T-B — sub residual ``human`` (from a pre-fix bulk run) is corrected.
+    * T-B2 — sub residual ``automation`` (from an earlier draft of this
+      fix that reused the automation label) is corrected.
+    * T-C — already-correct sub is a no-op (idempotency).
+    * T-D — sub without a ``conversation_human_input`` row no-ops without
+      raising.
+    * T-E — manual override (``set_single``) wins within one invocation
+      (operator-agency vs deterministic-ground-truth tension).
+    """
+
+    def test_t_a_sub_auto_classified_from_unknown(self, conn):
+        """T-A: sub 'unknown' -> 'sub_agent'; root untouched; returns 1."""
+        root_id, sub_id = _seed_root_and_sub(conn)
+
+        changed = apply_sub_classification(conn)
+
+        assert changed == 1
+        assert _read_source(conn, sub_id) == "sub_agent"
+        # Root is NOT a sub (parent_conversation_id IS NULL) so it must
+        # stay 'unknown' — the auto-step refuses to touch roots even by
+        # accident.
+        assert _read_source(conn, root_id) == "unknown"
+
+    def test_t_b_sub_residual_human_corrected(self, conn):
+        """T-B: residual 'human' on a sub flips to 'sub_agent'.
+
+        Models the post-bug state after a pre-fix
+        ``--has-followups --source human`` bulk run mis-classified subs.
+        """
+        _, sub_id = _seed_root_and_sub(conn, sub_source="human")
+
+        changed = apply_sub_classification(conn)
+
+        assert changed == 1
+        assert _read_source(conn, sub_id) == "sub_agent"
+
+    def test_t_b2_sub_residual_automation_corrected(self, conn):
+        """T-B2: residual 'automation' on a sub flips to 'sub_agent'.
+
+        Models the post-bug state of any DB that ran an earlier draft of
+        issue #126 (which set subs to ``'automation'``) before the
+        switch to a dedicated ``'sub_agent'`` value. The auto-step must
+        repair these silently — operators do not need to re-classify
+        manually.
+        """
+        _, sub_id = _seed_root_and_sub(conn, sub_source="automation")
+
+        changed = apply_sub_classification(conn)
+
+        assert changed == 1
+        assert _read_source(conn, sub_id) == "sub_agent"
+
+    def test_t_c_already_correct_sub_is_noop(self, conn):
+        """T-C: idempotency — second invocation returns 0."""
+        _seed_root_and_sub(conn)
+
+        first = apply_sub_classification(conn)
+        second = apply_sub_classification(conn)
+
+        assert first == 1
+        assert second == 0
+
+    def test_t_d_sub_without_human_input_row_silently_skipped(self, conn):
+        """T-D: sub with no ``conversation_human_input`` row no-ops.
+
+        The ``human_input`` stage hasn't processed the sub yet. The
+        helper's ``UPDATE ... WHERE EXISTS (...)`` form has nothing to
+        update — return 0, no exception, no special-case branch.
+        """
+        root_id = "rootB" + "0".zfill(27)
+        sub_id = "subB1" + "0".zfill(27)
+        _insert_conversation(conn, root_id, title="root no-hi")
+        _insert_conversation(
+            conn, sub_id, title="sub no-hi", parent_conversation_id=root_id
+        )
+        # NOTE: NO _insert_human_input for either row.
+
+        changed = apply_sub_classification(conn)
+
+        assert changed == 0
+
+    def test_t_e_manual_override_wins_within_invocation(self, conn):
+        """T-E: ``set_single`` after the auto-step flips back to 'human'.
+
+        Documents AC5: within one ``ohtv classify`` invocation the
+        operator override is the terminal write. On the NEXT invocation
+        the auto-step would correct it back to ``'sub_agent'`` — that's
+        the desired deterministic-ground-truth behavior.
+        """
+        _, sub_id = _seed_root_and_sub(conn)
+
+        # Step 1: auto-step runs first (this is what the CLI command
+        # body does at the top of `classify`).
+        assert apply_sub_classification(conn) == 1
+        assert _read_source(conn, sub_id) == "sub_agent"
+
+        # Step 2: operator passes `ohtv classify <sub_id> --source human`.
+        # `set_single` flips already-classified rows by design.
+        result = set_single(conn, conversation_id=sub_id, source="human")
+
+        assert result.changed is True
+        assert result.previous_source == "sub_agent"
+        assert result.new_source == "human"
+        assert _read_source(conn, sub_id) == "human"
+
+    def test_followup_counts_untouched(self, conn):
+        """AC6: auto-step only writes ``initial_prompt_source``.
+
+        ``followup_word_count`` and ``followup_message_count`` are
+        written by the ``human_input`` stage from event data and must
+        survive the auto-step unchanged.
+        """
+        root_id = "rootC" + "0".zfill(27)
+        sub_id = "subC1" + "0".zfill(27)
+        _insert_conversation(conn, root_id, title="root")
+        _insert_conversation(
+            conn, sub_id, title="sub", parent_conversation_id=root_id
+        )
+        _insert_human_input(
+            conn,
+            sub_id,
+            followup_word_count=42,
+            followup_message_count=7,
+        )
+
+        apply_sub_classification(conn)
+
+        row = conn.execute(
+            "SELECT followup_word_count, followup_message_count "
+            "FROM conversation_human_input WHERE conversation_id = ?",
+            (sub_id,),
+        ).fetchone()
+        assert row["followup_word_count"] == 42
+        assert row["followup_message_count"] == 7
+
+
+class TestAssertParentColumnPresent:
+    """AC7 — guardrail when migration 019 hasn't run."""
+
+    def test_passes_on_migrated_schema(self, conn):
+        """No exception on the current migration chain (column present)."""
+        _assert_parent_column_present(conn)  # does not raise
+
+    def test_raises_when_column_missing(self):
+        """Drop the column and confirm the guardrail fires.
+
+        Using a fresh in-memory DB and a minimal `conversations` table
+        without the column models the pre-migration-019 state. This is
+        cheaper and more robust than partial-replaying the migration
+        chain.
+        """
+        c = sqlite3.connect(":memory:")
+        c.row_factory = sqlite3.Row
+        c.execute(
+            "CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT)"
+        )
+
+        with pytest.raises(RuntimeError, match="migration 019"):
+            _assert_parent_column_present(c)
+        c.close()
