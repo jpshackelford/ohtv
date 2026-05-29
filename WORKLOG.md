@@ -19,6 +19,28 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
 
+### 2026-05-29 00:15 UTC - PR #134 opened for #108 (sub-conversations)
+
+- Issue: [`#108 - Sub-conversations are silently excluded from sync`](https://github.com/jpshackelford/ohtv/issues/108)
+- PR: [#134 - feat(sync): include sub-conversations in cloud listing (#108)](https://github.com/jpshackelford/ohtv/pull/134) (ready for review; CI green: lint pass 3s, pytest pass 47s, pr-review skipping)
+- Worker: implementation worker `c72b79a` dispatched by orchestrator at 23:50Z, finished cleanly.
+- **Three-step plan from the technical-approach comment, all landed:**
+  - `CloudClient.search_conversations` / `search_all_conversations` / `count_conversations` now take `include_sub_conversations: bool = True` and forward it as `include_sub_conversations=true` (lowercase, locked by regression test) when truthy. Default-on per the issue's reasoning; explicit `False` omits the param entirely so pre-#108 wire shape stays reachable.
+  - Migration **`019_parent_conversation_id.py`** — additive `parent_conversation_id TEXT NULL` column + `idx_conversations_parent` index on `conversations`. Numbering bumped to 019 because PR #133's set-diff engine took 018. Pre-existing rows stay NULL; next sync repopulates from the listing.
+  - `sync.Syncer._listing_row_to_conv_dict` carries `parent_conversation_id` end-to-end (the `_pending_cloud_updated_at` tuple widened from 3 to 4 fields). `db/scanner.extract_metadata` accepts a `parent_map` keyed on the normalized (dash-stripped) conversation id (AGENTS.md #14) and writes the parent id during scan. `ConversationStore.upsert` uses `COALESCE` so scanner-side re-upserts don't clobber sync-written values. Manifest stays parent-agnostic per AGENTS.md #27.
+- **Test delta: 1805 → 1824 passing** (+19), 3 skipped, 4 xfailed, no new xfails, no warnings.
+  - `tests/unit/test_cloud_include_sub_conversations.py` — 8 new tests using `pytest-httpx` to lock the wire shape.
+  - `tests/unit/db/test_scanner.py` — 9 new tests for the `parent_map` round-trip + `load_cloud_listing_parents()` helper, including the dashed/undashed id corner.
+  - `tests/unit/sync/test_behavioral.py` scenarios 17 + 18 — end-to-end `fake_cloud → parent + 1 sub → both land locally with parent id populated` (AC #4) and a regression guard for legacy payloads without the field.
+- All five acceptance criteria satisfied: (1) sub-conversations land locally after sync, (2) `--repair --check-cloud` reports zero gap (`count_conversations` forwards the kwarg too), (3) DB stores `parent_conversation_id`, (4) behavioural test added, (5) no silent exclusion remains — default-on satisfies it.
+- Hard rules honored: no direct push to `main` except this worklog entry; PR #130 not touched; `ready` + `priority:medium` labels on #108 left intact (issue closes on PR merge via `Fixes #108` footer).
+- Bumped `uv.lock` from `0.1.0` → `0.13.0` (was stale; `pyproject.toml` already at 0.13.0). Unrelated to #108 but `uv sync` auto-fixed it during the build.
+- Next cycle: review + merge belong to the orchestrator's next wake-up.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 21:35 UTC - PR #133 re-tested after review round 1
 
 - PR: [#133 - feat(sync): recover from cloud/local gap via set-diff engine](https://github.com/jpshackelford/ohtv/pull/133)
