@@ -14,7 +14,8 @@ Environment variables, data directories, and logging.
 | `OHTV_CONVERSATIONS_DIR` | Local CLI conversations directory | `~/.openhands/conversations` |
 | `OHTV_CLOUD_CONVERSATIONS_DIR` | Synced cloud conversations directory | `~/.openhands/cloud/conversations` |
 | `OHTV_EXTRA_CONVERSATION_PATHS` | Additional conversation directories (colon-separated paths) | None |
-| `OHTV_LOG_LEVEL` | Override default log level (`DEBUG`/`INFO`/`WARNING`/`ERROR`) | `INFO` |
+| `OHTV_LOG_LEVEL` | Default log level (`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`, case-insensitive). Overridden by `--log-level`. | `INFO` |
+| `OHTV_LOG_FILE` | Default log destination. Overridden by `--log-file`. Special values: `-` writes to stderr only; `/dev/null` (or `nul` on Windows) silences file logging. | `~/.ohtv/logs/ohtv.log` |
 | `LLM_API_KEY` | API key for LLM provider | Required for `gen`, `search`, `ask` |
 | `LLM_MODEL` | Default LLM model for `ask` | `openai/gpt-4o-mini` |
 | `LLM_BASE_URL` | Custom LLM base URL | Provider default |
@@ -49,13 +50,63 @@ re-sync, but no source data lives only in `~/.ohtv/`).
 
 ## Logging
 
-ohtv writes structured logs to `~/.ohtv/logs/ohtv.log`:
+ohtv writes logs to `~/.ohtv/logs/ohtv.log` by default:
 
 - Rotates at 1 MB, keeps 3 backups
-- INFO level by default
-- `-v` / `--verbose` on any command also prints DEBUG to console
-- `OHTV_LOG_LEVEL=DEBUG` raises the file-log level globally
+- Default level is `INFO`
+- Format: `YYYY-MM-DD HH:MM:SS LEVEL message` — `grep`/`awk` friendly,
+  not strict JSON
 
-The log format is `timestamp | level | logger | message` — readable with
-`grep`/`awk` but not strict JSON. For machine-readable output, use
-`--format json` / `--format csv` on the command itself.
+### CLI flags
+
+Every command accepts three logging flags (defined once in
+`src/ohtv/cli_logging.py::logging_options`):
+
+| Flag | What it does |
+|------|--------------|
+| `--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}` | Minimum level for all log handlers. Case-insensitive. |
+| `--log-file PATH` | Override the file destination. Use `-` for stderr-only; `/dev/null` (or `nul` on Windows) to silence file logging entirely. |
+| `--log-stderr` | Also send log output to stderr (in addition to the file). |
+
+### Resolution order
+
+For each knob: CLI flag → environment variable → built-in default.
+
+```
+--log-level   → $OHTV_LOG_LEVEL → INFO
+--log-file    → $OHTV_LOG_FILE  → ~/.ohtv/logs/ohtv.log
+```
+
+Example — raise level via env var, override on a single command:
+
+```bash
+export OHTV_LOG_LEVEL=DEBUG          # all ohtv commands default to DEBUG
+ohtv gen objs --log-level WARNING    # this run reverts to WARNING
+```
+
+The logging flags belong to each subcommand (so they come AFTER the
+subcommand name), not the top-level group:
+
+```bash
+ohtv sync --log-level DEBUG --log-stderr     # ✓
+ohtv --log-level DEBUG sync                  # ✗ (unknown option at top level)
+```
+
+### `--verbose` (deprecated)
+
+The legacy `-v`/`--verbose` flag is preserved for backward compatibility
+and behaves as `--log-level DEBUG --log-stderr` plus a one-shot stderr
+deprecation note. Two commands keep `--verbose` for *domain* purposes
+and not logging: `db init --verbose` (show migration steps) and
+`report velocity --verbose` (show rendered SQL). Both also emit the
+logging deprecation note when used; use the explicit `--log-level` flag
+to control logging on those commands.
+
+### What lands in the log
+
+Batch commands (`gen objs`, `gen titles`, `gen run`, `sync` post-hooks,
+`db embed`) **always** record per-item failures to the log file even
+when `--quiet` is set — the file handler is independent of the console
+output suppressed by `--quiet`. If `ohtv gen objs --quiet` reports
+``N err`` and you need to diagnose what failed, look in
+``~/.ohtv/logs/ohtv.log`` for the corresponding tracebacks (Issue #121).
