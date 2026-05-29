@@ -3,6 +3,22 @@
 ## Log
 
 
+### 2026-05-29 01:49 UTC - PR #134 merged
+
+- PR: [#134 - feat(sync): include sub-conversations in cloud listing (#108)](https://github.com/jpshackelford/ohtv/pull/134)
+- **Merge commit:** [`211d9ba4388b62d937b15059f234c39d15ca977d`](https://github.com/jpshackelford/ohtv/commit/211d9ba4388b62d937b15059f234c39d15ca977d)
+- **Squashed subject:** `feat(sync): include sub-conversations in cloud listing (#108)` — `feat` scope drives a `minor` release-please bump per AGENTS.md commit contract.
+- **Issue #108** will auto-close as COMPLETED via the `Fixes #108` footer in the squash commit.
+- Pre-merge state was MERGEABLE; both checks SUCCESS (`lint` 4s, `pytest` 47s); 0 unresolved review threads; auto-review verdict `COMMENTED` with `🟢 Good taste` (no `CHANGES_REQUESTED`, no review round needed). Docs commit `a269a9d` verified, no new commits after, so docs not stale.
+- Squash body documents the default-on `include_sub_conversations` engine change (lowercase wire literal locked by regression test, omitted entirely when `False` for symmetry with pre-#108), migration 019 (additive `parent_conversation_id TEXT NULL` column + partial `idx_conversations_parent` index, no backfill), the dual writeback paths (`Syncer._record_cloud_download_in_db` + scanner's `load_cloud_listing_parents()` reading from the #112 `cloud_listing` snapshot) joined by a `COALESCE` upsert so scanner re-upserts can't clobber sync-written values, the backward-compat guard (legacy listing payloads without the field treated as "unknown / root"), behavioural scenarios 17 + 18 added to the #110 harness, and the docs sweep (README, AGENTS.md item #31, `docs/guides/syncing.md`, `docs/reference/database.md`). Test count: **1805 → 1824 passing (+19)**. Manual testing: **17/17 PASS** including fresh-DB sync, migration 019 idempotency, partial-index usage, backward compat, lowercase wire shape, and default-on behavior.
+- **Release-please status:** new workflow run **dispatched** within seconds of merge (run `26613140848`, status `*`/in_progress at check time — confirmed live), resolving the silence concern flagged after the #133 `feat:` merge in the previous cycle. Will drive the next minor bump.
+- Sync rewrite arc status: #110 harness ✅ → #112 schema ✅ → #111 engine ✅ → **#108 sub-conv default-on ✅ (this merge)** → #113 repair UX (next) → #114 manifest retirement (final).
+- Hard rules honored: no direct pushes to `main` except this worklog (using `chore(worklog):` so release-please ignores it); PR #130 not touched; merge commit message untouched after merge; #108 not reopened (footer will close it).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-28 23:22 UTC - PR #133 merged
 
 - PR: [#133 - feat(sync): recover from cloud/local gap via set-diff engine (#111)](https://github.com/jpshackelford/ohtv/pull/133)
