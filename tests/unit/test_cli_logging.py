@@ -171,3 +171,39 @@ class TestVerboseDeprecation:
             ln for ln in result.output.splitlines() if all(c.isdigit() or c == "," for c in ln)
         ]
         assert levels_line[-1] == "30,30"
+
+    def test_explicit_log_level_suppresses_verbose_deprecation_note(self, tmp_path):
+        """Passing both --verbose and --log-level must NOT print the
+        one-shot deprecation note: the explicit --log-level signals the
+        caller has already moved past --verbose. Matches the PR #147
+        body claim and Test 10 of the manual test report.
+        """
+        cmd = _make_app(tmp_path)
+        runner = CliRunner()
+        # --verbose alone should warn.
+        with_only_verbose = runner.invoke(
+            cmd, ["--verbose"], catch_exceptions=False
+        )
+        assert with_only_verbose.exit_code == 0, with_only_verbose.output
+        only_verbose_text = (
+            with_only_verbose.output
+            + getattr(with_only_verbose, "stderr", "")
+        ).lower()
+        assert "deprecated" in only_verbose_text, (
+            "regression: --verbose alone should still emit the deprecation note"
+        )
+
+        # Reset the one-shot flag so the next invocation starts clean.
+        reset_verbose_warning_state()
+
+        # --verbose + --log-level must NOT warn.
+        with_both = runner.invoke(
+            cmd, ["--verbose", "--log-level", "WARNING"], catch_exceptions=False
+        )
+        assert with_both.exit_code == 0, with_both.output
+        both_text = (
+            with_both.output + getattr(with_both, "stderr", "")
+        ).lower()
+        assert "deprecated" not in both_text, (
+            f"expected --log-level to suppress deprecation note, got: {both_text!r}"
+        )

@@ -146,8 +146,12 @@ def init_logging_from_cli(verbose: bool = False) -> None:
     stderr = bool(opts.get("stderr", False))
 
     if verbose:
-        _warn_verbose_deprecated()
         if level is None:
+            # Only nag when --verbose actually changes behavior. If the
+            # caller already passed an explicit --log-level we treat
+            # that as a signal they've moved past --verbose and skip
+            # the one-shot deprecation note.
+            _warn_verbose_deprecated()
             level = "DEBUG"
         stderr = True
 
