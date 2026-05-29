@@ -10,9 +10,13 @@ prerequisite for accurate human-vs-automation breakdowns in
 `ohtv report velocity` and other downstream metrics.
 
 The command has three behavior modes - single-conversation override, read-only
-discovery, and bulk heuristic with a `--confirm` safety gate. **Bulk
-operations only ever touch rows currently set to `unknown`**, so prior manual
-overrides are never clobbered by a re-run.
+discovery, and bulk heuristic with a `--confirm` safety gate. **The heuristic
+bulk operations only ever touch rows currently set to `unknown`**, so prior
+manual overrides are never clobbered by a re-run of `--no-followups` /
+`--has-followups`. (The automatic sub-conversation step described
+[below](#automatic-sub-conversation-classification) is the one exception — it
+runs on every invocation and *can* overwrite a sub previously set to
+`human`, by design.)
 
 ```bash
 # 1) Discovery - list conversations still classified as unknown.
@@ -60,6 +64,71 @@ against a conversation that does not yet have a row in
 run `ohtv db process human_input` first. Silent inserts would mask an
 unfinished ingestion pipeline and would distort downstream LOC + velocity
 metrics that assume the row reflects the actual events.
+
+## Automatic Sub-Conversation Classification
+
+A **sub-conversation** is a delegated agent run — a conversation spawned by
+another OpenHands conversation rather than initiated by a human. In the
+database, sub-conversations are exactly the rows where
+`conversations.parent_conversation_id IS NOT NULL` (populated by migration
+019 from the cloud listing API; see AGENTS.md item #31).
+
+Sub-conversations are **never human-initiated by definition** — the parent
+agent generates their initial prompt (the delegated task description), so
+the only correct value for `initial_prompt_source` on a sub is `automation`.
+To enforce this invariant, every `ohtv classify` invocation runs a single
+self-healing SQL `UPDATE` *before* dispatching to its mode-specific work
+(single override, `--list-unknown`, or bulk heuristic). The update flips
+every sub-conversation whose `initial_prompt_source` is not already
+`automation` (typically `unknown`, occasionally a stale `human` left over
+from a pre-fix `--has-followups --source human` bulk run) to `automation`.
+
+When the auto-step changes one or more rows, the CLI prints:
+
+```
+Auto-classified N sub-conversation(s) as 'automation'.
+```
+
+(Suppressed when `N = 0`, i.e. the steady-state case once your DB is
+consistent.)
+
+**Key properties:**
+
+- **Always-on.** Runs at the top of every `ohtv classify` invocation —
+  including `--list-unknown` and single-conversation overrides. No new
+  flag, no opt-out.
+- **Idempotent.** A second back-to-back invocation reports `N = 0` and
+  performs no writes (the `WHERE initial_prompt_source <> 'automation'`
+  guard makes the second pass a no-op).
+- **Roots are untouched.** The `WHERE EXISTS (... parent_conversation_id
+  IS NOT NULL ...)` predicate excludes root conversations entirely —
+  their classification is still owned by the heuristic / single-override
+  paths above.
+- **Subs without a `conversation_human_input` row are silently skipped.**
+  If the `human_input` stage has not processed a sub yet, the `EXISTS`
+  join has nothing to update. No error, no special-case branch.
+- **One overwrite case.** If you previously ran
+  `ohtv classify <sub_id> --source human` (or a pre-fix bulk heuristic)
+  and left a sub at `human`, the next `ohtv classify` invocation will
+  revert it to `automation`. This is the intended behavior of Issue
+  \#126: a sub marked `human` was always a misclassification, since the
+  initial prompt on a sub is the parent's delegated task, not a human
+  request.
+- **Within a single invocation, manual overrides still win.** The
+  auto-step runs first, then the mode-specific work. So
+  `ohtv classify <sub_id> --source human` will flip the sub back to
+  `human` *for that invocation* — but the next `classify` run will
+  correct it again. To make a sub stay `human` you would have to suppress
+  the auto-step entirely, which the CLI deliberately does not allow.
+
+**Schema guardrail.** The auto-step requires the
+`conversations.parent_conversation_id` column to exist. If it is missing
+(e.g. an older DB that has not been re-scanned since migration 019), the
+command prints an actionable error and exits non-zero:
+
+```
+Error: classify requires migration 019 (parent_conversation_id); run 'ohtv db scan' to apply pending migrations
+```
 
 ---
 
