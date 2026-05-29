@@ -39,7 +39,16 @@ ohtv db scan -v
 |------|-------------|
 | `-f, --force` | Update all conversations regardless of mtime |
 | `--remove-missing` | Remove DB entries for conversations no longer on disk |
+| `--lock-timeout SECONDS` | Wait up to N seconds for `$OHTV_DIR/sync.lock` instead of failing fast. Default `0` = fail-fast. |
 | `-v, --verbose` | Show detailed output |
+
+> **Writer mutex.** `ohtv db scan` writes to the `conversations` table
+> and so acquires the same `$OHTV_DIR/sync.lock` that `ohtv sync` and
+> `ohtv gen titles` use. The default is fail-fast â€” if `ohtv sync` is
+> running in another terminal or a cron job, `db scan` will exit 1 with
+> a pointer to the lock file. Pass `--lock-timeout=N` to wait. See
+> [reference/database.md Â§ Column Ownership and the `sync.lock` Writer Mutex](../reference/database.md#column-ownership-and-the-synclock-writer-mutex)
+> for the canonical contract.
 
 ## `ohtv db process` - Run Processing Stages
 
@@ -93,14 +102,14 @@ raw git/PR events) and powers the downstream `report velocity`,
 
 Three event types are recognized as **contributions**:
 
-1. **PR creation** — A `gh pr create` / browser-opened-PR event that
+1. **PR creation** â€” A `gh pr create` / browser-opened-PR event that
    creates a new PR. The change_ref is opened in `kind='pr_create'` state
    and linked to the originating conversation. ([PR #78/#88](https://github.com/jpshackelford/ohtv/pull/88))
-2. **PR merge** — A merge event landing on the target branch. Updates the
+2. **PR merge** â€” A merge event landing on the target branch. Updates the
    linked change_ref with `merged_at`. If the original creator
    conversation differs from the merger conversation (e.g. a different
    agent run did the merge), both contributions are recorded.
-3. **Direct push to `main`/`master`** — A `git push` that lands a commit
+3. **Direct push to `main`/`master`** â€” A `git push` that lands a commit
    on the protected default branch *without* an associated PR open/merge
    event. Recorded as `kind='push'` in `change_refs`. ([PR #79/#94](https://github.com/jpshackelford/ohtv/pull/94))
 
@@ -125,7 +134,7 @@ treated as part of a PR workflow (and the PR event provides the
 contribution).
 
 This means **squash-merges and rebase-merges via the GitHub UI are NOT
-direct pushes** — they come with their own merge event. Only literal
+direct pushes** â€” they come with their own merge event. Only literal
 `git push origin main` (or comparable) lands here.
 
 #### Filtering for direct pushes

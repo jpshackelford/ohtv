@@ -306,7 +306,17 @@ ohtv gen titles --pr OpenPaw#17
 | `--batch-size N` | Conversations per LLM call (default: `25`) |
 | `-m, --model MODEL` | LLM model override (e.g. `haiku`) |
 | `-y, --yes` | Skip the >5-conversation confirmation prompt |
+| `--lock-timeout SECONDS` | Wait up to N seconds for `$OHTV_DIR/sync.lock` instead of failing fast. Default `0` = fail-fast. See note below. |
 | `--verbose` | Show debug output |
+
+> **Writer mutex.** `ohtv gen titles` PATCHes cloud titles and writes
+> back to the local manifest + the `conversations` table, so it acquires
+> the shared `$OHTV_DIR/sync.lock` writer mutex (the same one used by
+> `ohtv sync` and `ohtv db scan`). Default is fail-fast — if another
+> writer is running, the command exits 1 with a pointer to the lock
+> file. Pass `--lock-timeout=N` to wait. See
+> [reference/database.md § Column Ownership and the `sync.lock` Writer Mutex](../reference/database.md#column-ownership-and-the-synclock-writer-mutex)
+> for the canonical contract.
 
 **Customizing the prompt:**
 

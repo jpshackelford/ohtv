@@ -18,10 +18,10 @@ auto-generated flag list at any version.
 
 | Command | Purpose | Detailed docs |
 |---|---|---|
-| `ohtv sync` | Mirror cloud conversations to local disk; optionally run the indexing pipeline. | [guides/syncing.md](../guides/syncing.md) |
-| `ohtv sync --update-metadata` | Refresh cached cloud title/labels/`selected_repository`/`created_at` without re-downloading trajectories. | [guides/syncing.md § Metadata refresh](../guides/syncing.md#metadata-refresh---update-metadata) |
+| `ohtv sync` | Mirror cloud conversations to local disk; optionally run the indexing pipeline. Takes the `$OHTV_DIR/sync.lock` writer mutex; pass `--lock-timeout=N` to wait up to N seconds for a contested lock (default `0` = fail-fast). `--status` is read-only and does **not** acquire the lock. | [guides/syncing.md](../guides/syncing.md) |
+| `ohtv sync --update-metadata` | Refresh cached cloud title/labels/`selected_repository`/`created_at` without re-downloading trajectories. Also takes the writer mutex; honors `--lock-timeout`. | [guides/syncing.md § Metadata refresh](../guides/syncing.md#metadata-refresh---update-metadata) |
 | `ohtv db init` | Initialize the SQLite index (idempotent). | [guides/indexing.md](../guides/indexing.md) |
-| `ohtv db scan` | Register new/changed conversations into the index. | [guides/indexing.md](../guides/indexing.md) |
+| `ohtv db scan` | Register new/changed conversations into the index. Takes the `$OHTV_DIR/sync.lock` writer mutex; pass `--lock-timeout=N` to wait (default `0` = fail-fast). | [guides/indexing.md](../guides/indexing.md) |
 | `ohtv db process [stage]` | Run an indexing stage (or `all`). | [guides/indexing.md](../guides/indexing.md) |
 | `ohtv db status` | Print sizes, counts, last-run timestamps. | [guides/indexing.md](../guides/indexing.md) |
 | `ohtv db reset` | Delete the index DB (prompts unless `-y`). | [guides/indexing.md](../guides/indexing.md) |
@@ -48,7 +48,7 @@ auto-generated flag list at any version.
 | Command | Purpose | Detailed docs |
 |---|---|---|
 | `ohtv gen objs` | Extract user objectives per conversation. | [guides/analysis.md § gen objs](../guides/analysis.md) |
-| `ohtv gen titles` | Auto-rename placeholder-titled cloud conversations from cached `gen objs` analyses. | [guides/analysis.md § gen titles](../guides/analysis.md) |
+| `ohtv gen titles` | Auto-rename placeholder-titled cloud conversations from cached `gen objs` analyses. Takes the `$OHTV_DIR/sync.lock` writer mutex (it PATCHes cloud titles and writes back to the manifest + DB); pass `--lock-timeout=N` to wait (default `0` = fail-fast). | [guides/analysis.md § gen titles](../guides/analysis.md) |
 | `ohtv gen run <job>` | Run a periodic or aggregate analysis job (weekly report, theme discovery, …). | [guides/analysis.md § gen run](../guides/analysis.md) |
 | `ohtv prompts list` | List shipped + customized prompts. | [guides/customizing-prompts.md](../guides/customizing-prompts.md) |
 | `ohtv prompts show <name>` | Print a prompt's body. | [guides/customizing-prompts.md](../guides/customizing-prompts.md) |
