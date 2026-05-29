@@ -1842,3 +1842,95 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 22:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `069782a` | expansion | Issue #145 | dead (61+ min, zero artifact) |
+
+**⏸ NON-PRODUCTIVE CYCLE — spawn dispatch still broken. No spawn attempted.**
+
+**One correction to the 22:17Z diagnostic, then carry forward:**
+
+The prior cycle classified five conversations as "dead spawns" using the rule `updated_at == created_at`. That rule is **unreliable**. Counter-example from the prior cycle itself: orchestrator wake-up `e895bd4` (created 22:15:50.785694Z, updated 22:15:50.785695Z — equal to microsecond) **DID** successfully push commit `68331e5` ("orchestrator diagnostic — systemic spawn failure since 21:15Z") at 22:19:32Z. Same for orchestrator `246d9be` (21:45:48Z, updated == created) which inline-merged PR #147 and pushed commit `8cf7249` at 21:50:54Z. The OpenHands API's `updated_at` field appears stale for all finished/finishing conversations on this account — every conversation in the last 5 hours reports `execution_status: null`, `has_finished_at: null`, `last_event_id: null`, `error: null`, `runtime_status: null` regardless of whether it actually worked.
+
+The only **reliable** death signal is absence of artifact (issue update, PR commit, worklog entry).
+
+**Applying the corrected signal:**
+
+| Conv ID | Spawn | Purpose | Artifact? | Verdict |
+|---------|-------|---------|-----------|---------|
+| `e895bd4` | 22:15 cron | orchestrator | commit `68331e5` ✓ | **healthy** |
+| `069782a` | 21:49 POST | expansion #145 | none after 61 min | **dead** |
+| `246d9be` | 21:45 cron | orchestrator | commit `8cf7249` ✓ | **healthy** |
+| `ad8a0ea` | 21:19 POST | expansion #145 | none after 91 min | **dead** |
+| `17b6d1b` | 21:19 POST | merge #147 | none (orchestrator inline-merged) | **dead** |
+| `fd62236` | 21:15 cron | orchestrator | commit `667f3f7` ✓ | **healthy** |
+| `51498a6` | 20:50 POST | impl/review #147 | commits on PR #147 ✓ | **healthy** |
+
+**Refined diagnosis: cron-triggered orchestrator wake-ups are healthy. POST-API child spawns from the orchestrator broke somewhere in the 20:50Z → 21:19Z window.** Last known-good child spawn: `51498a6` (20:50Z, on PR #147). First known-bad: `17b6d1b` + `ad8a0ea` (both 21:19Z, from the same orchestrator wake-up at 21:15Z).
+
+**Wake-up checks (in order):**
+
+1. **Human INSTRUCTION check ✓**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+2. **Issue #145 evidence ✗**: `updatedAt: 2026-05-29T21:10:03Z` (predates both 21:19 and 21:49 expansion spawns), 0 comments, 0 labels, body unchanged at 430 chars. **Hard confirmation `069782a` and `ad8a0ea` produced zero output.**
+3. **Open PRs ✓**: 0. PR #147 merged at 21:48:18Z (orchestrator-driven via jpshackelford token); ohtv-v0.16.0 released; PR #142 closed.
+4. **Expansion queue**: 3 issues (#145 / 145 expansion, #148 LiteLLM warnings, #149 5-level context — newly filed 22:10Z, 4716-char user-written body, likely doesn't need expansion).
+5. **Ready queue**: 6 priority:medium (#116, #123, #124, #125, #127, #128), 0 priority:high.
+
+**Why no spawn this cycle:**
+
+- Prior cycle's EV≈0 calculus for a 3rd #145 spawn stands. 2 failures in 30 min is decisive.
+- Spawning impl from the priority:medium queue would consume an even more expensive spawn slot through the same broken pipe.
+- "Test spawn" on a fresh issue (#148 or #149) is tempting (1 more data point), but the dispatch failure spans a 95-min window covering 3 spawn attempts — pipeline is unambiguously broken, not flaky. One more dead spawn would be wasted observability.
+
+**Why not inline-do the expansions:**
+
+- 3 issues queued. Doing #145 + #148 + #149 inline would 5x this cycle's context.
+- #149 already has a 4716-char user-written body — likely needs minimal expansion (review-only). Could inline it cheaply if dispatch stays broken into the next cycle.
+- #145 (430-char body) needs real codebase exploration. Wrong for the orchestrator loop.
+
+**Why not auto-disable:**
+
+- Auto-disable rule: 2 consecutive "All quiet" entries. This is "broken dispatch" not "no work" — counter stays at 0.
+- Disabling would hide the systemic failure from @jpshackelford. Wrong signal.
+
+**Why not escalate yet (open tracking issue, etc.):**
+
+- Prior cycle's forecast: "After 2-3 more diagnostic cycles, escalate." This is cycle #2 of broken-dispatch. One more diagnostic cycle (the 23:15Z wake-up) before escalation.
+- The 22:17Z worklog entry contains the recommended human action and is on `main`. The human signal is already visible.
+
+**Auto-disable counter: 0 → 0.** **50th consecutive non-quiet cycle.** **Cycle #2 of broken-dispatch.** Not eligible for auto-disable.
+
+**Current State:**
+
+- **Open PRs (0)**: clean slate. PR #147 merged ✓, PR #142 closed ✓.
+- **Released**: [`ohtv-v0.16.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.16.0) ✓.
+- **Active workers (0)**: `069782a` confirmed dead (61+ min, no artifact). No replacement spawned.
+- **Need expansion (3)**: #145 (oldest, 2 dead spawns), #148, #149 (#149 has thorough user body — light-touch expansion may suffice).
+- **Ready priority:high (0)**.
+- **Ready priority:medium (6)**: #116, #123, #124, #125, #127, #128.
+- **On hold (2)**: #26, #90.
+
+**🛠 Recommended human action (@jpshackelford) — repeat from 22:17Z cycle:**
+
+The full diagnosis is in the 22:17Z worklog entry. Short version:
+1. POST-API child spawns from this orchestrator stopped working in the 20:50Z→21:19Z window.
+2. Cron-triggered orchestrator wake-ups continue to function fine (this entry is proof).
+3. Likely culprits: OpenHands platform-side dispatch rollout, capacity/quota issue, OPENHANDS_API_KEY scope change, payload-size limit change.
+4. Last known-good POST spawn: `51498a6` at 20:50Z (worked on PR #147). First known-bad: `ad8a0ea`/`17b6d1b` at 21:19Z.
+
+**Forecast for next cycle (~23:15-23:20Z window):**
+
+1. **If dispatch healed**: spawn expansion for #145 (oldest); skip #149 (user body sufficient — may add `ready` label inline after spot-read); `/assess-priority` inline + spawn impl for top priority:medium pick (likely #116, lowest risk).
+2. **If dispatch still broken (cycle #3 of broken-dispatch)**: **escalate** — open a tracking issue on the repo titled "Orchestrator child-spawn dispatch broken since 21:19Z 2026-05-29" with the 22:17Z + 22:50Z analyses. Then exit. Don't keep silently retrying.
+3. **If dispatch healed AND #145 was actually touched by `069782a` very late**: nice surprise, proceed normally.
+
+**Worklog truncation**: 1844 lines pre-this-entry. Skill mismatched to prose log style (documented). Deferring.
+
+**Sync notes:** Fresh container this cycle. Installed `lxa` + `ohtv` via `pip install --user` (uv blocked by no-venv). `gh` 2.92.0 with `GH_TOKEN=$github_token`. State from `gh` + OpenHands conv search API. HEAD pulled at `68331e5` (prior cycle's diagnostic). No spawn payload constructed — no spawn attempted.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
