@@ -1520,3 +1520,93 @@ Three consecutive testing workers (`7ff3c76` → `6bacec7` → `8824962`) silent
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 12:23 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| _none_ | — | — | — |
+
+**Action Taken: HOLD — defer PR #138 merge worker (PR #141 must land first)**
+
+**Pivot from prior cycle's forecast.** The 11:54Z entry pre-committed to spawning a merge worker for PR #138 this cycle. New evidence flipped the decision:
+
+A new PR appeared while the prior cycle was running: [**PR #141 — `ci: replace release-please with python-semantic-release (tag-on-push)`**](https://github.com/jpshackelford/ohtv/pull/141), opened by @jpshackelford at 12:03:20Z (20 min ago at decision time). The PR body explicitly names PR #138 as the **downstream beneficiary** of the new release pipeline:
+
+> "After this merges: ... Next feat:/fix: merge (**e.g. PR #138 when it lands**) → workflow runs → parses commits since `ohtv-v0.14.0` → bumps version → commits + tags `ohtv-v0.15.0`..."
+
+Translation: PR #141 was deliberately created to fix the `release-please` workflow-permissions block (the recurring failure documented across the last ~10 worklog entries) **before** PR #138 lands, so PR #138 ships under a clean tag-on-push pipeline instead of getting stuck behind the broken release-PR flow.
+
+**If we had spawned the merge worker for PR #138 this cycle**, the merge would have triggered `release-please.yml` → workflow-permissions failure → PR #138's `feat(db):` commit joins the orphan queue (#133–#136 + #137) → PR #141 lands → python-semantic-release first run sees the orphaned commits + #138 since `ohtv-v0.14.0` and ships them as one bump. Functionally recoverable, but it wastes the explicit pre-stage the human set up.
+
+The conservative read — let PR #141 land first — costs at most one orchestrator cycle of latency (~30 min) and matches the human's stated intent verbatim. Forecast for THIS cycle changed accordingly.
+
+**Conversation provenance check (no phantom workers):**
+
+- `216c005` (11:46Z, 33 actions, 0 user/agent messages, ended 11:55Z, refs PR #138 + #114 + #122 + `main`) — **this is the prior orchestrator cycle's inline-test work**, not a worker. Action transcript confirmed: starts with "Check current repo state and branch" → "Ensure lxa and ohtv tools are installed" → "Check WORKLOG.md for unacknowledged human instructions" → ... → "Run full unit test suite". Matches the 11:54Z entry's inline-escalation narrative exactly. **Not** a 4th silent-exit on PR #138.
+- `f4cbf6c` (11:11Z, 180 events, 8 user + 8 agent messages, ended 12:03:35Z, refs include PR #140 + #141 + `ci/swap-to-python-semantic-release`) — **human-initiated session**, title `📝 Review worklog & recent PRs for ohtv`, first user turn: "please check the worklog.md and merged PRs over last 24 hours for [jpshackelford]/ohtv and let me know what has been going on." The session ended at 12:03:35, fifteen seconds after PR #141 was opened — i.e., this is the session that produced PR #141. **Not** an orchestrator worker. The 17m idle reading is just clock drift since it ended; the conversation is finished.
+- No live workers anywhere. Both slots are open.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries.
+- **Expansion slot:** OPEN, IDLE. **21st consecutive idle expansion cycle.** Issues needing expansion (no `ready`, no `hold`): **0**. The ready-queue cap (10 issues) plus the held #26 + #90 plus the 21 cycles without a fresh issue means the expansion slot is structurally idle until the human files new issues. (Reminder for the human: when filing new bug reports / enhancement requests, the orchestrator will auto-spawn an expansion worker on the next cycle. No action needed from you.)
+- **PR slot:** Two open PRs (violates the "0 or 1" assumption, intentionally):
+  - **[PR #138](https://github.com/jpshackelford/ohtv/pull/138)** — `feat/aggregate-sub-conversations-122` @ `39d8596`. State unchanged from prior cycle: CI green, `mergeStateStatus=CLEAN`, docs ✓ (10:49Z), manual test PASS ✓ (11:54Z inline), 0 review threads. **Eligible for merge, but deferred** pending PR #141. `lxa pr list` confirms `oCFc green ready -- 27m`.
+  - **[PR #141](https://github.com/jpshackelford/ohtv/pull/141)** — `ci/swap-to-python-semantic-release` @ `2b88202`. State: `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=""`, 0 review threads, 0 comments, 0 reviews, **`statusCheckRollup=[]` (no CI checks reported yet)** — typical for a fresh PR ~20 min old where GitHub Actions hasn't fired the workflow run report into the GraphQL view yet. Will revisit next cycle.
+- **One action per wake-up rule:** zero spawns. This is intentional, not a missed opportunity.
+
+**Why not also pick up PR #141 right now?**
+
+Two reasons:
+
+1. **CI not green yet** (`statusCheckRollup=[]`). The decision tree's PR-slot first row is "CI must be green to test." Spawning a testing worker against a PR with no CI signal is a setup for the same silent-exit failure mode we just fought — the worker would either wait indefinitely or run tests against unverified-by-CI code.
+2. **No "docs updated" comment from a docs worker.** PR #141's body claims `AGENTS.md` + `CHANGELOG.md` are updated in-PR (per the body diff). When CI lands green next cycle, the orchestrator should verify the in-PR docs update qualifies (so no separate docs worker needed) → spawn testing worker directly. Pre-commit that path below.
+
+**Current State:**
+
+- Open PRs: **2**
+  - [PR #138](https://github.com/jpshackelford/ohtv/pull/138) (Issue #122 foundation): merge-ready, **deferred** behind PR #141.
+  - [PR #141](https://github.com/jpshackelford/ohtv/pull/141) (release-pipeline swap): fresh, awaiting CI start.
+- [Issue #122](https://github.com/jpshackelford/ohtv/issues/122) (`priority:medium`, `ready`): PR #138 ready, waiting on PR #141.
+- [Issue #114](https://github.com/jpshackelford/ohtv/issues/114) (`priority:medium`, `ready`): Phases B/C/D queued (still blocked on #122 / PR #138 merge).
+- **Need expansion (0):** ✓ (21st consecutive cycle).
+- **Ready w/ priority:medium (2):** #122, #114.
+- **Ready w/o priority (8):** #116, #121, #123–#128.
+- **On hold:** #26, #90.
+- **Release-please:** ⏳ being retired in-flight by PR #141. After PR #141 + PR #138 land, the orphan queue (#133–#136 + #137) ships in the first python-semantic-release run.
+
+**Forecast for next cycle (~12:53Z window):**
+
+The decision-tree path branches sharply on PR #141's CI state. Pre-commit both branches now so next cycle doesn't have to re-derive:
+
+- **Path A — PR #141 CI is green:**
+  - The PR body itself says `AGENTS.md` + `CHANGELOG.md` + `README` impact were addressed in-PR. Verify via `gh pr diff 141 --name-only | grep -iE '(readme|agents|changelog)'` — if AGENTS.md is in the diff, count it as "docs updated" (functional equivalent for a CI-only PR) and skip the docs worker.
+  - **Spawn testing worker** for PR #141 with a focused prompt: verify that (a) the new workflow file parses (`yamllint .github/workflows/release.yml`), (b) `pyproject.toml`'s `[tool.semantic_release]` block validates by running `uvx python-semantic-release version --print --noop` against the working tree (dry-run that prints what the next version would be), (c) the existing `pr-title.yml` is untouched, (d) the deleted release-please files are actually deleted (`git ls-files | grep -i release-please` returns empty), and (e) the `ohtv-v0.14.0` tag is still the diff anchor. Also re-run the existing unit suite to guard against accidental coupling.
+  - **Continue to defer PR #138** in the same cycle.
+- **Path B — PR #141 CI is failing:**
+  - Likely the new `release.yml` has a syntax / permissions issue. **Spawn implementation worker** (NOT review — this is the original author's intent that didn't validate) to diagnose and fix. The worker should NOT touch PR #138.
+- **Path C — PR #141 CI still pending (`statusCheckRollup=[]`):**
+  - **Hold again.** This would be the second hold cycle for PR #141. After three consecutive holds (~90 min total), escalate inline: check the Actions tab via `gh run list --repo jpshackelford/ohtv --branch ci/swap-to-python-semantic-release` to verify the workflow even *triggered*. If not, the human may need to re-push or check repo-level workflow permissions.
+- **Path D — `## INSTRUCTION:` from human** (e.g., "merge #138 anyway, don't wait"): override the deferral.
+
+**Post-PR-#141-merge cascade (cycle +N):**
+- First `python-semantic-release` run on `main` parses commits since `ohtv-v0.14.0` and ships the bump (covering #133, #134, #135, #136, #137 = 5 `feat`/`fix` commits already on main). Tag → `ohtv-v0.15.0` (minor, no major because of `major_on_zero = false` per #141 config).
+- Then unblock PR #138: spawn the long-deferred merge worker. Its `feat(db):` merge fires the new release workflow → `ohtv-v0.15.1` (or `.0.16.0` if there's another `feat:` ahead of it in the next concurrency-grouped run).
+- Then the post-#138 cascade from the prior worklog: 6 of 8 unprioritized ready issues (#123–#128) unblock; inline `/assess-priority`; #114 Phases B/C/D unblock.
+
+**Auto-disable counter (consecutive quiet cycles):**
+
+- **0 → 0** (productive cycle — new PR observed, decision-tree branch pivoted, three forecast paths pre-committed). **31st consecutive productive cycle.** Not at risk of auto-disable.
+
+**WORKLOG truncation status:**
+
+- Current size: **1522 lines pre-this-entry → ~1640 post**. Past the operational `~1300` trigger by 26%.
+- Prior cycle deferred truncation "until cycle AFTER PR #138 merges." Now that PR #138 is *further* from merge (one cycle minimum, plus PR #141's full review/test/merge cycle ahead of it), the truncation horizon recedes another 2–4 cycles.
+- **Re-cost the trade-off:** Letting the worklog grow another 4 cycles → ~2000 lines. That's expensive context for every future orchestrator cycle (the housekeeping step reads `tail -100`, but spawn-decision steps `grep` the whole file). **Adjustment: trigger truncation NOW if next cycle (12:53Z) shows PR #141 still CI-pending.** That decouples the truncation from the increasingly-distant PR #138 merge. Pre-commit: if Path C again, run `/truncate-worklog` inline before logging next cycle's entry.
+
+**Sync notes:** Container respawned this cycle (per the new clone in `/workspace/project/ohtv`). Re-installed `lxa` + `ohtv` via `pip install --user`. `OH_API_KEY` defaulted from `OPENHANDS_API_KEY` for `ohtv sync`. `ohtv sync --since 4h` succeeded (silent). `lxa repo add jpshackelford/ohtv` created an unnamed board (one-time per container — recording so future cycles don't re-flag it). The `app-conversations/search` direct API call hit rate-limit (`100 per 1 minute`) once — `ohtv list` is the correct primary interface; the curl-to-API was a sanity-check that's not strictly needed when `ohtv` is installed. Removing the curl step from the orchestrator's standard flow next cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
