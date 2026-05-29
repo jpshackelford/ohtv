@@ -957,3 +957,37 @@ This is the success path for the 16:54Z merge-worker completion: PR slot opened 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## chore(worklog): impl worker shipped #126 as PR #146
+
+**Cycle:** 2026-05-29T17:30Z (impl worker for issue #126).
+
+**Branch:** `feat/classify-short-circuit-subs-126` (1 commit, conv-grammar `fix(classify):`).
+
+**PR:** https://github.com/jpshackelford/ohtv/pull/146 — opened draft, CI green (lint pass / pytest pass / pr-review skipping), promoted to ready.
+
+**Scope shipped:**
+
+- `src/ohtv/classify.py` — new `apply_sub_classification(conn) -> int` helper (single SQL UPDATE that flips every non-`'automation'` sub to `'automation'` via `WHERE EXISTS` on `conversations.parent_conversation_id IS NOT NULL`; idempotent in both directions; can overwrite residual `'human'`/`'unknown'`). New `_assert_parent_column_present(conn)` guardrail mirroring the #123/#124/#125 pattern.
+- `src/ohtv/cli.py` — single auto-step inserted right after `is_db_available()` and before mode dispatch in the `classify` command body. Prints `[dim]Auto-classified N sub-conversation(s) as 'automation'.[/dim]` when N > 0.
+- `tests/unit/test_classify.py` — 8 new tests covering T-A / T-B / T-C / T-D / T-E from the issue body, plus follow-up-counts invariance and the guardrail.
+- `tests/unit/test_cli_classify.py` — 5 smoke tests covering all three CLI modes (`--list-unknown`, bulk apply, single-conv), invocation-level idempotency, and the migration-019 guardrail.
+- Total: 1946 unit tests passing, 0 regressions.
+
+**Divergence from expanded spec:** the issue body and tech-approach comment refer to "migration 018" for `parent_conversation_id`. On `main` today this column is added by **migration 019** (`019_parent_conversation_id.py`) — `018_set_diff_sync_schema.py` is the #112 set-diff sync schema that landed first and consumed the 018 slot. Documented in the PR description; guardrail error message says "migration 019" to match reality. Column check itself is name-based not number-based, so the behavior is identical.
+
+**AC sweep (all met):**
+
+- AC1 — helper exists, single UPDATE, returns row count.
+- AC2 — all three CLI modes call the auto-step before mode-specific work.
+- AC3 — T-A (sub `unknown` → `automation`, root unchanged; zero LLM imports in `classify.py` per archaeology).
+- AC4 — T-B (residual `'human'` on sub auto-corrected).
+- AC5 — T-E (`set_single` after auto-step flips back to `'human'` within one invocation).
+- AC6 — `test_followup_counts_untouched` (auto-step only writes `initial_prompt_source`).
+- AC7 — T-G (missing column → friendly `RuntimeError` with `migration 019` + `ohtv db scan` remediation).
+
+**Next workers:** docs / testing / review / merge are separate. Exiting now.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
