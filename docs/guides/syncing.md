@@ -38,8 +38,9 @@ ohtv sync --dry-run
 ohtv sync --status
 
 # Check and repair sync state consistency
-ohtv sync --repair --dry-run  # Check only
-ohtv sync --repair            # Fix inconsistencies
+ohtv sync --repair --dry-run        # Diagnostic only — never writes
+ohtv sync --repair                  # Apply non-destructive fixes (download gaps, refetch modified)
+ohtv sync --repair --prune          # Also delete locally for items removed from cloud
 
 # Refresh cached cloud metadata (title, labels, selected_repository,
 # created_at) for already-synced conversations — picks up cloud-side
@@ -59,7 +60,8 @@ ohtv sync --quiet
 | `-n, --max-new` | Maximum number of NEW conversations to sync (no limit on updates) |
 | `--dry-run` | Show what would sync without downloading |
 | `-s, --status` | Show sync status |
-| `--repair` | Check and fix sync state (manifest vs disk vs cloud) |
+| `--repair` | Check (and with `--fix`, repair) sync state via a four-bucket cloud-vs-local set diff plus the legacy ghost/orphan manifest diff. See [Repair](#repair-ohtv-sync---repair) below for the full bucket definitions, action matrix, and lock semantics. |
+| `--prune` | **Only valid with `--repair` (without `--dry-run`).** Authorizes deletion of local conversations that have disappeared from the cloud listing (`removed_from_cloud` bucket). Passing `--prune` outside that combination is a hard error (Click `UsageError`, exit 2). |
 | `--update-metadata` | Refresh cached cloud metadata (`title`, `labels`, `selected_repository`, `created_at`) for already-synced cloud conversations **without** re-downloading. Mutually exclusive with `--force`, `--since`, `--max-new`, `--repair`, `--status`. |
 | `-p, --process` | Run all processing stages after sync |
 | `-q, --quiet` | Minimal output for cron jobs |
@@ -117,8 +119,11 @@ Every `ohtv sync` runs two phases:
    - `stale_locally` (`cloud_listing.updated_at != local
      cloud_updated_at`) → **refetch** (uses `!=`, not `>`, so a
      backdated `updated_at` on the cloud is still honored)
-   - `removed_from_cloud` → **no-op** (detected but not acted on; the
-     `--repair` UX from a future iteration will own pruning)
+   - `removed_from_cloud` → **no-op during normal sync** (the count is
+     surfaced on `SyncResult.removed_from_cloud` and a `WARNING` log
+     line is emitted, but no rows or files are deleted). Deletion is
+     opt-in through `ohtv sync --repair --prune` — see
+     [Repair](#repair-ohtv-sync---repair) below.
    - present + in-sync → **no-op**
 
 Downloads commit incrementally per item. A re-run against a fully
@@ -141,12 +146,17 @@ follow-up issue rather than baked in pre-emptively.
 
 When the listing pass observes that a conversation present in the
 local manifest no longer appears in the cloud listing, the engine
-removes the manifest entry so the work list stays coherent and emits
-a `WARNING`-level log line (`Removed N conversation(s) from manifest
-(no longer visible in cloud listing).`). The full user-facing report
-+ prune action is tracked under a follow-up issue (#113); the warning
-is the interim signal so accidental cloud-side data loss or permission
-changes do not silently shrink the manifest.
+removes the **manifest entry** so the work list stays coherent and
+emits a `WARNING`-level log line (`Removed N conversation(s) from
+manifest (no longer visible in cloud listing).`). The number of items
+treated this way is surfaced on `SyncResult.removed_from_cloud` so
+scripts wrapping `ohtv sync` can observe it.
+
+The DB row and on-disk trajectory are **not** deleted by normal sync.
+To inspect and act on those, use [Repair](#repair-ohtv-sync---repair)
+below — `ohtv sync --repair` reports `removed_from_cloud` as a
+distinct bucket, and `--repair --prune` is the explicit opt-in that
+deletes the DB row, the on-disk directory, and the manifest entry.
 
 ### Automatic gap recovery
 
@@ -284,7 +294,8 @@ Behavior:
 - Reports conversations that exist on the cloud but not locally
   (`new_on_cloud`, hint: run `ohtv sync`) and conversations in the
   manifest but absent from the cloud listing (`missing_on_cloud`, hint:
-  run `ohtv sync --repair`). Neither is acted on automatically.
+  run `ohtv sync --repair` — and, if you want to delete them locally,
+  `ohtv sync --repair --prune`). Neither is acted on automatically.
 - A normal `ohtv sync` auto-runs this refresh **only when** at least one
   new or updated conversation was actually downloaded. It never fires
   on `--dry-run`, `--force`, `--repair`, or `--status`.
@@ -294,5 +305,137 @@ Output rows: the summary always shows `Title changed`, `Labels changed`,
 `Created_at changed` rows are shown **only when their count is nonzero**,
 keeping the steady-state output compact for the common case where only
 title/labels drift.
+
+---
+
+## Repair (`ohtv sync --repair`)
+
+`--repair` reconciles your local store against the cloud listing and,
+optionally, applies fixes. It is the user-facing entry point for the
+removed-from-cloud bookkeeping that normal sync only logs, and it is
+the only command that can download an "architectural gap" — a
+conversation that exists on the cloud but was never registered
+locally.
+
+Every invocation refreshes the `cloud_listing` snapshot first (so the
+report reflects current cloud truth), then diffs that snapshot
+against the local `conversations` table to populate **four buckets**.
+
+### The four buckets
+
+| Bucket | What it means | Hint shown in output |
+|---|---|---|
+| **New on cloud** | Conversation appeared in the cloud listing after your previous snapshot cutoff. It is genuinely new — the next normal `ohtv sync` will pick it up. | `[next sync will fetch]` |
+| **Missing locally** | Present in the cloud listing, absent from your local store, and `created_at` predates the previous snapshot cutoff. This is the architectural gap that should not exist — typically the residue of an interrupted sync, an old `--since` filter, or a pre-#111 cursor that skipped pre-existing items. | `[--fix to download]` |
+| **Removed from cloud** | Present locally (`source='cloud'` rows only), absent from the latest cloud listing. The cloud may have deleted them, your access may have been revoked, or you may be looking at a different tenant. Files and DB rows are preserved by default. | `[--fix --prune to delete]` |
+| **Modified on cloud** | Present on both sides, but `cloud_listing.updated_at` differs from your local `cloud_updated_at`. The cloud copy has been edited since you last downloaded. | `[--fix to refetch]` |
+
+The legacy ghost / orphan diff (`manifest` vs the synced
+conversations directory on disk) is preserved alongside these four
+buckets so existing tooling that relies on it keeps working.
+
+`is_consistent` is `True` **only** when every bucket — all four
+cloud-vs-local buckets *and* both legacy buckets — is empty. With
+`--quiet`, this drives the exit code:
+
+- `--repair --quiet`: exit `0` if consistent, exit `1` if any bucket
+  has at least one entry.
+- `--repair` (non-quiet): always exits `0` (the human-readable report
+  is the signal); the non-zero exit only kicks in for hard errors
+  like auth failure or lock contention.
+
+### Action matrix: `--dry-run` vs `--fix` vs `--fix --prune`
+
+| Invocation | `missing_locally` | `modified_on_cloud` | `removed_from_cloud` | Ghost entries | Orphaned files |
+|---|---|---|---|---|---|
+| `--repair --dry-run` | report | report | report | report | report |
+| `--repair` (= `--repair --fix`) | **download** | **refetch** | report only | **drop from manifest** | **add to manifest** |
+| `--repair --prune` (= `--repair --fix --prune`) | **download** | **refetch** | **delete DB row + on-disk dir + manifest entry** | **drop from manifest** | **add to manifest** |
+
+Notes:
+
+- `new_on_cloud` is never actioned by `--repair`. It is informational —
+  the next normal `ohtv sync` is the right way to pick those up.
+- `--prune` is **gated**. Passing `--prune` without `--repair --fix`
+  (i.e. without `--repair`, or with `--repair --dry-run`, or
+  bare-`--prune`) raises a Click `UsageError` and exits **2**.
+- `--prune` only ever touches rows with `conversations.source =
+  'cloud'`. Local-CLI conversations are filtered out at the deletion
+  call site even if a future bug were to leak them into the bucket.
+
+### Sample output
+
+```
+$ ohtv sync --repair --dry-run
+
+           Sync State Consistency Check
+  Cloud conversations          1,247
+  Manifest entries             1,243
+  Conversations on disk        1,243
+  Last snapshot completed at   2026-05-29T05:14:02Z
+
+✓ Ghost entries: 0
+✓ Orphaned files: 0
+
+Cloud-vs-local set diff
+  New on cloud (≥ last snapshot):       2     [next sync will fetch]
+  Missing locally (gap):                3     [--fix to download]
+  Removed from cloud:                   1     [--fix --prune to delete]
+  Modified on cloud:                    0     [--fix to refetch]
+
+Run --repair (without --dry-run) to apply non-destructive fixes (3 + 0 = 3 items).
+Add --prune to also delete 1 removed-from-cloud items.
+```
+
+Re-running with `--repair` (i.e. `--fix`) downloads the 3 missing
+items; adding `--prune` additionally deletes the 1 removed item.
+
+### Lock semantics
+
+`--repair` interacts with the `$OHTV_DIR/sync.lock` writer mutex
+(see [Writer mutex](#writer-mutex-synclock) above) **based on whether
+it can write**:
+
+| Invocation | Takes `sync.lock`? | `--lock-timeout` honored? |
+|---|---|---|
+| `ohtv sync --repair --dry-run` | **No** — it is a pure diagnostic. Safe to run alongside an in-flight `ohtv sync`. | n/a |
+| `ohtv sync --repair` | **Yes** — it downloads and mutates the manifest / DB. | Yes; default `0` = fail-fast with `SyncLockTimeout`. |
+| `ohtv sync --repair --prune` | **Yes** — it also deletes files. | Yes; default `0` = fail-fast with `SyncLockTimeout`. |
+
+Because `--repair --dry-run` skips the lock, the listing snapshot it
+refreshes can shift between two consecutive read-only invocations if
+a normal sync is running concurrently. That is a documented contract,
+not a bug; the rationale is in the
+[#109 column-ownership table](../reference/database.md#column-ownership-and-the-synclock-writer-mutex).
+
+### Degraded listing fallback
+
+If the listing pass cannot complete (HTTP error mid-page, network
+timeout, missing API key, a hiccup in the local snapshot table), the
+in-flight snapshot is abandoned and the **previous** snapshot is
+preserved intact — `--repair` will compute buckets against that
+prior snapshot.
+
+`RepairResult.listing_degraded` is set to `True` in that case, the
+CLI prints a `✗ Listing degraded (HTTP failure or no API key);
+previous snapshot left intact. Counts below reflect the prior
+snapshot.` warning above the bucket table, and **`--fix`
+short-circuits to non-destructive only**: ghost / orphan housekeeping
+still runs, but no downloads are dispatched and no rows are pruned.
+Re-run `--repair` once the listing is healthy to apply the deferred
+fixes.
+
+### Exit codes summary
+
+| Condition | Exit |
+|---|---|
+| Consistent (non-quiet) | `0` |
+| Drift detected (non-quiet) | `0` (report is the signal) |
+| Consistent + `--quiet` | `0` |
+| Any drift + `--quiet` | `1` |
+| `--prune` without `--repair --fix` | `2` (Click `UsageError`) |
+| Lock contention with `--lock-timeout=0` | `1` (`SyncLockTimeout`) |
+| Auth failure (401/403) | `1` |
+| Network failure during `--fix` downloads | `1` (`SyncAbortedError`) |
 
 ---

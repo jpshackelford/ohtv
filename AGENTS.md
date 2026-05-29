@@ -53,11 +53,22 @@ These decisions explain WHY the code is structured as it is. See [`docs/guides/`
 
 2. **Sync-first architecture**: Cloud conversations must be synced locally before viewing (no direct API queries per-request)
 
-3. **Sync state repair**: The `ohtv sync --repair` command checks and fixes sync state consistency:
-   - Compares manifest entries vs actual files on disk
-   - Queries cloud API for total conversation count
-   - Reports ghost entries (in manifest but not on disk) and orphaned files (on disk but not in manifest)
-   - With `--dry-run`, only reports; without, repairs by updating manifest
+3. **Sync state repair (Issue #113)**: The `ohtv sync --repair` command is a four-category cloud-vs-local reconciliation surface built on top of `cloud_listing` (#112) and `last_snapshot_completed_at` (#111). The legacy manifest/disk ghost+orphan diff is preserved alongside.
+   - **Four buckets on `RepairResult`** (lists are `*_ids`; bare names are `int` count properties):
+     - `new_on_cloud` — created on cloud after the prior snapshot cutoff; next normal `ohtv sync` will fetch. **Not** actioned by `--fix`.
+     - `missing_locally` — present in cloud listing, absent from `conversations`, `created_at` predates the cutoff. The architectural gap `--fix` heals.
+     - `removed_from_cloud` — `conversations` rows with `source='cloud'` absent from the latest listing. `--fix` records only; `--fix --prune` deletes.
+     - `modified_on_cloud` — present on both sides but `cloud_listing.updated_at` differs from `conversations.cloud_updated_at`. `--fix` refetches.
+   - **Listing refresh**: Both `--repair --dry-run` and `--repair --fix` re-run the listing pass at entry (so the report reflects current cloud truth). The lock split is purely about the destructive actions.
+   - **Lock semantics** (#109 contract):
+     - `--repair --dry-run` (`fix=False`): **no** `sync.lock` acquisition; safe alongside a running sync. Numbers may shift between two read-only invocations (documented caveat).
+     - `--repair` / `--repair --fix --prune`: takes `sync.lock` via the CLI wrapper; honours `--lock-timeout=N`; surfaces `SyncLockTimeout` on contention.
+   - **`--prune` validation**: `--prune` without `--repair --fix` is a Click `UsageError` (exit 2). Without `--prune`, `removed_from_cloud` is reported but no files/rows are deleted.
+   - **Source-filter safety**: `_prune_removed_from_cloud` double-checks `conversations.source = 'cloud'` at deletion time. `source='local'` rows are never pruned, even if a future schema bug were to leak them into the bucket.
+   - **Degraded listing**: HTTP failure mid-page → `_run_listing_pass` abandons the in-flight snapshot, `RepairResult.listing_degraded = True`, and `--fix` short-circuits to non-destructive only. Previous snapshot left intact (atomicity guarantee from #112).
+   - **`SyncResult.removed_from_cloud`**: parallel to the RepairResult bucket — normal `sync()` also reports the count of manifest entries dropped because they vanished from the listing (#110 scenario #4).
+   - **`cloud_count` derivation**: The legacy single-integer `count_conversations()` API is no longer called by `repair`; the count is derived from `cloud_listing` rows. `CloudClient.count_conversations` stays on the client for other callers.
+   - **Sample output** and the full proposal live in Issue #113.
 
 4. **Title derivation**: Local conversations derive titles from first user message (first 60 chars, word boundary truncation)
 

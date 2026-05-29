@@ -130,12 +130,15 @@ def test_backdated_updated_at_on_existing_item_is_re_synced(
 # ---------------------------------------------------------------------------
 # Scenario 4 — item disappearing from cloud is reported as "Removed" (#111 + #113).
 # ---------------------------------------------------------------------------
-@pytest.mark.xfail(
-    strict=True, reason="blocked by #111 + #113 (no removed-from-cloud reporting)"
-)
 def test_item_disappearing_from_cloud_is_reported_as_removed(
     sync_manager_factory, fake_cloud: FakeCloudClient
 ):
+    # Post-#111+#113: scenario #4 of Issue #110 — the test harness
+    # asserts that a follow-up ``manager.sync()`` exposes a
+    # ``removed_from_cloud`` count of 1 when an item disappears from
+    # the cloud listing. #111 wired ``SyncResult.missing_on_cloud``;
+    # #113 surfaces the same value as ``removed_from_cloud`` for
+    # symmetry with the repair UX.
     fake_cloud.add(FakeConversation(id="a"))
     fake_cloud.add(FakeConversation(id="b"))
     manager = sync_manager_factory(fake_cloud)
@@ -145,9 +148,8 @@ def test_item_disappearing_from_cloud_is_reported_as_removed(
     fake_cloud.remove("a")
     result = manager.sync()
 
-    # Post-#111+#113: sync reports "a" as removed from cloud. The attribute
-    # name is what the issues will land — until then either it doesn't exist
-    # (AttributeError → xfail) or it stays 0 (assertion fails → xfail).
+    # ``getattr(..., 0)`` so the assertion fails meaningfully (and not
+    # with AttributeError) if a future refactor drops the field.
     assert getattr(result, "removed_from_cloud", 0) == 1
 
 
@@ -435,25 +437,41 @@ def test_timestamps_round_trip_with_microsecond_fidelity(
 # ---------------------------------------------------------------------------
 # Scenario 13 — --repair reports four categories (new/missing/removed/modified) (#113).
 # ---------------------------------------------------------------------------
-@pytest.mark.skip(
-    reason="blocked by #113 — repair --fix four-category UX not implemented"
-)
 def test_repair_reports_four_categories_new_missing_removed_modified(
     sync_manager_factory, fake_cloud: FakeCloudClient, conv_factory: ConvFactory
 ):
+    # Post-#113: RepairResult exposes four parallel buckets sourced
+    # from CloudListingStore set-diff helpers (#112) joined against
+    # ``conversations``. ``new_on_cloud`` and ``missing_locally`` are
+    # partitioned by the ``last_snapshot_completed_at`` cutoff.
     convs = conv_factory.batch(3)
     for c in convs:
         fake_cloud.add(c)
     manager = sync_manager_factory(fake_cloud)
     manager.sync()
 
-    fake_cloud.add(conv_factory.next())  # new (in cloud, not in manifest)
+    # The fresh conv needs a ``created_at`` AFTER the snapshot cutoff
+    # so it falls into ``new_on_cloud`` (next-sync-will-fetch) and not
+    # ``missing_locally`` (architectural gap). The default factory
+    # uses 2024-01-01 + counter*minute, which would predate "now"
+    # and end up in the gap bucket.
+    new_conv = conv_factory.next()
+    new_conv.created_at = datetime(2099, 1, 1, tzinfo=_UTC)
+    new_conv.updated_at = datetime(2099, 1, 1, tzinfo=_UTC)
+    fake_cloud.add(new_conv)  # new (in cloud, not in manifest)
     fake_cloud.remove(convs[0].id)  # removed (in manifest, gone from cloud)
     fake_cloud.store[convs[1].id].title = "renamed"  # modified
+    # Real-cloud mutation also bumps ``updated_at``; the fake doesn't
+    # auto-bump on title assignment so we do it explicitly here. Without
+    # this, ``stale_locally`` would see equal cloud / local cursors and
+    # ``modified_on_cloud`` would be zero.
+    fake_cloud.backdate(convs[1].id, datetime(2099, 1, 1, tzinfo=_UTC))
 
     result = manager.repair(fix=False)
 
-    # Post-#113 RepairResult exposes four parallel buckets:
+    # ``new_on_cloud`` here means "cloud-listing rows whose
+    # created_at >= last_snapshot_completed_at" — i.e. the fresh
+    # convs[3] added after the first sync.
     assert getattr(result, "new_on_cloud", 0) == 1
     assert getattr(result, "removed_from_cloud", 0) == 1
     assert getattr(result, "modified_on_cloud", 0) == 1
