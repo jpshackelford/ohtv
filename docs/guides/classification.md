@@ -73,20 +73,37 @@ database, sub-conversations are exactly the rows where
 `conversations.parent_conversation_id IS NOT NULL` (populated by migration
 019 from the cloud listing API; see AGENTS.md item #31).
 
-Sub-conversations are **never human-initiated by definition** — the parent
-agent generates their initial prompt (the delegated task description), so
-the only correct value for `initial_prompt_source` on a sub is `automation`.
-To enforce this invariant, every `ohtv classify` invocation runs a single
+A sub-conversation has **no trigger of its own**. It is a delegated
+continuation of its parent — the parent agent generated the sub's initial
+prompt (the delegated task description). To make this structurally
+distinct from the three operator-facing trigger types
+(`human` / `automation` / `unknown`), migration 022 widens the
+`conversation_human_input.initial_prompt_source` CHECK constraint to
+include a fourth value: **`sub_agent`**. This value is **system-managed**
+— it is not a valid choice for the `--source` flag, because operators
+have no need to pick "sub-agent" as a trigger; the row's
+`parent_conversation_id` is the ground truth.
+
+> **Why a dedicated value instead of reusing `automation`?** `automation`
+> already means "an automation run dispatched this conversation" (cron /
+> webhook). Conflating that with sub-agent delegation would silently
+> slurp every sub into the automation-run bucket of `report velocity` and
+> `report weekly-counts`. The parent's actual trigger type is always
+> recoverable by walking up `parent_conversation_id` to the root, so
+> giving subs their own label loses no information.
+
+To enforce the invariant, every `ohtv classify` invocation runs a single
 self-healing SQL `UPDATE` *before* dispatching to its mode-specific work
 (single override, `--list-unknown`, or bulk heuristic). The update flips
 every sub-conversation whose `initial_prompt_source` is not already
-`automation` (typically `unknown`, occasionally a stale `human` left over
-from a pre-fix `--has-followups --source human` bulk run) to `automation`.
+`sub_agent` (typically `unknown`, occasionally a stale `human` left over
+from a pre-fix `--has-followups --source human` bulk run, or a stale
+`automation` left over from an earlier draft of this fix) to `sub_agent`.
 
 When the auto-step changes one or more rows, the CLI prints:
 
 ```
-Auto-classified N sub-conversation(s) as 'automation'.
+Auto-classified N sub-conversation(s) as 'sub_agent'.
 ```
 
 (Suppressed when `N = 0`, i.e. the steady-state case once your DB is
@@ -98,7 +115,7 @@ consistent.)
   including `--list-unknown` and single-conversation overrides. No new
   flag, no opt-out.
 - **Idempotent.** A second back-to-back invocation reports `N = 0` and
-  performs no writes (the `WHERE initial_prompt_source <> 'automation'`
+  performs no writes (the `WHERE initial_prompt_source <> 'sub_agent'`
   guard makes the second pass a no-op).
 - **Roots are untouched.** The `WHERE EXISTS (... parent_conversation_id
   IS NOT NULL ...)` predicate excludes root conversations entirely —
@@ -107,19 +124,22 @@ consistent.)
 - **Subs without a `conversation_human_input` row are silently skipped.**
   If the `human_input` stage has not processed a sub yet, the `EXISTS`
   join has nothing to update. No error, no special-case branch.
-- **One overwrite case.** If you previously ran
+- **Overwrite cases.** If you previously ran
   `ohtv classify <sub_id> --source human` (or a pre-fix bulk heuristic)
-  and left a sub at `human`, the next `ohtv classify` invocation will
-  revert it to `automation`. This is the intended behavior of Issue
-  \#126: a sub marked `human` was always a misclassification, since the
-  initial prompt on a sub is the parent's delegated task, not a human
-  request.
+  and left a sub at `human`, or you have residual `automation` rows from
+  an earlier draft of this fix, the next `ohtv classify` invocation will
+  revert them all to `sub_agent`. This is the intended behavior of Issue
+  \#126: any non-`sub_agent` value on a sub was always a misclassification.
 - **Within a single invocation, manual overrides still win.** The
   auto-step runs first, then the mode-specific work. So
   `ohtv classify <sub_id> --source human` will flip the sub back to
   `human` *for that invocation* — but the next `classify` run will
   correct it again. To make a sub stay `human` you would have to suppress
   the auto-step entirely, which the CLI deliberately does not allow.
+- **Reports treat `sub_agent` as 0 contribution.** `report velocity`
+  contributes `0` words and `0` messages for `sub_agent` rows — subs are
+  extensions of the parent and counting them independently would
+  double-count work that is already rolled up into the parent's totals.
 
 **Schema guardrail.** The auto-step requires the
 `conversations.parent_conversation_id` column to exist. If it is missing

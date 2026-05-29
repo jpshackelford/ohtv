@@ -10479,10 +10479,13 @@ def classify(
         raise SystemExit(1)
 
     # Self-healing (issue #126): sub-conversations are deterministically
-    # 'automation' (the parent agent's delegated task description, not a
-    # human request). Run this on every invocation so any residual
-    # 'human' / 'unknown' on subs — including the residue of a pre-fix
-    # ``--has-followups --source human`` bulk run — is corrected
+    # labelled 'sub_agent' (the system-managed value introduced by
+    # migration 022). A sub has no trigger of its own — it is a
+    # delegated continuation of its parent — so it must never collide
+    # with the three operator-facing trigger types ('human',
+    # 'automation', 'unknown'). Run this on every invocation so any
+    # residual mis-classification on subs (including the residue of a
+    # pre-fix ``--has-followups --source human`` bulk run) is corrected
     # automatically. No new flag, no LLM, single SQL UPDATE.
     try:
         with get_connection() as conn:
@@ -10494,7 +10497,7 @@ def classify(
     if sub_changed:
         console.print(
             f"[dim]Auto-classified {sub_changed} sub-conversation(s) "
-            "as 'automation'.[/dim]"
+            "as 'sub_agent'.[/dim]"
         )
 
     if conversation_id:

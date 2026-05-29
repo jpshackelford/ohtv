@@ -435,7 +435,7 @@ def test_classify_list_unknown_auto_classifies_subs(
 
     Seeds 1 root + 1 sub (both ``'unknown'``). Runs
     ``ohtv classify --list-unknown``. After the auto-step the sub is
-    ``'automation'``, so --list-unknown only shows the root.
+    ``'sub_agent'``, so --list-unknown only shows the root.
     """
     root_id, sub_id = _seed_root_and_sub(isolated_db)
 
@@ -443,9 +443,9 @@ def test_classify_list_unknown_auto_classifies_subs(
 
     assert result.exit_code == 0, result.output
     # Auto-step notice fires (1 sub flipped).
-    assert "Auto-classified 1 sub-conversation(s) as 'automation'" in result.output
-    # Sub is now 'automation'; root is unchanged.
-    assert _read_source(isolated_db, sub_id) == "automation"
+    assert "Auto-classified 1 sub-conversation(s) as 'sub_agent'" in result.output
+    # Sub is now 'sub_agent'; root is unchanged.
+    assert _read_source(isolated_db, sub_id) == "sub_agent"
     assert _read_source(isolated_db, root_id) == "unknown"
     # --list-unknown output mentions the root's short_id but NOT the sub's.
     assert root_id[:8] in result.output
@@ -458,7 +458,8 @@ def test_classify_bulk_auto_classifies_subs(
     """T-F (bulk): auto-step runs ahead of the bulk apply path.
 
     Even on the bulk path that only touches 'unknown' rows for roots,
-    the auto-step has already moved subs to 'automation' first.
+    the auto-step has already moved subs to 'sub_agent' first — so the
+    subsequent ``--source automation`` heuristic only flips the root.
     """
     root_id, sub_id = _seed_root_and_sub(isolated_db)
 
@@ -468,9 +469,11 @@ def test_classify_bulk_auto_classifies_subs(
     )
 
     assert result.exit_code == 0, result.output
-    assert "Auto-classified 1 sub-conversation(s) as 'automation'" in result.output
-    assert _read_source(isolated_db, sub_id) == "automation"
-    # The bulk apply also flipped the root (no followups).
+    assert "Auto-classified 1 sub-conversation(s) as 'sub_agent'" in result.output
+    # Sub is 'sub_agent' (auto-step); the bulk heuristic only touches
+    # 'unknown' rows so it does NOT clobber the sub back to 'automation'.
+    assert _read_source(isolated_db, sub_id) == "sub_agent"
+    # The bulk apply flipped the root (no followups, --source automation).
     assert _read_source(isolated_db, root_id) == "automation"
 
 
@@ -493,9 +496,9 @@ def test_classify_single_auto_classifies_subs(
     )
 
     assert result.exit_code == 0, result.output
-    assert "Auto-classified 1 sub-conversation(s) as 'automation'" in result.output
+    assert "Auto-classified 1 sub-conversation(s) as 'sub_agent'" in result.output
     # Sub flipped by auto-step.
-    assert _read_source(isolated_db, sub_id) == "automation"
+    assert _read_source(isolated_db, sub_id) == "sub_agent"
     # Root flipped by set_single (operator override).
     assert _read_source(isolated_db, root_id) == "human"
 

@@ -1,8 +1,18 @@
 """Conversation classification helpers.
 
 Populates ``conversation_human_input.initial_prompt_source`` (created by
-migration 016, defaulted to ``'unknown'``) with one of
-``'human' | 'automation' | 'unknown'``.
+migration 016, widened by migration 022 — see issue #126) with one of
+``'human' | 'automation' | 'unknown' | 'sub_agent'``.
+
+Of those four values, the first three (``'human'`` / ``'automation'`` /
+``'unknown'``) are the operator-facing *trigger* answers exposed via the
+CLI ``--source`` flag. The fourth, ``'sub_agent'``, is a
+**system-managed** label that ``classify`` writes automatically for every
+sub-conversation — see :func:`apply_sub_classification`. It is not a
+valid value for ``--source`` because a sub-conversation has no trigger of
+its own (it is an extension of its parent, not an independently
+triggered run). The parent's actual trigger type is always recoverable
+by walking up ``conversations.parent_conversation_id`` to the root.
 
 This is the pure data-layer module backing ``ohtv classify``. It has no
 Click / Rich dependencies so it can be unit-tested directly against an
@@ -38,13 +48,20 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Literal
 
-# Allowed values for ``initial_prompt_source``. Mirrors the
-# ``CHECK(initial_prompt_source IN (...))`` constraint in migration 016
-# so callers can ``from ohtv.classify import VALID_SOURCES`` and feed it
-# straight into ``click.Choice``.
+# Operator-facing values for ``--source``. Intentionally **excludes**
+# ``'sub_agent'``: that label is system-managed (see
+# :func:`apply_sub_classification`) and is not selectable by the
+# operator. Callers can ``from ohtv.classify import VALID_SOURCES`` and
+# feed it straight into ``click.Choice``.
 VALID_SOURCES: tuple[str, ...] = ("human", "automation", "unknown")
 
 Source = Literal["human", "automation", "unknown"]
+
+# System-managed value for sub-conversations (issue #126). Authorized
+# by the widened CHECK constraint in migration 022. Lives outside
+# :data:`VALID_SOURCES` on purpose: ``set_single`` and the heuristic
+# bulk path must never accept ``'sub_agent'`` as a user choice.
+SUB_AGENT_SOURCE = "sub_agent"
 
 # Heuristic filter names. Kept as string constants (not an enum) for
 # easy use as Click ``flag_value`` and clean error messages.
@@ -358,25 +375,36 @@ def _assert_parent_column_present(conn: sqlite3.Connection) -> None:
 
 
 def apply_sub_classification(conn: sqlite3.Connection) -> int:
-    """Set ``initial_prompt_source='automation'`` on every sub-conversation.
+    """Set ``initial_prompt_source='sub_agent'`` on every sub-conversation.
 
     A "sub-conversation" is one whose ``conversations.parent_conversation_id``
     is non-NULL (populated by migration 019, originally proposed as 018
-    in #108). This is the one deterministic label in the system: a sub
-    is by construction initiated by the parent agent, not a human.
+    in #108).
+
+    Why a dedicated ``'sub_agent'`` value rather than reusing
+    ``'automation'``: a sub-conversation has no trigger of its own — it
+    is a delegated continuation of its parent. ``'automation'`` already
+    means something specific (an automation run dispatched the
+    conversation, cron / webhook), and conflating those two would
+    silently slurp every sub-agent delegation into the automation-run
+    bucket of ``report velocity`` / ``report weekly-counts``. The
+    parent's actual trigger type is always recoverable by walking up
+    ``parent_conversation_id``, so nothing is lost by giving subs their
+    own label. (The widened CHECK constraint lives in migration 022;
+    see issue #126 PR discussion for the design rationale.)
 
     Unlike :func:`apply_classification` (#83), this CAN overwrite rows
-    whose current value is ``'human'`` or ``'unknown'`` — those values
-    are wrong for subs and the helper is idempotent in either direction.
-    Returns the number of rows actually changed (``0`` on a second
-    identical run by construction).
+    whose current value is ``'human'``, ``'automation'``, or
+    ``'unknown'`` — those values are wrong for subs and the helper is
+    idempotent in either direction. Returns the number of rows actually
+    changed (``0`` on a second identical run by construction).
 
-    Issue #126. Self-healing: every ``ohtv classify`` invocation runs
-    this before its mode-specific work, so any residual mis-classification
-    (e.g. from a pre-fix ``--has-followups --source human`` bulk run that
+    Self-healing: every ``ohtv classify`` invocation runs this before
+    its mode-specific work, so any residual mis-classification (e.g.
+    from a pre-fix ``--has-followups --source human`` bulk run that
     flipped subs to ``'human'`` because subs frequently have follow-ups
-    from the orchestrating agent) is corrected automatically. No new flag
-    is added.
+    from the orchestrating agent) is corrected automatically. No new
+    flag is added.
 
     The ``UPDATE ... WHERE EXISTS (...)`` form silently skips subs that
     have no ``conversation_human_input`` row yet (the ``human_input``
@@ -386,8 +414,8 @@ def apply_sub_classification(conn: sqlite3.Connection) -> int:
     cur = conn.execute(
         """
         UPDATE conversation_human_input AS chi
-        SET initial_prompt_source = 'automation'
-        WHERE chi.initial_prompt_source <> 'automation'
+        SET initial_prompt_source = 'sub_agent'
+        WHERE chi.initial_prompt_source <> 'sub_agent'
           AND EXISTS (
               SELECT 1 FROM conversations c
               WHERE c.id = chi.conversation_id
@@ -576,6 +604,7 @@ __all__ = [
     "InvalidSourceError",
     "MissingHumanInputRowError",
     "SingleResult",
+    "SUB_AGENT_SOURCE",
     "Source",
     "UnknownRow",
     "VALID_SOURCES",

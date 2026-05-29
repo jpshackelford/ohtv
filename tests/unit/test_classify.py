@@ -647,33 +647,36 @@ def _read_source(conn: sqlite3.Connection, cid: str) -> str | None:
 class TestApplySubClassification:
     """Issue #126 — :func:`apply_sub_classification`.
 
-    Test plan mapping (numbering matches the issue body):
+    Test plan (the auto-step writes the system-managed ``'sub_agent'``
+    value introduced by migration 022; see the PR discussion on #146 for
+    why ``'sub_agent'`` is distinct from ``'automation'``):
 
-    * T-A — sub gets auto-classified from ``unknown`` (AC3).
-    * T-B — sub residual ``human`` is corrected (AC4).
+    * T-A — sub gets auto-classified from ``unknown``.
+    * T-B — sub residual ``human`` (from a pre-fix bulk run) is corrected.
+    * T-B2 — sub residual ``automation`` (from an earlier draft of this
+      fix that reused the automation label) is corrected.
     * T-C — already-correct sub is a no-op (idempotency).
     * T-D — sub without a ``conversation_human_input`` row no-ops without
-      raising (AC2 robustness).
+      raising.
     * T-E — manual override (``set_single``) wins within one invocation
-      (AC5; documents the operator-agency vs deterministic-ground-truth
-      tension).
+      (operator-agency vs deterministic-ground-truth tension).
     """
 
     def test_t_a_sub_auto_classified_from_unknown(self, conn):
-        """T-A: sub 'unknown' -> 'automation'; root untouched; returns 1."""
+        """T-A: sub 'unknown' -> 'sub_agent'; root untouched; returns 1."""
         root_id, sub_id = _seed_root_and_sub(conn)
 
         changed = apply_sub_classification(conn)
 
         assert changed == 1
-        assert _read_source(conn, sub_id) == "automation"
+        assert _read_source(conn, sub_id) == "sub_agent"
         # Root is NOT a sub (parent_conversation_id IS NULL) so it must
         # stay 'unknown' — the auto-step refuses to touch roots even by
         # accident.
         assert _read_source(conn, root_id) == "unknown"
 
     def test_t_b_sub_residual_human_corrected(self, conn):
-        """T-B: residual 'human' on a sub flips to 'automation'.
+        """T-B: residual 'human' on a sub flips to 'sub_agent'.
 
         Models the post-bug state after a pre-fix
         ``--has-followups --source human`` bulk run mis-classified subs.
@@ -683,7 +686,23 @@ class TestApplySubClassification:
         changed = apply_sub_classification(conn)
 
         assert changed == 1
-        assert _read_source(conn, sub_id) == "automation"
+        assert _read_source(conn, sub_id) == "sub_agent"
+
+    def test_t_b2_sub_residual_automation_corrected(self, conn):
+        """T-B2: residual 'automation' on a sub flips to 'sub_agent'.
+
+        Models the post-bug state of any DB that ran an earlier draft of
+        issue #126 (which set subs to ``'automation'``) before the
+        switch to a dedicated ``'sub_agent'`` value. The auto-step must
+        repair these silently — operators do not need to re-classify
+        manually.
+        """
+        _, sub_id = _seed_root_and_sub(conn, sub_source="automation")
+
+        changed = apply_sub_classification(conn)
+
+        assert changed == 1
+        assert _read_source(conn, sub_id) == "sub_agent"
 
     def test_t_c_already_correct_sub_is_noop(self, conn):
         """T-C: idempotency — second invocation returns 0."""
@@ -719,7 +738,7 @@ class TestApplySubClassification:
 
         Documents AC5: within one ``ohtv classify`` invocation the
         operator override is the terminal write. On the NEXT invocation
-        the auto-step would correct it back to 'automation' — that's
+        the auto-step would correct it back to ``'sub_agent'`` — that's
         the desired deterministic-ground-truth behavior.
         """
         _, sub_id = _seed_root_and_sub(conn)
@@ -727,14 +746,14 @@ class TestApplySubClassification:
         # Step 1: auto-step runs first (this is what the CLI command
         # body does at the top of `classify`).
         assert apply_sub_classification(conn) == 1
-        assert _read_source(conn, sub_id) == "automation"
+        assert _read_source(conn, sub_id) == "sub_agent"
 
         # Step 2: operator passes `ohtv classify <sub_id> --source human`.
         # `set_single` flips already-classified rows by design.
         result = set_single(conn, conversation_id=sub_id, source="human")
 
         assert result.changed is True
-        assert result.previous_source == "automation"
+        assert result.previous_source == "sub_agent"
         assert result.new_source == "human"
         assert _read_source(conn, sub_id) == "human"
 
