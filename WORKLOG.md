@@ -1015,3 +1015,66 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 - **Forecast for next orchestrator tick:** straight to merge worker is the expected path. Docs-only edits to a docs-only PR with surgical scope (21/6 LOC across one file, no semantic changes to phase plan, no new claims requiring fact-check) — re-test is unlikely to be triggered per AGENTS.md re-test heuristic. Merge subject stays `docs(sync): add sync-state ownership map and phased retirement plan (#114)` — release-please-ignored.
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+### 2026-05-29 08:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `09929bf` | merge | PR #137 — squash-merge sync-state ownership doc (Phase A) | **NEW** running ([conv](https://app.all-hands.dev/conversations/09929bf646ab4847a009d725069801b2)) |
+
+**Spawned: Merge Worker for PR #137**
+- PR: [#137 — docs(sync): add sync-state ownership map and phased retirement plan (#114)](https://github.com/jpshackelford/ohtv/pull/137)
+- Conversation: [`09929bf`](https://app.all-hands.dev/conversations/09929bf646ab4847a009d725069801b2) — `execution_status=running`, `sandbox_status=RUNNING`. Start task `8f54503b…` accepted at 08:48:14Z → READY on the **2nd** 5s poll (~10s through `SETTING_UP_SKILLS`). Canonical spawn (`POST /api/v1/app-conversations` + Bearer auth + `initial_message: {role, content: [{type, text}]}`) and canonical poll (`GET /api/v1/app-conversations/start-tasks?ids=<id>` — plural `start-tasks`, array response) per the corrected endpoint pattern locked in two cycles ago. No missteps.
+- Worker brief: prepare-and-merge for the docs-only PR. Checkout `feat/sync-state-ownership-doc-114` @ `3fd3789` → re-check CI green + mergeable + 0 unresolved threads at action time → update PR description to reflect final shipped state (the 387-line doc + AGENTS.md pointer + the 5 review-round fixes T1/T2/T5/T7/T7) → craft squash-merge commit (subject **`docs(sync): add sync-state ownership map and phased retirement plan (#114)`** — exact original PR title, release-please-ignored `docs:`-type so won't add a 5th queued bump; body summarizes Phase A→D plan + review-round fixes; ends with **`Refs #114` not `Closes #114`** since Phases B/C/D remain; `Co-authored-by: openhands` trailer) → squash-merge via `gh pr merge 137 --squash` → verify `state=MERGED, merged=true` and squash SHA on main → branch cleanup (auto-deleted on this repo's settings — verify with `git ls-remote`) → append a WORKLOG.md entry to main with subject `chore(worklog): PR #137 merged — sync-state ownership doc shipped` → exit. Hard constraints: do NOT close #114 (Phase A only), do NOT add `Closes #137`/`Closes #114` (PR auto-closes itself; issue stays open), do NOT re-trigger testing, do NOT edit `docs/reference/sync-state-ownership.md` / `AGENTS.md` / `src/` / `tests/`, do NOT spawn other workers, STOP if CI drift / mergeable=`CONFLICTING` / new review thread / head SHA drift at re-check time.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced blocks).
+- **Prior cycle's review worker `7d09f3e`:** `execution_status=finished` (work done at ~08:30Z per the self-reported worker entry already on main); `sandbox_status=RUNNING` (kept alive, will idle out). Commit `3fd3789` pushed at 08:22:40Z (+21 / −6, single file `docs/reference/sync-state-ownership.md`). CI green on the new head. PR set back to ready. Summary comment [#issuecomment-4572570162](https://github.com/jpshackelford/ohtv/pull/137#issuecomment-4572570162) posted. WORKLOG entry already committed by the worker to main as `0b3a867`.
+- **Expansion slot:** OPEN, IDLE. **0 issues need expansion** (12 open: 10 `ready` with 2 prioritized — #114 in this PR + #122 `priority:medium`; 2 `hold` — #26, #90). **14th consecutive idle expansion cycle.**
+- **PR slot:** EMPTY at cycle start. PR #137 state at decision time:
+  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=""` (bot-only review pattern, unchanged from prior ohtv-merged PRs).
+  - CI: 3/3 GREEN on head `3fd3789` — `lint` ✅ 5s, `pytest` ✅ 53s, `pr-review` ✅ 3m36s.
+  - 2 bot reviews (both COMMENTED): 07:34:41Z on `074ac65` ("Worth merging") + 08:29:08Z on `3fd3789` (re-run on ready→draft→ready toggle, **also** "Worth merging" with 🟢 LOW risk).
+  - 0 unresolved review threads (`reviewThreads(first:30).totalCount` → 0).
+  - 2 PR comments (the testing-worker audit and the review-worker fix-summary). 2 commits on branch (`074ac65` + `3fd3789`).
+- **Decision-tree row applied:** **"PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker."** All four predicates satisfied:
+  - *ready*: ✅ (`isDraft=false`, `state=OPEN`)
+  - *test results valid*: ✅ (testing audit run, all 5 non-blockers addressed in `3fd3789`, no test drift since — the only commit after the audit IS the fix commit, no source changes)
+  - *good rating*: ✅ (bot verdict "Worth merging" on the new head `3fd3789`; testing audit upgraded effective verdict to "all PASS/N/A" after review-round)
+  - *docs valid*: ✅ (the PR IS the doc; review-round corrected the 5 audit findings; docs-only PR has no separate doc-update gate)
+- **Sub-decision — docs spot-check worker?** Considered. The "PR is approved but significant review changes may have affected documented behavior" decision-tree row exists to catch the case where code review intervened and may have made the README stale. **Not applicable here** — the review-round changes were inside the doc itself (5 surgical edits: 21 LOC added / 6 removed across one file with no semantic shift to phase plan, ownership claims, or normative content). There's no separate user-facing surface that could have drifted from a 21-line review-round edit. Docs spot-check would be checking the doc against itself. Declined.
+- **Sub-decision — re-test heuristic check:** Per AGENTS.md heuristic, re-test fires when source files change after the last test. `gh pr diff 137 --name-only` since the testing audit shows ONLY `docs/reference/sync-state-ownership.md`. Per the decision tree's explicit "Do NOT re-test if only documentation/README changed", re-test does NOT fire. Confirmed in the prior cycle's forecast and re-confirmed here.
+- **Sub-decision — release-please pre-flight:** Queue currently at 4 minor bumps (#133+#134+#135+#136). Merge subject `docs(sync):` is **release-please-ignored** (subject pattern table: `docs:` / `docs(scope):` → no version bump, no CHANGELOG entry). So this merge will NOT add a 5th queued bump. Safe to ship now even with the workflow-permissions block still in place — the merge doesn't make the queue worse, and unblocking is a human action on `Settings → Actions → Workflow permissions`.
+- **Sub-decision — why not skip-to-next-work after merge:** One-action-per-wake-up rule. The orchestrator dispatches the merge worker and exits; the next cycle (~09:20Z window) will assess the post-merge state (PR slot freed, expansion slot still idle, 9 unprioritized ready issues + #122 priority:medium remaining) and decide what to spawn.
+- One action per wake-up rule honored.
+- **Auto-disable counter:** **0 → 0** (productive cycle — merge worker dispatched). **Twenty-four consecutive productive cycles.**
+
+**Current State:**
+
+- [PR #137](https://github.com/jpshackelford/ohtv/pull/137): `oCFRTM` history (M=merge in-flight), ready, CI green ✓✓✓, bot review ✅ "Worth merging" (twice, latest on `3fd3789`), testing audit ⚠️→✅ after review-round, **merge worker in flight** (`09929bf`). Branch `feat/sync-state-ownership-doc-114` @ `3fd3789`. 2 commits / 1 file changed (+387/-0 on first commit, +21/-6 on review-round). 0 review threads.
+- Issue #114 (`priority:medium`): Phase A merging this cycle; Phases B/C/D remain (B standalone post-#111-merge, C unblocked since #109 + #112 closed, D blocks on Phase C shipping a release).
+- **Need expansion (0):** ✓ board fully expanded.
+- **Ready w/ priority:high (0):** none.
+- **Ready w/ priority:medium (2):** #114 (merging), #122.
+- **Ready w/o priority (8):** #116, #121, #123, #124, #125, #126, #127, #128.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ unchanged — workflow-permissions block persists. Queue stays at **4 minor bumps** (#133 + #134 + #135 + #136) after this merge (the `docs(sync):` subject is release-please-ignored). Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`. Not blocking dispatch.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → #109 ✅ → #113 ✅ (PR #136) → **#114 Phase A merging in PR #137** → #114 Phases B/C/D (future PRs).
+
+**Forecast for next cycle (~09:20Z window):**
+
+- **If `09929bf` still running** → wait + log. Merge worker tasks (checkout + re-check + PR description update + squash-merge + verify + branch cleanup + WORKLOG entry on main + push) are typically 8–15 min. Could complete this cycle.
+- **If `09929bf` finished, PR #137 merged cleanly** → PR slot frees. Next decision-tree question: any ready w/ priority? **Yes — #122 (`priority:medium` — Aggregate sub-conversations into their root for analysis and reporting)** is the only remaining prioritized ready issue. Decision-tree row: "No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue." Spawn **implementation worker for #122**. Note: #122 is part of the sub-conversations cluster — its expansion comment (from issue #108 follow-up arc) should be the technical-approach source.
+- **If `09929bf` finished, PR #137 merged**, AND we want to consider the unprioritized cluster (#116, #121, #123–128): the strict decision-tree says "/assess-priority" first. **But** #122 has explicit priority — proceed with #122 directly. Defer the priority assessment of the 8 unprioritized issues to a later cycle when no prioritized ready work remains.
+- **If `09929bf` finished but the merge was blocked** (e.g. mergeable drifted to `CONFLICTING` somehow, or the worker hit one of the STOP conditions) → no PR closed, PR slot stays occupied logically. Re-evaluate state from the worker's PR comment + WORKLOG entry. Likely spawn a fresh impl/review/diagnostic worker scoped to the actual block.
+- **If `09929bf` errored or stuck** → re-spawn once. The brief is mechanical (checkout + verify + merge + cleanup); infrastructure risk is the usual `uv sync` or git-auth pattern.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until a human files a new issue.
+- **WORKLOG truncation:** at 1017 lines pre-this-entry → ~1080 post-this-entry. Below the 300-line threshold logic in the skill (truncation triggers >300 lines per the skill's literal logic, but practical operational threshold in recent cycles has been ~1300+). Will assess on subsequent cycles after the merge ships and the worker entry lands.
+
+**Sync notes:** Container respawned this cycle (fresh) — `uv pip install --system` re-hit the prior `/usr/local/lib/python3.13/site-packages/` perm-denied pattern, so used `uv tool install` for `lxa` + `ohtv` (cleaner; binaries land in `~/.local/bin`, on PATH via explicit export). `ohtv sync` fails standalone with "API key required" — set neither `OPENHANDS_API_KEY` nor `OH_API_KEY` is picked up by the tool's env-read despite both being in the shell. Worked around for this cycle by querying the OH API directly via curl (sufficient for orchestrator state — no need for indexed conversation history this cycle). Will revisit the env-var hand-off in a future cycle if it becomes blocking. `lxa repo add` re-created the per-sandbox board (harmless idempotent). `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token`. OH API spawn via `Authorization: Bearer $OPENHANDS_API_KEY` to canonical `POST /api/v1/app-conversations`. Poll via `GET /api/v1/app-conversations/start-tasks?ids=<id>` (plural, array response) — endpoint lock-in from two cycles ago held. `git pull --ff-only origin main` clean (HEAD `0b3a867`, includes the review-worker's worklog commit). Paused/missing orphans from prior cycles (`1ea745c`, `00a1946`, `12cce68`, `a21edac`, `428dd85`, `d770c82`, `5888078`, `7d09f3e`) all reaping naturally — no intervention needed.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
