@@ -2,6 +2,23 @@
 
 ## Log
 
+### 2026-05-29 08:51 UTC - PR #137 merged
+
+- PR: [#137 - docs(sync): add sync-state ownership map and phased retirement plan (#114)](https://github.com/jpshackelford/ohtv/pull/137)
+- **Merge commit:** [`95c99eb25abe4db2753bcf53aafeda144f2491f6`](https://github.com/jpshackelford/ohtv/commit/95c99eb25abe4db2753bcf53aafeda144f2491f6)
+- **Squashed subject:** `docs(sync): add sync-state ownership map and phased retirement plan (#114)` — `docs:` scope is release-please-ignored per AGENTS.md commit contract, so this merge does NOT add a 5th queued version bump on top of the existing 4 from #133+#134+#135+#136.
+- **Issue #114 NOT closed.** This is Phase A only (docs). Phases B/C/D (manifest retirement, schema migrations, removal of dual-store reads) remain open work; the squash body uses `Refs #114` (not `Closes #114`).
+- Pre-merge state was MERGEABLE/CLEAN; all 3 checks SUCCESS (`lint` 5s, `pytest` 53s with 1920 passed, `pr-review` 3m36s "WORTH MERGING" with LOW risk verdict); 0 unresolved review threads; head SHA `3fd3789` (no drift past the review-round commit).
+- What shipped: **`docs/reference/sync-state-ownership.md`** (new, 401 lines) — the canonical reference covering §1.1 per-conversation field ownership table (per `source` value), §1.2 manifest reader/writer call-site enumeration, §2 brittle-spot catalogue, §3 four-phase retirement plan (A → B → C → D) keyed to open issues, §4 glossary, §5 risks, §6 carve-outs for `cloud_listing` and `selected_branch`; plus **AGENTS.md item #27 pointer** so future edits to `sync_manifest.json` or its overlay columns land on the structured contract.
+- Review-round (commit `3fd3789` on top of original `074ac65`) addressed 5 minor items from the testing audit ([comment 4572308181](https://github.com/jpshackelford/ohtv/pull/137#issuecomment-4572308181), response in [4572570162](https://github.com/jpshackelford/ohtv/pull/137#issuecomment-4572570162)): **T1** citation line-number correction in §1.2; **T2** §1.2 reader-enumeration tightened to disambiguate from writer paths; **T5** PR #119 references flipped from "future" to "merged" (since #110 scenario has shipped); **T7a** §6 `cloud_listing` carve-out clarified as scanner-owned snapshot, not a manifest sibling; **T7b** §5 Risks #1 now cross-references AGENTS.md item #27 instead of duplicating the contract narrative.
+- Verification: manual docs-accuracy audit (T1–T9) all PASS/N/A after review-round. No source/test changes → no functional regression surface; CI cost was the auto-review pass (~3m36s) plus the unchanged lint/pytest gates.
+- Branch cleanup: `feat/sync-state-ownership-doc-114` deleted from `origin` after merge (default repo setting did not auto-delete on this PR; explicit `git push origin --delete` ran cleanly).
+- Sync rewrite arc status: #110 harness → #112 schema → #111 engine → #108 sub-conv default-on → #113 repair UX → **#114 Phase A docs (this merge)** → Phases B/C/D pending (#114 stays open).
+- Hard rules honored: no direct pushes to `main` except this worklog (using `chore(worklog):` so release-please ignores it); merge commit message untouched after merge; #114 not closed; no `Closes #137` / `Closes #114` in the squash body.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-29 01:49 UTC - PR #134 merged
 
 - PR: [#134 - feat(sync): include sub-conversations in cloud listing (#108)](https://github.com/jpshackelford/ohtv/pull/134)
