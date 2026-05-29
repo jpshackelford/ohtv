@@ -1317,3 +1317,66 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 10:51 UTC - Orchestrator
+
+**Active Workers:** _none_ (escape-hatch invoked inline this cycle — no worker dispatched)
+
+**Action Taken: Inline docs escape-hatch on PR #138** (authorized by 10:20Z forecast)
+
+- Direct commit on PR branch: [`39d8596`](https://github.com/jpshackelford/ohtv/commit/39d8596) — `docs(indexing): show root/sub split in db status example` — 1 line changed in `docs/guides/indexing.md` (the example output block in the `ohtv db status` section now shows `Conversations: 1297 (1183 roots + 114 subs across 42 trees)` matching the new format PR #138 introduces).
+- PR comment posted: [#138 comment 4574085159](https://github.com/jpshackelford/ohtv/pull/138#issuecomment-4574085159) — header `## Documentation updated for ` + "`" + `db status` + "`" + ` root/sub split` matches the orchestrator's `(README|documentation|docs).*(updated|verified|checked)` regex, closing the docs gate.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk` over WORKLOG with fenced-block exclusion → 0 hits).
+- **Prior cycle's docs re-run worker `6bacec7`:** `execution_status=null, sandbox_status=PAUSED` at decision time → finished ✓ but with **zero side effects again**: PR head still at `fee21c9` (the impl commit), 0 PR comments, 0 commits added. **This is the second consecutive docs-worker no-op for PR #138** (after `7ff3c76` did the same at 09:50Z). Both workers exited cleanly without satisfying the docs gate.
+- **Escape-hatch invocation rationale:** the 10:20Z forecast explicitly authorized this exact contingency:
+  > *"If `6bacec7` finished with NO comment AND NO commit (third docs-worker no-op in a row would be unusual) → escalate: orchestrator considers a one-time inline doc-fix-or-verify with a worklog entry explaining the escape-hatch."*
+
+  Considered three alternatives before invoking:
+  - (i) **Re-spawn a third docs worker with more aggressive prompt** — expected-value low: two prior workers got hyper-specific briefs (the 10:20Z brief pre-identified the file + lines + two-way decision matrix) and still no-op'd. A third dispatch is most likely a third no-op, burning another cycle and an API spawn quota with no progress.
+  - (ii) **Post the verify comment without a code change** (option 'b' in the 10:20Z forecast) — would close the gate, but is dishonest: the PR genuinely changes `db status` output format, and the indexing.md example showing the old format would mislead users who do have sub-conversations. The PR's tested behavior would not match the documented behavior — defeating the "test what's documented" gate.
+  - (iii) **Wait one more cycle to see if comments flush** — checked GraphQL `reviewThreads` and issue `comments` both empty at decision time; PR head verified at `fee21c9` (no new commits). Nothing to flush. Vetoed.
+
+  Chose option (a) — inline doc-fix-and-comment — because it (1) honestly updates the example to match the PR's new output format, (2) is a 1-line mechanical change (low risk of orchestrator overreach), (3) closes the gate cleanly so the testing worker can dispatch next cycle, (4) is bounded scope (no `src/` edits, no draft toggle, no `Closes #122`).
+
+- **Scope discipline of the escape-hatch:**
+  - **Files changed:** `docs/guides/indexing.md` only (1 line in the example output block).
+  - **NOT changed:** `README.md` (zero `db status` references — already verified accurate), `docs/reference/database.md` (already updated by the impl worker in this PR), `AGENTS.md` (item #32 already added by impl worker), any `src/` file, any test file.
+  - **Commit message:** `docs(indexing): show root/sub split in db status example` — conventional-commit `docs:` subject → release-please ignores it (correctly — no version bump needed for a docs example update; the PR's `feat(db):` subject is what triggers the bump on merge).
+  - **AI-disclosure footer** present in both the commit message (`Co-authored-by: openhands`) and the PR comment (`_This comment was created by an AI agent (OpenHands) on behalf of @jpshackelford._`).
+- **Expansion slot:** OPEN, IDLE. 12 open issues (10 `ready` w/ 2 prioritized — #122 in flight via #138, #114 queued — and 2 `hold` for #26, #90). **0 need expansion.** **18th consecutive idle expansion cycle.**
+- **PR slot:** the escape-hatch consumed this cycle's PR-slot action. No worker dispatched. CI will re-run on the new `39d8596` commit (expecting all three checks to stay green — docs-only change).
+- One action per wake-up rule honored (the inline edit + push + comment + worklog update count as one orchestrator action, per the prior cycle's authorization).
+- **Auto-disable counter:** **0 → 0** (productive cycle — escape-hatch invoked, gate closed). **Twenty-eighth consecutive productive cycle.** No consecutive quiet-period risk.
+
+**Current State:**
+
+- Open PRs: **1** — [PR #138](https://github.com/jpshackelford/ohtv/pull/138) (foundation for #122, docs gate **CLOSED ✓** as of `39d8596`, awaiting CI re-green + manual test + review).
+- [Issue #122](https://github.com/jpshackelford/ohtv/issues/122) (`priority:medium`, `ready`): PR #138 in flight (`Refs #122`, stays open until per-command issues #123–#128 land).
+- [Issue #114](https://github.com/jpshackelford/ohtv/issues/114) (`priority:medium`, `ready`): Phases B/C/D queued. **Suggested next action remains: re-expansion pass to split Phases B/C/D into child issues.**
+- **Need expansion (0):** ✓ board fully expanded (18th consecutive cycle).
+- **Ready w/ priority:high (0):** none.
+- **Ready w/ priority:medium (2):** #122 (in flight via #138), #114.
+- **Ready w/o priority (8):** #116, #121, #123, #124, #125, #126, #127, #128. **Six of eight (#123–#128) unblock post-#138-merge.**
+- **On hold:** #26, #90.
+- **Release-please:** ❌ unchanged — workflow-permissions block persists. Queue: **4 minor bumps** (#133–#136). PR #138 will add a 5th `feat(db):` bump on merge (the `docs(indexing):` commit added this cycle does NOT add a bump). Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → #109 ✅ → #113 ✅ (PR #136) → #114 Phase A ✅ (PR #137) → **#122 foundation in flight (PR #138, docs gate CLOSED, awaiting testing → review → merge)** → #114 Phases B/C/D + #123–128 per-command roll-ups (post-#122).
+
+**Forecast for next cycle (~11:20Z window):**
+
+- **If CI on `39d8596` green AND no new comments/changes** → spawn **testing worker** (the workflow's "docs updated → manual test" transition is now unblocked).
+- **If CI on `39d8596` fails** (very unlikely for a 1-line docs change, but possible if `lint` enforces markdown rules) → spawn a small fix worker. Most likely outcome: CI stays green.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle.
+- **WORKLOG truncation:** at ~1320 lines pre-this-entry → ~1410 post-this-entry. Past the operational ~1300 trigger. Truncation plan unchanged: defer to the cycle AFTER PR #138 merges (quiescent point preferred).
+
+**Escape-hatch follow-up note for the plugin maintainer (low priority):**
+
+Docs workers no-op'd twice in a row on PR #138 despite hyper-specific briefs. Suggestion: if this pattern repeats on future PRs, consider either (a) requiring docs workers to acknowledge receipt with an early "starting docs review" PR comment so we can distinguish "exited silently" from "never started", or (b) adding a final-action checklist to the docs worker prompt template ("before exiting you MUST either commit OR comment — silent exit is a failure mode"). The inline orchestrator escape-hatch worked but is intended to be rare.
+
+**Sync notes:** Container respawned this cycle. `uv venv ~/.venvs/orch && uv pip install git+https://github.com/jpshackelford/{lxa,ohtv}.git` clean (the `--system` perm-denied dance is now a known-pattern; venv-in-$HOME is the working recipe). `lxa repo add` recreated the per-sandbox board (idempotent). `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token` (working this cycle). `ohtv sync` skipped per prior-cycle long-poll-hang note; state-gathering via `gh` + REST only. `git fetch origin feat/aggregate-sub-conversations-122` worked, but `git checkout feat/aggregate-sub-conversations-122` failed because the shallow clone (`grafted` on main) doesn't auto-create local tracking branches; worked around with `git checkout -b feat/aggregate-sub-conversations-122 FETCH_HEAD`. Recording for future cycles: in this sandbox shape, expect to create the local branch explicitly from `FETCH_HEAD`.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
