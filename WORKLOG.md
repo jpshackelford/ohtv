@@ -1332,3 +1332,67 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 04:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `4fe43cf` | merge | PR #135 — `--lock-timeout` flag + `sync.lock` mutex (#109) | **NEW** running |
+
+**Spawned: Merge Worker for PR #135**
+- PR: [#135 — feat(locks): add sync.lock writer mutex + column-ownership table (#109)](https://github.com/jpshackelford/ohtv/pull/135)
+- Conversation: [`4fe43cf`](https://app.all-hands.dev/conversations/4fe43cfac4cb42f5a15a19e175fb97ea) — `execution_status=running`, `sandbox_status=RUNNING`, `pr_number=[135]`, `selected_repository=jpshackelford/ohtv`.
+- Start task `a74a00a8…` → READY on the **2nd** 5s poll (~6s — sub-second sandbox path, identical cadence to prior cycle's docs+testing dispatches).
+- Plugin form: canonical object `{source: github:jpshackelford/.openhands, repo_path: plugins/ohtv-workflow, ref: feat/ohtv-workflow-plugin}`. `run: true` at `initial_message` level. Single attempt, accepted.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 outside fenced code blocks).
+- **Prior cycle's testing worker `4fded42`:** `execution_status=finished`, `sandbox_status=RUNNING` (kept alive, work done). Posted the manual-test report at **03:56:42Z** (~6 minutes after spawn — well under the 20–35 min forecast; tight, focused test run). Matches the prior cycle's primary-action forecast (item #2: "test report posted, ✅ verdict, no review threads → spawn merge worker") exactly.
+- **Expansion slot:** OPEN, IDLE. 14 open issues, 12 `ready` (11 w/o priority + #109 still open pending merge), 2 `hold` (#26, #90). **0 need expansion.** Slot stays idle (6th consecutive idle cycle).
+- **PR slot:** OCCUPIED at cycle start, slot pipeline advanced. PR #135 state at decision time:
+  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=null`.
+  - CI: 2 of 2 required checks GREEN (`lint` SUCCESS, `pytest` SUCCESS) on head `a2b9c123`. The earlier-cycle `pr-review` workflow does not re-trigger on the docs commit, by design.
+  - Docs comment present (03:27Z) → docs-gate satisfied.
+  - Manual-test comment present (03:56Z) with verdict **✅ Ready to merge** — all 7 tests (T1–T7) PASS:
+    - T1 fail-fast `--lock-timeout=0` on `sync`/`db scan`/`gen titles` → all rc=1, exact documented error message
+    - T2 wait-and-acquire `--lock-timeout=10` (2.14s, rc=0) + timeout `--lock-timeout=2` (4.02s, rc=1, ≈ 2s cold-start + 2s poll deadline)
+    - T3 real two-process contention via `ohtv.locks.sync_lock` Python holder → all three writers rc=1, lock-file PID+label stamp visible
+    - T4 `sync --status` rc=0 while writer holds → confirms code path `cli.py:359-362` skips the mutex
+    - T5 full `pytest -q`: **1897 passed, 3 skipped, 4 xfailed, 0 failed** in 31s
+    - T6 ruff: 169 errors **identical on `main`** (pre-existing baseline), PR's 3 new files clean
+    - T7 `ohtv db status`: rc=0, no schema regression
+  - **0 review threads** on PR (`gh api graphql reviewThreads(first:30)` → empty). The 03:09Z `github-actions` review was status COMMENTED, summary-only, no inline threads, and pre-dates both the docs commit and the test report; non-blocking.
+- **Canonical decision-tree row:** **"PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker."** Test results are NOT outdated (no commits since 03:25Z `a2b9c123`; test ran on that head). No docs spot-check needed (the docs commit *is* the doc work; no review changes intervened). Dispatched.
+- One action per wake-up rule honored.
+
+**Current State:**
+
+- [PR #135](https://github.com/jpshackelford/ohtv/pull/135): `oCFcT` history, CI green (lint + pytest), ready, docs ✓, test ✅ ready-to-merge, **merge worker in flight**. Branch `feat/sync-lock-109` @ `a2b9c123`.
+- Issue #109 (`priority:medium`): implementation tested, awaiting squash-merge (auto-closes via `Fixes #109` in PR body).
+- **Need expansion (0):** ✓ board fully expanded.
+- **Ready w/ priority:medium (0):** #109 in PR, no other prioritized issues.
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ still failing on the workflow-permissions block (no change since 01:50Z diagnosis). Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`. After the #135 merge lands, the pending release PR queue gets even larger (cumulative since 0.13.x: #133 + #134 + #135 = three minor bumps queued). Not blocking dispatch.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → **#109 in PR #135 (merge phase)** → #113 (next pipeline target after #109 merges) → #114 (final).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — merge worker dispatched, PR slot advanced from "test ✅" to "merge in flight"). Sixteen consecutive productive cycles.
+
+**Forecast for next cycle (~04:50Z window):**
+
+- **If `4fe43cf` still running** → wait + log. Merge workers usually take 5–15 min (read diff + manual-test report, update PR description, craft conventional-commit subject+body, `gh pr merge --squash`, verify state, update worklog).
+- **If `4fe43cf` finished, PR squash-merged, Issue #109 auto-closed** → advance to **next ready w/o priority** issue. With 11 ready w/o priority, the orchestrator must first run `/assess-priority` inline to pick a focus, then spawn impl worker. Decision-tree row: "No open PR + ready issues, no priority → Run `/assess-priority` inline, then spawn impl worker."
+  - Likely #113 next per the sync rewrite arc, but `/assess-priority` should confirm.
+- **If `4fe43cf` finished but merge failed** (e.g. concurrent push, unexpected CI re-run goes red, branch-protection rule trips) → check worker's exit logs / PR comment, possibly spawn another worker round; do NOT force-merge.
+- **If `4fe43cf` errored or stuck** → re-spawn once with diagnostics surfaced.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until human files a new issue.
+- **Release-please:** unchanged forecast (waiting on human to flip repo permission toggle). Post-#135 the queue grows to 3 minor bumps; first re-run after the toggle will produce the long-pending release PR.
+- **WORKLOG truncation:** at ~1330 lines pre-this-entry, now over the 300-line threshold for **four** consecutive cycles. The next quiet cycle (or the next cycle that finds the PR slot idle for >1 wake-up) should run `/truncate-worklog` — archive through ~22:00Z 05-28 to keep the recent productive window (last 6h: 22:00Z → 04:20Z) intact. Deferred again this cycle to keep dispatch surgical.
+
+**Sync notes:** Container fresh-respawn this cycle (no `~/.local/bin` carryover). `uv tool install` for `lxa` + `ohtv` succeeded after `--system` perm-denied workaround; PATH bootstrapped from `~/.local/bin`. `lxa repo add jpshackelford/ohtv` created `Unnamed Board 1` (per-sandbox board persistence; harmless). `ohtv sync --quiet` hung on first attempt (>30s no output) — abandoned, switched to direct `gh` + GraphQL queries for state (the orchestrator's documented fallback path). `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY` (no rate limit this cycle). Spawn via `X-Access-Token: $OPENHANDS_API_KEY`. `git pull --ff-only origin main` confirmed up-to-date before commit.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
