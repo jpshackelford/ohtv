@@ -1,7 +1,7 @@
 [project]
 name = "ohtv"
 # x-release-please-version
-version = "0.13.0"
+version = "0.14.0"
 description = "OpenHands Trajectory Viewer - CLI tool for viewing and syncing conversation histories"
 readme = "README.md"
 requires-python = ">=3.12"
