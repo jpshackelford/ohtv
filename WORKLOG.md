@@ -2,6 +2,33 @@
 
 ## Log
 
+### 2026-05-29 20:10 UTC - Impl worker (#121 CLI logging overhaul)
+
+**Conv:** impl worker spawned after the v0.15.0 release at 19:38Z; priority bumped to `priority:high` by @jpshackelford at 19:46Z.
+**Issue:** #121 — rename misleading `--verbose`, add `--log-level` / `--log-file` / `--log-stderr`, stop swallowing batch errors.
+**PR:** **#147** — `feat/cli-logging-121` → `main`. CI **green** (`pytest pass 52s`, `lint pass 4s`, `pr-review skipping`). Marked **ready for review**.
+
+**Scope (all four phases shipped together, no scope cuts):**
+
+- **Phase A** — rewrote `src/ohtv/logging.py` (`setup_logging` is kwargs-only now: `level=`, `log_file=`, `log_stderr=`); new helpers `resolve_log_level` and `resolve_log_file` honour `OHTV_LOG_LEVEL` / `OHTV_LOG_FILE` and the `-` / `/dev/null` / `nul` sentinels. Idempotent: re-targets handlers on repeated calls.
+- **Phase B** — new `src/ohtv/cli_logging.py` exposes the `logging_options` Click decorator plus `init_logging_from_cli(verbose)`. Wired into all 19 commands that previously had `--verbose`. Backward-compat preserved: `--verbose` still works, now marked deprecated, emits a **one-shot** stderr note. `db init` and `report velocity` keep their domain-specific `--verbose` semantics (migration steps / rendered SQL) and pick up the new flags alongside.
+- **Phase C** — `log.exception` (or `log.warning` for known-recoverable) added to every batch swallow site: `_run_post_sync_processing`, `_run_post_sync_llm_analysis`, `_analyze_one` (batch `gen objs`), `_run_objectives_analysis` (single-conv), `generate_embeddings_only`, `EmbeddingWriter._write_batches` / `_writer_loop`, and `parallel.run_parallel` (default `on_error=None` now logs the worker traceback rather than discarding it). **Reproducer healed:** `gen objs -D --quiet` now leaves a traceback per error in `~/.ohtv/logs/ohtv.log`.
+- **Phase D** — `docs/reference/configuration.md` truth-ups `OHTV_LOG_LEVEL` (previously documented but unwired — the "documentation lie" from the issue body) and adds `OHTV_LOG_FILE`; expanded Logging section covers the three new flags, resolution order (CLI > env > default), `--verbose` deprecation, and the "batch failures always land in the log even under `--quiet`" guarantee. `README.md` got a short Logs subsection under Configuration.
+
+**Tests (53 new, all green; full suite 2050 passed / 2 skipped / 3 xfailed in 27s):**
+
+- `tests/unit/test_logging.py` (36) — full `setup_logging` / `resolve_log_level` / `resolve_log_file` coverage including env-vs-CLI ordering, sentinels, idempotency, and the legacy `verbose=True` kwarg.
+- `tests/unit/test_cli_logging.py` (10) — decorator wiring, deprecation one-shot behaviour, explicit `--log-level` beats `--verbose`.
+- `tests/unit/test_cli_batch_error_logging.py` (7) — `caplog` confirms `log.exception` (`exc_info` set) on the swallow sites and that `run_parallel` callers can still opt out via `on_error`.
+
+**Notable design decision:** removed `logger.propagate = False` from the original draft of `setup_logging` — it broke `caplog` and any structured-logging consumer attached to the root logger without buying us anything (root has no default handlers, so propagation flows into the void anyway).
+
+**Release impact:** `feat(cli):` — minor bump. 0.15.0 → 0.16.0 on squash-to-main.
+
+**Status:** EXIT per brief step 12 — PR #147 ready, CI green, AC satisfied. No follow-ups required (issue body's optional `--quiet` exit-code tightening is potentially breaking for cron consumers and was deliberately left out of scope; if/when desired, a separate issue with explicit contract negotiation is the right shape).
+
+---
+
 ### 2026-05-29 17:53 UTC - Docs worker (PR #146, #126 auto-step)
 
 **Conv:** docs-update worker for PR #146 (`feat/classify-short-circuit-subs-126`).
