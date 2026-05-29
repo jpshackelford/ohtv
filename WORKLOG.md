@@ -1262,3 +1262,58 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 07:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `d770c82` | implementation | Issue #114 Phase A — sync-state ownership doc | **NEW** running ([conv](https://app.all-hands.dev/conversations/d770c8296d3543e2983f22016d29a5b2)) |
+
+**Spawned: Implementation Worker for Issue #114 (Phase A — docs-only)**
+- Issue: [#114 — Two sources of truth for sync state (manifest + DB) makes correctness brittle](https://github.com/jpshackelford/ohtv/issues/114) (`priority:medium`, `ready`)
+- Conversation: [`d770c82`](https://app.all-hands.dev/conversations/d770c8296d3543e2983f22016d29a5b2) — `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`.
+- Start task `8357a659…` accepted at 07:18:49Z → READY on the **4th** 5s poll (~20s through `STARTING_CONVERSATION`). Canonical `POST /api/v1/app-conversations` shape (Bearer auth + `initial_message: {role, content: [{type: text, text: ...}]}`) per the `openhands-api` skill and matching last cycle's working pattern. First-attempt accepted; no retry needed this cycle.
+- Worker brief scopes this PR to **Phase A only** of #114's four-phase plan: add `docs/reference/sync-state-ownership.md` (ownership map + manifest-reader call sites + brittle-spot catalogue + phased plan + PR #119 interactions + risks + out-of-scope) and append a single bullet to `AGENTS.md` item #27 pointing at the new doc. Hard-fenced: no `src/`, no `tests/`, no `WORKLOG.md`. Conventional-commit subject `docs(sync): …` (release-please ignored). PR body uses `Refs #114` (NOT `Closes #114` — Phases B/C/D remain).
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 outside fenced blocks).
+- **Prior cycle's merge worker `428dd85`:** `execution_status=finished`, `sandbox_status=RUNNING` (kept alive, work done by 06:53:56Z). PR #136 squash-merged at 06:53:56Z (squash SHA `764410d…`), Issue #113 auto-closed at 06:53:58Z via the `Closes #113` footer. WORKLOG entry from `428dd85` documents the merge cleanly (PR description's `## Review evolution` section, squash body, drift notes). Matches the prior-cycle forecast exactly: "If `428dd85` finished + PR #136 state=MERGED + issue #113 closed → spawn impl worker for Issue #114."
+- **Expansion slot:** OPEN, IDLE. 12 open issues (no longer 13 — #113 closed), 10 `ready` (2 prioritized: #114 + #122 both `priority:medium`), 2 `hold` (#26, #90). **0 need expansion.** Slot stays idle (11th consecutive idle cycle).
+- **PR slot:** EMPTY at cycle start (`gh pr list --state open` returns `[]`). No active PR workers (`428dd85` finished; no other ohtv-tagged convs with `execution_status=running` besides this orchestrator).
+- **Canonical decision-tree row:** **"No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue."** Highest-priority ready issue is **#114** (sync rewrite arc's final link; the prior cycle's forecast explicitly singled it out over #122 because it continues the arc's loaded context). `priority:medium` ties broken by issue number ascending. Dispatched.
+- **Sub-decision — scope of the first PR for #114:** The issue's expanded technical-approach comment defines four phases. Phase B bundles into #111 (separate engine); Phase C blocks on #109 + #112 (separate columns); Phase D blocks on Phase C shipping a release. **Phase A** is *the* standalone, docs-only PR that ships now — the issue body literally says "this PR, can land standalone." The worker brief scopes strictly to Phase A.
+- One action per wake-up rule honored.
+
+**Current State:**
+
+- **No open PRs** (PR #136 merged 06:53:56Z; queue moved forward).
+- Issue #114 (`priority:medium`): impl worker in flight for Phase A.
+- **Need expansion (0):** ✓ board fully expanded.
+- **Ready w/ priority:high (0):** none.
+- **Ready w/ priority:medium (2):** #114 (impl in flight), #122 (next).
+- **Ready w/o priority (8):** #116, #121, #123, #124, #125, #126, #127, #128.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ still failing on the workflow-permissions block (no change since 01:50Z diagnosis). Queue is now **4 minor bumps** queued (#133 + #134 + #135 + #136). Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`. Not blocking dispatch. **Phase A's PR uses `docs:` subject → won't add a 5th queued bump.**
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → #109 ✅ → #113 ✅ (PR #136) → **#114 Phase A in flight** → #114 Phases B/C/D (bundled into #111/#109/#112 follow-ups + a final release).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — impl worker dispatched against the arc's final-link issue). Twenty-one consecutive productive cycles.
+
+**Forecast for next cycle (~07:50Z window):**
+
+- **If `d770c82` still running** → wait + log. Docs-only impl workers are fast (no source code, no tests to write) — typically 15–35 min for a brief like this (clone, read the issue comment, transcribe & verify the ownership map's `file:line` references against current `main`, write the doc, append the AGENTS.md bullet, open draft PR, wait for CI, move to ready, append worklog).
+- **If `d770c82` finished + new PR opened (drafted-and-then-ready)** → run the PR-slot decision tree. For a docs-only PR:
+  - **README/docs gate:** the PR *is* the docs. Skip the separate docs worker.
+  - **Testing gate:** AGENTS.md says "Do NOT require docs update if only ... bug fixes that don't change documented behavior" and "test-only changes." Docs-only changes are not user-functionality changes per the workflow's "Test What's Documented" principle — there's no behavior to verify, only doc accuracy. Per the skill's normal flow this PR should still go through manual testing (the testing worker would just verify that documented file:line references resolve and the brittle-spot claims are accurate), so the decision is likely: spawn testing worker, then review, then merge. **Edge case to track:** if the testing skill produces a "no functional changes" verdict quickly the testing→review→merge path may collapse to a faster sequence.
+- **If `d770c82` finished but no PR opened** (e.g. worker hit a scope-creep stop, or got blocked on a file:line ambiguity) → diagnose via the PR-comment / new branch state.
+- **If `d770c82` errored or stuck** → re-spawn once with diagnostics. Docs work shouldn't error on infrastructure; if it does, it's probably the same `uv sync` / `lxa` install pattern noted in previous cycles.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until human files a new issue.
+- **Release-please:** unchanged forecast (waiting on human to flip repo permission toggle). Phase A's `docs:` subject keeps the queue at 4.
+- **WORKLOG truncation:** at 1264 lines pre-this-entry → ~1350 post — **1050 lines over the 300-line threshold** (8th consecutive cycle deferred). Will trigger the truncation pass next time the PR slot is in a pure wait-state — most likely the cycle *after* this one if `d770c82` is still running and there's no other dispatchable action. If `d770c82` finishes fast and the next dispatchable is testing/review/merge, defer one more time.
+
+**Sync notes:** Container fresh-respawn this cycle. `lxa` + `ohtv` installed via `pip --user` (after `uv pip install --system` hit perm-denied on `/usr/local/lib/python3.13/site-packages/src` — system Python isn't writable in this sandbox). `~/.local/bin` PATH bootstrapped per-shell. `lxa repo add jpshackelford/ohtv` created `Unnamed Board 1` (per-sandbox board persistence; harmless). `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY`. **Endpoint:** `POST /api/v1/app-conversations` (canonical) — no 405 diagnostic needed this cycle (lesson from prior cycle stuck). `git pull --ff-only origin main` confirmed up-to-date before commit (HEAD `67de7ed`). The two paused orphans (`1ea745c`, `00a1946`) plus the older `12cce68` and `a21edac` from earlier cycles remain in `sandbox_status=PAUSED` / `MISSING`; they idle out naturally, no action needed.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
