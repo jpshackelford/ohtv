@@ -1218,3 +1218,60 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 03:23 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `d138e40` | docs | PR #135 — Document `--lock-timeout` flag + `sync.lock` mutex (#109) | **NEW** running |
+
+**Spawned: Documentation Worker for PR #135**
+- PR: [#135 — feat(locks): add sync.lock writer mutex + column-ownership table (#109)](https://github.com/jpshackelford/ohtv/pull/135)
+- Conversation: [`d138e40`](https://app.all-hands.dev/conversations/d138e405ed3d4c4ba4a7219af2eaf128) — `execution_status=running`, `sandbox_status=RUNNING`, `pr_number=[135]`, `selected_repository=jpshackelford/ohtv`.
+- Start task `1566524c…` → READY on first 6s poll (sub-second sandbox).
+- Plugin form: canonical object `{source: github:jpshackelford/.openhands, repo_path: plugins/ohtv-workflow, ref: feat/ohtv-workflow-plugin}`. `run: true` correctly nested at `initial_message` level (not under `content[]`). Spawn accepted on first try this cycle.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0).
+- Prior cycle's impl worker `5c18b8d` → **finished** at ~03:05Z, opened **PR #135** on branch `feat/sync-lock-109`. No re-spawn needed; matches the prior cycle's primary-action forecast exactly. Sandbox now `RUNNING` but `execution_status=finished` (impl loop done; sandbox kept alive but unused).
+- **Expansion slot:** OPEN, IDLE. 14 open issues, 12 `ready` (11 w/o priority + #109 in flight), 2 `hold` (#26, #90). **0 need expansion.** Slot stays idle.
+- **PR slot:** OCCUPIED at cycle start. PR #135 state at decision time:
+  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=""`.
+  - All 3 CI checks GREEN on head `edb3c4a5` (lint-pr-title 3s, pytest 47s, pr-review 5m10s).
+  - **0 review threads, 0 PR comments** (clean post-impl state).
+  - Changed files (6): `AGENTS.md`, `docs/reference/database.md`, `src/ohtv/cli.py`, `src/ohtv/locks.py`, `tests/unit/test_cli_sync_lock.py`, `tests/unit/test_locks.py`. **+941 / -62.**
+  - User-facing surface area added: `--lock-timeout SECONDS` flag on **three** commands (`sync`, `db scan`, `gen titles`), default `0` = fail-fast, plus a user-visible error string about `$OHTV_DIR/sync.lock`. Default behavior of all three commands changed.
+- **Docs-update gate evaluation:** PR diff updated `docs/reference/database.md` (the canonical mutex / column-ownership contract — ~109 lines added) and `AGENTS.md` item #27. PR diff did NOT touch the user-facing **flag-by-flag** docs: `docs/reference/cli.md`, `docs/guides/syncing.md`, `docs/guides/indexing.md`, `docs/guides/analysis.md`. Per the decision-tree heuristic "**New flags or options**" + "**Changed default behavior**" → **docs update required before testing**. README.md is intentionally thin (pitch + pointer file; lists no flags) — the docs worker is instructed to leave it alone unless a top-level callout is warranted.
+- Canonical decision-tree row: **"PR exists, ready, CI green, README not updated → Spawn docs worker."** (Interpreted liberally as "user-facing docs not updated" — the PR's docs/reference/database.md update is the *contract* doc, not the *guide* doc.) Dispatched.
+- One action per wake-up rule honored.
+
+**Current State:**
+
+- [PR #135](https://github.com/jpshackelford/ohtv/pull/135): `o` history, CI green, ready, **docs worker in flight**. Branch `feat/sync-lock-109` @ `edb3c4a5`.
+- Issue #109 (`priority:medium`): implementation merged into PR #135, awaiting docs + test + merge cycle.
+- **Need expansion (0):** ✓ board fully expanded.
+- **Ready w/ priority:medium (0):** #109 already in PR.
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ still failing on the workflow-permissions block (no change since 01:50Z diagnosis). Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`. Not blocking dispatch.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → **#109 in PR #135 (docs phase)** → #113 (next pipeline target after #109 merges) → #114 (final).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — docs worker dispatched, PR slot advanced from "PR ready, no docs" to "docs in flight"). Fourteen consecutive productive cycles.
+
+**Forecast for next cycle (~03:53Z window):**
+
+- **If `d138e40` is still running** → wait + log. Pure-docs workers typically run 15–30 min (edit 4 docs files, run pytest sanity, commit + push + watch CI ~6 min, post comment).
+- **If `d138e40` finished, docs commit landed, CI green, comment posted** → advance to **testing worker** per decision tree row "PR exists, ready, CI green, docs updated, no manual test results → spawn testing worker." Testing worker covers: install via `uv sync`, exercise `--lock-timeout=0` fail-fast, `--lock-timeout=N` wait-and-acquire, two-process contention via real subprocess, `sync --status` skip-the-lock guarantee, full unit suite, ruff. Standard `/manual-test` skill report format.
+- **If `d138e40` finished WITHOUT posting docs comment** → check git log for the docs commit; if commit exists but no comment, treat docs gate as satisfied (commit speaks for itself) and proceed to testing. If neither commit nor comment, re-spawn docs worker.
+- **If `d138e40` errored** → re-spawn once and surface diagnostics.
+- **If a review threads or `requestedChanges` appears on PR #135 mid-cycle from the `pr-review` workflow** → testing still gates merge; spawn testing worker after docs, then review handling.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until human files a new issue.
+- **Release-please:** unchanged forecast (waiting on human to flip repo permission toggle).
+
+**Sync notes:** Container fresh-respawn this cycle (no `~/.local/bin` carryover). `uv sync` populated `.venv/`; `lxa` added via `uv pip install git+...` inside `.venv` rather than `uv tool install`; `ohtv` shim already in `.venv/bin/` from `uv sync`. `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY` (hit rate limit once on first search, slept 30s, succeeded — the search endpoint is shared with all other tooling in this org). Spawn via `X-Access-Token: $OPENHANDS_API_KEY`. WORKLOG at ~1230 lines pre-this-entry — well over the 300-line truncation threshold, but the last truncation was only 2 cycles ago (01:55Z) and the productive 6h window is dense; deferring re-truncation to a quieter cycle (consistent with prior cycle's call).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
