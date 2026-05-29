@@ -1133,3 +1133,56 @@ Until this is fixed, no release PRs will open, no version bumps will land, no Gi
 **Sync notes:** `lxa` / `ohtv` installed via `uv tool install` (the persistent `uv pip install --system` perm-denied workaround); shims at `~/.local/bin/{lxa,ohtv}`. `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token` (working this cycle). OH API via `Authorization: Bearer $OPENHANDS_API_KEY` (search) / `X-Access-Token: $OPENHANDS_API_KEY` (spawn). Plugins in canonical `{source, repo_path, ref}` object form. `git pull --ff-only origin main` confirmed up-to-date before truncation; had to redo truncation after the merge worker pushed its own WORKLOG update between my initial pull and my commit (no semantic loss — same 6h window, just +1 kept entry for the merge confirmation). `gh run view 26613140848 --log-failed` revealed the release-please root cause documented above.
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+### 2026-05-29 02:48 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `5c18b8d` | implementation | Issue #109 — Sync/scan race + column ownership | **NEW** running |
+
+**Spawned: Implementation Worker for #109**
+- Issue: [#109 - Sync and scan can race; column ownership is undocumented](https://github.com/jpshackelford/ohtv/issues/109) (`priority:medium`)
+- Conversation: [`5c18b8d`](https://app.all-hands.dev/conversations/5c18b8d894934249a4d954acec260f84) — `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`.
+- Start task `e1177e63…` → READY on first 5s poll (sub-second sandbox), no retries needed.
+- Plugins: canonical object form `{source: github:jpshackelford/.openhands, repo_path: plugins/ohtv-workflow, ref: feat/ohtv-workflow-plugin}`.
+- Initial-message payload glitch: first `POST` had `"run": true` nested inside `content[0]` (a `TextContent`), rejected with `extra_forbidden`. Re-issued with `run` lifted to the `initial_message` level — accepted. Worth recording: the spawn skill's reference JSON has it correctly at the outer level, but the indentation made it easy to misplace. Future spawners: double-check `run` lives on `initial_message`, not on a `content` item.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0).
+- 0 active ohtv workers at start: API search returned 2 `running` conversations (`a6b7b45`, `4919ccb`), both with `selected_repository=null` and generic titles (unrelated automations or fresh spawns); neither in the ohtv slot pool. The prior cycle's merge worker `ea5dedc` and any earlier workers are PAUSED/finished.
+- **Expansion slot:** OPEN, IDLE. 14 open issues total (counted again this cycle vs. last cycle's "13" — the difference is that #90 carries both `enhancement`+`hold` and was double-counted in the prior cycle's "ready w/o priority" tally; the actual on-hold count is 2 — #26 and #90 — and ready count is 12: #109 + the eleven `ready` w/o priority). **0 need expansion.** Slot stays idle.
+- **PR slot:** OPEN at cycle start, **no open PRs** (`gh pr list --state open` → `[]`). PR #134 merged 01:49Z (prior cycle), PR #130 closed.
+  - Canonical decision-tree row: **"No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue."**
+  - Highest-priority ready issue: **#109 (`priority:medium`)** — sole prioritized issue on the board. Matches the prior cycle's forecast verbatim.
+  - Dispatched `5c18b8d`. One action per wake-up rule honored.
+
+**Current State:**
+
+- **No open PRs** — PR slot just transitioned from "empty" to "occupied" via the impl worker spawn.
+- Issue #109 (`priority:medium`): now being implemented by `5c18b8d`.
+- **Need expansion (0):** ✓ board fully expanded.
+- **Ready w/ priority:medium (1):** #109 ← in flight.
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ still failing on the workflow-permissions block. Diagnosed last cycle: `release-please failed: GitHub Actions is not permitted to create or approve pull requests` (5 consecutive failed runs as of 01:50Z). Unblock requires @jpshackelford to flip the repo setting at `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`. Until then, no release PRs / no version bumps / no GitHub Releases. Not blocking dispatch.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → **#109 (in flight)** → #113 (next) → #114 (final).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — impl worker dispatched, advancing the PR slot from empty to occupied). Thirteen consecutive productive cycles.
+
+**Forecast for next cycle (~03:18Z window):**
+
+- **If `5c18b8d` is still running** → log + wait. Issue #109 is a non-trivial concurrency/locking + column-ownership refactor with dependencies on #112 schema and #111 engine; impl workers for issues of this shape typically run 60–120 min before producing a draft PR. ~30 min in is still early.
+- **If `5c18b8d` opens a DRAFT PR with CI not yet green** → wait (impl worker is still iterating on CI).
+- **If `5c18b8d` opens a PR that is READY (not draft) and CI green** → advance the PR slot pipeline. Per decision tree's docs-before-test rule: check if README/docs were updated (#109 is largely internal — concurrency primitives + AGENTS.md column-ownership table — so the docs-update gate is probably AGENTS.md, not README. If the worker updated AGENTS.md in-PR with the new column-ownership doc, **the docs-update gate is satisfied by the PR diff itself**; spawn testing worker next).
+- **If `5c18b8d` finishes without opening a PR (errored / ghosted / blocked)** → re-spawn once and surface diagnostics.
+- **If `5c18b8d` hits a spawn or git-provider auth error** → reinstate the unblock-the-human message from the 00:53Z reference entry.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until human files a new issue.
+- **Release-please:** unchanged forecast (waiting on human to flip the repo permission toggle). If the setting is flipped this cycle, a re-run of run `26613140848` (or a fresh trigger from the next merge) should produce the long-pending `chore(main): release 0.14.0` PR covering the #133 + #134 minor bumps.
+
+**Sync notes:** Container fresh-respawn this cycle. `uv tool install git+https://github.com/jpshackelford/{lxa,ohtv}.git` succeeded (the `--system` perm-denied workaround stands). PATH bootstrapped from `~/.local/bin` (added to `~/.bashrc`). `lxa repo add jpshackelford/ohtv` created `Unnamed Board 1` (board persistence is per-sandbox; harmless). `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY`, spawn via `X-Access-Token: $OPENHANDS_API_KEY`. `git pull --ff-only origin main` confirmed up-to-date before commit. WORKLOG at ~1135 lines pre-this-entry — under the 300-line truncation threshold isn't strictly true (it's well over) but the last truncation was only 1 cycle ago (01:55Z) and the prior cycle archived through 18:21Z, so the productive window is short and dense; deferring re-truncation to a quieter cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
