@@ -270,13 +270,25 @@ class TestSyncManagerFinalizeSync:
 
     @pytest.fixture
     def manager(self, tmp_path):
-        """Create a SyncManager with mocked config."""
+        """Create a SyncManager with mocked config.
+
+        Patches ``get_db_path`` alongside ``get_manifest_path`` so the
+        Phase-B-of-#114 ``sync_kv`` overlay in ``SyncManager.__init__``
+        does not leak state from a developer's real ``~/.ohtv/index.db``
+        when running the suite locally. CI is unaffected (no preexisting
+        DB), but locally without this isolation the overlay reads
+        ``sync_count`` / ``last_sync_at`` from the dev DB and the
+        assertions ``sync_count == 0`` / ``last_sync_at is None`` fail.
+        """
         config = MagicMock()
         config.synced_conversations_dir = tmp_path / "synced"
         config.api_key = "test-key"
-        
+
         manifest_path = tmp_path / "manifest.json"
-        with patch("ohtv.sync.get_manifest_path", return_value=manifest_path):
+        db_path = tmp_path / "index.db"
+        with patch(
+            "ohtv.sync.get_manifest_path", return_value=manifest_path
+        ), patch("ohtv.sync.get_db_path", return_value=db_path):
             return SyncManager(config)
 
     def test_advances_cutoff_when_no_skipped(self, manager):

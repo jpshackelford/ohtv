@@ -21,6 +21,11 @@ from ohtv.db.stores import (
     ConversationStore,
     SyncStateStore,
 )
+from ohtv.db.stores.sync_state_store import (
+    KEY_FAILED_IDS,
+    KEY_LAST_SYNC_AT,
+    KEY_SYNC_COUNT,
+)
 from ohtv.exporter import TrajectoryExporter, count_events
 from ohtv.sources.cloud import CloudClient, RateLimitExceededError
 
@@ -264,6 +269,15 @@ class SyncManager:
         self.config = config
         self.manifest_path = get_manifest_path()
         self.manifest = SyncManifest.load(self.manifest_path)
+        # Phase B of #114: ``sync_kv`` is the canonical home for the
+        # three sync-state scalars (``last_sync_at`` / ``sync_count``
+        # / ``failed_ids``). The manifest is dual-written for one
+        # release for downgrade safety; the read-side prefers sync_kv
+        # whenever a row is present. Tolerates a missing DB (fresh
+        # install before first ``ensure_db_ready``), missing keys
+        # (cold-upgrade path), and sqlite errors (read-only failures
+        # should never make the manager unusable).
+        _overlay_sync_state_from_db(self.manifest)
         self.exporter = TrajectoryExporter(config.synced_conversations_dir)
         # Thread-coordination for the parallel download path. SQLite
         # connections are not thread-safe; we buffer ``record_cloud_download``
@@ -1115,8 +1129,10 @@ class SyncManager:
         """Update and save manifest after sync.
 
         Post-#111: ``last_sync_at`` is a pure UX field. The engine never
-        consumes it as a gate. We dual-write it to ``sync_kv`` so #114
-        can drain the manifest without a flag-day.
+        consumes it as a gate. Phase B of #114 makes ``sync_kv`` the
+        canonical home for ``last_sync_at`` / ``sync_count`` /
+        ``failed_ids``; the manifest is dual-written for one release
+        so users who downgrade do not lose state.
         """
         self.manifest.failed_ids = result.failed_ids
         self.manifest.sync_count += 1
@@ -1125,7 +1141,6 @@ class SyncManager:
         # / skipped-by-max_new). The UX value is "what was the wall-clock
         # time of the last clean reconciliation" — not consulted by the
         # set-diff engine.
-        advanced = False
         if result.has_failures:
             log.warning(
                 "Sync complete with %d failures. Not advancing last_sync_at. "
@@ -1140,21 +1155,15 @@ class SyncManager:
             )
         else:
             self.manifest.last_sync_at = datetime.now(timezone.utc)
-            advanced = True
             log.info("Sync complete. Total conversations: %d", len(self.manifest.conversations))
 
         self.manifest.save(self.manifest_path)
 
-        # Dual-write to sync_kv (Issue #114 transition state). Engine
-        # never reads from this key.
-        if advanced and conn is not None:
-            try:
-                SyncStateStore(conn).set(
-                    "last_sync_at", _format_datetime(self.manifest.last_sync_at)
-                )
-                conn.commit()
-            except Exception as exc:  # pragma: no cover - defensive
-                log.warning("Failed to mirror last_sync_at into sync_kv: %s", exc)
+        # Phase B dual-write to sync_kv. We mirror all three scalars
+        # whether or not last_sync_at advanced — sync_count always
+        # increments, failed_ids may have changed shape, and even an
+        # un-advanced last_sync_at is the value the reader prefers.
+        _mirror_sync_state_to_db(self.manifest, conn=conn)
 
     def get_status(self) -> dict:
         """Get current sync status."""
@@ -2114,7 +2123,12 @@ class SyncManager:
                     self.manifest.last_sync_at = datetime.now(timezone.utc)
                 self.manifest.failed_ids = result.failed_ids
                 self.manifest.save(self.manifest_path)
-                
+
+                # Phase B of #114: mirror to sync_kv. Reset opens its
+                # own short-lived connection — it does not share the
+                # set-diff engine's ``conn``.
+                _mirror_sync_state_to_db(self.manifest, conn=None)
+
                 return result
                 
         except httpx.HTTPStatusError as e:
@@ -2147,6 +2161,136 @@ def _format_datetime(dt: datetime | None) -> str | None:
 def _utc_now_iso() -> str:
     """ISO 8601 UTC timestamp for ``sync_kv`` bookkeeping."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _overlay_sync_state_from_db(manifest: "SyncManifest") -> None:
+    """Phase B of #114: prefer ``sync_kv`` for sync-state scalars.
+
+    Reader half of the Phase B canonical-source flip. Reads
+    ``last_sync_at`` / ``sync_count`` / ``failed_ids`` from
+    ``sync_kv`` and overlays each onto ``manifest`` when the row is
+    present. A missing row leaves the manifest value intact — this is
+    the documented cold-upgrade fallback path (manifest survives until
+    the first post-upgrade sync writes ``sync_kv``).
+
+    Failure modes that fall back silently to manifest values:
+
+    * DB file does not exist yet (fresh install, no ``ensure_db_ready``).
+    * ``sync_kv`` table does not exist yet (very old DB pre-migration 018).
+    * ``sqlite3.Error`` opening or querying the file.
+
+    None of these should make ``SyncManager`` unusable — the manifest
+    keeps working as it did pre-Phase-B.
+    """
+    try:
+        db_path = get_db_path()
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("sync_kv overlay: cannot resolve db path (%s)", exc)
+        return
+    if not db_path.exists():
+        return
+    try:
+        conn = sqlite3.connect(db_path)
+    except sqlite3.Error as exc:
+        log.debug("sync_kv overlay: cannot open db at %s (%s)", db_path, exc)
+        return
+    try:
+        conn.row_factory = sqlite3.Row
+        state = SyncStateStore(conn)
+
+        last_sync_raw = state.get(KEY_LAST_SYNC_AT)
+        if isinstance(last_sync_raw, str) and last_sync_raw:
+            manifest.last_sync_at = _parse_datetime(last_sync_raw)
+
+        sync_count_raw = state.get(KEY_SYNC_COUNT)
+        if isinstance(sync_count_raw, int) and not isinstance(sync_count_raw, bool):
+            manifest.sync_count = sync_count_raw
+
+        failed_ids_raw = state.get(KEY_FAILED_IDS)
+        if isinstance(failed_ids_raw, list):
+            # Defensive str-cast — older entries could theoretically
+            # carry non-string ids if a future scalar shape changes.
+            manifest.failed_ids = [str(fid) for fid in failed_ids_raw]
+    except sqlite3.Error as exc:
+        # ``sync_kv`` row read failed (table absent, schema mismatch,
+        # transient lock). Manifest values win.
+        log.debug("sync_kv overlay: read failed (%s); using manifest values", exc)
+    finally:
+        conn.close()
+
+
+def _mirror_sync_state_to_db(
+    manifest: "SyncManifest",
+    *,
+    conn: sqlite3.Connection | None,
+) -> None:
+    """Phase B of #114: write the three scalars into ``sync_kv``.
+
+    Writer half of the Phase B canonical-source flip. Mirrors the
+    manifest's current values for ``last_sync_at`` / ``sync_count`` /
+    ``failed_ids`` into ``sync_kv`` so the reader half (and the
+    ``--status`` UX) can see them.
+
+    Two callers, two connection patterns:
+
+    * The set-diff sync engine owns a long-lived connection for the
+      sync run and passes it in. We write through it and let the
+      caller decide when to commit (typically right after this call).
+    * ``reset_to_n_newest`` does not hold a connection; passing
+      ``conn=None`` opens a short-lived one (mirroring the
+      ``ensure_db_ready`` pre-flight contract that sync already runs).
+
+    Tolerates a missing DB file / a missing ``sync_kv`` table by
+    logging at DEBUG and returning — the manifest is still the
+    authoritative store for one release.
+    """
+    if conn is not None:
+        try:
+            _write_sync_kv_scalars(SyncStateStore(conn), manifest)
+            conn.commit()
+        except sqlite3.Error as exc:
+            log.warning("Failed to mirror sync state into sync_kv: %s", exc)
+        return
+
+    try:
+        db_path = get_db_path()
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("sync_kv mirror: cannot resolve db path (%s)", exc)
+        return
+    if not db_path.exists():
+        # No DB yet — sync hasn't run a single ``ensure_db_ready``
+        # gate before. Skip; the next sync will mirror on the way out.
+        log.debug("sync_kv mirror: db %s missing; skipping", db_path)
+        return
+    try:
+        owned_conn = sqlite3.connect(db_path)
+    except sqlite3.Error as exc:
+        log.warning("sync_kv mirror: cannot open db at %s (%s)", db_path, exc)
+        return
+    try:
+        owned_conn.row_factory = sqlite3.Row
+        _write_sync_kv_scalars(SyncStateStore(owned_conn), manifest)
+        owned_conn.commit()
+    except sqlite3.Error as exc:
+        log.warning("Failed to mirror sync state into sync_kv: %s", exc)
+    finally:
+        owned_conn.close()
+
+
+def _write_sync_kv_scalars(
+    state: "SyncStateStore", manifest: "SyncManifest"
+) -> None:
+    """Persist the three Phase B scalars through ``state``.
+
+    Extracted so both the borrowed-connection and owned-connection
+    paths in :func:`_mirror_sync_state_to_db` share an identical
+    write shape. ``failed_ids`` is stored as a JSON array (one
+    ``sync_kv`` row), per the design note in
+    :mod:`ohtv.db.stores.sync_state_store`.
+    """
+    state.set(KEY_LAST_SYNC_AT, _format_datetime(manifest.last_sync_at))
+    state.set(KEY_SYNC_COUNT, int(manifest.sync_count))
+    state.set(KEY_FAILED_IDS, list(manifest.failed_ids))
 
 
 def _redash(undashed: str) -> str:

@@ -423,6 +423,170 @@ def _execute_orphaned_embeddings_cleanup(
 
 
 # =============================================================================
+# Task: Sync-state scalar backfill (Issue #114 Phase B, migration 018)
+# =============================================================================
+#
+# Migration 018 created the empty ``sync_kv`` table; Phase B of #114
+# (this codebase) makes sync write the three top-level manifest scalars
+# (``last_sync_at`` / ``sync_count`` / ``failed_ids``) there as the
+# canonical store. The reader (``SyncManager.__init__``) prefers the
+# DB and falls back to the manifest for the cold-upgrade window — but
+# every command that opens the DB through ``ensure_db_ready`` also
+# runs this one-time backfill so the fallback path stays cold after
+# the first invocation. The backfill is idempotent: re-running it
+# against an already-mirrored DB is a no-op.
+
+def _check_sync_state_backfill_needed(conn: sqlite3.Connection) -> bool:
+    """Return True if any of the three Phase B scalars is missing.
+
+    Returns True iff:
+
+    * The maintenance task has not been recorded as complete AND
+    * The manifest exists with at least one non-default value AND
+    * At least one of the three Phase B keys is absent from
+      ``sync_kv`` (i.e. the cold-upgrade gap is observably open).
+
+    Tolerates a missing manifest (nothing to copy → mark complete
+    immediately so future calls short-circuit) and any sqlite/JSON
+    error (treated as "nothing to do this run").
+    """
+    if is_task_completed(conn, "sync_state_backfill_114"):
+        return False
+
+    # Avoid importing ohtv.sync (heavyweight; pulls httpx etc.). Read
+    # the manifest directly through the same path resolver sync uses.
+    try:
+        from ohtv.config import get_manifest_path
+    except Exception:  # pragma: no cover - defensive
+        return False
+    try:
+        manifest_path = get_manifest_path()
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+    if not manifest_path.exists():
+        # Nothing to backfill — record the task as complete so we
+        # don't reopen this path on every command. Caller (which runs
+        # us via ``run_maintenance``) handles the actual write.
+        return False
+
+    try:
+        manifest_data = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    if not isinstance(manifest_data, dict):
+        return False
+
+    # "Worth backfilling" means the manifest carries at least one
+    # observable scalar. A bare-empty manifest contributes nothing.
+    has_value = (
+        bool(manifest_data.get("last_sync_at"))
+        or int(manifest_data.get("sync_count") or 0) > 0
+        or bool(manifest_data.get("failed_ids"))
+    )
+    if not has_value:
+        return False
+
+    # Now check the DB side. The keys live in ``sync_kv``; missing
+    # rows mean the cold-upgrade gap is open and we should backfill.
+    try:
+        from ohtv.db.stores.sync_state_store import (
+            KEY_FAILED_IDS,
+            KEY_LAST_SYNC_AT,
+            KEY_SYNC_COUNT,
+            SyncStateStore,
+        )
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+    try:
+        state = SyncStateStore(conn)
+        # The "is missing" predicate uses a sentinel so we can
+        # distinguish "row absent" from "row stored explicit NULL"
+        # (which Phase B treats as canonical → no backfill needed).
+        _sentinel = object()
+        for key in (KEY_LAST_SYNC_AT, KEY_SYNC_COUNT, KEY_FAILED_IDS):
+            if state.get(key, _sentinel) is _sentinel:
+                return True
+    except sqlite3.Error:
+        return False
+
+    return False
+
+
+def _execute_sync_state_backfill(
+    conn: sqlite3.Connection,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> dict:
+    """Copy manifest scalars into ``sync_kv`` for any missing key.
+
+    Idempotent. Touches only keys that are not already present in
+    ``sync_kv`` — Phase B's dual-write contract treats the DB as
+    canonical once populated, so we must not clobber a DB value with
+    a stale manifest value during backfill.
+    """
+    try:
+        from ohtv.config import get_manifest_path
+    except Exception:  # pragma: no cover - defensive
+        return {"backfilled": 0}
+    try:
+        from ohtv.db.stores.sync_state_store import (
+            KEY_FAILED_IDS,
+            KEY_LAST_SYNC_AT,
+            KEY_SYNC_COUNT,
+            SyncStateStore,
+        )
+    except Exception:  # pragma: no cover - defensive
+        return {"backfilled": 0}
+
+    try:
+        manifest_path = get_manifest_path()
+    except Exception:  # pragma: no cover - defensive
+        return {"backfilled": 0}
+
+    if not manifest_path.exists():
+        return {"backfilled": 0}
+
+    try:
+        manifest_data = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"backfilled": 0}
+    if not isinstance(manifest_data, dict):
+        return {"backfilled": 0}
+
+    state = SyncStateStore(conn)
+    _sentinel = object()
+
+    candidates: list[tuple[str, object]] = []
+    if state.get(KEY_LAST_SYNC_AT, _sentinel) is _sentinel:
+        ls = manifest_data.get("last_sync_at")
+        if isinstance(ls, str) and ls:
+            candidates.append((KEY_LAST_SYNC_AT, ls))
+    if state.get(KEY_SYNC_COUNT, _sentinel) is _sentinel:
+        sc = manifest_data.get("sync_count")
+        # Coerce truthy ints; leave bool out of the int branch
+        if isinstance(sc, int) and not isinstance(sc, bool):
+            candidates.append((KEY_SYNC_COUNT, sc))
+    if state.get(KEY_FAILED_IDS, _sentinel) is _sentinel:
+        fi = manifest_data.get("failed_ids")
+        if isinstance(fi, list):
+            candidates.append((KEY_FAILED_IDS, [str(x) for x in fi]))
+
+    total = len(candidates)
+    backfilled = 0
+    for i, (key, value) in enumerate(candidates):
+        if on_progress:
+            on_progress(i, total)
+        state.set(key, value)
+        backfilled += 1
+    if on_progress:
+        on_progress(total, total)
+
+    return {"backfilled": backfilled, "manifest_path": str(manifest_path)}
+
+
+# =============================================================================
 # Task Registry
 # =============================================================================
 
@@ -454,6 +618,13 @@ MAINTENANCE_TASKS: list[MaintenanceTask] = [
         triggered_by="migration_010",
         check_needed=_check_orphaned_embeddings_cleanup_needed,
         execute=_execute_orphaned_embeddings_cleanup,
+    ),
+    MaintenanceTask(
+        name="sync_state_backfill_114",
+        description="Copying sync-state scalars from manifest to sync_kv",
+        triggered_by="migration_018",
+        check_needed=_check_sync_state_backfill_needed,
+        execute=_execute_sync_state_backfill,
     ),
 ]
 
