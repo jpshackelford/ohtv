@@ -40,16 +40,27 @@ conversations
 ├── events_mtime (REAL)          # Last modification time of events/
 ├── event_count (INTEGER)        # Number of event files
 ├── registered_at (TEXT)         # When first indexed
-└── parent_conversation_id (TEXT NULL)
-                                 # For cloud sub-conversations spawned by
-                                 # agent delegation: the parent's id
-                                 # (normalized / dashless). NULL for root
-                                 # conversations and for all local CLI
-                                 # conversations. Populated by `ohtv sync`
-                                 # from the cloud listing payload.
-                                 # Added in migration 019 (Issue #108).
-                                 # Indexed by `idx_conversations_parent`
-                                 # (partial index, WHERE … IS NOT NULL).
+├── parent_conversation_id (TEXT NULL)
+│                                # For cloud sub-conversations spawned by
+│                                # agent delegation: the parent's id
+│                                # (normalized / dashless). NULL for root
+│                                # conversations and for all local CLI
+│                                # conversations. Populated by `ohtv sync`
+│                                # from the cloud listing payload.
+│                                # Added in migration 019 (Issue #108).
+│                                # Indexed by `idx_conversations_parent`
+│                                # (partial index, WHERE … IS NOT NULL).
+└── root_conversation_id (TEXT NULL)
+                                 # The top of the parent chain. For roots,
+                                 # equals `id`; for subs, walks
+                                 # `parent_conversation_id` to the top.
+                                 # ConversationStore is the single owner —
+                                 # resolved at write time from the
+                                 # effective parent. Indexed by
+                                 # `idx_conversations_root`. Aggregation
+                                 # surface: the view
+                                 # `conversations_by_root`. Added in
+                                 # migration 020 (Issue #122).
 
 repositories
 ├── id (INTEGER PRIMARY KEY)
@@ -363,6 +374,7 @@ treat the (#112) rows as N/A.
 | `source`                                | scanner                                                   | scanner                                                    | scanner-only; immutable after insert.                                          |
 | `labels`                                | sync (`update_metadata`; manifest is canonical)           | scanner — NULL (cloud-only feature)                        | Source-dependent. Mutex required for `source='cloud'`.                         |
 | `parent_conversation_id` (#108)         | sync (cloud listing payload, scanner reads `cloud_listing` snapshot) | N/A — NULL                                      | Effectively sync-only. `upsert` uses `COALESCE` so scanner cannot clobber.     |
+| `root_conversation_id` (#122)           | `ConversationStore` (resolved at write time from effective parent) | `ConversationStore` (always own id; no delegation) | Store-owned derived column. `COALESCE` on upsert preserves prior value.        |
 | `summary`                               | analysis pipeline (`gen objs`)                            | analysis pipeline                                          | Independent column; sync/scan don't touch it.                                  |
 | `sync_state` table (#112) — K/V scalars | sync                                                      | N/A                                                        | sync-only.                                                                     |
 | `cloud_listing` table (#112)            | sync                                                      | N/A                                                        | sync-only.                                                                     |

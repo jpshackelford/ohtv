@@ -4,7 +4,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 
-from ohtv.db.models import Conversation
+from ohtv.db.models import Conversation, RootConversation
 
 
 class ConversationStore:
@@ -14,7 +14,7 @@ class ConversationStore:
     _ALL_COLUMNS = """
         id, location, registered_at, events_mtime, event_count,
         title, created_at, updated_at, selected_repository, source, summary, labels,
-        parent_conversation_id
+        parent_conversation_id, root_conversation_id
     """
     
     def __init__(self, conn: sqlite3.Connection):
@@ -64,7 +64,78 @@ class ConversationStore:
             summary=summary,
             labels=labels,
             parent_conversation_id=self._safe_get(row, "parent_conversation_id"),
+            root_conversation_id=self._safe_get(row, "root_conversation_id"),
         )
+
+    def _resolve_root_conversation_id(
+        self,
+        *,
+        conv_id: str,
+        incoming_parent_id: str | None,
+    ) -> str:
+        """Compute the ``root_conversation_id`` to write for ``conv_id``.
+
+        Issue #122. The store owns this column: callers don't pass
+        the value, they pass ``parent_conversation_id`` (or None) and
+        the store walks the tree.
+
+        The "effective parent" is what the row will look like after the
+        ``COALESCE`` merge in :meth:`upsert` /
+        :meth:`record_cloud_download`:
+
+        * If ``incoming_parent_id`` is non-None, it wins.
+        * Otherwise we read any parent already on the existing row
+          (sync may have written it before the scanner re-passes
+          without parent context).
+
+        From the effective parent we look up the parent's
+        ``root_conversation_id`` and propagate. When the parent isn't
+        in the local DB yet (orphan sub — parent trajectory not
+        synced, or parent is on a different account), we fall back to
+        ``conv_id`` so the sub becomes its own root. That matches the
+        migration-time orphan policy and keeps every row groupable.
+
+        Args:
+            conv_id: This conversation's id (normalized / dashless).
+            incoming_parent_id: Parent id from the incoming upsert
+                payload (normalized / dashless). ``None`` means "no
+                parent info on this write".
+
+        Returns:
+            The ``root_conversation_id`` to write. Always non-None.
+        """
+        effective_parent_id = incoming_parent_id
+        if effective_parent_id is None:
+            # The COALESCE on parent_conversation_id will preserve
+            # whatever is on the existing row; mirror that here so we
+            # resolve from the *effective* post-merge parent.
+            cursor = self.conn.execute(
+                "SELECT parent_conversation_id "
+                "FROM conversations WHERE id = ?",
+                (conv_id,),
+            )
+            existing = cursor.fetchone()
+            if existing is not None:
+                effective_parent_id = existing["parent_conversation_id"]
+
+        if effective_parent_id is None:
+            # Root: own id.
+            return conv_id
+
+        # Sub: inherit the parent's root.
+        cursor = self.conn.execute(
+            "SELECT root_conversation_id "
+            "FROM conversations WHERE id = ?",
+            (effective_parent_id,),
+        )
+        parent_row = cursor.fetchone()
+        if parent_row is not None and parent_row["root_conversation_id"]:
+            return parent_row["root_conversation_id"]
+
+        # Orphan: parent absent from local DB (or its root not yet
+        # backfilled — defensive). Treat as own root; matches the
+        # migration-time orphan policy in 020.
+        return conv_id
 
     @staticmethod
     def _safe_get(row: sqlite3.Row, column: str):
@@ -98,14 +169,27 @@ class ConversationStore:
         if parent_conversation_id:
             parent_conversation_id = parent_conversation_id.replace("-", "")
 
+        # Issue #122: compute ``root_conversation_id`` from the
+        # effective parent. The store is the single owner of this
+        # column — callers don't pass it. The "effective parent" is
+        # what the row will look like after the COALESCE merge:
+        # incoming parent if non-None, else any parent already on the
+        # existing row. This keeps scanner re-passes that have no
+        # parent context idempotent with sync's earlier writeback.
+        normalized_id = conversation.id.replace("-", "") if conversation.id else conversation.id
+        root_conversation_id = self._resolve_root_conversation_id(
+            conv_id=normalized_id,
+            incoming_parent_id=parent_conversation_id,
+        )
+
         self.conn.execute(
             """
             INSERT INTO conversations (
                 id, location, registered_at, events_mtime, event_count,
                 title, created_at, updated_at, selected_repository, source, summary, labels,
-                parent_conversation_id
+                parent_conversation_id, root_conversation_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 location = excluded.location,
                 events_mtime = excluded.events_mtime,
@@ -125,6 +209,16 @@ class ConversationStore:
                 parent_conversation_id = COALESCE(
                     excluded.parent_conversation_id,
                     conversations.parent_conversation_id
+                ),
+                -- Issue #122: same COALESCE pattern for root. We
+                -- resolved a fresh value above based on the
+                -- *effective* parent (post-COALESCE), so excluded
+                -- usually wins; the COALESCE is the belt-and-braces
+                -- guard against a future caller passing ``None`` via
+                -- ``conversation.root_conversation_id`` directly.
+                root_conversation_id = COALESCE(
+                    excluded.root_conversation_id,
+                    conversations.root_conversation_id
                 )
             """,
             (
@@ -141,6 +235,7 @@ class ConversationStore:
                 conversation.summary,
                 labels_json,
                 parent_conversation_id,
+                root_conversation_id,
             ),
         )
     
@@ -221,7 +316,149 @@ class ConversationStore:
             (source,),
         )
         return [self._row_to_conversation(row) for row in cursor.fetchall()]
-    
+
+    def list_roots(
+        self,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        source: str | None = None,
+        selected_repository: str | None = None,
+    ) -> list[RootConversation]:
+        """List root conversations with subtree rolled up. Issue #122.
+
+        Mirrors :meth:`list_by_date_range` (since/until/source) and adds
+        ``selected_repository`` — the four filters that downstream
+        commands #123–#128 actually need.
+
+        Filter semantics: filters apply at the root grain. A
+        ``selected_repository`` set only on a sub does NOT make the
+        tree match — the user thinks of the tree as belonging to the
+        root. ``source`` likewise compares against the root's row.
+        Date filters apply to the rolled-up ``created_at`` (the MIN
+        across the subtree), matching "tree's earliest activity".
+
+        Args:
+            since: Include trees whose rolled-up ``created_at`` is on
+                or after this time.
+            until: Include trees whose rolled-up ``created_at`` is
+                before this time.
+            source: Filter by root's source (e.g., 'local', 'cloud').
+            selected_repository: Filter by root's selected_repository.
+
+        Returns:
+            List of :class:`RootConversation`, ordered by
+            ``created_at`` descending. Each row is a distinct tree
+            (one row per root); subs are rolled up onto their root.
+        """
+        conditions: list[str] = []
+        params: list[object] = []
+
+        if since:
+            conditions.append("created_at >= ?")
+            params.append(since.isoformat())
+
+        if until:
+            conditions.append("created_at < ?")
+            params.append(until.isoformat())
+
+        if source:
+            conditions.append("source = ?")
+            params.append(source)
+
+        if selected_repository:
+            conditions.append("selected_repository = ?")
+            params.append(selected_repository)
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+        cursor = self.conn.execute(
+            f"""
+            SELECT
+                id, title, source, selected_repository, labels, location,
+                created_at, updated_at, event_count,
+                conversation_count, sub_count
+            FROM conversations_by_root
+            WHERE {where_clause}
+            ORDER BY created_at DESC
+            """,
+            params,
+        )
+        return [self._row_to_root_conversation(row) for row in cursor.fetchall()]
+
+    def _row_to_root_conversation(self, row: sqlite3.Row) -> RootConversation:
+        """Convert a ``conversations_by_root`` view row to a
+        :class:`RootConversation`."""
+        created_at = None
+        if row["created_at"]:
+            created_at = datetime.fromisoformat(row["created_at"])
+
+        updated_at = None
+        if row["updated_at"]:
+            updated_at = datetime.fromisoformat(row["updated_at"])
+
+        labels: dict[str, str] | None = None
+        try:
+            labels_json = row["labels"]
+            if labels_json:
+                labels = json.loads(labels_json)
+        except (IndexError, KeyError, json.JSONDecodeError):
+            pass
+
+        return RootConversation(
+            id=row["id"],
+            title=self._safe_get(row, "title"),
+            source=self._safe_get(row, "source"),
+            selected_repository=self._safe_get(row, "selected_repository"),
+            labels=labels,
+            location=self._safe_get(row, "location"),
+            created_at=created_at,
+            updated_at=updated_at,
+            event_count=row["event_count"] or 0,
+            conversation_count=row["conversation_count"] or 1,
+            sub_count=row["sub_count"] or 0,
+        )
+
+    def count_roots(self) -> int:
+        """Return count of root conversations. Issue #122.
+
+        A root is a row whose ``root_conversation_id`` equals its own
+        ``id`` — equivalent to "row has no parent in the local DB".
+        Cheap (covered by ``idx_conversations_root``).
+        """
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM conversations "
+            "WHERE id = root_conversation_id"
+        )
+        return cursor.fetchone()[0]
+
+    def count_subs(self) -> int:
+        """Return count of sub-conversations. Issue #122.
+
+        Inverse of :meth:`count_roots` — rows whose
+        ``root_conversation_id`` differs from their own ``id``.
+        """
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM conversations "
+            "WHERE id != root_conversation_id "
+            "  AND root_conversation_id IS NOT NULL"
+        )
+        return cursor.fetchone()[0]
+
+    def count_trees_with_subs(self) -> int:
+        """Return count of distinct trees that contain at least one sub.
+
+        Issue #122. Used by ``db status`` to report "across N trees".
+        A root with zero subs is not counted; a root with two subs
+        counts once.
+        """
+        cursor = self.conn.execute(
+            "SELECT COUNT(DISTINCT root_conversation_id) "
+            "FROM conversations "
+            "WHERE id != root_conversation_id "
+            "  AND root_conversation_id IS NOT NULL"
+        )
+        return cursor.fetchone()[0]
+
     def count(self) -> int:
         """Return count of registered conversations."""
         cursor = self.conn.execute("SELECT COUNT(*) FROM conversations")
@@ -444,6 +681,15 @@ class ConversationStore:
             else None
         )
         registered_at = datetime.now(timezone.utc).isoformat()
+
+        # Issue #122: resolve root_conversation_id at write time. The
+        # store owns this column; sync passes parent only, we walk
+        # the tree.
+        root_conversation_id = self._resolve_root_conversation_id(
+            conv_id=normalized,
+            incoming_parent_id=normalized_parent,
+        )
+
         # INSERT path: we don't know the metadata yet. The scanner will
         # backfill on its next run. We set event_count=0 so a
         # subsequent scanner mtime check still treats the row as
@@ -453,13 +699,18 @@ class ConversationStore:
             """
             INSERT INTO conversations (
                 id, location, registered_at, event_count, source,
-                cloud_updated_at, parent_conversation_id
+                cloud_updated_at, parent_conversation_id,
+                root_conversation_id
             )
-            VALUES (?, ?, ?, 0, 'cloud', ?, ?)
+            VALUES (?, ?, ?, 0, 'cloud', ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 location = excluded.location,
                 cloud_updated_at = excluded.cloud_updated_at,
-                parent_conversation_id = excluded.parent_conversation_id
+                parent_conversation_id = excluded.parent_conversation_id,
+                root_conversation_id = COALESCE(
+                    excluded.root_conversation_id,
+                    conversations.root_conversation_id
+                )
             """,
             (
                 normalized,
@@ -467,5 +718,6 @@ class ConversationStore:
                 registered_at,
                 cloud_updated_at,
                 normalized_parent,
+                root_conversation_id,
             ),
         )

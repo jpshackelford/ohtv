@@ -129,7 +129,8 @@ class TestConversationStoreLabels:
                 summary TEXT,
                 labels TEXT,
                 cloud_updated_at TEXT,
-                parent_conversation_id TEXT
+                parent_conversation_id TEXT,
+                root_conversation_id TEXT
             )
         """)
         conn.commit()
@@ -326,7 +327,8 @@ class TestLabelRemoval:
                 summary TEXT,
                 labels TEXT,
                 cloud_updated_at TEXT,
-                parent_conversation_id TEXT
+                parent_conversation_id TEXT,
+                root_conversation_id TEXT
             )
         """)
         conn.commit()

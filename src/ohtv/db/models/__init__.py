@@ -6,6 +6,7 @@ from ohtv.db.models.link_type import LinkType
 from ohtv.db.models.reference import Reference
 from ohtv.db.models.ref_type import RefType
 from ohtv.db.models.repository import Repository
+from ohtv.db.models.root_conversation import RootConversation
 from ohtv.db.models.stage import ProcessingStage
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "Reference",
     "RefType",
     "Repository",
+    "RootConversation",
 ]
