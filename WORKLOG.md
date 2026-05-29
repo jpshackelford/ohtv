@@ -1241,3 +1241,24 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+
+### 2026-05-29 06:54 UTC - PR #136 merged
+
+- PR: [#136 - feat(sync): rewrite --repair into four-category reconciliation (#113)](https://github.com/jpshackelford/ohtv/pull/136)
+- **Merge commit:** [`764410d85ad94e23fd98ada26978f2a89ef873c9`](https://github.com/jpshackelford/ohtv/commit/764410d85ad94e23fd98ada26978f2a89ef873c9) (squash of `f09b4a5` impl + `c2a8f95` docs + `adaaec5` review-fix)
+- **Merged at:** `2026-05-29T06:53:56Z`.
+- **Squashed subject:** `feat(sync): rewrite --repair into four-category reconciliation (#113)` — `feat` scope drives a `minor` release-please bump per AGENTS.md commit contract. This is the **4th queued minor bump** behind the still-blocked release-please workflow (after #133, #134, #135). Will catch up when @jpshackelford flips the `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests` toggle.
+- **Issue #113** auto-closed COMPLETED at `2026-05-29T06:53:58Z` via the `Closes #113` footer.
+- Pre-merge state was MERGEABLE / CLEAN; all three checks SUCCESS (`lint` 4s, `pytest` 51s, `pr-review` 5m0s); 0 unresolved review threads (the single thread on `src/ohtv/sync.py:1297` re cloud_count derivation was resolved by review worker `12cce68` pushing `adaaec5` at 06:28:16Z). Latest pr-review bot verdict at 06:34:20Z: ✅ **Worth merging** with no new threads opened. Fix is +34/-8 in sync.py + 83 LOC of test (2 new tests: `test_repair_cloud_count_from_listing_snapshot` + `test_repair_cloud_count_zero_when_no_prior_snapshot`) — under the 50-LOC re-test threshold per AGENTS.md heuristic; the modified code path is itself pinned by the new tests. Docs commit `c2a8f95` (`docs/guides/syncing.md` four-bucket section + action matrix + lock semantics; `docs/reference/cli.md` `--repair` and `--repair --prune` rows) verified, no new commits after, so docs not stale.
+- Squash body documents the four-bucket `RepairResult` engine (`new_on_cloud` / `missing_locally` / `removed_from_cloud` / `modified_on_cloud`) over the #112 `cloud_listing` snapshot, the `--prune` flag gated to `--repair --fix` (`UsageError` exit 2 outside that), the defense-in-depth `source='cloud'` filter at delete time, the degraded-listing short-circuit (atomic-abandon contract from #112), manifest dropouts now surfaced via `SyncResult.removed_from_cloud_ids` (#110 scenario #4), and the `cloud_count` review fix (now reads `CloudListingStore.count()` directly instead of the broken `disk_count`-based estimate).
+- **PR description state at merge:** the long-form description was updated immediately before merge to add a `## Review evolution` section documenting the `adaaec5` `cloud_count` fix and the 2 added regression tests. No other drift.
+- **Test counts:** +20 new tests in `tests/unit/sync/test_repair.py` (19 from `f09b4a5` impl + 1 cloud_count regression test added in `adaaec5`); behavioral suite scenarios #4 (`xfail` → passes) and #13 (`skip` → passes) markers flipped. Full suite **1918 passed / 2 skipped / 3 xfailed; lint clean.**
+- **Drift notes (none significant):** the PR diff vs `main` also touched `AGENTS.md`, `WORKLOG.md`, and `WORKLOG_ARCHIVE_2026-05-28.md` (1048-line WORKLOG churn + 483-line archive deletion). These appear to be intra-branch merge-up activity from main and not part of the feature change itself; release-please ignores them because they live outside source files. No functional drift in the feature surface area between the orchestrator's dispatch snapshot at `adaaec5` and the merge commit (same SHA was squashed).
+- Sync rewrite arc status: #110 harness ✅ → #112 schema ✅ → #111 engine ✅ → #108 sub-conv default-on ✅ → #109 sync.lock ✅ → **#113 repair UX ✅ (this merge)** → #114 manifest retirement (final, **next link** — orchestrator's job on next cron tick).
+- Hard rules honored: no direct pushes to `main` except this worklog (using `chore(worklog):` so release-please ignores it); PR #130 not touched; merge commit message untouched after merge; #113 not reopened (footer auto-closed it); no `--prune` workflow re-trigger attempted.
+- **Plugin form note:** this merge worker was spawned with `Authorization: Bearer ...` + canonical `initial_message: {role, content: [{type, text}]}` shape per the `openhands-api` skill (current correct shape). The legacy `X-Session-API-Key` + `initial_user_msg` pattern referenced in some older worklog entries is obsolete and was NOT used.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
