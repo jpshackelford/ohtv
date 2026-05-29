@@ -1078,3 +1078,49 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 08:55 UTC - Orchestrator
+
+**Action Taken:** Follow-up cycle (~5min after merge-worker spawn) — post-merge audit + housekeeping
+
+**PR #137 — MERGED** ✅
+- Squash commit: [`95c99eb`](https://github.com/jpshackelford/ohtv/commit/95c99eb) — `docs(sync): add sync-state ownership map and phased retirement plan (#114)`
+- Merged at: `2026-05-29T08:51:02Z` (well within the orchestrator wake-window — merge worker `09929bf` executed cleanly)
+- Final state: 1 commit shipped to `main`, +402 lines (`docs/reference/sync-state-ownership.md` + `AGENTS.md` pointer), 0 source/test changes
+
+**🚨 Issue #114 incident — auto-closed on merge, REOPENED**
+
+GitHub auto-closed #114 at `2026-05-29T08:51:03Z` via the `closedByPullRequestsReferences` pathway despite:
+- PR body explicitly stating "**Do NOT close #114 on merge**"
+- PR body using `Refs #114` (not `Closes/Fixes/Resolves`)
+- Squash commit message also using `Refs #114`
+
+Most likely cause: the PR was linked to #114 via the GitHub **Development sidebar** (manual issue↔PR link), which is an independent close-on-merge trigger separate from the magic-keyword path. The merge worker's prompt covers the keyword path but not the sidebar link path — flagging for future merge-worker prompt hardening.
+
+**Remediation (this cycle):**
+- ✅ Reopened #114 with [explanatory comment](https://github.com/jpshackelford/ohtv/issues/114) documenting the auto-close, the trigger, and reaffirming Phases B/C/D scope.
+- ✅ State restored: `OPEN` with `ready` + `priority:medium` labels intact (labels were never stripped — only `state` flipped).
+- 📋 **Follow-up nit (NOT blocking):** future merge workers should either (a) check `Development` sidebar links before merging and unlink if the issue should stay open, or (b) post-merge verify all `Refs #N` issues are still OPEN and reopen if needed. Could codify as a `/prepare-and-merge` skill addition.
+
+**Current State (post-merge):**
+- Open PRs: **0** ✅
+- `ready` issues: **10 total**; **2 prioritized**:
+  - **#122** Aggregate sub-conversations into their root for analysis and reporting `[priority:medium]`
+  - **#114** Two sources of truth for sync state — Phases B/C/D `[priority:medium]` (just reopened)
+- Issues needing expansion: unchanged from prior cycle (will recount next wake-up)
+- Active worker conversations:
+  - `09929bf` — merge worker for PR #137 — **finished ✓** (PR merged, may still be posting its own WORKLOG entry)
+  - `5888078`, `d770c82` — still paused (reaping naturally, no intervention)
+
+**Next-cycle dispatch preview** (informational only — actual decision at next wake-up):
+- PR slot: empty → spawn implementation worker for **highest priority ready issue**.
+- Two issues tied at `priority:medium`: **#122 vs #114**. Tie-breaker considerations:
+  - #122 = greenfield aggregation feature; well-scoped technical comment exists.
+  - #114 Phase B = `sync_kv` table + scalar migrations; depends on closed #111 (shipped) so unblocked. But Phase B is itself a multi-PR chunk — expansion worker may want to re-scope #114 as a tracking issue and spawn child issues for B/C/D before implementation.
+  - **Suggested tie-break:** spawn impl on **#122** next cycle (cleaner single-PR scope); leave #114 for a follow-up expansion pass to split B/C/D into separate issues. Defer final call to next orchestrator decision tree.
+- Expansion slot: empty → check the 8 non-prioritized `ready` issues + any unexpanded issues to find expansion work to run in parallel with the impl worker.
+
+**Sync notes:** Race-condition observation worth recording — between the orchestrator's spawn (`09929bf` dispatched ~08:50) and the orchestrator's worklog-commit push (~08:53), the merge worker completed and pushed the squashed merge to `main`. The orchestrator's `git push origin main` rejected non-fast-forward; rebased cleanly on `95c99eb` and re-pushed (`2b576fd`). No conflict because the merge worker only touched `docs/`+`AGENTS.md` and the orchestrator only touched `WORKLOG.md`. Documenting because if merge workers ever start writing their own WORKLOG entries inside their cycle (vs. orchestrator writing on their behalf), the orchestrator's worklog-commit logic will need conflict-aware retry/merge — not just rebase. Today the rule "WORKLOG.md is only written by the orchestrator" holds, so rebase is sufficient.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
