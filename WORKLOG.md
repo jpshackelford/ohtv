@@ -1141,3 +1141,65 @@ Most likely cause: the PR was linked to #114 via the GitHub **Development sideba
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-29 09:23 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `b5018d7` | implementation | Issue #122 — Aggregate sub-conversations into their root | **NEW** running ([conv](https://app.all-hands.dev/conversations/b5018d7041e9478596d4702e7a6fefc5)) |
+
+**Spawned: Implementation Worker for Issue #122 (`priority:medium`)**
+
+- Issue: [#122 — Aggregate sub-conversations into their root for analysis and reporting](https://github.com/jpshackelford/ohtv/issues/122)
+- Conversation: [`b5018d7`](https://app.all-hands.dev/conversations/b5018d7041e9478596d4702e7a6fefc5) — `status=READY` on the **1st** 5s poll. Start task `66c8201f…` accepted at this cycle's spawn moment. Sandbox `2DWt0dCiQ9gw7IP8u2CF7J`. Spawn via canonical `POST /api/v1/app-conversations` with `Authorization: Bearer $OPENHANDS_API_KEY`; poll via `GET /api/v1/app-conversations/start-tasks?ids=<id>` (array response) — endpoint pattern from two cycles ago still locked in. Verified `execution_status=running` / `sandbox_status=RUNNING` after spawn.
+- Worker brief: implement the **FOUNDATION** layer for issue #122 — `conversations.root_conversation_id` denormalized column + index + recursive backfill migration (next index after 019), write-path population in `Syncer._record_cloud_download_in_db` + scanner `extract_metadata` (with the same `COALESCE(excluded.X, conversations.X)` upsert pattern #108 uses for `parent_conversation_id`), `ConversationStore.list_roots(...)` matching existing `list_by_date_range`/`list_by_source` signatures (NOT `list_with_filters` which doesn't exist), `ohtv db status` reporting the root/sub split, unit tests in `tests/unit/db/` covering 1-root + sub + grand-child resolution, backfill correctness, write-path correctness, and re-scan idempotence, plus an AGENTS.md note appended (no renumbering). Suggested branch name: `feat/aggregate-sub-conversations-122`. Conventional-commit subject `feat:` (release-please picks it up as a minor bump).
+- **Hard fences:** NO edits to per-command callers (`report weekly-counts`/`report velocity`/`gen objs|titles|run`/`classify`/`list`/`refs`/RAG `ask`|`search`) — those are #123–128 follow-on issues. NO edits to existing migrations 019 and earlier. NO `Closes #122` (use `Refs #122`; #122 stays open until the per-command issues land). NO `WORKLOG.md` edits from the impl worker — orchestrator owns the worklog (race-condition note from prior cycle preserved).
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^\`\`\`/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 hits outside fenced blocks).
+- **Prior cycle's merge worker `09929bf`:** `sandbox_status=PAUSED`, `execution_status=None` at 08:54:50Z → finished ✓. PR #137 was merged cleanly at 08:51:02Z as squash commit [`95c99eb`](https://github.com/jpshackelford/ohtv/commit/95c99eb). The post-merge 08:55Z follow-up cycle handled the #114 auto-close incident (reopened with explanatory comment) and pre-flighted next-cycle dispatch.
+- **Expansion slot:** OPEN, IDLE. 12 open issues (10 `ready` w/ 2 prioritized, 2 `hold`). **0 need expansion** (no issues without `ready` or `hold` labels). **15th consecutive idle expansion cycle.** All 8 unprioritized ready issues (#116, #121, #123–#128) are already expanded with technical detail; they're waiting on priority assessment to enter the implementation queue.
+- **PR slot:** EMPTY at cycle start (PR #137 merged last cycle, all prior workers PAUSED). 0 open PRs confirmed via REST API.
+- **Decision-tree row applied:** **"No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue."** Two issues tied at `priority:medium`:
+  - **#122** Aggregate sub-conversations into their root for analysis and reporting (foundation issue for the #123–128 cluster).
+  - **#114** Two sources of truth for sync state (Phases B/C/D — Phase A just merged in PR #137).
+- **Tie-break — why #122 over #114 (matches prior cycle's preview):**
+  - #122 is a **cleaner single-PR scope**: one new column + backfill migration + helper + `db status` update + tests. Foundation-only; per-command callers are deferred to #123–128. Ships incrementally.
+  - #114 Phases B/C/D is **multi-PR by design** (B: `sync_kv` table + scalar migrations; C: `selected_branch` write-privilege flip + coordinated AGENTS.md update; D: post-Phase-C release validation). Wants its own pre-implementation expansion pass to split B/C/D into child issues first, OR a willingness to handle a sequence of orchestrator cycles tightly. Defer.
+  - **#122 also unblocks #123–128 once merged** — implementing the foundation first creates implementation surface for six other issues. #114 Phases B/C/D unblock nothing currently in the queue.
+  - Sub-decision honored: spawn impl on **#122**; leave #114 Phases B/C/D for either a re-expansion (split into child issues) or a later impl cycle once #122 lands.
+- **Sub-decision — why not run `/assess-priority` on the 8 unprioritized `ready` issues first:** The decision-tree row "No open PR + ready issues, no priority → /assess-priority inline" applies only when there's **no prioritized ready work available**. Here #122 and #114 both carry `priority:medium` so the prioritized branch fires directly. Assessment of #116, #121, #123–128 can run next cycle if the impl slot is still occupied and expansion slot is also idle (orchestrator can fold a priority sweep into its own cycle without spawning a worker). Defer.
+- **Sub-decision — why not double-spawn (expansion in parallel with the impl):** Expansion slot is OPEN. **No work for it.** The 0-needing-expansion state holds firm; double-spawning a useless expansion worker would waste a cycle's API call. Slot stays correctly idle.
+- One action per wake-up rule honored.
+- **Auto-disable counter:** **0 → 0** (productive cycle — impl worker dispatched). **Twenty-fifth consecutive productive cycle.** No consecutive quiet-period risk this cycle.
+
+**Current State:**
+
+- Open PRs: **0** (PR #137 shipped last cycle at `95c99eb`).
+- [Issue #122](https://github.com/jpshackelford/ohtv/issues/122) (`priority:medium`, `ready`): implementation in flight (`b5018d7`).
+- [Issue #114](https://github.com/jpshackelford/ohtv/issues/114) (`priority:medium`, `ready`): Phase A merged in #137; Phases B/C/D queued (B = sync_kv + scalar migrations; C = selected_branch write-privilege flip + AGENTS.md coordination; D = post-Phase-C release validation). Reopened after auto-close incident last cycle. **Suggested next action: re-expansion pass to split Phases B/C/D into child issues** before implementation, since the technical surface differs per phase and the test surfaces are independent.
+- **Need expansion (0):** ✓ board fully expanded.
+- **Ready w/ priority:high (0):** none.
+- **Ready w/ priority:medium (2):** #114 (queued behind #122), #122 (in flight).
+- **Ready w/o priority (8):** #116 (DB migration consolidation), #121 (CLI logging rename), #123 (`report weekly-counts` over-counts subs — UNBLOCKS post-#122), #124 (`report velocity` double-counts subs — UNBLOCKS post-#122), #125 (`gen objs/titles/run` multi-conv subs — UNBLOCKS post-#122), #126 (`classify` sub-conv short-circuit — UNBLOCKS post-#122), #127 (`list`/`refs` sub-conv display — UNBLOCKS post-#122), #128 (RAG `ask`/`search` sub-conv citations — UNBLOCKS post-#122). **Six of eight unprioritized issues are downstream of #122 — once #122 merges, the queue's effective dispatch surface widens significantly.**
+- **On hold:** #26 (mcp server), #90 (`ohtv label` batch).
+- **Release-please:** ❌ unchanged — workflow-permissions block persists since 01:50Z 2026-05-29. Queue: **4 minor bumps** (#133 + #134 + #135 + #136). PR #137's squash-merge (`docs(sync):`) was release-please-ignored, so the queue did NOT grow. `b5018d7`'s eventual PR will land a `feat:` subject → 5th queued bump. Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`. Not blocking dispatch (workflow continues; the unbumped CHANGELOG is the only deferral).
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → #109 ✅ → #113 ✅ (PR #136) → #114 Phase A ✅ (PR #137 merged this cycle) → **#122 foundation in flight (`b5018d7`)** → #114 Phases B/C/D + #123–128 per-command roll-ups (post-#122). The arc is moving from "sync engine correctness" into "consumer-side semantic correctness."
+
+**Forecast for next cycle (~09:50Z window):**
+
+- **If `b5018d7` still running** → wait + log. Impl worker tasks (read issue → migration design → schema + write-paths + helper + tests + AGENTS.md + lint + PR open + draft→ready transition) typically take 25–50 min for a foundation-grained PR. Could complete this cycle; could carry to next.
+- **If `b5018d7` finished, PR opened, CI green, ready-for-review** → spawn **docs worker** OR **testing worker** depending on whether the impl PR touched user-facing surfaces. Foundation-only changes (new internal column, new internal helper, expanded `db status` output) probably need a small README/docs touch for the `db status` output change. The AGENTS.md note is part of the impl AC so it's already handled by the impl worker. Most likely **docs worker** first (gate testing on documented behavior per the workflow's "test what's documented" principle), then **testing worker** after the docs land.
+- **If `b5018d7` finished but PR has CI failures or worker errored mid-flight** → spawn diagnostic worker scoped to the failure surface.
+- **If `b5018d7` finished but worker missed an AC (e.g., shipped denormalized column without `db status` update, or vice versa)** → spawn review worker round 1 with the AC checklist.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until human files a new issue OR until the orchestrator runs a priority sweep on #116/#121/#123–#128 (deferred; only runs inline if no other work).
+- **WORKLOG truncation:** at 1143 lines pre-this-entry → ~1220 post-this-entry. Below the operational ~1300 trigger threshold. Defer; reassess at next cycle.
+
+**Sync notes:** Container respawned this cycle (fresh sandbox). `uv pip install --system` hit the prior `/usr/local/lib/python3.13/site-packages/` permission-denied pattern; fell back to `pip install --user git+...` which installed cleanly into `~/.local/bin` (added to PATH via explicit `export PATH="$HOME/.local/bin:$PATH"`). `lxa repo add` re-created the per-sandbox board (harmless idempotent). `gh` 2.92.0 present but `$GITHUB_TOKEN` is empty and `$github_token` / the embedded git remote token all returned 401 Bad Credentials — token refresh did NOT trigger on retry this cycle. Worked around by querying GitHub's REST API **unauthenticated** for the public repo (`/repos/jpshackelford/ohtv/pulls` and `/issues`), which is sufficient for orchestrator state-gathering (rate-limited to 60/hr; orchestrator makes ~3 calls per cycle so headroom is fine). OH API auth works via `Authorization: Bearer $OPENHANDS_API_KEY` (canonical `POST /api/v1/app-conversations` + `GET /api/v1/app-conversations/start-tasks?ids=<id>` plural-array poll). `git pull --ff-only origin main` clean (HEAD `30056ff` after the post-merge worklog entry). Paused/missing orphans from prior cycles (`1ea745c`, `00a1946`, `12cce68`, `a21edac`, `428dd85`, `d770c82`, `5888078`, `7d09f3e`, `09929bf`) all reaping naturally — no intervention. Follow-up nit for the workflow plugin maintainer: if the GitHub token refresh continues to fail in this sandbox shape, document the unauthenticated-public-repo fallback as the supported path (and bump the rate-limit headroom expectation).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
