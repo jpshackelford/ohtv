@@ -1761,3 +1761,84 @@ With #147 just merged and the release workflow `in_progress`, the priority:high 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 22:17 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `069782a` | expansion | Issue #145 | **silent-exit / dead** |
+
+**🚨 SYSTEMIC SPAWN FAILURE — NO ACTION TAKEN THIS CYCLE.**
+
+**Wake-up checks (in order):**
+
+1. **Release verification (forecast item #1) ✓:** `ohtv-v0.16.0` published at 21:50Z. Auto-release commit `f3aba28` ("chore(release): ohtv 0.16.0 [skip ci]") on main. Both `tests` and `release` workflows on `main` show `conclusion: success`. PR #147 merge fully landed.
+
+2. **Expansion worker `069782a` check ✗:** API returns `execution_status: null`, `updated_at == created_at` (21:49:29Z), zero activity window after 26+ min. Issue #145 verified untouched: `updatedAt: 2026-05-29T21:10:03Z` (predates both spawn attempts), 0 labels, 0 comments, body unchanged at 430 chars. **Spawn dead — same silent-exit pattern as prior cycle's `ad8a0ea` and `17b6d1b`.**
+
+3. **Open PRs ✓:** 0. PR #147 merged, PR #142 closed.
+
+4. **PR slot:** EMPTY (no active PR worker, no open PR).
+
+5. **Expansion slot:** dead worker, no live worker.
+
+**Spawn-failure pattern (5 consecutive over 35 min):**
+
+| Conv ID | Spawn time | Purpose | updated_at | Outcome |
+|---------|-----------|---------|-----------|---------|
+| `fd62236` | 21:15:52Z | unknown (not orchestrator) | == created | dead |
+| `17b6d1b` | 21:19:07Z | merge PR #147 | == created | dead (inline-escalated by orchestrator 21:50Z) |
+| `ad8a0ea` | 21:19:12Z | expansion #145 | == created | dead |
+| `246d9be` | 21:45:48Z | unknown (not orchestrator) | == created | dead |
+| `069782a` | 21:49:29Z | expansion #145 | == created | dead |
+
+**Last successful spawn:** `51498a6` at 20:50:08Z → 20:56:40Z (~6.5 min activity, produced commit + comment on PR #147). Working spawns: 4 of 4 in the 18:51-20:50 window. Failed spawns: 5 of 5 since 21:15Z.
+
+**Prior cycle's working hypothesis (`idle` = queued, `null` = limbo) does NOT diagnose root cause** — `069782a` was observed at `idle` 21:50Z then degraded to `null` 22:15Z, but produced no work either way. The state transition is not the failure mode; the worker never actually begins execution.
+
+**Why not spawn a 3rd attempt at #145:**
+
+- Two spawns in 30 min, both dead with identical pattern. Expected value of a 3rd attempt ≈ 0.
+- Spawn cost: each attempt wastes a slot for 25+ min before we can confirm failure.
+- The full priority:medium impl queue (#116, #123, #124, #125, #127, #128) is gated on the same broken spawn mechanism. Spawning impl now is equally likely to fail.
+
+**Why not auto-disable:**
+
+- This is NOT a "quiet" cycle (no work available). There IS work, the dispatch mechanism is broken.
+- Auto-disable would hide the systemic failure from @jpshackelford.
+- Auto-disable counter is for "no work" detection, not "system broken" detection.
+
+**Why not inline-do the expansion:**
+
+- 3 issues in the expansion queue now (#145, #148, #149 — #149 newly filed at 22:10:32Z).
+- Each expansion needs codebase exploration + 10-section technical analysis. Inline-doing 3 of them inside the orchestrator loop would balloon context and tangle the "diagnose vs execute" responsibilities.
+
+**🛠 Recommended human action (@jpshackelford):**
+
+1. **Check the spawn pipeline.** All 5 failed conversations have `execution_status: null` and `updated_at == created_at` on the OpenHands Cloud side. The POST endpoint accepts the request (returns a conv id), but the worker never starts. Compare against `51498a6` (last working) to find what changed at ~21:15Z (platform-side rollout? capacity issue? auth refresh? prompt-length / payload-size limit change?). The POST payloads from the orchestrator are documented in prior worklog entries (3714 B merge, ~6.6 KB expansion) — both worked at 20:50Z and earlier today.
+2. **Verify the OPENHANDS_API_KEY scope.** A token-permission change could cause "accepted but never dispatched" behavior.
+3. **Once dispatch is healthy, re-run the orchestrator manually** (or wait for next cron). The expansion queue (#145, #148, #149) and ready/priority:medium impl queue (#116, #123, #124, #125, #127, #128) are all unaffected — orchestrator will pick up cleanly.
+
+**Auto-disable counter: 0 → 0.** This is the **49th consecutive non-quiet cycle**, but it's also a **non-productive cycle** (zero work dispatched, zero work completed). Not eligible for auto-disable per the skill's rule (consecutive "All quiet" entries) — the rule is about no-work, not about broken-dispatch. Counter stays at 0.
+
+**Current State:**
+
+- **Open PRs (0):** clean slate post-#147 merge.
+- **Released:** [`ohtv-v0.16.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.16.0) at 21:50Z ✓.
+- **Active workers (0):** `069782a` is dead; no replacement spawned this cycle.
+- **Need expansion (3):** #145 (oldest, 2 dead spawns), #148, #149 (new at 22:10Z).
+- **Ready w/ priority:high (0):** all cleared (#121 closed via #147).
+- **Ready w/ priority:medium (6):** #116, #123, #124, #125, #127, #128.
+- **On hold (2):** #26, #90.
+
+**Forecast for next cycle (~22:45-23:00Z window):**
+
+1. **If spawn mechanism healed:** re-spawn expansion for #145 (oldest unexpanded). Then `/assess-priority` inline + spawn impl for the top priority:medium pick (likely #116 or #123 per prior forecast). Both slots usable.
+2. **If spawn mechanism still broken:** repeat this cycle's pattern — diagnose, surface, exit. After 2-3 more diagnostic cycles, escalate to a more visible signal (open a tracking issue? post to discussions? both feel like over-reach for an orchestrator).
+3. **Worklog truncation:** 1763 lines pre-this-entry. `/truncate-worklog` skill mismatched to this codebase's prose log style (documented). Deferring.
+
+**Sync notes:** Fresh container this cycle. Tools installed via `pip install --user` (lxa + ohtv) — `uv pip install` blocked by missing venv, switched to plain pip. `gh` 2.92.0 with `GH_TOKEN=$github_token`. `ohtv sync` skipped (state from `gh` + OpenHands conv search API). HEAD pulled at `8cf7249` (post-prior-cycle worklog commit). No spawn payload constructed (no spawn attempted).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
