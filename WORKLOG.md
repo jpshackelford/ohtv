@@ -991,3 +991,84 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 17:51 UTC - Orchestrator
+
+**Active Workers (at cycle entry — none ohtv-related):**
+
+_Impl worker `434b541` for Issue #126 finished cleanly at 17:30Z. PR #146 opened, CI green, pr-review APPROVED (`🟢 Good taste`). PR slot OPEN._
+
+**Active Workers (at cycle exit):**
+| Conv ID   | Type | Working On                                | Status      |
+|-----------|------|-------------------------------------------|-------------|
+| `2c12c07` | docs | PR #146 — `classify` auto-step doc update | **NEW** running |
+
+**Action Taken: Spawned docs worker for PR #146.**
+
+Per decision-tree row *"PR exists, ready, CI green, **README not updated** → Spawn **docs worker**"*. The PR changes default `classify` behavior (always-on auto-classification step) but `docs/guides/classification.md` is unchanged — the existing guarantee *"Bulk operations only ever touch rows currently set to `unknown`, so prior manual overrides are never clobbered by a re-run"* is now technically inaccurate for the new auto-step (it CAN flip a sub-conversation's prior `'human'` back to `'automation'`, by #126's design).
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced blocks).
+- **Expansion slot:** OPEN, IDLE. **31st consecutive idle expansion cycle.** 0 issues need expansion (`gh issue list … select(.labels … contains(["ready"]) or contains(["hold"]) | not)` → empty).
+- **Active conv check:** `434b541` (impl, #126) = `finished`. No other ohtv-tagged worker in `running` status across the conv API. PR slot CLEAR.
+- **Open PRs (3):**
+  - **[PR #146](https://github.com/jpshackelford/ohtv/pull/146)** @ `feat/classify-short-circuit-subs-126`: ready, `mergeStateStatus=CLEAN`, all 3 checks SUCCESS (lint / pytest / pr-review), `reviewDecision=APPROVED` by `github-actions` ("🟢 Good taste — elegant, pragmatic"). **Last commit `2026-05-29T17:29:02Z`**, **0 comments**, **0 inline review threads**. Files changed: `src/ohtv/classify.py`, `src/ohtv/cli.py`, `tests/unit/test_classify.py`, `tests/unit/test_cli_classify.py`, `uv.lock`. **No README.md, no `docs/guides/classification.md` in diff.** This is the spawn target.
+  - **[PR #141](https://github.com/jpshackelford/ohtv/pull/141)** @ `2b88202`: `mergeStateStatus=UNKNOWN`, last `updatedAt=2026-05-29T12:03:20Z`. Actions-policy gate. **Cycle 11.** Human action required. Skip.
+  - **[PR #142](https://github.com/jpshackelford/ohtv/pull/142)** @ release-please, last `updatedAt=2026-05-29T16:55:17Z`. Title `chore(main): release ohtv 0.15.0`. Bot-managed, `autorelease: pending`. Skip.
+- **Worklog truncation deferred:** `truncate_worklog.py --dry-run` reports 17 total entries, 16 productive, cutoff at `11:48Z` → all entries still within the 6-hour productive window. Nothing to archive yet (the 11:48Z entry crosses 6h around 17:48Z; with current time 17:51Z it's marginal, and the truncator's productivity check kept everything). Will revisit next cycle.
+
+**Why docs (not testing) is the next step:**
+
+The workflow contract is **test what's documented** — docs must be updated BEFORE the testing worker runs, so blackbox tests verify documented behavior. Without docs, the test report could mis-attribute "this auto-step exists but isn't documented" as a bug rather than a docs gap.
+
+**Why this PR needs docs (despite being ~50 LOC and conv-grammar `fix:`):**
+
+Per the orchestrate skill's docs-rules: *"Update README.md if the PR introduces ANY of: … **Changed default behavior**"*. Every `classify` invocation now does additional work (the auto-step), and the existing guide's safety-guarantee phrasing is now stale. Even though no flag/output-format/env-var changed, the silent behavior shift is exactly the kind of thing docs need to flag for users.
+
+**Why the docs worker (not me, inline):**
+
+The orchestrate skill mandates one action per wake-up. Inline docs editing would also bypass the PR-slot serialization (the docs commit goes to the PR branch; a separate worker conversation keeps the PR-slot occupancy explicit and visible in WORKLOG).
+
+**Spawn details:**
+
+- **Conv:** [`2c12c07`](https://app.all-hands.dev/conversations/2c12c07951bf425996803f86e68074e5). Start task `6922f1e9…` → READY on poll #3 (~15 s) → `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 17:51:18Z. Cosmetic title "Conversation 2c12c" (same sandbox-display quirk).
+- **Plugin:** `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- **Prompt highlights (pre-baked):**
+  - Pointer to the specific stale clause in `classification.md` (the "only ever touch unknown" guarantee).
+  - Suggested doc structure: new "Automatic Sub-Conversation Classification" section + targeted tweak to the heuristic clause.
+  - Constraint: **docs-only commit** on the existing PR branch (`feat/classify-short-circuit-subs-126`). No `src/`/`tests/` changes. No new branch/PR.
+  - Conventional-commit guidance: `docs: document classify auto-step for sub-conversations` (the `docs:` prefix is in release-please's hidden list per AGENTS.md — won't bump version, won't pollute changelog).
+  - PR comment template: `## Documentation Updated` with summary, AI-attribution footer required.
+  - Explicit EXIT after the docs commit + comment. No testing/review/merge in same conversation.
+
+**Silent-exit risk:** Low. Docs workers on this codebase have a clean track record. Default escape-hatch: if `2c12c07` is `finished` at next wake-up with no new commit on the PR branch, inline-edit the doc.
+
+**One action per wake-up:** ✓ one spawn.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned docs worker post-impl-merge-prep). **41st consecutive productive cycle.** Not at risk.
+
+**Current State (post-spawn):**
+
+- **Open PRs (3):**
+  - [PR #146](https://github.com/jpshackelford/ohtv/pull/146): ready, CI green, APPROVED, docs worker `2c12c07` in flight.
+  - [PR #141](https://github.com/jpshackelford/ohtv/pull/141): cycle 11 on Actions-policy gate. Human action required.
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): release-please for `ohtv-v0.15.0`. Bot-managed.
+- **Need expansion (0):** ✓ (31st consecutive idle cycle).
+- **Ready w/ priority:high (0):** #126 in implementation/docs pipeline.
+- **Ready w/ priority:medium (6):** #116, #123, #124, #125, #127, #128.
+- **Ready w/ priority:low (1):** #121.
+- **On hold (2):** #26, #90.
+
+**Forecast for next cycle (~18:21Z window):**
+
+1. **PR slot — most-likely action:** check `2c12c07`. Docs-only commit on a known-stale doc + 1 PR comment → expected envelope: 8–18 min. If finished with the docs commit pushed and CI green → spawn **testing worker** (initial manual test of the auto-step against the now-documented behavior). If finished but no commit (silent exit) → inline-edit the 30-line doc addition (well within orchestrator scope, mirror of past inline-priority-labeling).
+2. **PR #141:** unchanged unless human intervened (cycle 12 pending).
+3. **PR #142:** unchanged — autorelease pending. Note: a `docs:` commit on #146's branch won't re-batch #142 (release-please only batches on merged feat/fix into main); only the eventual merge of #146 would.
+4. **Expansion slot:** unchanged, IDLE (32nd cycle pending).
+5. **Worklog truncation:** 11:48Z entry now ~6h old, so next cycle should be the first one where the truncator wants to archive. ~70 lines saved estimated.
+
+**Sync notes:** Fresh container this cycle. Tools installed via `.venv` (system path permission-blocked, same as prior cycles). `ohtv sync` skipped — `gh` 2.92.0 + OpenHands conv API sufficient for decision data this cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
