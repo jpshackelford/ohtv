@@ -1275,3 +1275,60 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 03:52 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `4fded42` | testing | PR #135 — `--lock-timeout` flag + `sync.lock` mutex (#109) | **NEW** running |
+
+**Spawned: Testing Worker for PR #135**
+- PR: [#135 — feat(locks): add sync.lock writer mutex + column-ownership table (#109)](https://github.com/jpshackelford/ohtv/pull/135)
+- Conversation: [`4fded42`](https://app.all-hands.dev/conversations/4fded42e0cc245bbae8746cf443b274e) — `execution_status=running`, `sandbox_status=RUNNING`, `pr_number=[135]`, `selected_repository=jpshackelford/ohtv`.
+- Start task `314e94f8…` → READY on the **2nd** 5s poll (~6s — sub-second sandbox path, same as the prior cycle's docs dispatch).
+- Plugin form: canonical object `{source: github:jpshackelford/.openhands, repo_path: plugins/ohtv-workflow, ref: feat/ohtv-workflow-plugin}`. `run: true` nested at `initial_message` level. Single attempt, accepted.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 outside fenced code).
+- **Prior cycle's docs worker `d138e40`:** `execution_status=finished`, `sandbox_status=RUNNING` (sandbox kept alive, work done). Last commit on PR head `a2b9c123` at 03:25:44Z; docs-update comment posted at 03:27:01Z covering 4 docs files (`docs/reference/cli.md`, `docs/guides/syncing.md`, `docs/guides/indexing.md`, `docs/guides/analysis.md`) with explicit "README — no change needed" justification. Matches prior-cycle forecast item #1 exactly.
+- **Expansion slot:** OPEN, IDLE. 14 open issues, 12 `ready`, 2 `hold` (#26, #90). **0 need expansion.** Slot stays idle (5th consecutive idle cycle).
+- **PR slot:** OCCUPIED at cycle start (docs worker), now advanced. PR #135 state at decision time:
+  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=""`.
+  - CI: 2 of 2 checks GREEN (`lint-pr-title` 3s, `tests/pytest` 51s on head `a2b9c123`). Note: `pr-review` check absent from this push — likely not yet triggered or workflow-scoped differently than the prior cycle's snapshot; non-blocking, the two required checks are green.
+  - Docs comment present (03:27Z) → docs-gate satisfied.
+  - **0 manual test result comments** on PR.
+  - Worker `d138e40` posted exactly 1 comment (the docs update); no other activity.
+- **Canonical decision-tree row:** **"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker."** Dispatched.
+- **Testing worker scope (T1–T7):** fail-fast `--lock-timeout=0` semantics, wait-and-acquire `--lock-timeout=N`, two-process contention via real subprocess across `sync` / `db scan` / `gen titles`, `ohtv sync --status` read-only guarantee (docs claim), full `pytest -q` counts, `ruff check`, `ohtv db status` schema-regression smoke. Verdict format per `/manual-test` skill.
+- One action per wake-up rule honored.
+
+**Current State:**
+
+- [PR #135](https://github.com/jpshackelford/ohtv/pull/135): `oCFc` history, CI green (lint + pytest), ready, docs ✓, **testing worker in flight**. Branch `feat/sync-lock-109` @ `a2b9c123`.
+- Issue #109 (`priority:medium`): implementation merged into PR #135, awaiting test + review + merge cycle.
+- **Need expansion (0):** ✓ board fully expanded.
+- **Ready w/ priority:medium (0):** #109 already in PR.
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ still failing on the workflow-permissions block (no change since 01:50Z diagnosis). Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`. Not blocking dispatch.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → **#109 in PR #135 (testing phase)** → #113 (next pipeline target after #109 merges) → #114 (final).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — testing worker dispatched, PR slot advanced from "docs done" to "testing in flight"). Fifteen consecutive productive cycles.
+
+**Forecast for next cycle (~04:25Z window):**
+
+- **If `4fded42` still running** → wait + log. Manual-test workers on a fresh sandbox typically take 20–35 min (clone, `uv sync`, design + execute 7 test scenarios with two-process subprocess fixtures, full unit suite ~50s, ruff, write structured report, post comment).
+- **If `4fded42` finished with test report posted, ✅ verdict, no review threads** → advance to **merge worker** per decision tree row "PR exists, ready, test results valid, good rating, docs valid → spawn merge worker."
+- **If `4fded42` finished with ⚠️ / ❌ verdict** → spawn **review worker** to address findings (test gate failed → back to implementation/review).
+- **If `pr-review` workflow lands review threads mid-cycle** → merge worker can still proceed if test verdict is ✅ AND review decision is APPROVED; otherwise review worker first.
+- **If `4fded42` errored or stuck** → re-spawn once with diagnostics; surface a note for next orchestrator wake-up.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until human files a new issue.
+- **Release-please:** unchanged forecast (waiting on human to flip repo permission toggle).
+
+**Sync notes:** Container fresh-respawn this cycle. `uv venv` then `uv pip install --quiet git+...` for `lxa` + `ohtv` inside `.venv` (system Python site-packages is non-writable in this image). `gh` authenticated via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY` (no rate limit this cycle). Spawn via `X-Access-Token: $OPENHANDS_API_KEY`. WORKLOG sits at ~1280 lines pre-this-entry — over the 300-line threshold for **three** cycles running now; will trigger a truncation pass next idle cycle (or when this cycle's testing worker takes 30+ min). Deferring again to keep this dispatch surgical and one-action-per-wake-up.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
