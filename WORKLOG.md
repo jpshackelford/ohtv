@@ -1258,3 +1258,62 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 10:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `6bacec7` | docs (re-run) | PR #138 — db status root/sub docs gate | **NEW** RUNNING ([conv](https://app.all-hands.dev/conversations/6bacec7b77bf44e2bf800b5c25426ba5)) |
+
+**Spawned: Re-run Docs Worker for PR #138**
+
+- PR: [#138 — feat(db): add root_conversation_id column, view, and list_roots helper](https://github.com/jpshackelford/ohtv/pull/138) (branch `feat/aggregate-sub-conversations-122`, head [`fee21c95`](https://github.com/jpshackelford/ohtv/commit/fee21c95))
+- Conversation: [`6bacec7`](https://app.all-hands.dev/conversations/6bacec7b77bf44e2bf800b5c25426ba5) — start-task `b39d3c32…` returned `status=READY`, `app_conversation_id=6bacec7b77bf44e2bf800b5c25426ba5`, `sandbox_id=7kOjwGYTrOllXAafJFWDHa` on first 10s poll. Confirmed `execution_status=idle, sandbox_status=RUNNING, selected_repository=jpshackelford/ohtv, selected_branch=feat/aggregate-sub-conversations-122` via `/api/v1/app-conversations/search`. Spawn via `POST /api/v1/app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY`. The start-task-ID-vs-conversation-ID distinction (locked in last cycle) held: poll `start-tasks?ids=<post_id>` to resolve, then track the `app_conversation_id` in the active-workers table.
+- Worker brief: re-runs the docs gate the prior worker (`7ff3c76`) abandoned. Hyper-specific prompt this cycle — pre-identifies the single stale-example location (`docs/guides/indexing.md` lines 168–190, the `db status` Example Output block) and offers a two-way decision: either (a) update the example to show the new `(R roots + S subs across T trees)` suffix, commit as `docs(indexing): show root/sub split in db status example`, push, and post the orchestrator-regex-matching `Documentation updated for db status root/sub output (docs/guides/indexing.md)` comment, OR (b) post a `Documentation verified: db status example in docs/guides/indexing.md is intentionally unchanged because <reason>` comment with no commit. Both outcomes close the docs gate.
+- **Hard fences enforced in prompt:** no README edits, no AGENTS.md edits, no `src/` edits, no `WORKLOG.md` writes, no draft-toggle, no `Closes #122`, exactly one PR comment that matches the orchestrator's `(README|documentation|docs).*(updated|verified|checked)` regex, AI-disclosure footer required.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^\`\`\`/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 hits outside fenced blocks).
+- **Prior cycle's docs worker `7ff3c76`:** `execution_status=null, sandbox_status=PAUSED` at decision time → finished ✓ but with **zero side effects**: 0 new commits on the PR branch (HEAD still at `fee21c95`, the impl worker's commit), 0 PR comments (issue-level + review-level both empty via REST + GraphQL), 0 review threads, 0 tag-on labels. The worker exited cleanly but never satisfied the docs gate (regex `(README|documentation|docs).*(updated|verified|checked)` matches nothing on PR #138 yet). Cause hypothesis: either (a) the worker decided "no update needed" but failed to post the verification comment, or (b) it hit a tool/context budget mid-run and exited silently. Either way the gate stays open.
+- **PR #138 state at decision time:** `state=OPEN`, `isDraft=false`, `mergeable=UNKNOWN`, `mergeStateStatus=UNKNOWN` (GraphQL cache cold — checks reported separately are green), `reviewDecision=""`, **0 review threads**, **0 issue comments**, **1 PR review** from `github-actions` (the bot) at 09:43:20Z: `🟢 Good taste – Solid foundation work with pragmatic design choices… Verdict: ✅ Worth merging` — **no actionable threads** (💬=0 across the board), positive but non-gating. All 3 CI checks green: `lint-pr-title/lint` 3s, `tests/pytest` 49s, `PR Review by OpenHands/pr-review` 4m44s (substantive run, not the SKIPPED draft-detection short-circuit at 09:37:35Z).
+- **README/docs audit:** README.md (124 lines) has **zero `db status` mentions**. `docs/reference/database.md` IS updated in the PR diff (new `root_conversation_id` column documented at lines 40–66, new column-ownership row at line 377). `docs/guides/indexing.md` lines 168–190 has a stale `db status` Example Output block showing `Conversations: 1297` with the OLD format (pre-#122). `docs/reference/sync-state-ownership.md` and `docs/reference/cli.md` mention `db status` in passing but show no example output. The single concrete docs gap is the indexing.md example.
+- **Expansion slot:** OPEN, IDLE. 12 open issues (10 `ready` w/ 2 prioritized — #122 in flight via #138, #114 queued — and 2 `hold` for #26, #90). **0 need expansion.** **17th consecutive idle expansion cycle.** All 8 unprioritized ready issues (#116, #121, #123–#128) remain expanded; #123–#128 unblock post-#122-merge.
+- **PR slot:** OPEN at cycle start (all prior PR workers reaped/finished). No active PR worker. **PR #138 still needs the docs gate** before testing → review → merge.
+- **Decision-tree row applied:** **"PR exists, ready, CI green, README not updated → Spawn docs worker."** Same row as last cycle, dispatched again because the prior worker exited without closing the gate. The orchestrator declined three alternatives:
+  - (i) **Inline doc-fix from the orchestrator** — would technically work (1-line README/indexing change), but violates the workflow's "orchestrator dispatches, workers act" contract. Recorded for the plugin maintainer as a possible escape-hatch if docs workers repeatedly no-op.
+  - (ii) **Skip the docs gate and spawn testing directly** — would force the tester to verify behavior against potentially-stale docs, defeating the "test what's documented" principle. Vetoed.
+  - (iii) **Wait one more cycle** in case the prior docs worker is mid-reap and posted its comment to a buffer that hasn't flushed — checked GraphQL `reviewThreads` and `issueComments` both empty at decision time, no buffer to flush.
+- **Sub-decision — why no expansion worker in parallel:** 0-needing-expansion holds firm; spawning a useless expansion worker burns API budget. Slot stays correctly idle.
+- **Sub-decision — why not run a priority sweep on #116/#121/#123–#128 inline:** the decision-tree's "no prioritized ready work" precondition doesn't fire (#114 + #122 both `priority:medium`). Sweep would also be wasted: #123–#128 are explicitly blocked on #138 merging and #122 closing; priority labels make sense after #138 ships. Defer.
+- One action per wake-up rule honored.
+- **Auto-disable counter:** **0 → 0** (productive cycle — docs worker re-dispatched). **Twenty-seventh consecutive productive cycle.** No consecutive quiet-period risk.
+
+**Current State:**
+
+- Open PRs: **1** — [PR #138](https://github.com/jpshackelford/ohtv/pull/138) (foundation for #122, CI green, docs gate open, awaiting `6bacec7`).
+- [Issue #122](https://github.com/jpshackelford/ohtv/issues/122) (`priority:medium`, `ready`): PR #138 in flight (`Refs #122`, stays open until per-command issues land).
+- [Issue #114](https://github.com/jpshackelford/ohtv/issues/114) (`priority:medium`, `ready`): Phases B/C/D queued. **Suggested next action remains: re-expansion pass to split Phases B/C/D into child issues.**
+- **Need expansion (0):** ✓ board fully expanded (17th consecutive cycle).
+- **Ready w/ priority:high (0):** none.
+- **Ready w/ priority:medium (2):** #122 (in flight), #114.
+- **Ready w/o priority (8):** #116, #121, #123, #124, #125, #126, #127, #128. **Six of eight (#123–#128) unblock post-#138-merge.**
+- **On hold:** #26, #90.
+- **Release-please:** ❌ unchanged — workflow-permissions block persists. Queue: **4 minor bumps** (#133 + #134 + #135 + #136). PR #138 will add a 5th `feat(db):` bump on merge. Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → #109 ✅ → #113 ✅ (PR #136) → #114 Phase A ✅ (PR #137) → **#122 foundation in flight (PR #138, docs gate re-run via `6bacec7`)** → #114 Phases B/C/D + #123–128 per-command roll-ups (post-#122).
+
+**Forecast for next cycle (~10:50Z window):**
+
+- **If `6bacec7` running** → wait + log.
+- **If `6bacec7` finished, PR comment matches regex (`Documentation updated` or `Documentation verified`)** → spawn **testing worker** (the gate is closed; testing verifies behavior against documented behavior).
+- **If `6bacec7` finished with NO comment AND NO commit** (third docs-worker no-op in a row would be unusual) → escalate: orchestrator considers a one-time inline doc-fix-or-verify with a worklog entry explaining the escape-hatch, OR flags @jpshackelford in WORKLOG.md asking for guidance.
+- **If `6bacec7` errored mid-flight** → re-spawn with the same prompt + an additional "if you exited last time without a comment, this time you MUST post one or both" line. Track the failure pattern for the plugin maintainer.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until human files a new issue OR an inline priority sweep becomes the only available work.
+- **WORKLOG truncation:** at 1260 lines pre-this-entry → ~1340 post-this-entry. Past the ~1300 operational trigger. Plan to truncate at the cycle AFTER PR #138 merges (orchestrator wants a clean cut at a quiescent point, not mid-PR-flight).
+
+**Sync notes:** Container respawned (fresh sandbox); `pip install --user git+https://github.com/jpshackelford/{lxa,ohtv}.git` worked via `~/.local/bin` (added to PATH). `lxa repo add` recreated the per-sandbox board (idempotent). `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token` — token healthy this cycle (no 401s). `ohtv sync` skipped this cycle to avoid the long-poll hang documented last cycle; orchestrator state-gathering used `gh` + REST + GraphQL only. **Start-task-ID semantics confirmed once more:** `POST /api/v1/app-conversations` returns the start-task `id` (`b39d3c32…`); `GET /api/v1/app-conversations/start-tasks?ids=<post_id>` returns the `app_conversation_id` (`6bacec7b…`) and `sandbox_id` (`7kOjwGYTrOllXAafJFWDHa`). Tracking `app_conversation_id` (not the start-task ID) in the active-workers table — this is now the third cycle using this corrected pattern. `git pull --ff-only origin main` clean (HEAD `c52abc0` after prior cycle's worklog commit).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
