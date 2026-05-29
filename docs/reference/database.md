@@ -35,11 +35,21 @@ Override with environment variables:
 
 ```
 conversations
-├── id (TEXT PRIMARY KEY)        # Conversation UUID
+├── id (TEXT PRIMARY KEY)        # Conversation UUID (normalized / dashless)
 ├── location (TEXT)              # Filesystem path
 ├── events_mtime (REAL)          # Last modification time of events/
 ├── event_count (INTEGER)        # Number of event files
-└── registered_at (TEXT)         # When first indexed
+├── registered_at (TEXT)         # When first indexed
+└── parent_conversation_id (TEXT NULL)
+                                 # For cloud sub-conversations spawned by
+                                 # agent delegation: the parent's id
+                                 # (normalized / dashless). NULL for root
+                                 # conversations and for all local CLI
+                                 # conversations. Populated by `ohtv sync`
+                                 # from the cloud listing payload.
+                                 # Added in migration 019 (Issue #108).
+                                 # Indexed by `idx_conversations_parent`
+                                 # (partial index, WHERE … IS NOT NULL).
 
 repositories
 ├── id (INTEGER PRIMARY KEY)

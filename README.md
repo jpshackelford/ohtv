@@ -4,7 +4,8 @@ A CLI for syncing, indexing, analyzing, and reporting on
 [OpenHands](https://github.com/All-Hands-AI/OpenHands) conversation
 trajectories — from both the cloud product and local CLI sessions.
 
-- 🔄 **Sync** cloud conversations to disk (incremental, with metadata refresh)
+- 🔄 **Sync** cloud conversations to disk (incremental, with metadata refresh; includes
+  delegated sub-conversations by default since [#108](https://github.com/jpshackelford/ohtv/pull/134))
 - 📚 **Index** them into a local SQLite database (refs, actions, contributions, human input)
 - 🤖 **Analyze** with LLMs (objectives, summaries, weekly reports, auto-titles)
 - 📈 **Report** velocity (merged-PRs × LOC × human-words) as tables, CSV, or 3-panel charts
