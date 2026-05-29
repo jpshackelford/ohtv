@@ -2,6 +2,51 @@
 
 ## Log
 
+### 2026-05-29 05:15 UTC - Impl Worker (Issue #113)
+
+**PR opened:** [#136 — feat(sync): rewrite --repair into four-category reconciliation (#113)](https://github.com/jpshackelford/ohtv/pull/136)
+
+- Branch: `feat/repair-four-categories-113`
+- Head SHA: `f09b4a5`
+- State: ready for review (moved from draft after CI green)
+- CI: `lint` ✅ (3s), `pytest` ✅ (51s, 1918 passed / 2 skipped / 3 xfailed); `pr-review` skipping draft → triggers on `ready_for_review`.
+- Scope: 5 files, +1218/-97 LOC. New `tests/unit/sync/test_repair.py` (19 tests); behavioral suite markers flipped on scenarios #4 (xfail → pass) and #13 (skip → pass); AGENTS.md item #3 rewritten.
+
+**What landed**:
+- `RepairResult` carries four parallel `*_ids: list[str]` buckets plus bare-name `int` count properties (`new_on_cloud`, `missing_locally`, `removed_from_cloud`, `modified_on_cloud`). `is_consistent` extended to cover them. Ghost/orphan diff preserved alongside (legacy manifest/disk reconciliation stays untouched).
+- `SyncManager.repair(*, fix, check_cloud, prune)` rewritten on top of `CloudListingStore.missing_locally / stale_locally / removed_from_cloud` (#112) + `last_snapshot_completed_at` (#111). `new_on_cloud` vs `missing_locally` partition derived from each row's `created_at` against the **prior** snapshot cutoff (captured before the listing refresh writes the new cutoff under us).
+- Both `fix=False` and `fix=True` refresh the cloud_listing snapshot at entry; lock contract is purely about destructive actions. `fix=True` takes `sync.lock` via the existing #109 CLI wrapper; `fix=False` skips it (safe alongside a running sync, documented "numbers may shift" caveat).
+- `--prune` flag added. Gated to `--repair --fix` (without `--dry-run`); standalone `--prune` is a Click `UsageError` exit 2. `_prune_removed_from_cloud` double-checks `conversations.source = 'cloud'` at deletion time — `source='local'` rows are never pruned even if a future schema bug were to leak them into the bucket. Deletes manifest entry + on-disk directory + DB row.
+- Degraded listing: HTTP failure mid-page → `result.listing_degraded=True`, `--fix` short-circuits to non-destructive only. Previous snapshot left intact via `_run_listing_pass`'s atomic abandon contract from #112. Catch widened to bare `Exception` so a `RuntimeError` from a fake-cloud also degrades gracefully.
+- `SyncResult.removed_from_cloud_ids` added — normal `sync()` now reports manifest entries dropped because they vanished from the listing (Issue #110 scenario #4). Threaded through `_run_set_diff_pass` → `_categorize_via_set_diff` → `_process_work_items` via an optional `result: SyncResult | None` kwarg so the up-front bookkeeping isn't clobbered by the downstream tally.
+- CLI `_run_repair(manager, fix, prune=False, quiet=False)` rewritten to print a "Cloud-vs-local set diff" section with the four labeled bucket lines, snapshot-completed-at timestamp, and per-bucket action hints (`[--fix to download]`, `[--fix --prune to delete]`, etc). Quiet-mode exit code flips to 1 whenever any bucket is non-empty.
+- Behavioral harness updates: `tests/unit/sync/test_behavioral.py` scenarios #4 and #13 markers flipped; scenario #13 explicitly bumps `updated_at` on the renamed conv (FakeConversation doesn't auto-bump on title assignment) and overrides `created_at` on the freshly-added conv (default ConvFactory uses 2024 timestamps which would predate the snapshot cutoff and end up in `missing_locally` instead of `new_on_cloud`).
+
+**Tests (19 new, in `tests/unit/sync/test_repair.py`)**: shape (lists, count properties, is_consistent); prune-without-fix raises ValueError; fix=False dispatches no downloads; fix=True downloads missing + modified; fix=True+prune deletes rows + disk files; source='local' rows are never pruned; listing-degraded short-circuits cleanly; CLI rejects --prune outside --repair --fix (including with --dry-run); CLI prints four labeled bucket lines; quiet-mode exit code split; --repair --fix surfaces SyncLockTimeout on contention; --repair --dry-run runs without taking sync.lock; created_at cutoff partitions new_on_cloud vs missing_locally.
+
+**Acceptance criteria checklist** (all met):
+- ✅ RepairResult exposes 4 lists + 4 int properties; ghost/orphan preserved.
+- ✅ fix=False populates buckets without writing to user data.
+- ✅ fix=True downloads missing + refetches modified; leaves removed untouched.
+- ✅ fix=True + prune deletes cloud-source rows + files; never touches local-source.
+- ✅ Lock split per #109; --lock-timeout surfaces SyncLockTimeout.
+- ✅ Listing pass abandon-on-failure atomicity preserved.
+- ✅ --prune outside --fix → Click UsageError exit 2.
+- ✅ CLI prints four-bucket section + ghost/orphan preserved.
+- ✅ Scenarios #4 and #13 markers flipped to passing.
+
+**Sync rewrite arc status**: #110 harness ✅ → #112 schema ✅ → #111 engine ✅ → #108 sub-conv default-on ✅ → #109 sync.lock writer mutex ✅ → **#113 repair UX (this PR)** → #114 manifest retirement (final).
+
+**Learnings for the next-link worker** (#114):
+- `--repair --fix` is now the ONLY safe operator-facing way to actively reconcile cloud-removed entries. #114's manifest retirement work must preserve the `removed_from_cloud → prune` path as it migrates the file-of-record off `~/.ohtv/sync_manifest.json`.
+- `_prune_removed_from_cloud`'s defensive `source='cloud'` filter at delete time defends against any future schema regression. Worth keeping as #114 reshapes the conversations row lifecycle.
+- The "new_on_cloud / missing_locally cutoff partition" is the subtle bit. AGENTS.md item #3 documents it; future regressions on the partition direction will be caught by `test_cutoff_partition_separates_new_from_missing`.
+- `_repair_refresh_listing` now uses a broad `except Exception` to degrade gracefully. If #114 adds new failure modes during the listing pass, they'll fall into the same "listing degraded, snapshot intact, --fix short-circuits" handling.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-29 04:21 UTC - PR #135 merged
 
 - PR: [#135 — feat(locks): add sync.lock writer mutex + column-ownership table (#109)](https://github.com/jpshackelford/ohtv/pull/135)
