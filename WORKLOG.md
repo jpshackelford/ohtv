@@ -1317,3 +1317,13 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-29 07:35 UTC - Phase A PR #137 opened (Issue #114)
+
+**PR:** [#137 — docs(sync): add sync-state ownership map and phased retirement plan (#114)](https://github.com/jpshackelford/ohtv/pull/137) — **ready for review**, CI green (`lint` ✅, `pytest` ✅ `1920 passed`, `pr-review` skipped pre-mark-ready).
+
+**Status:** Phase A complete. Docs-only PR adds `docs/reference/sync-state-ownership.md` (387 lines: ownership map + manifest-reader call-site table + brittle-spot catalogue 1–10 with file:line citations against current `main` `67de7ed` + phased plan A→B→C→D + PR #119/#110 interaction notes + risks + out-of-scope) and one AGENTS.md item #27 bullet pointing at the new doc. No `src/` or `tests/` changes. Branch `feat/sync-state-ownership-doc-114`, single commit, conventional-commit subject `docs(sync):` (release-please ignored — won't add a 5th queued bump). PR body uses `Refs #114` (not `Closes`) — Phases B/C/D remain. Orchestrator will pick up testing/review/merge on subsequent cycles.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
