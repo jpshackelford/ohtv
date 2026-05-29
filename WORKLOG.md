@@ -1094,3 +1094,93 @@ The orchestrate skill mandates one action per wake-up. Inline docs editing would
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 18:18 UTC - Orchestrator
+
+**Active Workers (at cycle entry):**
+
+_No active ohtv workers. Docs worker `2c12c07` for PR #146 finished cleanly (no longer in `running` status). It produced two commits: `bdef60b3` (docs commit, 17:52Z) and `0b4f3043` (mid-conversation design pivot, 18:03Z — see below)._
+
+**Active Workers (at cycle exit):**
+| Conv ID   | Type    | Working On                                         | Status      |
+|-----------|---------|----------------------------------------------------|-------------|
+| `14762b5` | testing | PR #146 — initial manual test (sub_agent pivot)    | **NEW** running |
+
+**Action Taken: Spawned initial testing worker for PR #146.**
+
+Per decision-tree row *"PR exists, ready, CI green, docs updated, **no manual test results** → Spawn **testing worker**"*.
+
+**Significant development this cycle: docs worker self-pivoted the design.**
+
+The docs worker (`2c12c07`) was tasked with a docs-only commit to `docs/guides/classification.md`. It made that commit (`bdef60b3` at 17:52Z) but then took on a substantive design change at @jpshackelford's prompting (visible in the PR's `## Design pivot` comment at 18:05Z):
+
+- The original design wrote `'automation'` into `conversation_human_input.initial_prompt_source` for sub-conversations.
+- @jpshackelford pointed out (in-conversation, not via the GitHub PR thread): *"a sub agent conversation is just an extension of its parent. it shouldn't be counted independently except in scenarios where it is explicitly asked for … or it should be something that is not any of the known trigger mechanisms and just sub-agent so as to avoid confusion with automation runs."*
+- The worker added **migration 022_classify_sub_agent.py** widening the CHECK constraint on `conversation_human_input.initial_prompt_source` from `('human','automation','unknown')` to include a fourth value `'sub_agent'`. It then changed `apply_sub_classification` to write `'sub_agent'`, updated `src/ohtv/reports/velocity.py` to treat `'sub_agent'` as zero-contribution (matching the parent-only-counts-once invariant), added `tests/unit/reports/test_velocity.py::test_initial_prompt_source_sub_agent_contributes_zero`, and updated all unit tests in `test_classify.py` / `test_cli_classify.py` (1948 total passing, +2 from the original impl).
+- Docs (`docs/guides/classification.md`) were re-edited to reflect `'sub_agent'` (verified: 92 added / 3 removed; head version mentions `sub_agent` 8+ times and frames it as system-managed, not operator-facing).
+
+**This is scope creep, but it's the right kind.** The original framing conflated two genuinely distinct trigger types (`'automation'` = cron/webhook dispatch vs `'sub_agent'` = delegated continuation of a parent), which would have silently corrupted `report velocity` and `report weekly-counts` in exactly the way #126 was trying to fix. Caught and corrected before merge — good outcome. PR title and body were updated by the worker to reflect the pivot (`fix(classify): label sub-conversations 'sub_agent' (#126)`).
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced blocks).
+- **Expansion slot:** OPEN, IDLE. **32nd consecutive idle expansion cycle.** 0 issues need expansion.
+- **Active conv check:** docs worker `2c12c07` = `finished`. No ohtv-tagged worker in `running` status. PR slot CLEAR.
+- **Open PRs (3):**
+  - **[PR #146](https://github.com/jpshackelford/ohtv/pull/146)** @ `0b4f3043`: ready, `mergeStateStatus=CLEAN`, all 3 checks SUCCESS (lint / lint / pytest), `reviewDecision=APPROVED` (by `github-actions`, but approval predates the design pivot — stale). Files changed: 9 (4 src, 3 tests, 1 migration, 1 lockfile, 1 docs). Commits: impl `fba81bf4` (17:29Z) + docs `bdef60b3` (17:52Z) + pivot `0b4f3043` (18:03Z). Comments: 2 (docs-update notice, design-pivot explanation). **No manual test results.** ← spawn target.
+  - **[PR #141](https://github.com/jpshackelford/ohtv/pull/141)** @ `2b88202`: `mergeStateStatus` flipped UNKNOWN → CLEAN this cycle (interesting — possibly a base recalc after PR #144's merge). Still no CI run on `ci/swap-to-python-semantic-release`. **Cycle 11 on the Actions-policy gate.** Skip — human action still required to authorize Actions on this branch.
+  - **[PR #142](https://github.com/jpshackelford/ohtv/pull/142)** @ release-please, last `updatedAt=2026-05-29T16:55:17Z` (unchanged since the 17:23Z entry). Bot-managed, `autorelease: pending`. Skip. Note: the `0b4f3043` refactor commit on PR #146's branch is `refactor:` not `feat:`, and the docs commit is `docs:`, so neither would re-batch #142 when #146 eventually merges — the merge commit's conv-grammar (the squash message) is what release-please will read. Recommend `fix(classify):` for the squash (already what the PR title is set to) → patch bump from `0.15.0` to `0.15.1` or batched into the same `0.15.0` cut.
+
+**Worklog truncation deferred:** WORKLOG.md is now 1097 lines pre-this-entry. Per the truncate-worklog skill's productivity-preservation rule, the oldest entries from 11:48Z are now 6h30m old this cycle and crossing the productive-window threshold. **Will run truncation explicitly next cycle** — punted this cycle because the spawn was the priority action and the orchestrator skill mandates one action per wake-up; truncation as a side-effect-only commit on main is a discrete second action.
+
+**Why initial-test (not re-test):**
+
+Per the orchestrate skill, re-test is only required when prior test results exist AND significant code changed after them. PR #146 has **zero prior manual test reports**, so this is the initial test pass. The fact that the design pivoted mid-PR doesn't change that — there's nothing to re-test against.
+
+**Why testing now (not waiting for docs spot-check after merge):**
+
+Docs were already updated by `2c12c07` (the docs commit at 17:52Z + the pivot at 18:03Z both touched `docs/guides/classification.md`). The "docs spot-check before merge" step from the decision tree is for cases where significant review-driven code changes occurred AFTER the docs were updated. Here the docs were updated in the same conversation as the pivot — they're current with the code.
+
+**Spawn details:**
+
+- **Conv:** [`14762b5`](https://app.all-hands.dev/conversations/14762b5893ad4b4aafec91a7063a9d1d). Start task `72bcdfdf…` → READY on poll #1 (~5 s) → `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 18:17:48Z. Cosmetic title "Conversation 14762" (same sandbox-display quirk as prior spawns).
+- **Plugin:** `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- **Prompt highlights (pre-baked):**
+  - Pointer to the design-pivot comment and the new migration 022.
+  - Test plan with 9 explicit scenarios — anchors to the original issue's T-A..T-G AC list AND adds pivot-specific ones: `T-pivot-B` (residual `'automation'` self-heals to `'sub_agent'`), `T-pivot-C` (residual `'human'` same), `T-pivot-D` (single-conv override after auto-step), `T-velocity` (sub contributes 0 words/messages), `T-migration` (CHECK constraint widened correctly), `T-CLI-Choice` (operators can't type `--source sub_agent`).
+  - Full unit-test sweep (1948 expected).
+  - Explicit instruction to title the report `## Manual Test Results` (initial, not re-test).
+  - AI-attribution footer required.
+  - Hard boundaries: no code modifications (only document blocking bugs), no merge, no draft-toggle, no review-approve.
+  - Silent-exit fallback: post `## Manual Test Blocked` if sandbox unhealthy.
+
+**Silent-exit risk:** Medium. The 3 silent-exits in this WORKLOG history were ALL on testing workers for PR #138. Mitigations baked into the prompt: explicit `## Manual Test Blocked` fallback, test plan with 9 enumerated scenarios (so partial completion is detectable from the comment), and an `EXIT` instruction after the comment is posted.
+
+**One action per wake-up:** ✓ one spawn (worklog truncation deferred).
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned testing worker post-docs-pivot). **42nd consecutive productive cycle.** Not at risk.
+
+**Current State (post-spawn):**
+
+- **Open PRs (3):**
+  - [PR #146](https://github.com/jpshackelford/ohtv/pull/146): ready, CI green, APPROVED (stale), docs updated, testing worker `14762b5` in flight.
+  - [PR #141](https://github.com/jpshackelford/ohtv/pull/141): cycle 11 on Actions-policy gate. Human action required.
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): release-please for `ohtv-v0.15.0`. Bot-managed.
+- **Need expansion (0):** ✓ (32nd consecutive idle cycle).
+- **Ready w/ priority:high (0):** #126 (in test pipeline).
+- **Ready w/ priority:medium (6):** #116, #123, #124, #125, #127, #128.
+- **Ready w/ priority:low (1):** #121.
+- **On hold (2):** #26, #90.
+
+**Forecast for next cycle (~18:48Z window):**
+
+1. **PR slot — most-likely action:** check `14762b5`. Test envelope: 15–30 min (9 scenarios + full pytest sweep). If finished with `## Manual Test Results` comment AND results all PASS → next step is **review worker** ONLY if review comments exist (currently 💬 0 inline + 2 issue-comments which are bot/orchestrator-style; need to recount), else **merge worker**. If finished with FAIL results or blocked → diagnose and decide. If silent-exit → respawn with shorter / tighter prompt (precedent: PR #138 testing recovery).
+2. **Worklog truncation:** explicitly schedule for next cycle. Estimated ~70-100 lines saved by archiving 11:48Z → 14:21Z entries.
+3. **PR #141:** unchanged unless human intervened (cycle 12 pending).
+4. **PR #142:** unchanged — autorelease pending until #146 merges (would re-batch the changelog under 0.15.0 with the `fix(classify):` line).
+5. **Expansion slot:** unchanged, IDLE (33rd cycle pending). Note: the medium-priority ready issues #123/#124 become the natural next-up after #146 ships (per the 17:23Z assess-priority rationale — they consume the `apply_sub_classification` foundation #126 establishes).
+
+**Sync notes:** Fresh container this cycle. `lxa` + `ohtv` installed cleanly in `.venv`. `lxa repo add` created a fresh "Unnamed Board 1" again (ephemeral, ignored). All decision data sourced from `gh` 2.92.0 (`GH_TOKEN=$github_token`) + OpenHands conv API (`OPENHANDS_API_KEY`). No `ohtv sync` needed this cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
