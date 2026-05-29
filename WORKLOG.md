@@ -1327,3 +1327,64 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 07:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `5888078` | testing | PR #137 — docs accuracy audit of sync-state ownership map | **NEW** running ([conv](https://app.all-hands.dev/conversations/5888078a53c44fd995a47b2634504823)) |
+
+**Spawned: Testing Worker for PR #137 (docs-only accuracy audit)**
+- PR: [#137 — docs(sync): add sync-state ownership map and phased retirement plan (#114)](https://github.com/jpshackelford/ohtv/pull/137)
+- Conversation: [`5888078`](https://app.all-hands.dev/conversations/5888078a53c44fd995a47b2634504823) — `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`. Sandbox `7DNpZqgRzwuM4wVGGIqSSm`.
+- Start task `93eae68b…` accepted at 07:49:52Z → READY on the **2nd** 5s poll (~10s through `STARTING_CONVERSATION`). Canonical `POST /api/v1/app-conversations` shape (Bearer auth + `initial_message: {role, content: [{type, text}]}`) per the `openhands-api` skill.
+- **Polling endpoint correction this cycle:** initial poll attempt hit `/api/v1/start-app-conversation-tasks/{id}` and got HTML (the SPA shell, indicating route 404 → SPA fallback). The correct app-server endpoint per the `openhands-api` skill is `GET /api/v1/app-conversations/start-tasks?ids=<start_task_id>` (note plural `start-tasks`, array response shape `[{id, status, app_conversation_id, ...}]`). Switched and got `READY` immediately. Lesson captured for future cycles: the canonical poll URL pattern lives under `/app-conversations/start-tasks?ids=`, not `/start-app-conversation-tasks/{id}`.
+- Worker brief: docs-only accuracy audit. T1 (file:line citation spot-check ≥70% against `main` HEAD `18d36db`), T2 (manifest-reader call-site table cross-check via `git grep`), T3 (ownership map vs current `sync.py` schema and AGENTS.md items #27/#28), T4 (Phase A→D dependency claims and "Phase C blocks on #109/#112 — both shipped" wording), T5 (PR #119 / Issue #110 interaction claims), T6 (verify exactly one AGENTS.md bullet on item #27), T7 (out-of-scope carve-outs: selected_branch / parent_conversation_id / cloud_listing), T8 (risks sanity check), T9 (full unit suite + ruff regression guard). Output is a single `## Manual Test Results — PR #137 (docs accuracy audit)` PR comment with PASS/FAIL/NOTE/N/A per test + one-line VERDICT. Hard-fenced: no source/test edits, no doc edits, no WORKLOG.md edits, no review-thread modification, no push.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 outside fenced blocks).
+- **Prior cycle's impl worker `d770c82`:** `execution_status=finished`, `sandbox_status=RUNNING` (kept alive, work done). Phase A delivered at 07:35Z per the worklog entry from the worker — PR #137 opened, ready (not draft), CI green (`lint` 5s + `pytest` 48s 1920 passed + `pr-review` 2m40s "Worth merging"), single commit on `feat/sync-state-ownership-doc-114`, head `074ac65`. Auto pr-review bot review at 07:34:41Z verdict: 🟢 "Good taste — exemplary engineering practice. Spot-checked file:line citations against commit 67de7ede — all verified correct. **VERDICT: ✅ Worth merging.**" — 0 inline review threads opened (`reviewThreads(first:30) | length` → 0).
+- **Expansion slot:** OPEN, IDLE. 12 open issues (no change from prior cycle): 10 `ready` (2 prioritized: #114 in this PR + #122 priority:medium), 2 `hold` (#26, #90). **0 need expansion.** Slot stays idle (12th consecutive idle cycle).
+- **PR slot:** EMPTY at cycle start (impl worker finished). PR #137 state at decision time:
+  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=""` (bot-only review pattern, no formal approval — same as #136 pre-merge state).
+  - CI: 3 of 3 checks GREEN (`lint` ✅ 5s, `pytest` ✅ 48s, `pr-review` ✅ 2m40s "Worth merging") on head `074ac65`.
+  - Docs: the PR diff IS the docs (`docs/reference/sync-state-ownership.md` 387 lines + AGENTS.md 1 bullet). Separate docs gate N/A.
+  - **No manual test results comment present** (only the bot review).
+  - **0 unresolved review threads.**
+- **Decision-tree row applied:** **"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker."** This is the *strict* read of the canonical decision tree even for docs-only PRs. The prior cycle's forecast explicitly flagged the ambiguity ("there's no behavior to verify, only doc accuracy" vs. "the testing worker would just verify file:line citations and brittle-spot claims") and landed on test→review→merge as the defensible path. **Honored.** The brief is tailored to docs verification (no CLI/behavioral test design), and explicitly marks it as a "docs accuracy audit" so the worker doesn't waste time designing functional blackbox tests that have nothing to exercise.
+- **Sub-decision — why not skip-to-merge:** Considered, declined. The bot review's spot-check is a single sample ("Spot-checked file:line citations against commit 67de7ede — all verified correct") with no enumeration. The strict skill flow demands an independent test pass, and the 387-line doc has enough surface area (10-item brittle-spot catalogue + ownership map + 4-phase plan + risks + out-of-scope + interaction notes with PRs #119/#110) that a structured T1–T9 sweep is genuinely valuable, not ceremonial. If the worker finds N/A on T1 (e.g. doc uses prose references not file:lines), it can fall through to PASS quickly.
+- **Sub-decision — re-test heuristic does NOT apply:** Re-test gates fire only after a prior test exists with significant code drift. This is the FIRST test pass on this PR.
+- One action per wake-up rule honored.
+
+**Current State:**
+
+- [PR #137](https://github.com/jpshackelford/ohtv/pull/137): `oCFR` history, ready, CI green ✓✓✓, bot review "Worth merging" ✓, **testing worker in flight** (`5888078`). Branch `feat/sync-state-ownership-doc-114` @ `074ac65`. +387 lines / 2 files (`docs/reference/sync-state-ownership.md` + `AGENTS.md`). 0 review threads.
+- Issue #114 (`priority:medium`): Phase A in PR #137; Phases B/C/D remain (B bundled into #111 follow-ups, C blocks on #109+#112 both already shipped, D blocks on Phase C shipping a release).
+- **Need expansion (0):** ✓ board fully expanded.
+- **Ready w/ priority:high (0):** none.
+- **Ready w/ priority:medium (2):** #114 (in PR), #122.
+- **Ready w/o priority (8):** #116, #121, #123, #124, #125, #126, #127, #128.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ still failing on the workflow-permissions block (no change since 01:50Z diagnosis). Queue is **4 minor bumps** queued (#133 + #134 + #135 + #136). #137's `docs:` subject is release-please-ignored so won't add a 5th. Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`. Not blocking dispatch.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → #109 ✅ → #113 ✅ (PR #136 merged) → **#114 Phase A in PR #137 (testing phase)** → #114 Phases B/C/D (future PRs against #111/#109/#112 follow-ups + a final release).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — testing worker dispatched against new PR). Twenty-two consecutive productive cycles.
+
+**Forecast for next cycle (~08:20Z window):**
+
+- **If `5888078` still running** → wait + log. Docs-audit tasks should be fast: clone + checkout + `uv sync` + read 387 lines + `git grep` for T2 + run `pytest` + `ruff check` + post comment. Estimated 15–25 min total (faster than functional tests since no test design needed).
+- **If `5888078` finished with VERDICT ✅ "All docs accurate; ready to merge"** → straight to **merge worker**. Decision-tree row: "PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker." (Docs spot-check N/A since no review changes intervened — the bot's "Worth merging" verdict pre-dates any potential changes, but the testing worker is read-only by brief, so the head SHA at merge time will equal `074ac65`.)
+- **If `5888078` finished with VERDICT ⚠️ "Minor doc fixes needed"** → spawn **review worker** to address the noted issues, then re-evaluate on the cycle after that.
+- **If `5888078` finished with VERDICT ❌ "Significant inaccuracies"** → spawn **review worker** with the test report linked. After review-round fix lands, re-spawn testing worker (the substantive doc rewrite would trigger the "significant changes" re-test rule).
+- **If `5888078` errored or stuck** → re-spawn once with diagnostics. The brief is small and read-only; infrastructure issues are unlikely except the recurring `uv sync` PATH/install pattern noted in prior cycles.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until human files a new issue.
+- **Release-please:** unchanged forecast (waiting on human to flip repo permission toggle). Queue stays at 4 bumps for both this PR (`docs:` ignored) and the eventual #114 Phase B PR (TBD — likely `feat:` or `refactor:`).
+- **WORKLOG truncation:** at 1329 lines pre-this-entry → ~1430 post — **9th consecutive cycle deferred**. Will trigger on the cycle *after* `5888078` finishes if either (a) the next dispatchable is merge (a fast wait-state transition), or (b) the verdict triggers a review-round and the merge phase is still 2+ cycles away. Realistic horizon for truncation: 1–2 cycles from now.
+
+**Sync notes:** Container fresh-respawn this cycle. Created `.venv` under `/workspace/project/ohtv/` (the `/usr/local/lib/python3.13/site-packages/` perm-denied workaround from prior cycles re-encountered; using a project-local venv is cleaner than `pip --user`). `uv pip install git+…/lxa.git git+…/ohtv.git` inside the venv succeeded cleanly. `lxa repo add` re-created the per-sandbox board (harmless). `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token`. OH API search/spawn via `Authorization: Bearer $OPENHANDS_API_KEY`. **Endpoint correction**: the in-line `/api/v1/start-app-conversation-tasks/{id}` URL I used initially is wrong; the canonical poll URL is `GET /api/v1/app-conversations/start-tasks?ids=<id>` with an array response. Captured in the cycle notes above. `git pull --ff-only origin main` confirmed up-to-date before commit (HEAD `18d36db`). Paused orphans from prior cycles (`1ea745c`, `00a1946`, `12cce68`, `a21edac`, `428dd85`, `d770c82`) remain in `sandbox_status=PAUSED/MISSING`; they idle out naturally, no action needed.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
