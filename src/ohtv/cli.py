@@ -25,6 +25,7 @@ from ohtv.actions import READ_ACTIONS, WRITE_ACTIONS
 from ohtv.config import Config
 from ohtv.db.stages import STAGES
 from ohtv.db.utils import generate_unique_source_names
+from ohtv.locks import SyncLockTimeout, sync_lock
 
 if TYPE_CHECKING:
     from ohtv.prompts import DisplaySchema
@@ -299,6 +300,16 @@ def main() -> None:
 @click.option("--verbose", "-v", is_flag=True, help="Show debug output")
 @click.option("--no-llm", is_flag=True, help="Skip LLM-powered analysis (summaries won't be generated)")
 @click.option("--no-embed", is_flag=True, help="Skip embedding generation")
+@click.option(
+    "--lock-timeout",
+    type=float,
+    default=0.0,
+    show_default=True,
+    help=(
+        "Seconds to wait for the sync.lock mutex if another ohtv writer "
+        "(sync, db scan, gen titles) is running. 0 fails fast (Issue #109)."
+    ),
+)
 def sync(
     force: bool,
     since: datetime | None,
@@ -311,6 +322,7 @@ def sync(
     verbose: bool,
     no_llm: bool,
     no_embed: bool,
+    lock_timeout: float,
 ) -> None:
     """Sync cloud conversations to local storage.
     
@@ -336,10 +348,66 @@ def sync(
     config = Config.from_env()
     manager = SyncManager(config)
 
+    # --update-metadata flag conflicts surface before any side-effect path
+    # so the user gets the error regardless of whether --status was also
+    # passed (the latter would otherwise short-circuit to a read-only path).
     if update_metadata_flag:
         _validate_update_metadata_flags(
             force=force, since=since, max_new=max_new, repair=repair, status=status,
         )
+
+    # --status is read-only — no need to take the sync.lock writer mutex.
+    if status:
+        _show_status(manager)
+        return
+
+    # Everything below this point writes to the conversations table
+    # and/or the manifest. Serialize via $OHTV_DIR/sync.lock (Issue #109).
+    try:
+        with sync_lock(timeout=lock_timeout, label="sync"):
+            _sync_writer_body(
+                config=config,
+                manager=manager,
+                force=force,
+                since=since,
+                dry_run=dry_run,
+                max_new=max_new,
+                repair=repair,
+                update_metadata_flag=update_metadata_flag,
+                quiet=quiet,
+                verbose=verbose,
+                no_llm=no_llm,
+                no_embed=no_embed,
+            )
+    except SyncLockTimeout as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise SystemExit(1)
+
+
+def _sync_writer_body(
+    *,
+    config: Config,
+    manager: SyncManager,
+    force: bool,
+    since: datetime | None,
+    dry_run: bool,
+    max_new: int | None,
+    repair: bool,
+    update_metadata_flag: bool,
+    quiet: bool,
+    verbose: bool,
+    no_llm: bool,
+    no_embed: bool,
+) -> None:
+    """Writer-side body of the ``sync`` command.
+
+    Extracted so the lock-acquisition wrapper in :func:`sync` stays
+    small and the ``--update-metadata`` / ``--repair`` / regular-sync
+    ladder retains its original shape. Flag-conflict validation runs
+    in :func:`sync` before lock acquisition; this function trusts that
+    the surviving combinations are valid.
+    """
+    if update_metadata_flag:
         if not config.api_key:
             _error_no_api_key()
             return
@@ -351,10 +419,6 @@ def sync(
         except SyncAbortedError as e:
             console.print(f"[red]Sync aborted:[/red] {e}")
             raise SystemExit(1)
-        return
-
-    if status:
-        _show_status(manager)
         return
 
     if repair:
@@ -371,10 +435,10 @@ def sync(
             result, elapsed = _run_force_reset(manager, max_new, dry_run, quiet)
         else:
             result, elapsed = _run_sync(manager, force, since, dry_run, max_new, quiet)
-        
+
         if not quiet:
             _show_result(result, dry_run, elapsed)
-        
+
         # Auto-run metadata refresh after a real sync when work was done.
         # Gated to never fire on --dry-run / --force / --repair / --status
         # (the latter two short-circuited above). The refresh has its own
@@ -395,11 +459,11 @@ def sync(
                     console.print(
                         f"[yellow]Metadata refresh skipped:[/yellow] {e}"
                     )
-        
+
         # Always run processing stages after sync (unless dry-run)
         if not dry_run:
             _run_post_sync_processing(quiet, verbose, no_llm, no_embed)
-            
+
     except SyncAuthError as e:
         console.print(f"[red]Authentication error:[/red] {e}")
         raise SystemExit(1)
@@ -6759,62 +6823,81 @@ def _run_process_stage(stage: str, force: bool, conversation: str | None, verbos
 @click.option("--force", "-f", is_flag=True, help="Update all conversations regardless of mtime")
 @click.option("--remove-missing", is_flag=True, help="Remove DB entries for conversations no longer on disk")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
-def db_scan(force: bool, remove_missing: bool, verbose: bool) -> None:
+@click.option(
+    "--lock-timeout",
+    type=float,
+    default=0.0,
+    show_default=True,
+    help=(
+        "Seconds to wait for the sync.lock mutex if another ohtv writer "
+        "(sync, db scan, gen titles) is running. 0 fails fast (Issue #109)."
+    ),
+)
+def db_scan(force: bool, remove_missing: bool, verbose: bool, lock_timeout: float) -> None:
     """Scan filesystem and register conversations in the database.
-    
+
     Discovers conversations from local CLI (~/.openhands/conversations/),
     synced cloud (~/.openhands/cloud/conversations/), and any extra paths
     configured via extra_conversation_paths setting.
-    
+
     Uses mtime for fast change detection - only updates conversations whose
     events directory has been modified since last scan.
-    
+
     Use --force after restoring from backup or copying files, as these
     operations may change mtimes without changing content.
+
+    Serialized against ``ohtv sync`` and ``ohtv gen titles`` via the
+    ``$OHTV_DIR/sync.lock`` file (Issue #109). Use ``--lock-timeout=N``
+    to wait up to N seconds for the lock instead of failing fast.
     """
     from ohtv.progress import make_progress
     from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
-    
+
     db_path = get_db_path()
-    
+
     # Auto-init if needed
     if not db_path.exists():
         console.print("[dim]Initializing database...[/dim]")
-    
-    with get_connection() as conn:
-        migrate(conn)
-        
-        # Use progress bar for scan
-        with make_progress(
-            console=console,
-            show_rate=False,
-            show_remaining=False,
-            show_eta=False,
-            show_current=True,
-        ) as progress:
-            task = progress.add_task("Scanning", total=None, current="discovering...")
-            
-            def on_progress(current: int, total: int, conv_id: str):
-                if progress.tasks[task].total != total:
-                    progress.update(task, total=total)
-                progress.update(task, completed=current, current=conv_id[:12] + "..." if conv_id else "")
-            
-            result = scan_conversations(
-                conn, force=force, remove_missing=remove_missing, on_progress=on_progress
-            )
-        
-        conn.commit()
-    
+
+    try:
+        with sync_lock(timeout=lock_timeout, label="scan"):
+            with get_connection() as conn:
+                migrate(conn)
+
+                # Use progress bar for scan
+                with make_progress(
+                    console=console,
+                    show_rate=False,
+                    show_remaining=False,
+                    show_eta=False,
+                    show_current=True,
+                ) as progress:
+                    task = progress.add_task("Scanning", total=None, current="discovering...")
+
+                    def on_progress(current: int, total: int, conv_id: str):
+                        if progress.tasks[task].total != total:
+                            progress.update(task, total=total)
+                        progress.update(task, completed=current, current=conv_id[:12] + "..." if conv_id else "")
+
+                    result = scan_conversations(
+                        conn, force=force, remove_missing=remove_missing, on_progress=on_progress
+                    )
+
+                conn.commit()
+    except SyncLockTimeout as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise SystemExit(1)
+
     # Display results
     if result.new_registered > 0:
         console.print(f"[green]✓[/green] Registered {result.new_registered} new conversation(s)")
-    
+
     if result.updated > 0:
         console.print(f"[green]✓[/green] Updated {result.updated} conversation(s)")
-    
+
     if result.removed > 0:
         console.print(f"[yellow]![/yellow] Removed {result.removed} missing conversation(s)")
-    
+
     if result.new_registered == 0 and result.updated == 0 and result.removed == 0:
         console.print(f"[dim]No changes. {result.unchanged} conversation(s) up to date.[/dim]")
     elif verbose:
@@ -8966,6 +9049,16 @@ def _run_objectives_analysis(
 @click.option("--yes", "-y", is_flag=True,
               help="Skip the >5-conv confirmation prompt")
 @click.option("--verbose", is_flag=True, help="Show debug output")
+@click.option(
+    "--lock-timeout",
+    type=float,
+    default=0.0,
+    show_default=True,
+    help=(
+        "Seconds to wait for the sync.lock mutex if another ohtv writer "
+        "(sync, db scan, gen titles) is running. 0 fails fast (Issue #109)."
+    ),
+)
 def gen_titles_cmd(
     limit: int | None,
     show_all: bool,
@@ -8985,6 +9078,7 @@ def gen_titles_cmd(
     model: str | None,
     yes: bool,
     verbose: bool,
+    lock_timeout: float,
 ) -> None:
     """Auto-rename placeholder-titled cloud conversations using cached ``gen objs`` analyses.
 
@@ -9013,25 +9107,30 @@ def gen_titles_cmd(
     PATCH endpoint.
     """
     _init_logging(verbose=verbose)
-    _run_gen_titles(
-        limit=limit,
-        show_all=show_all,
-        offset=offset,
-        since_date=since_date,
-        until_date=until_date,
-        day_date=day_date,
-        week_date=week_date,
-        pr_filter=pr_filter,
-        repo_filter=repo_filter,
-        label_filter=label_filter,
-        reverse=reverse,
-        all_titled=all_titled,
-        dry_run=dry_run,
-        workers=workers,
-        batch_size=batch_size,
-        model=model,
-        yes=yes,
-    )
+    try:
+        with sync_lock(timeout=lock_timeout, label="gen-titles"):
+            _run_gen_titles(
+                limit=limit,
+                show_all=show_all,
+                offset=offset,
+                since_date=since_date,
+                until_date=until_date,
+                day_date=day_date,
+                week_date=week_date,
+                pr_filter=pr_filter,
+                repo_filter=repo_filter,
+                label_filter=label_filter,
+                reverse=reverse,
+                all_titled=all_titled,
+                dry_run=dry_run,
+                workers=workers,
+                batch_size=batch_size,
+                model=model,
+                yes=yes,
+            )
+    except SyncLockTimeout as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise SystemExit(1)
 
 
 def _run_gen_titles(

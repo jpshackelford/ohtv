@@ -319,6 +319,109 @@ Current: event_count=55 on disk
 → Conversation has 5 new events, needs reprocessing
 ```
 
+## Column Ownership and the `sync.lock` Writer Mutex
+
+Two code paths write to the `conversations` table:
+
+- **The sync engine** (`src/ohtv/sync.py`) writes cloud-side editable
+  metadata through `ConversationStore.update_metadata` (sentinel-based
+  partial write, introduced in #86 / #87).
+- **The scanner** (`src/ohtv/db/scanner.py`) writes filesystem-derived
+  metadata through `ConversationStore.upsert` (full-row rewrite from
+  whatever the scanner currently sees).
+
+Without a contract, these two writers can race against each other and
+clobber each other's committed transactions — last-writer-wins on the
+column level. The race is logical (not physical — WAL mode prevents
+physical corruption), so SQLite alone cannot fix it.
+
+Issue #109 establishes two artifacts that close the race:
+
+1. **A documented column-ownership partition** (the table below) — every
+   column on `conversations` has exactly one canonical writer per
+   `source` value.
+2. **A file-based process mutex** at `$OHTV_DIR/sync.lock`, acquired via
+   `fcntl.flock(LOCK_EX | LOCK_NB)`. See `src/ohtv/locks.py`.
+
+### Column-Ownership Table
+
+This table covers the post-#112 / post-#108 schema. Pre-#112 deployments
+treat the (#112) rows as N/A.
+
+| Column                                  | `source='cloud'` writer                                   | `source!='cloud'` writer                                   | Conflict rule                                                                  |
+|-----------------------------------------|-----------------------------------------------------------|------------------------------------------------------------|--------------------------------------------------------------------------------|
+| `id`                                    | scanner (insert) — or sync (first download)               | scanner                                                    | Never updated after insert.                                                    |
+| `location`                              | scanner                                                   | scanner                                                    | scanner-only. Sync never writes.                                               |
+| `registered_at`                         | scanner                                                   | scanner                                                    | scanner-only; insert-only.                                                     |
+| `events_mtime`, `event_count`           | scanner                                                   | scanner                                                    | scanner-only; the filesystem is the source of truth.                           |
+| `title`                                 | sync (`update_metadata`; manifest is canonical)           | scanner (first user message)                               | Source-dependent. Mutex required for `source='cloud'`.                         |
+| `created_at`                            | sync (`update_metadata`; manifest is canonical)           | scanner (`base_state.json`)                                | Source-dependent. Mutex required for `source='cloud'`.                         |
+| `updated_at`                            | scanner (last event timestamp)                            | scanner (last event timestamp)                             | scanner-only. Cloud-side `updated_at` lives in `cloud_updated_at` (#112).      |
+| `cloud_updated_at` (#112)               | sync (cloud listing payload)                              | N/A — NULL                                                 | sync-only. No race.                                                            |
+| `selected_repository`                   | sync (`update_metadata`; manifest is canonical)           | scanner (`base_state.json`)                                | Source-dependent. Mutex required for `source='cloud'`.                         |
+| `selected_branch`                       | scanner-only — sync NEVER writes (listing API doesn't return it) | scanner                                              | scanner-only by explicit policy (#87). NOT a parameter of `update_metadata`.   |
+| `source`                                | scanner                                                   | scanner                                                    | scanner-only; immutable after insert.                                          |
+| `labels`                                | sync (`update_metadata`; manifest is canonical)           | scanner — NULL (cloud-only feature)                        | Source-dependent. Mutex required for `source='cloud'`.                         |
+| `parent_conversation_id` (#108)         | sync (cloud listing payload, scanner reads `cloud_listing` snapshot) | N/A — NULL                                      | Effectively sync-only. `upsert` uses `COALESCE` so scanner cannot clobber.     |
+| `summary`                               | analysis pipeline (`gen objs`)                            | analysis pipeline                                          | Independent column; sync/scan don't touch it.                                  |
+| `sync_state` table (#112) — K/V scalars | sync                                                      | N/A                                                        | sync-only.                                                                     |
+| `cloud_listing` table (#112)            | sync                                                      | N/A                                                        | sync-only.                                                                     |
+
+**Reading the table**:
+
+- Rows marked "Source-dependent" are the races today. They are all
+  governed by the same fix: serialize sync and scan via `sync.lock`.
+- The `selected_branch` row is the explicit resolution of the
+  listing-API-doesn't-return-it ambiguity (see AGENTS.md item #27
+  caveat). It is scanner-only because there is no other source. Sync's
+  metadata refresh deliberately omits it; this is codified as a policy
+  by not adding it to `ConversationStore.update_metadata`'s parameter
+  list.
+- `cloud_updated_at` (#112) is the new sync-owned cloud-listing mirror
+  that replaces the historical overload of writing the cloud
+  `updated_at` value into the scanner-owned `updated_at` column.
+
+### The `sync.lock` Mutex Contract
+
+`$OHTV_DIR/sync.lock` is a zero-byte advisory-lock file held via
+`fcntl.flock(LOCK_EX | LOCK_NB)`. See `src/ohtv/locks.py` for the
+implementation.
+
+**Acquired by (exclusive)**:
+
+- `ohtv sync` (all forms — full, `--repair`, `--update-metadata`,
+  `--force -n`)
+- `ohtv db scan`
+- `ohtv gen titles`
+
+**Read-only — does NOT take the lock**: `list`, `show`, `refs`,
+`errors`, `search`, `ask`, `report *`, `db status`, `db process *`,
+`db embed`, `gen objs`. These either don't touch `conversations` at all
+or only update analysis-pipeline columns (`summary`) that have a single
+independent writer.
+
+**Failure mode**: fail-fast by default. If the lock is contested, the
+writer command exits 1 with a message pointing at the lock file and
+suggesting the `--lock-timeout=N` flag for scripted use (default `0`
+means immediate fail; positive values poll every ~100 ms up to N
+seconds).
+
+**Windows note**: `fcntl` is POSIX-only. On Windows the lock is a no-op
+with a logged warning. This is the documented Issue #109 out-of-scope
+item; the path is tracked for follow-up via `msvcrt.locking`.
+
+**Why not `BEGIN IMMEDIATE` instead?**
+
+1. The race surface includes the manifest file (`sync_manifest.json`),
+   which lives on the filesystem and is not under SQLite's purview at
+   all.
+2. `BEGIN IMMEDIATE` would serialize commits but does nothing about the
+   in-memory `manifest_map` staleness — the scanner has already done
+   its filesystem read before any DB transaction opens.
+3. `fcntl.flock` works across processes without needing a connection,
+   so the CLI can hold the lock from argv-parse time through teardown
+   without coupling it to a particular DB handle's lifetime.
+
 ## Future Enhancements
 
 - **Query commands**: `ohtv db query --repo X` to find conversations

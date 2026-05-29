@@ -63,6 +63,41 @@ ohtv sync --quiet
 | `--update-metadata` | Refresh cached cloud metadata (`title`, `labels`, `selected_repository`, `created_at`) for already-synced cloud conversations **without** re-downloading. Mutually exclusive with `--force`, `--since`, `--max-new`, `--repair`, `--status`. |
 | `-p, --process` | Run all processing stages after sync |
 | `-q, --quiet` | Minimal output for cron jobs |
+| `--lock-timeout SECONDS` | Wait up to N seconds for `$OHTV_DIR/sync.lock` instead of failing fast. Default `0` = fail-fast. See [Writer mutex](#writer-mutex-synclock) below. |
+
+## Writer mutex (`sync.lock`)
+
+`ohtv sync` is a **writer** — it mutates `~/.ohtv/sync_manifest.json` and
+the `conversations` / `cloud_listing` / `sync_state` tables. To prevent
+two concurrent writers from clobbering each other's committed
+transactions, every form of `ohtv sync` (full, `--repair`,
+`--update-metadata`, `--force -n`) acquires an exclusive
+`fcntl.flock` on `$OHTV_DIR/sync.lock` before doing any work, and shares
+that lock with `ohtv db scan` and `ohtv gen titles`.
+
+The default behavior is **fail-fast**: if another writer holds the lock,
+`ohtv sync` exits 1 with:
+
+```
+Error: Another ohtv writer is already running (see /home/$USER/.ohtv/sync.lock).
+Try again in a few seconds, or pass --lock-timeout=N to wait.
+```
+
+Pass `--lock-timeout=N` (seconds) to poll for the lock — useful when
+chaining commands or scripting around a cron job that might overlap:
+
+```bash
+ohtv sync --lock-timeout=30        # wait up to 30s for the lock
+ohtv sync --update-metadata --lock-timeout=10
+```
+
+`ohtv sync --status` is read-only and does **not** acquire the lock, so
+it stays usable while another writer is running.
+
+On Windows the lock is a documented no-op (`fcntl` is POSIX-only); see
+the canonical contract in
+[reference/database.md § Column Ownership and the `sync.lock` Writer Mutex](../reference/database.md#column-ownership-and-the-synclock-writer-mutex)
+for the full rationale and column-ownership table.
 
 ## How the set-diff engine works
 
