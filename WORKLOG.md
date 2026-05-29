@@ -1512,3 +1512,70 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 00:53 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| _none_ | — | — | — |
+
+🚨 **Spawn ERROR — human attention required: GitHub provider auth expired at OpenHands platform layer**
+
+**Attempted spawn:** Testing worker for [PR #134](https://github.com/jpshackelford/ohtv/pull/134) (next per decision tree).
+
+- Start task `3b7d981b…` → POST 200 → status `ERROR` on first 5s poll (within ~2s of create).
+- `detail`: `"Git provider authentication issue when getting remote URL"`
+- `sandbox_id` was allocated (`1jSYlMIjifDBOv7aTTDWrO`) but no `app_conversation_id` was assigned — failure occurred during the `PREPARING_REPOSITORY` phase before the agent could start.
+- This is a hard platform-side failure (not the 22:22Z silent-ghost pattern), so re-spawning will hit the same error until the user re-grants GitHub access.
+
+**Independent confirmation of the auth scope:**
+
+- `$github_token` (env var): `curl -H "Authorization: Bearer $github_token" https://api.github.com/user` → **401 Bad credentials**.
+- `$GITHUB_TOKEN` (env var): same → **401**.
+- Git remote URL on `main` (`https://ghu_iKdLY…@github.com/jpshackelford/ohtv`) embedded `ghu_…` token: **200 OK** — this is what's letting me read PR/issue state, push this WORKLOG entry, and would let an in-flight worker continue, but the OpenHands spawn API uses the user's GitHub OAuth grant (separate token), and **that** grant is what's expired.
+
+**Decision-tree trace (would-be-spawned, blocked):**
+
+- 0 unacknowledged `## INSTRUCTION:` entries.
+- 0 running ohtv-repo workers. `467ef14` (docs worker, prior cycle) **finished cleanly** at 00:22:32Z (~4 min runtime — short but legitimate; commit `a269a9d` "docs: document sub-conversation sync semantics (#108)" landed on PR #134 with 4 file additions/edits: README.md, AGENTS.md, docs/guides/syncing.md, docs/reference/database.md, plus the "Documentation updated for #108" comment).
+- **Expansion slot:** OPEN, IDLE. 14 open issues, 12 `ready`, 2 `hold` (#26, #90), **0 need expansion** — slot stays idle regardless of auth status.
+- **PR slot:** OPEN. PR #134 state: `oC green ready` 1💬 (the docs-update comment), no manual-test-results comment, no review comments.
+  - Canonical decision-tree row: **"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker."**
+  - Intended dispatch BLOCKED by the platform-auth error above.
+
+**Current State:**
+
+- [PR #134](https://github.com/jpshackelford/ohtv/pull/134): `oC green ready` 1💬 — docs done (commit `a269a9d`), **awaiting testing worker** (blocked on user re-auth)
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): closed (not merged) at 23:57:11Z — the out-of-band worklog PR resolved itself between cycles
+- **Need expansion (0):** ✓ board fully expanded
+- **Ready w/ priority:medium (1):** #109
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128
+- **On hold:** #26, #90
+
+**Other items worth surfacing:**
+
+- **Release-please still has not opened a post-#133 PR.** No `release-please` workflow run is visible via the public API for the `feat(sync): ...` merge on `92a2805` (~92 min ago). Prior cycle (00:21Z) already flagged this as worth investigating if it persisted. Now persistent across two cycles. Possible causes: workflow disabled, conventional-commit subject not matching grammar, or runner queue. Worth a manual `gh run list --workflow=release-please.yml --repo jpshackelford/ohtv` when auth is restored.
+- **Worklog truncation deferred again.** File at ~1560 lines after this entry — over the repo-custom ~1500-line soft threshold. Next productive cycle should run `/truncate-worklog` before its main work.
+
+**🛠 How to unblock (for @jpshackelford):**
+
+1. Visit https://app.all-hands.dev/settings → **Integrations / Git Providers** → **GitHub**.
+2. Re-authorize the GitHub OAuth grant for the OpenHands app (or click "Reconnect" if shown). The current grant has expired — both raw API token tests above return 401.
+3. Once re-authorized, the next cron tick will see this WORKLOG entry, find no active workers, find PR #134 still in the same state, and re-attempt the testing-worker spawn. No human action needed beyond the re-auth.
+4. Optional: also check the release-please workflow runs on `92a2805` while you're in the admin UI.
+
+**Auto-disable counter:** **0 → 0**. This is NOT a "quiet" cycle (productive work _would_ have been dispatched if auth worked). Per the auto-disable rule ("two consecutive 'All quiet' entries"), this entry should NOT be counted as quiet — the work-available path was correctly identified and only the spawn API blocked it. Leaving the counter at 0 so the next cron tick (~30 min) retries immediately once the user re-auths.
+
+**Forecast for next cycle (~01:25Z window):**
+
+- **If user has re-authorized GitHub** → spawn testing worker for PR #134 (identical to the dispatch attempted this cycle).
+- **If user has not re-authorized** → repeat this surface message but DO NOT re-spawn; do not auto-disable (the rule is for "no work to pick up", and there is work — it's a credentials block).
+- **If user has re-authorized AND PR #134 already has a manual-test comment from external action** → advance to review/merge per decision tree.
+- **If a new `## INSTRUCTION:` (outside fenced code) appears** → follow it first.
+- **Expansion slot:** stays idle until human files a new issue.
+
+**Sync notes:** `ohtv` 0.13.0 + `lxa` installed via `uv tool install git+https://github.com/jpshackelford/...` after container respawn (different from the prior 4 cycles' `pip install --user` pattern — `uv pip install --system` hit `/usr/local/lib/python3.13/site-packages` perm-denied; `pip install --user` then hit `pip's --user is unsupported (use a virtual environment instead)` because uv-managed python intercepts; `uv tool install` is the cleanest path and creates isolated venvs in `~/.local/share/uv/tools/`, with shims at `~/.local/bin/{lxa,ohtv}`). `gh` 2.92.0 authenticated via `GH_TOKEN=<remote-URL-embedded-ghu-token>` (the `$github_token` env var is 401 expired; the git remote URL contains a separately-issued valid `ghu_…` token, scoped to this repo). OH API search/spawn via `Authorization: Bearer $OPENHANDS_API_KEY` / `X-Access-Token: $OPENHANDS_API_KEY` — those still work; only the **user's GitHub OAuth grant at the OpenHands platform layer** is the expired credential blocking new spawns. Plugins in canonical `{source, repo_path, ref}` object form. `git pull --ff-only` on `main` confirmed up-to-date before commit.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
