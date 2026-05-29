@@ -1473,3 +1473,117 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 20:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `51498a6` | review | PR #147 - suppress --verbose deprecation note when --log-level explicit | **NEW** |
+
+**Spawned: Review Worker for PR #147**
+- PR: [#147 — feat(cli): add --log-level/--log-file/--log-stderr, stop swallowing batch errors](https://github.com/jpshackelford/ohtv/pull/147)
+- Conversation: [`51498a6`](https://app.all-hands.dev/conversations/51498a6db70f49f0a3fcba7c107fed8d)
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+- Spawn task: `de22e148…` → READY on poll #1 (~15 s) → `execution_status=running`, `sandbox_status=RUNNING`, repo `jpshackelford/ohtv` at 20:50:20Z.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced code blocks).
+- **Active-worker check:** prior cycle's testing worker `ee6eaec` → `execution_status=finished` at 20:27:33Z (8 min runtime — fast for 17 manual tests + 53 unit tests + full 2050-test suite + comment posting). The "## Manual Test Results" comment landed on PR #147 at 20:27:32Z. **Not a silent exit** — full PASS-WITH-NOTES report posted; created_at ≠ updated_at; 1 actionable item identified.
+- **Expansion slot:** OPEN, IDLE. **36th consecutive idle expansion cycle.** 0 issues need expansion.
+- **Open PRs (2):**
+  - **[PR #147](https://github.com/jpshackelford/ohtv/pull/147)** — `feat/cli-logging-121` @ `e730821`. `lxa pr list` confirms `oAc green ready -- 38m 20m ago`. State: `reviewDecision=APPROVED`, `mergeStateStatus=CLEAN`, `statusCheckRollup`: lint SUCCESS, pytest SUCCESS, pr-review SUCCESS. **Manual test results posted (PASS-WITH-NOTES, 1 actionable item).** ← spawn target.
+  - **[PR #142](https://github.com/jpshackelford/ohtv/pull/142)** — orphaned release-please PR (`mergeStateStatus=DIRTY`). Same disposition as prior 5 cycles: SKIP.
+- **Decision-tree row:** *"If `finished` AND comment shows … PASS-WITH-NOTES with actionable items → spawn **review worker** to address."* (from the 20:21Z entry's forecast for this cycle window).
+- **PR slot dispatch:** spawn review worker for #147.
+
+**The PASS-WITH-NOTES discrepancy (Test 10):**
+
+The PR body claims:
+> "[--verbose] emits a one-shot stderr deprecation note … which is suppressed if the caller also passes an explicit `--log-level`."
+
+But in `src/ohtv/cli_logging.py:init_logging_from_cli`, the warning fires unconditionally inside `if verbose:`, before the `if level is None:` check that gates the level-default override. Trace:
+
+```python
+if verbose:
+    _warn_verbose_deprecated()   # ← always fires when --verbose is on the line
+    if level is None:
+        level = "DEBUG"
+    stderr = True
+```
+
+The manual tester's repro:
+```
+$ ohtv list --verbose --log-level DEBUG 2>stderr
+$ cat stderr
+Note: --verbose is deprecated; use --log-level DEBUG --log-stderr instead.   # ← still prints
+```
+
+The reporter noted (correctly) that the implementation, the shipped docs (`docs/reference/configuration.md`), and the closest unit test (`test_explicit_log_level_overrides_verbose` — asserts only the level override, not the note suppression) are all self-consistent. **Only the PR body overpromises.**
+
+**Why fix the implementation (not the PR body wording):**
+
+Considered three options:
+- **(a) Fix the implementation** — 2-line move of `_warn_verbose_deprecated()` inside the `if level is None:` branch. Add a unit test asserting suppression. **Selected.**
+- **(b) Fix the PR body wording** — drop the "suppressed if the caller also passes an explicit `--log-level`" clause. Cheaper, but the obvious user-intent of "if you're already passing --log-level you've moved past --verbose, don't nag me" matches what the PR body promises. Option (a) honors user intent.
+- **(c) Defer to a follow-up issue** — non-blocking for the core #121 fix, per the reporter's verdict. Rejected because the squash commit message (auto-generated from the PR body by python-semantic-release) would still carry the false claim into the changelog.
+
+Option (a) is canonically correct: it makes the impl match the (now-tested) PR body claim.
+
+**Why a review worker (and not skip-to-merge):**
+
+The decision tree's row for "PR ready, CI green, test results valid, but PASS-WITH-NOTES" explicitly routes to review-worker. The "skip-to-merge" row requires test results with a clean PASS verdict (or PASS-WITH-NOTES where the notes are explicitly non-actionable). Here the note IS actionable (the squash commit message would otherwise document a feature that doesn't exist), so it must be addressed pre-merge.
+
+**Why no re-testing flag set by orchestrator:**
+
+The fix is bounded to one function in one file (`src/ohtv/cli_logging.py:init_logging_from_cli`) plus one new unit test. Per the orchestrator skill's "Heuristics for Significant Changes" — if only ≤50 lines of non-test code change AND the change is bounded to one CLI option's behavior, the existing manual test results plus the new unit test are sufficient. Next cycle's decision will be:
+- If the new test asserts the suppression AND `gh pr checks 147` shows CI green → **merge worker** with no re-test step.
+- If anything else changes scope (e.g. the worker decides to also touch related code) → orchestrator will re-evaluate and may insert a re-test step.
+
+**Review prompt highlights (6424 chars, 100 lines):**
+- Pre-located root cause with exact code snippet (saves the worker a discovery loop).
+- Explicit conventional-commit framing: `fix(cli):` NOT `feat:` — it's a behavior correction, will produce a patch bump (0.16.0 → 0.16.1 after main release, OR rolls into the 0.16.0 release if merged before the prior `feat:` commit's release fires).
+- Test strategy: strengthen existing `test_explicit_log_level_overrides_verbose` OR add sibling `test_explicit_log_level_suppresses_verbose_deprecation_note`, asserting BOTH the suppression case AND the non-suppression case (don't break the `--verbose` alone path).
+- Explicit `reset_verbose_warning_state()` reminder (module-level flag).
+- Reproducer commands baked in (one-liners for both branches).
+- Reply-to-comment instruction with AI attribution footer.
+- DO NOT list: set PR to draft (no real review threads), merge, modify PR body unless title/scope drifted, touch #142, push to main, real `ohtv sync`.
+
+**Silent-exit risk for `51498a6d`:** Very low. The change is 2 lines + 1 test. Even with the test-suite overhead, this is a 10-15 min job. Main risk: if the worker over-interprets the prompt and tries to refactor surrounding code, scope creep could trigger a CI flake or a longer cycle. Mitigation: prompt is explicit about the minimal-change preference and lists the exact lines to move.
+
+**Worklog truncation deferred (still):** WORKLOG.md was 1475 lines pre-this-entry. Same documented known issue from the 20:21Z entry — truncate-worklog skill's productive-indicator regex is mismatched to this codebase's prose-first log style. Size (~155 KB) still operationally acceptable.
+
+**PR #142 disposition (unchanged):** orphaned release-please PR; awaiting human close. SKIP.
+
+**One action per wake-up:** ✓ one spawn (review worker for #147).
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned review worker). **46th consecutive productive cycle.** Not at risk.
+
+**Current State (post-spawn):**
+
+- **Open PRs (2):**
+  - [PR #147](https://github.com/jpshackelford/ohtv/pull/147): in review-fix pipeline. `oAc green ready` 0 threads. Manual test PASS-WITH-NOTES being addressed.
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): orphaned release-please PR; awaiting human close. SKIP.
+- **Active workers (1):** `51498a6` (review, #147).
+- **Released:** [`ohtv-v0.15.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.15.0) at 19:38Z. Next release (when #147 merges) will be `ohtv-v0.16.0` (minor bump from `feat(cli):` in the squash subject; the `fix(cli):` follow-up commit being added is squashed into the same PR, so the squash subject — which is the PR title — drives semantic-release's classification).
+- **Need expansion (0):** ✓ (36th consecutive idle cycle).
+- **Ready w/ priority:high (1):** #121 (PR #147 fixes it; label removal at merge).
+- **Ready w/ priority:medium (6):** #116, #123, #124, #125, #127, #128.
+- **On hold (2-3):** #26, #90, (possibly #145).
+
+**Forecast for next cycle (~21:20Z window):**
+
+1. **PR slot — most-likely action:** check `51498a6`. Envelope: 10-20 min for a 2-line code change + 1 test + CI wait + comment reply. **Likely DONE by 21:20Z.**
+   - If `running` → status-check only.
+   - If `finished` AND a follow-up commit landed on `feat/cli-logging-121` AND CI is green AND a reply comment landed on PR #147 → spawn **merge worker** directly. Pre-baked merge commit body: `feat(cli): add --log-level/--log-file/--log-stderr, stop swallowing batch errors (#147)` with `Fixes #121` footer. Note: the worker is appending a `fix(cli):` commit to the branch, but squash-merge collapses to the PR title (which stays `feat(cli):`), so semantic-release still bumps minor (0.15.0 → 0.16.0).
+   - If `finished` AND no commit landed (silent-exit on review worker) → inline-escalation by orchestrator: apply the 2-line fix directly, push, comment-reply, exit. Precedent: 11:48Z PR #138 escalation.
+   - If `finished` AND a commit landed but CI failed → inline diagnosis or spawn a corrective worker depending on failure mode.
+2. **Expansion slot:** unchanged, IDLE (37th cycle pending).
+3. **PR #142:** unchanged unless @jpshackelford closes it.
+4. **Worklog truncation:** still deferred — known regex mismatch.
+
+**Sync notes:** Fresh container this cycle. Tools installed via `.venv` (system perms blocked, same as prior cycles). `gh` 2.92.0 with `GH_TOKEN=$github_token`. `ohtv sync` skipped (`OH_API_KEY` not exported to `ohtv` cleanly on first try; decision data sourced from `gh` + OpenHands conv search API). `lxa pr list "jpshackelford/ohtv#147"` returned `oAc green ready` (oAc = opened, Approved, Comments — the `c` corresponds to the new manual-test comment). The spawn payload was a multi-line JSON file (`/tmp/spawn_payload.json`, 6424-char prompt). HEAD pulled at `78de536` (ohtv-v0.15.0).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
