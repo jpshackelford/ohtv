@@ -1,6 +1,62 @@
 # CHANGELOG
 
 
+## v0.16.0 (2026-05-29)
+
+### Chores
+
+- **worklog**: Impl worker completion for #121 (PR #147)
+  ([`e04c44f`](https://github.com/jpshackelford/ohtv/commit/e04c44f5a7847a8b9781b7c7c181dbf113b13c19))
+
+- **worklog**: Orchestrator 2026-05-29T20:21:53Z - spawn testing worker for PR #147
+  ([`676a628`](https://github.com/jpshackelford/ohtv/commit/676a628ad972f38c062f9d2b56de31e35001ec6e))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawn merge worker for PR #147 and expansion for #145
+  ([`667f3f7`](https://github.com/jpshackelford/ohtv/commit/667f3f7b30edcb6956b566bf3642f79ebccc791e))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawn review worker for PR #147 (PASS-WITH-NOTES)
+  ([`f315e88`](https://github.com/jpshackelford/ohtv/commit/f315e885d9ff6d7e5f7c21c04181725e861b8ba4))
+
+- **worklog**: Spawn impl worker for #121 (CLI logging, priority:high)
+  ([`a915a6c`](https://github.com/jpshackelford/ohtv/commit/a915a6c2bcd40259a5e2ced9c3f3de66b6d1086b))
+
+### Features
+
+- **cli**: Add --log-level/--log-file/--log-stderr, stop swallowing batch errors
+  ([#147](https://github.com/jpshackelford/ohtv/pull/147),
+  [`a8c5cec`](https://github.com/jpshackelford/ohtv/commit/a8c5cec2c7644fe4ef19bb59b40d714c36b75bfa))
+
+Adds a shared logging-options decorator wiring `--log-level`, `--log-file`, and `--log-stderr` into
+  every CLI subcommand, and refactors `setup_logging` to a kwargs-only signature with the resolution
+  chain CLI → environment (`OHTV_LOG_LEVEL` / `OHTV_LOG_FILE`) → built-in default. Supports `-` for
+  stderr-only and `/dev/null`/`nul` for silenced file logging; idempotent on repeated calls.
+
+Closes the swallow-sites in the batch error paths: `_run_batch_objectives_analysis`,
+  `_run_post_sync_processing`, `_run_post_sync_llm_analysis`, `_run_objectives_analysis`,
+  `EmbeddingWriter._writer_loop`, `generate_embeddings_only`, and `parallel.run_parallel` now call
+  `log.exception` or `log.warning` instead of silently returning sentinels. Operators can now `grep
+  WARNING ~/.ohtv/logs/ohtv.log` to enumerate failures after a `--quiet` batch run.
+
+`--verbose` / `-v` is retained on all 19 commands that previously had it and now emits a one-shot
+  stderr deprecation note (suppressed when an explicit `--log-level` is also passed — see follow-up
+  `fix(cli):` commit on this branch). `db init --verbose` and `report velocity --verbose` keep their
+  domain-specific `--verbose` behavior orthogonal to logging.
+
+Docs: `docs/reference/configuration.md` truth-ups `OHTV_LOG_LEVEL` (previously documented but
+  unwired) and adds `OHTV_LOG_FILE`; `README.md` gets a Logs subsection.
+
+Tests: +53 unit tests across `test_logging.py`, `test_cli_logging.py`, and
+  `test_cli_batch_error_logging.py`. Full suite 2050 passed, 2 skipped, 3 xfailed.
+
+Fixes #121.
+
+_This PR was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+
 ## v0.15.0 (2026-05-29)
 
 ### Bug Fixes
