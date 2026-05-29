@@ -2,6 +2,28 @@
 
 ## Log
 
+### 2026-05-29 17:53 UTC - Docs worker (PR #146, #126 auto-step)
+
+**Conv:** docs-update worker for PR #146 (`feat/classify-short-circuit-subs-126`).
+**PR:** **#146** — added one docs commit (`bdef60b`), CI **green** (`pytest pass 53s`, `lint pass 5s`).
+
+**Scope (docs-only, on the existing PR branch — no new branch, no behavior change):**
+
+- **`docs/guides/classification.md`:**
+  - New section **"Automatic Sub-Conversation Classification"** explaining the always-on auto-step: what sub-conversations are (`conversations.parent_conversation_id IS NOT NULL`, populated by migration 019), why they're always `automation` (parent agent generates the initial prompt), the single SQL `UPDATE` that runs at the top of every `classify` invocation, the `Auto-classified N sub-conversation(s) as 'automation'.` print line (suppressed when N=0), idempotency, root-conversations-untouched, missing-`conversation_human_input`-row silent skip, the one overwrite case (a sub previously set to `'human'` reverts to `'automation'`), and the within-one-invocation manual-override behavior.
+  - **Tweaked the pre-existing "Bulk operations only ever touch rows currently set to `unknown`"** clause to say **"heuristic bulk operations"** with an inline note linking to the new section as the one exception.
+  - Documented the **migration 019 guardrail** error message verbatim.
+
+- **README.md:** Left unchanged — `classify` only has a one-line table-row pointer (line 57) to the updated guide; no other user-facing surface for this command in the README.
+
+- **Constraints respected:** No `src/`, `tests/`, or behavior changes. Stayed on `feat/classify-short-circuit-subs-126` (no new branch/PR). One commit, one push.
+
+- **PR comment posted** ([#issuecomment-4578172536](https://github.com/jpshackelford/ohtv/pull/146#issuecomment-4578172536)) summarizing the doc update for downstream test/review/merge workers.
+
+**Status:** EXIT per brief step 10 — docs are in place ahead of manual testing; review/QA/merge handled by separate workers.
+
+---
+
 ### 2026-05-29 15:38 UTC - Impl worker (Phase C of #114)
 
 **Conv:** `<this impl worker>` — spawned by orchestrator after Phase B (#143) merged at 14:52Z.
