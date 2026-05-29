@@ -2,6 +2,22 @@
 
 ## Log
 
+### 2026-05-29 04:21 UTC - PR #135 merged
+
+- PR: [#135 — feat(locks): add sync.lock writer mutex + column-ownership table (#109)](https://github.com/jpshackelford/ohtv/pull/135)
+- **Merge commit:** [`4799ad03e17b4f75130b11f0a9b3dcf8c050b7a6`](https://github.com/jpshackelford/ohtv/commit/4799ad03e17b4f75130b11f0a9b3dcf8c050b7a6)
+- **Squashed subject:** `feat(locks): add sync.lock writer mutex with --lock-timeout flag (#109)` — `feat` scope drives a `minor` release-please bump per AGENTS.md commit contract.
+- **Issue #109** auto-closed as COMPLETED at 04:21:52Z via the `Fixes #109` footer.
+- Pre-merge state: `mergeStateStatus=CLEAN`, `mergeable=MERGEABLE`; both checks SUCCESS on head `a2b9c123` (`lint` 3s, `pytest` 51s, 1897 passed / 3 skipped / 4 xfailed); 0 review threads (resolved or otherwise); manual test report posted 03:56Z with verdict ✅ Ready to merge (T1–T7 all pass, 0 unit regressions, lint debt is pre-existing baseline). Docs commit `a2b9c123` updated `docs/reference/cli.md`, `docs/guides/syncing.md`, `docs/guides/indexing.md`, `docs/guides/analysis.md`; README intentionally unchanged (no new top-level command surface).
+- Squash body documents: three commands gated by the mutex (`ohtv sync`, `ohtv db scan`, `ohtv gen titles`) with a `--lock-timeout SECONDS` flag (default `0` = fail-fast, `>0` polls every ~100 ms); `sync --status` deliberately short-circuits BEFORE lock acquisition (read-only); lock file at `$OHTV_DIR/sync.lock` carrying a `<pid> <label>` stamp written on acquire and intentionally left on disk after release; `fcntl.flock(LOCK_EX | LOCK_NB)` from `src/ohtv/locks.py`; 11 read-only commands deliberately untouched (parametrized negative-contract test); column-ownership table in `docs/reference/database.md` (new section "Column Ownership and the `sync.lock` Writer Mutex") covering every column on the post-#112/#108 `conversations` schema, including `parent_conversation_id`'s `COALESCE` semantics; `selected_branch` codified as scanner-only (forbidden as a parameter of `ConversationStore.update_metadata`); rationale for `fcntl.flock` over `BEGIN IMMEDIATE`; Windows = no-op + logged warning (tracked for follow-up via `msvcrt.locking`); AGENTS.md item #27 extended with a `#109` sub-bullet (no new top-level item — issue is a clarification of existing rules).
+- **Release-please status:** release PR queue continues to build but is **still blocked on the workflow-permissions repo setting flip** (human-only fix, not touched this cycle per the merge-worker note). This `feat(locks):` commit will be picked up by the next successful release-please run and will drive a minor bump alongside the previously-queued items.
+- Sync rewrite arc status: #110 harness ✅ → #112 schema ✅ → #111 engine ✅ → #108 sub-conv default-on ✅ → **#109 sync.lock writer mutex ✅ (this merge)** → #113 repair UX (next) → #114 manifest retirement (final).
+- Hard rules honored: squash subject is Conventional Commits (`feat(locks): …`); no direct pushes to `main` except this worklog (using `chore(worklog):` so release-please ignores it); PR description left as-is (it already accurately reflected the final state, including the column-ownership table, the three gated writers, the `--lock-timeout=0` default, and the `sync --status` short-circuit).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-29 03:05 UTC - Impl Worker (Issue #109)
 
 **PR opened:** [#135 — feat(locks): add sync.lock writer mutex + column-ownership table (#109)](https://github.com/jpshackelford/ohtv/pull/135)
