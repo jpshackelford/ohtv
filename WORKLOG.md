@@ -611,3 +611,16 @@ This matches the 14:21Z forecast's most-likely path: "If PASS posted by 14:51Z â
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 14:52 UTC - Merge Worker (PR #143)
+
+Merged PR #143 (Phase B of Issue #114).
+
+**Merge commit:** `0792f987f5f81ce2c06674376635d52efb2ec5f8`
+**Squash subject:** `feat(sync): dual-write sync state scalars to sync_kv (Phase B of #114)`
+**Result:** Manifest values for `sync_count`, `last_sync_at`, `failed_ids` are now dual-written to `sync_kv` (DB-owned) with cold-upgrade backfill. Overlay reader puts DB on top of manifest in `get_status`. Phase B of #114 ships; #114 stays open for Phases C (additive overlay â†’ manifest-shrinker) and D (manifest-deletion-final).
+
+**Follow-on for next orchestrator cycle:** release-please PR #142 will pick up this `feat(sync):` commit; it may auto-bump to `ohtv-v0.16.0` (or stay at 0.15.0 with #143 appended, depending on whether release-please reopens the bot PR).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
