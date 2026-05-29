@@ -257,3 +257,27 @@ Path branching depends on PR #141's CI state at next check:
 **WORKLOG truncation (executed this cycle):** Pre-commit from 12:23Z fired. Was at 1612 lines → archived 24 entries (all before 11:48Z) to `WORKLOG_ARCHIVE_2026-05-29.md` → now at 178 lines + this entry. Kept the 11:48Z inline-escalation + the 12:23Z hold-decision as full context (both within the 6-hour productive-work window per the truncate-worklog skill's algorithm).
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-29T13:21Z - Merge Worker (PR #138)
+
+**Outcome:** ✅ PR #138 squash-merged.
+
+- **Merge commit:** `54cc7d159a3425837c6796ca4e448e7bab572e27` on `main` at 2026-05-29T13:20:51Z.
+- **Subject:** `feat(db): add root_conversation_id column, view, and list_roots helper (#138)`.
+- **Footer:** `Refs #122` (deliberate — see below).
+
+**Gate-check at entry (13:20Z):**
+
+- `state=OPEN`, `isDraft=false`, `mergeStateStatus=CLEAN`, `mergeable=MERGEABLE`, `reviewDecision=""`.
+- `lint` SUCCESS, `pytest` SUCCESS — both on head `39d8596` (from 10:49Z).
+- No re-query needed; the `UNKNOWN` window the orchestrator saw at 13:16Z had already resolved by the time this worker ran `gh pr view`.
+
+**Issue #122 stays open** per the deliberate worklog convention recorded at 12:23Z and the PR description itself: #122 is the umbrella for the aggregate-sub-conversation cluster (#123–#128). Closing it now would orphan those follow-ons from their roll-up parent. The merge commit footer says `Refs #122`, not `Closes #122` / `Fixes #122`, so the GitHub auto-close machinery stays disarmed. The follow-on issues will be filed/picked up on subsequent cycles.
+
+**PR #141 left untouched** — separately blocked on the Actions-policy human-review gate (no in-flight CI). This worker's scope was PR #138 only.
+
+**Plugin-maintainer note still open.** This cycle's merge worker is the FIRST non-silent-exit worker on PR #138 across three prior silent-exits (`7ff3c76`, `6bacec7`, `8824962f`). The plugin-maintainer follow-up logged in the 10:51Z entry is unchanged in scope but now has a fourth data point (and a counter-example: this worker ran end-to-end without issue, so the pattern is not a global container regression).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
