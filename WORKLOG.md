@@ -348,3 +348,80 @@ This is an out-of-order entry — the merge worker's 13:21Z completion entry was
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-29 13:53 UTC - Orchestrator
+
+**Active Workers (at cycle entry):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| _none_ | — | — | — |
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `d247987` | implementation | Issue #114 Phase B - sync-state scalars → `sync_kv` | **NEW** running |
+
+**Action Taken: Spawned impl worker for Issue #114 Phase B.**
+
+This is the cycle the 13:18Z forecast pre-committed to — **PR slot impl spawn for #114**. Forecast was accurate.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}'` → 0 outside fenced code).
+- **Expansion slot:** OPEN, IDLE. **24th consecutive idle expansion cycle.** 0 issues need expansion.
+- **PR slot at entry:** Two open PRs, both structurally blocked from worker progress:
+  - **[PR #141](https://github.com/jpshackelford/ohtv/pull/141)** @ `2b88202` (ci/swap-to-python-semantic-release): `statusCheckRollup=[]` — unchanged from 12:23Z. **Still requires human Actions-policy intervention.** Cycle 4 of this state.
+  - **[PR #142](https://github.com/jpshackelford/ohtv/pull/142)** @ `7065770` (chore(main): release ohtv 0.15.0): **release-please bot PR, opened at 13:21Z immediately after PR #138's `54cc7d1` merge.** `mergeStateStatus=UNKNOWN` (typical for a fresh release-please PR; will resolve to CLEAN within minutes). **Bot-managed — orchestrator does not interact.** Per [release-please docs](https://github.com/googleapis/release-please) + AGENTS.md "Releases & Commit Contract" section: release-please is the squash-merger; we only observe.
+- **Decision:** Apply the prior-cycle precedent (12:23Z, 12:53Z, 13:18Z) — when both open PRs are structurally blocked from worker action (#141 human gate, #142 bot-managed), treat the PR slot as available for the next impl spawn. The "0 or 1 PR" assumption from the skill is about **PR slots the orchestrator manages**, not bot PRs or human-blocked PRs.
+- Spawn impl worker for [Issue #114](https://github.com/jpshackelford/ohtv/issues/114) (priority:medium, ready) — the only prioritized ready issue.
+
+**Issue #114 scope analysis (done before spawn to set worker scope correctly):**
+
+- **Phase A** ✓ shipped (PR #137 — `docs/reference/sync-state-ownership.md`).
+- **Phase B** — pending. Issue body says "lands inside #111" but **#111 closed without Phase B**. Schema-side is done (migration 018 created `sync_kv` table with key allow-list noting `last_sync_at`/`sync_count`/`failed_ids` are #114-owned), but writer-side still uses the manifest (verified at `src/ohtv/sync.py:52,230-255` — `SyncManifest` still holds the three scalars). Phase B is now a standalone PR.
+- **Phase C** — pending. Migration 018 already added `cloud_updated_at` column with a backfill helper, but the per-conv editable-metadata overlay still flows manifest → DB at scan-time (per AGENTS.md item #27).
+- **Phase D** — pending. Blocked on Phase C shipping for one release.
+- **Dependencies for Phase B** all merged: #109 (closed 23:21Z 5/28), #111 (closed 23:21Z 5/28), #112 (closed 18:22Z 5/28), #119 (merged 14:24Z 5/28). Phase B is unblocked.
+
+**Spawn details:**
+
+- **Conv:** [`d247987`](https://app.all-hands.dev/conversations/d247987b708f4fc08235b5101f2a570d). Start task `084493aa…` → READY in ~8s → `execution_status=running` at 13:53Z, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`. (Title cosmetically came back as "Conversation d2479" rather than the requested `[Implementation] Issue #114 Phase B - …` — recording as a sandbox quirk; non-blocking.)
+- **Plugin:** `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- **Prompt scope highlights:**
+  - **Phase B ONLY** — explicit "do not attempt C or D" carve-out.
+  - **No new migration for `sync_kv`** — schema exists; only a `maintenance_tasks` backfill row if needed (per AGENTS.md item #25).
+  - **Dual-write for one release** — preserves back-compat with older binaries per the issue's wording.
+  - **Reading order pre-baked**: technical-approach comment → §3 of sync-state-ownership.md → migration 018 → `sync.py` lines 52 / 230-255 / 390.
+  - **PR conventions**: branch `feat/sync-state-scalars-to-sync_kv-114`, title `feat(sync): persist last_sync_at/sync_count/failed_ids in sync_kv (Phase B of #114)`, body uses `Refs #114` (NOT `Closes` — Phases C/D remain).
+  - **Issue-auto-close warning embedded**: even with `Refs` the GitHub Development sidebar may auto-close (as it did for #122 last cycle); if so, reopen on the next orchestrator cycle.
+  - **Stop conditions documented**: if Phase B turns out already done (silent merge somewhere); deep design ambiguity; unrelated CI flake.
+
+**One action per wake-up:** ✓ one spawn.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned worker). **34th consecutive productive cycle.** Not at risk.
+
+**Current State (post-spawn):**
+
+- **Open PRs (2 + 1 incoming):**
+  - [PR #141](https://github.com/jpshackelford/ohtv/pull/141): still blocked on Actions policy. **Human action required.**
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): release-please for `ohtv-v0.15.0`. **Bot-managed, observe only.**
+  - Incoming: PR for Issue #114 Phase B (`d247987`'s output, expected within ~30-60 min based on prior impl worker cadence).
+- **Need expansion (0):** ✓ (24th consecutive idle cycle).
+- **Ready w/ priority:medium (1):** #114 (now being implemented).
+- **Ready w/o priority (8):** #116, #121, #123–#128. (#123–#128 are the per-command sub-conversation roll-ups now unblocked by PR #138's merge — `/assess-priority` candidates next cycle once the PR slot frees up.)
+- **On hold (2):** #26, #90.
+- **Closed since last cycle:** Issue #122 (closed at 13:20:54Z via PR #138's auto-close machinery — GitHub Development-sidebar link, not the `Refs` keyword. Worklog convention violated but harmless: #122 was the umbrella for the foundation phase, and the per-command roll-ups #123-#128 are independently tracked).
+
+**Forecast for next cycle (~14:23Z window):**
+
+1. **PR slot — most-likely action:** observe. `d247987` should still be running (typical Phase B-sized impl runs 45-90 min). If it has merged its draft PR by then, the next worker is a docs/test worker on that PR.
+2. **PR #142 (release-please):** likely still open. Leave alone.
+3. **PR #141:** unchanged unless human intervened on Actions policy in the window.
+4. **Expansion slot:** unchanged, IDLE (25th cycle pending).
+5. **Branch follow-on:** if `d247987` silent-exits (would be the 4th-of-this-cycle's-streak follow-on to the merge-worker counter-example — the prior 3 silent-exits were specifically on PR #138's docs/test/review/merge sequence), spawn a fresh impl worker with the same prompt. The hypothesis that the silent-exit was PR-#138-specific (not worker-type or container-shape specific) gets a data point either way.
+
+**Sync notes:** Fresh container. `uv pip install --system` failed on `frozenlist` perms again (`/usr/local/lib/python3.13/site-packages` read-only) — fallback to `uv venv .venv` + activate + install (succeeded). `ohtv sync --since 2026-05-29T09:00:00 --quiet` succeeded (41 conversations, 0 new). `ohtv list --repo ohtv --since 2026-05-29 --idle 15` returned 10 conversations, none recently active. API query for actively-running conversations returned 2 (`74d808f` = this orchestrator, `a695811` = unrelated sandbox cousin from 13:45:57Z, no `selected_repository`). `gh` 2.92.0 via `GH_TOKEN=$github_token`. WORKLOG.md was at 350 lines (above the 300-line truncation threshold) but the oldest entry was only ~3 hours old (11:48Z) — within the 6-hour productive window per the truncate-worklog skill — so truncation was deliberately skipped this cycle.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
