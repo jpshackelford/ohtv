@@ -1287,14 +1287,32 @@ class SyncManager:
             # If the listing degraded, the buckets stay empty and
             # fix=True (below) short-circuits to non-destructive only.
 
-        # Mirror cloud_count from the listing for backward-compat CLI
-        # display. ``count_conversations()`` is no longer called.
-        result.cloud_count = (
-            result.new_on_cloud + result.missing_locally + result.modified_on_cloud
-            + max(0, result.disk_count - result.removed_from_cloud)
-            if result.last_snapshot_completed_at is not None
-            else 0
-        )
+        # Mirror cloud_count from the listing snapshot for backward-compat
+        # CLI display. ``count_conversations()`` is no longer called.
+        #
+        # The canonical cloud-side count is the row count of the current
+        # ``cloud_listing`` snapshot — every row the cloud's listing API
+        # returned on the most recent successful pass (including
+        # sub-conversations per #108). On a degraded refresh the previous
+        # snapshot is left intact (#112 atomicity), so this still returns
+        # the best-available answer.
+        #
+        # ``last_snapshot_completed_at is None`` means no prior snapshot
+        # has ever been recorded (e.g. ``check_cloud=False`` + fresh
+        # install). In that state cloud_count is meaningless — fall back
+        # to 0 rather than reporting a partial/empty listing row count.
+        if result.last_snapshot_completed_at is not None:
+            try:
+                with get_connection_for_sync() as conn:
+                    listing = CloudListingStore(conn)
+                    result.cloud_count = listing.count()
+            except sqlite3.OperationalError as exc:
+                # Schema not ready (fresh install, migrations pending).
+                # Matches the fall-through in ``_compute_repair_buckets``.
+                log.debug("Repair: cloud_listing not queryable yet (%s)", exc)
+                result.cloud_count = 0
+        else:
+            result.cloud_count = 0
 
         # ------------------------------------------------------------------
         # Apply fixes if requested.

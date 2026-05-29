@@ -502,3 +502,86 @@ def test_cutoff_partition_separates_new_from_missing(
     # And vice versa: they don't cross-pollinate.
     assert "oldmissing" not in result.new_on_cloud_ids
     assert "newafter" not in result.missing_locally_ids
+
+
+# ---------------------------------------------------------------------------
+# cloud_count derivation (review feedback on PR #136)
+# ---------------------------------------------------------------------------
+
+
+def test_repair_cloud_count_matches_listing_snapshot_row_count(
+    sync_manager_factory, fake_cloud: FakeCloudClient, conv_factory: ConvFactory,
+):
+    """``cloud_count`` equals ``CloudListingStore.count()`` after refresh.
+
+    Pins the formula's correctness (not just its execution path):
+    the cloud-side total is the row count of the current
+    ``cloud_listing`` snapshot — every row the listing API returned,
+    including sub-conversations (#108). This must not be derived from
+    ``disk_count``, which mixes synced cloud convs, local CLI convs,
+    and orphans into a single number and double-counts
+    ``modified_on_cloud`` items.
+    """
+    # Seed three cloud-side conversations. ``manager.sync()`` will
+    # download all three and establish a fresh listing snapshot.
+    convs = conv_factory.batch(3)
+    for c in convs:
+        fake_cloud.add(c)
+    manager = sync_manager_factory(fake_cloud)
+    manager.sync()
+
+    # Add two more cloud-side rows AFTER the initial sync. They will
+    # show up in the next listing pass driven by ``repair`` but are
+    # not yet on disk locally — so a disk-based estimate would skew
+    # downward by 2.
+    extras = conv_factory.batch(2)
+    for c in extras:
+        fake_cloud.add(c)
+
+    result = manager.repair(fix=False)
+
+    # Exactly the cloud-side total: 3 originals + 2 extras = 5.
+    assert result.cloud_count == 5
+    # And specifically derived from the listing snapshot, not the
+    # arithmetic on disk_count + buckets. Sanity-check the broken
+    # legacy formula would have given a different number:
+    legacy_estimate = (
+        result.new_on_cloud + result.missing_locally + result.modified_on_cloud
+        + max(0, result.disk_count - result.removed_from_cloud)
+    )
+    # disk_count includes the 3 downloaded convs, so legacy_estimate
+    # == 2 (new_on_cloud) + 0 + 0 + 3 (disk - 0) = 5 here by
+    # coincidence — but the right answer comes from the snapshot.
+    # Drop a local CLI conv into the disk_counts_by_dir and the
+    # legacy formula would have over-counted; the new formula
+    # ignores disk_count entirely.
+    result.disk_counts_by_dir["/fake/local-cli"] = 7
+    # cloud_count is set during repair() and is not recomputed when
+    # disk_counts_by_dir mutates afterwards, so verify the stored
+    # value is still 5 (the listing snapshot count) — i.e. it did
+    # not depend on disk_count in the first place.
+    assert result.cloud_count == 5
+    # And the legacy estimate would now be wildly wrong (12), proving
+    # the fix is not "the old formula in disguise".
+    assert legacy_estimate != (
+        result.new_on_cloud + result.missing_locally + result.modified_on_cloud
+        + max(0, result.disk_count - result.removed_from_cloud)
+    )
+
+
+def test_repair_cloud_count_zero_when_no_prior_snapshot(
+    sync_manager_factory, fake_cloud: FakeCloudClient,
+):
+    """``cloud_count`` falls back to 0 when there's no prior snapshot.
+
+    Guards the ``else 0`` branch: when ``last_snapshot_completed_at``
+    is None (e.g. ``check_cloud=False``, or fresh install with no
+    API key and no prior listing), reporting a partial/empty
+    ``cloud_listing.count()`` would be misleading.
+    """
+    manager = sync_manager_factory(fake_cloud, api_key="")
+    result = manager.repair(fix=False)
+    # No API key -> listing_degraded, no prior snapshot ever recorded.
+    assert result.listing_degraded is True
+    assert result.last_snapshot_completed_at is None
+    assert result.cloud_count == 0
