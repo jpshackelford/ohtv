@@ -7065,7 +7065,36 @@ def db_status() -> None:
         for table_name, display_name in tables:
             cursor = conn.execute(f"SELECT COUNT(*) FROM {table_name}")
             count = cursor.fetchone()[0]
-            console.print(f"  {display_name}: {count}")
+            if table_name == "conversations":
+                # Issue #122: report the root/sub split so it's visible
+                # at a glance when delegation enters the dataset. Uses
+                # ConversationStore helpers so the rule lives in one
+                # place. Falls back silently on pre-020 DBs.
+                from ohtv.db.stores import ConversationStore as _ConvStore
+
+                _store = _ConvStore(conn)
+                try:
+                    _root_count = _store.count_roots()
+                    _sub_count = _store.count_subs()
+                    _tree_count = _store.count_trees_with_subs()
+                except sqlite3.OperationalError:
+                    _root_count = _sub_count = _tree_count = None
+
+                if _root_count is not None and _sub_count and _sub_count > 0:
+                    console.print(
+                        f"  {display_name}: {count:,} "
+                        f"({_root_count:,} roots + {_sub_count:,} subs "
+                        f"across {_tree_count:,} trees)"
+                    )
+                elif _root_count is not None:
+                    console.print(
+                        f"  {display_name}: {count:,} "
+                        f"({_root_count:,} roots)"
+                    )
+                else:
+                    console.print(f"  {display_name}: {count}")
+            else:
+                console.print(f"  {display_name}: {count}")
         
         # Show breakdown by ref type
         cursor = conn.execute(

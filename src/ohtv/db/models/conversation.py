@@ -27,6 +27,17 @@ class Conversation:
             conversations and for local CLI conversations.
             Populated by ``ohtv sync`` from the cloud listing payload
             (Issue #108).
+        root_conversation_id: The top of the parent chain for this
+            conversation (normalized / dashless). For roots this
+            equals ``id``; for subs it walks
+            ``parent_conversation_id`` to the top. Populated at write
+            time by ``ConversationStore.upsert`` /
+            ``record_cloud_download``. NULL only on rows written by
+            pre-#122 code that haven't been re-scanned yet — the
+            scanner / sync paths backfill on next pass; the
+            migration also backfills existing rows.
+            See AGENTS.md item #32 for the policy ("the root is the
+            unit of 'what the user did'"). Issue #122.
     """
     id: str
     location: str
@@ -41,3 +52,4 @@ class Conversation:
     summary: str | None = None
     labels: dict[str, str] | None = None
     parent_conversation_id: str | None = None
+    root_conversation_id: str | None = None

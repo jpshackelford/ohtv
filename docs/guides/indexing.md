@@ -179,7 +179,7 @@ Database: /Users/you/.ohtv/index.db
 Size: 6.1 MB
 
 Records:
-  Conversations: 1297
+  Conversations: 1297 (1183 roots + 114 subs across 42 trees)
   Repositories: 156
   References (issues/PRs): 428
   Repo Links: 892
