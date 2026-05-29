@@ -6,8 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 project adheres to [Semantic Versioning](https://semver.org/).
 
 Releases from this point forward are managed automatically by
-[release-please](https://github.com/googleapis/release-please), driven by
+[python-semantic-release](https://python-semantic-release.readthedocs.io/), driven by
 [Conventional Commits](https://www.conventionalcommits.org/) on squash-merged PR subjects.
+Each release-bumping merge tags directly on `main` (no intermediate release PR).
 Direct pushes to `main` with `chore:` / `chore(worklog):` / `docs(worklog):` subjects (such
 as `WORKLOG.md` updates) are intentionally ignored and never trigger a release.
 

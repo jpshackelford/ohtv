@@ -1,0 +1,44 @@
+name: release
+
+# Tags + GitHub-Releases on every push to main that contains a release-bumping
+# commit (`feat:` → minor, `fix:`/`perf:` → patch, breaking-change footer → major).
+# All other conventional-commit scopes (`chore:`, `docs:`, `ci:`, `chore(worklog):`,
+# etc.) are silently skipped — no release, no tag, no PR. This is the same contract
+# the previous release-please setup advertised, just without the intermediate
+# release PR step.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write  # tag, push version-bump commit + CHANGELOG, create GitHub Release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    # Don't loop on our own version-bump commit.
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run python-semantic-release
+        id: release
+        uses: python-semantic-release/python-semantic-release@v9.21.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish GitHub Release
+        if: steps.release.outputs.released == 'true'
+        uses: python-semantic-release/publish-action@v9.21.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ steps.release.outputs.tag }}
