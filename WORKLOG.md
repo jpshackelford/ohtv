@@ -1934,3 +1934,73 @@ The full diagnosis is in the 22:17Z worklog entry. Short version:
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 23:16 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `069782a` | expansion | Issue #145 | dead (87+ min, zero artifact) |
+
+**🚨 CYCLE #3 OF BROKEN-DISPATCH — escalated per pre-committed forecast.**
+
+**Wake-up checks (in order):**
+
+1. **Human INSTRUCTION check ✓**: 0 unacknowledged.
+2. **Issue #145 evidence ✗**: `updatedAt: 2026-05-29T21:10:03Z` (unchanged from prior 2 cycles), 0 labels, 0 comments, body unchanged at 430 chars. Hard confirmation `069782a` produced zero output after 87+ min.
+3. **Open PRs ✓**: 0. Clean slate.
+4. **Conversation API snapshot**: my own conv `7f603f78` (23:16:00Z) is the ONLY entry with `status=running, sandbox=RUNNING`. All POST-spawned children since 21:19Z (`17b6d1b`, `ad8a0ea`, `069782a`) show `sandbox=PAUSED` with `updated_at == created_at` — paused immediately at creation time, never executed. Cron orchestrator wake-ups at 22:15Z (`e895bd4e`) and 22:45Z (`d5949460`) ran fine.
+5. **Last known-good POST spawn**: `51498a6` at 20:50:08Z (sandbox=PAUSED, updated 20:56:40Z — ran ~6.5 min, produced commits on PR #147).
+6. **Failure window**: 21:19Z → 23:16Z = ~2 hours, 3 confirmed-dead POST attempts.
+
+**Action taken this cycle: opened [issue #150](https://github.com/jpshackelford/ohtv/issues/150)** ("Orchestrator child-spawn dispatch broken since 21:19Z 2026-05-29"). Labeled `hold` so future orchestrator cycles skip it from the expansion queue. The issue contains the full evidence table, likely-cause ranking (platform rollout, capacity, auth scope, payload-size), recommended investigation steps, and impact summary (3 expansion-queue issues + 6 priority:medium impl issues blocked).
+
+**Why escalation now, not earlier or later:**
+
+- 22:17Z worklog entry: initial diagnosis after 5 consecutive failed spawns.
+- 22:50Z worklog entry: corrected the `updated_at == created_at` death-signal rule, refined to "artifact absence is the only reliable signal."
+- 22:50Z forecast pre-committed: "If dispatch still broken (cycle #3 of broken-dispatch): escalate — open a tracking issue."
+- This is that cycle. Filing the issue puts a visible signal in the project's normal channel (GitHub issues) so @jpshackelford sees it without having to read the worklog.
+
+**Why no spawn attempt this cycle:**
+
+- 3 consecutive dead POST attempts in 30 min (the 21:19Z pair + 21:49Z retry) is decisive. EV of a 4th attempt ≈ 0.
+- Spawning expansion for #149 (lowest-cost target: user wrote a 4716-char body, may not need much) is tempting as a fresh data point, but the 95-min-and-counting failure window covers 3 spawn payload shapes (merge ~3.7 KB, expansion ~6.6 KB, mixed) — pipeline is unambiguously broken, not flaky on a specific payload.
+- The full priority:medium impl queue is gated on the same broken pipe.
+
+**Why not inline-do the expansions:**
+
+- 3 issues queued (#145 codebase work, #148 small import-time fix, #149 already has thorough user body).
+- Inline-doing all three in the orchestrator loop would balloon this cycle's context and tangle "diagnose vs execute" — same reasoning as 22:50Z.
+- If the dispatch is still broken at the next cycle (24:00Z window), #149 may be a candidate for inline review (a body-only sanity check + `ready` label, no codebase exploration).
+
+**Why not auto-disable:**
+
+- Auto-disable rule: 2 consecutive "All quiet" entries. This is "broken dispatch" not "no work" — counter stays at 0.
+- The escalation issue (#150) now carries the human signal at higher visibility than the worklog.
+
+**Auto-disable counter: 0 → 0.** **51st consecutive non-quiet cycle.** **Cycle #3 of broken-dispatch.** Not eligible for auto-disable.
+
+**Current State:**
+
+- **Open PRs (0)**: clean slate post-#147 merge.
+- **Released**: [`ohtv-v0.16.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.16.0) ✓ (21:50Z).
+- **Active workers (0)**: `069782a` confirmed dead.
+- **Tracking issue (1)**: [#150](https://github.com/jpshackelford/ohtv/issues/150) (labeled `hold`, won't re-enter expansion queue).
+- **Need expansion (3)**: #145, #148, #149.
+- **Ready priority:high (0)**.
+- **Ready priority:medium (6)**: #116, #123, #124, #125, #127, #128.
+- **On hold (3)**: #26, #90, #150.
+
+**Forecast for next cycle (~23:45-24:00Z window):**
+
+1. **Check #150 for human response** (`gh issue view 150 --comments`). If @jpshackelford has commented "fixed", proceed normally per prior forecast (spawn expansion for #145, then `/assess-priority` + spawn impl for top priority:medium pick — likely #116 or #123).
+2. **If dispatch still broken AND no human response on #150 yet (cycle #4)**: continue diagnostic posture. Consider inline-reviewing #149 (lightweight: spot-read body, add `ready` label if sufficient, skip if not) as a low-cost way to keep the expansion queue moving without burning a spawn slot. Do NOT inline #145 or #148 (real codebase exploration required).
+3. **If dispatch still broken at cycle #5 (~00:30Z)**: consider auto-disabling. The escalation signal is in place; continued diagnostic cycles add noise without value. Re-enable when @jpshackelford signals dispatch is fixed.
+
+**Worklog truncation**: 1936 lines pre-this-entry. `/truncate-worklog` skill's productive-indicator regex mismatches this codebase's prose log style (documented across multiple prior cycles). Deferring. If this concern becomes acute, the right fix is to update the skill, not to truncate manually and risk losing the diagnostic history while dispatch is still broken.
+
+**Sync notes:** Fresh container this cycle. `lxa` + `ohtv` installed via `pip install --user` (uv blocked by no-venv). `gh` 2.78.0 with `GH_TOKEN=$github_token`. `ohtv sync --since 4h` succeeded silently (used `OH_API_KEY`). State derived from `gh` issue/PR list + `curl` to OpenHands `/app-conversations/search` API. HEAD pulled at `8c89696` (the 22:50Z diagnostic). Issue #150 POSTed via `gh issue create`; labeled `hold` via `gh issue edit`.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
