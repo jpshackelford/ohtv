@@ -3,6 +3,7 @@
 import json
 import logging
 import shutil
+import sqlite3
 import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
@@ -50,6 +51,12 @@ class SyncResult:
     errors: list[tuple[str, str]] = field(default_factory=list)
     failed_ids: list[str] = field(default_factory=list)
     total_to_process: int = 0  # Total conversations to process (for progress display)
+    # Issue #113: count of manifest entries silently removed because
+    # they disappeared from the cloud listing this run. Surfaced as
+    # ``SyncResult.removed_from_cloud`` for symmetry with the
+    # corresponding RepairResult bucket, and consumed by Issue #110
+    # scenario #4.
+    removed_from_cloud: int = 0
 
     @property
     def total_synced(self) -> int:
@@ -113,7 +120,29 @@ class MetadataRefreshResult:
 
 @dataclass
 class RepairResult:
-    """Results of a repair operation."""
+    """Results of a repair operation.
+
+    Issue #113 extends this with four cloud-vs-local set-diff buckets
+    derived from :class:`CloudListingStore` (#112) joined against the
+    ``conversations`` table:
+
+    * :attr:`new_on_cloud_ids` — created on cloud after the last
+      committed snapshot. Next normal ``ohtv sync`` will fetch these.
+      Reported here for visibility but **not actioned** by ``--fix``.
+    * :attr:`missing_locally_ids` — present in the cloud listing but
+      absent from ``conversations`` and ``created_at`` predates the
+      last snapshot. These are the architectural gap ``--fix`` heals.
+    * :attr:`removed_from_cloud_ids` — present in ``conversations``
+      (``source='cloud'`` only) but absent from the latest cloud
+      listing. ``--fix`` records only; ``--fix --prune`` deletes.
+    * :attr:`modified_on_cloud_ids` — present on both sides but the
+      cloud's ``updated_at`` differs from the local
+      ``cloud_updated_at`` cursor. ``--fix`` refetches.
+
+    The bare names (``new_on_cloud``, ``missing_locally``, etc.) are
+    exposed as ``int`` count properties so callers and the behavioral
+    test suite can assert against counts directly.
+    """
 
     cloud_count: int = 0
     manifest_count: int = 0
@@ -123,14 +152,71 @@ class RepairResult:
     added_to_manifest: int = 0
     removed_from_manifest: int = 0
 
+    # Issue #113: four cloud-vs-local set-diff buckets. Lists are the
+    # source of truth; the bare-name count properties below are derived.
+    new_on_cloud_ids: list[str] = field(default_factory=list)
+    missing_locally_ids: list[str] = field(default_factory=list)
+    removed_from_cloud_ids: list[str] = field(default_factory=list)
+    modified_on_cloud_ids: list[str] = field(default_factory=list)
+
+    # Issue #113: writer-side counters set during ``fix=True`` /
+    # ``prune=True`` execution. Distinct from the bucket counts above
+    # because some categories (e.g. ``new_on_cloud``) are reported but
+    # not acted on.
+    downloaded_missing: int = 0
+    refetched_modified: int = 0
+    pruned_removed: int = 0
+
+    # Issue #113: ``True`` when the listing pass couldn't be completed
+    # (HTTP failure, snapshot abandoned). ``fix=True`` short-circuits
+    # to non-destructive only in this state.
+    listing_degraded: bool = False
+
+    # Issue #113: ISO-8601 string from sync_kv at the moment
+    # :meth:`repair` was invoked. Used by CLI rendering.
+    last_snapshot_completed_at: str | None = None
+
     @property
     def disk_count(self) -> int:
         """Total conversations on disk across all directories."""
         return sum(self.disk_counts_by_dir.values())
 
     @property
+    def new_on_cloud(self) -> int:
+        """Count of cloud-listing rows created after the last snapshot."""
+        return len(self.new_on_cloud_ids)
+
+    @property
+    def missing_locally(self) -> int:
+        """Count of cloud-listing rows absent from ``conversations``."""
+        return len(self.missing_locally_ids)
+
+    @property
+    def removed_from_cloud(self) -> int:
+        """Count of local cloud-source rows absent from the latest listing."""
+        return len(self.removed_from_cloud_ids)
+
+    @property
+    def modified_on_cloud(self) -> int:
+        """Count of rows whose cloud ``updated_at`` differs from the local cursor."""
+        return len(self.modified_on_cloud_ids)
+
+    @property
     def is_consistent(self) -> bool:
-        return not self.ghost_entries and not self.orphaned_files
+        """True only when EVERY bucket is empty.
+
+        Issue #113 extends the legacy ghost/orphan-only check with the
+        four cloud-vs-local buckets so ``ohtv sync --repair`` returns
+        non-zero whenever any drift is present.
+        """
+        return (
+            not self.ghost_entries
+            and not self.orphaned_files
+            and not self.new_on_cloud_ids
+            and not self.missing_locally_ids
+            and not self.removed_from_cloud_ids
+            and not self.modified_on_cloud_ids
+        )
 
     @property
     def cloud_disk_match(self) -> bool:
@@ -309,9 +395,15 @@ class SyncManager:
         state.set("last_snapshot_count", total_listed)
         conn.commit()
 
+        # Build a SyncResult up-front so the removed-from-cloud
+        # bookkeeping from _categorize_via_set_diff (Issue #113 /
+        # scenario #4) survives into _process_work_items's tallying.
+        result = SyncResult()
+
         # Phase 3: compute the set-diff work list.
         work_items = self._categorize_via_set_diff(
-            listing, conn, force=force, since=since, max_new=max_new
+            listing, conn, force=force, since=since, max_new=max_new,
+            result=result,
         )
 
         # Phase 4: include retry items from previous failed downloads.
@@ -330,6 +422,7 @@ class SyncManager:
             on_progress=on_progress,
             parallel=parallel,
             shutdown_check=shutdown_check,
+            result=result,
         )
 
     def _run_listing_pass(
@@ -396,6 +489,7 @@ class SyncManager:
         force: bool,
         since: datetime | None,
         max_new: int | None,
+        result: SyncResult | None = None,
     ) -> list[tuple[dict, str]]:
         """Build the work list from cloud_listing vs manifest diff.
 
@@ -488,6 +582,11 @@ class SyncManager:
                 "(no longer visible in cloud listing).",
                 removed_count,
             )
+        # Issue #113 / scenario #4: surface the count on SyncResult so
+        # callers can report it. Symmetric with
+        # ``RepairResult.removed_from_cloud``.
+        if result is not None:
+            result.removed_from_cloud = removed_count
 
         return work
 
@@ -536,6 +635,7 @@ class SyncManager:
         on_progress: Callable[[str, str, str], None] | None,
         parallel: bool = True,
         shutdown_check: Callable[[], bool] | None = None,
+        result: SyncResult | None = None,
     ) -> SyncResult:
         """Process the pre-categorized work list from :meth:`_categorize_via_set_diff`.
 
@@ -550,8 +650,13 @@ class SyncManager:
           :meth:`_download_parallel` / :meth:`_download_sequential` paths
           (carrying the open DB connection so successful downloads can
           write ``conversations.cloud_updated_at``).
+
+        ``result`` may be provided by callers that pre-populated
+        counters (e.g. ``SyncResult.removed_from_cloud`` set by
+        :meth:`_categorize_via_set_diff` for Issue #113 / scenario #4).
         """
-        result = SyncResult()
+        if result is None:
+            result = SyncResult()
 
         # Phase 1: Apply max_new (count-based skip).
         capped_items: list[tuple[dict, str]] = []
@@ -1070,79 +1175,132 @@ class SyncManager:
         self,
         fix: bool = False,
         check_cloud: bool = True,
+        prune: bool = False,
     ) -> RepairResult:
         """Check and optionally repair sync state consistency.
-        
-        Compares:
-        1. Manifest entries vs actual files on disk
-        2. Total cloud conversations vs local count
-        
-        Scans all configured directories:
-        - synced_conversations_dir (cloud-synced)
-        - local_conversations_dir (local CLI)
-        - extra_conversation_paths (additional sources)
-        
+
+        Issue #113 replaces the pre-existing "manifest vs disk + single
+        cloud count" implementation with a four-category set-diff
+        report on top of the ``cloud_listing`` snapshot (#112) and the
+        ``last_snapshot_completed_at`` cursor (#111).
+
+        Categories computed every invocation:
+
+        1. ``new_on_cloud`` — cloud-listing rows created after the last
+           committed snapshot. Next normal ``ohtv sync`` will fetch
+           these; reported here for visibility.
+        2. ``missing_locally`` — cloud-listing rows absent from the
+           local ``conversations`` table whose ``created_at`` predates
+           the last snapshot (the "architectural gap").
+        3. ``removed_from_cloud`` — local ``conversations`` rows
+           (``source='cloud'`` only) absent from the latest listing.
+        4. ``modified_on_cloud`` — rows present on both sides whose
+           cloud ``updated_at`` does not match the local
+           ``cloud_updated_at`` cursor.
+
+        Legacy ghost / orphan detection (manifest vs synced-dir disk
+        diff) is preserved unchanged.
+
         Args:
-            fix: If True, repair inconsistencies (add orphaned files to manifest,
-                 remove ghost entries)
-            check_cloud: If True, query cloud API for total conversation count
-        
+            fix: If True, run a fresh listing pass, download
+                ``missing_locally`` + ``modified_on_cloud``, and
+                update the manifest from ghost/orphan analysis. Must
+                hold the sync.lock (acquired by the CLI, not here).
+            check_cloud: Retained for backward compat. When False, the
+                four cloud-vs-local buckets are not computed — the
+                method falls back to manifest/disk diff only.
+            prune: If True (only valid with ``fix=True``), additionally
+                delete the local rows + files for
+                ``removed_from_cloud`` entries. Filtered to
+                ``source='cloud'`` by the underlying set-diff helper.
+
+        Raises:
+            ValueError: If ``prune=True`` is passed without ``fix=True``.
+
         Returns:
-            RepairResult with counts and lists of discrepancies
+            RepairResult with counts and lists of discrepancies.
         """
+        if prune and not fix:
+            raise ValueError("--prune requires --fix")
+
         result = RepairResult()
-        
+
         # Get manifest conversation IDs (normalized without dashes)
         manifest_ids = set(self.manifest.conversations.keys())
         result.manifest_count = len(manifest_ids)
-        
+
         # Build list of all directories to scan
         all_dirs: list[Path] = []
         synced_dir = self.config.synced_conversations_dir
         all_dirs.append(synced_dir)
         all_dirs.append(self.config.local_conversations_dir)
         all_dirs.extend(self.config.extra_conversation_paths)
-        
+
         # Scan all directories for conversation counts
         disk_ids: set[str] = set()  # IDs from synced dir only (for ghost/orphan detection)
         for conv_dir in all_dirs:
             count = self._count_conversations_in_dir(conv_dir)
             if count > 0:
                 result.disk_counts_by_dir[str(conv_dir)] = count
-            
+
             # For ghost/orphan detection, only check synced directory
             if conv_dir == synced_dir and conv_dir.exists():
                 for d in conv_dir.iterdir():
                     if d.is_dir():
                         conv_id = d.name.replace("-", "")
                         disk_ids.add(conv_id)
-        
+
         # Find discrepancies (only in synced directory)
         result.ghost_entries = sorted(manifest_ids - disk_ids)
         result.orphaned_files = sorted(disk_ids - manifest_ids)
-        
+
         log.info(
             "Repair check: manifest=%d, disk=%d, ghosts=%d, orphaned=%d",
             result.manifest_count, result.disk_count,
             len(result.ghost_entries), len(result.orphaned_files)
         )
-        
-        # Check cloud count if requested and API key available
-        if check_cloud and self.config.api_key:
-            try:
-                with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
-                    result.cloud_count = client.count_conversations()
-                    log.info("Cloud conversation count: %d", result.cloud_count)
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code in (401, 403):
-                    raise SyncAuthError(f"Authentication failed (HTTP {e.response.status_code}). Check your API key.")
-                log.warning("Failed to get cloud count: HTTP %s", e.response.status_code)
-            except (httpx.TimeoutException, httpx.ConnectError) as e:
-                log.warning("Failed to get cloud count: %s", e)
-        
-        # Apply fixes if requested
+
+        # ------------------------------------------------------------------
+        # Issue #113: four-category cloud-vs-local set diff.
+        #
+        # Both fix=True and fix=False refresh the cloud_listing
+        # snapshot — the buckets are derived from the diff between
+        # cloud_listing and the local conversations table, so stale
+        # listing data would give stale diagnostic numbers. The
+        # writer-vs-reader split is purely about the DOWNSTREAM
+        # actions:
+        #
+        # * fix=False: refresh listing → compute buckets → report,
+        #   exit. Skips taking the sync.lock; the listing pass is the
+        #   only DB write (atomic snapshot swap), and Issue #109's
+        #   contract documents the "numbers may shift between two
+        #   read-only invocations" caveat.
+        # * fix=True: same + dispatch downloads (missing + modified) +
+        #   (with prune=True) delete removed_from_cloud entries. The
+        #   CLI wraps this in sync_lock so the writer mutex serializes
+        #   it against normal sync / db scan / gen titles.
+        # ------------------------------------------------------------------
+        if check_cloud:
+            self._repair_refresh_listing(result)
+            if not result.listing_degraded:
+                self._compute_repair_buckets(result)
+            # If the listing degraded, the buckets stay empty and
+            # fix=True (below) short-circuits to non-destructive only.
+
+        # Mirror cloud_count from the listing for backward-compat CLI
+        # display. ``count_conversations()`` is no longer called.
+        result.cloud_count = (
+            result.new_on_cloud + result.missing_locally + result.modified_on_cloud
+            + max(0, result.disk_count - result.removed_from_cloud)
+            if result.last_snapshot_completed_at is not None
+            else 0
+        )
+
+        # ------------------------------------------------------------------
+        # Apply fixes if requested.
+        # ------------------------------------------------------------------
         if fix:
-            # Remove ghost entries from manifest
+            # 1. Ghost / orphan manifest housekeeping (legacy contract).
             for ghost_id in result.ghost_entries:
                 del self.manifest.conversations[ghost_id]
                 result.removed_from_manifest += 1
@@ -1172,7 +1330,316 @@ class SyncManager:
                     result.removed_from_manifest, result.added_to_manifest
                 )
 
+            # 2. Issue #113: dispatch downloads for missing + modified,
+            #    then optionally prune removed_from_cloud entries. We
+            #    short-circuit when the listing degraded so we don't
+            #    act on stale buckets.
+            if result.listing_degraded:
+                log.warning(
+                    "Repair --fix: listing degraded; skipping downloads "
+                    "and prune. Previous snapshot left intact."
+                )
+            else:
+                self._repair_apply_fix(result, prune=prune)
+
         return result
+
+    def _compute_repair_buckets(self, result: RepairResult) -> None:
+        """Populate the four set-diff buckets on ``result``.
+
+        Read-only against ``cloud_listing`` (#112), ``conversations``,
+        and ``sync_kv``. Safe to call without a write lock — the
+        SQLite WAL guarantee gives a committed-snapshot read even when
+        another writer is in flight.
+
+        Uses :attr:`RepairResult.last_snapshot_completed_at` as the
+        cutoff for partitioning the missing-locally set between
+        ``new_on_cloud`` (created after the prior snapshot, recoverable
+        by the next normal sync) and ``missing_locally`` (created
+        before the prior snapshot — the architectural gap). The
+        caller (:meth:`_repair_refresh_listing` or :meth:`repair`
+        itself) is responsible for capturing the prior cutoff onto
+        ``result`` before invoking this method so that re-listing
+        doesn't move the cutoff under us.
+
+        Falls back to leaving the buckets empty if the schema isn't
+        ready yet (fresh-install without ``db scan`` / migrations).
+        """
+        try:
+            with get_connection_for_sync() as conn:
+                listing = CloudListingStore(conn)
+                cutoff_dt = _parse_datetime(result.last_snapshot_completed_at)
+
+                # Bucket 1+2: missing_locally rows from CloudListingStore,
+                # partitioned by created_at vs cutoff_dt.
+                # Iterate the cursor directly so we don't double-query.
+                for conv_id in listing.missing_locally():
+                    row = listing.get(conv_id)
+                    created_at = (
+                        _parse_datetime(row["created_at"]) if row is not None else None
+                    )
+                    if (
+                        cutoff_dt is not None
+                        and created_at is not None
+                        and created_at >= cutoff_dt
+                    ):
+                        # Newer than the snapshot cutoff: next normal
+                        # sync will pick it up; reported as new_on_cloud.
+                        result.new_on_cloud_ids.append(conv_id)
+                    else:
+                        # Predates the cutoff (or no cutoff yet, or no
+                        # created_at): the architectural gap.
+                        result.missing_locally_ids.append(conv_id)
+
+                # Bucket 3: cloud-source rows absent from the listing.
+                result.removed_from_cloud_ids = sorted(listing.removed_from_cloud())
+
+                # Bucket 4: cloud_updated_at drift.
+                result.modified_on_cloud_ids = sorted(listing.stale_locally())
+
+                # Stable order for downstream code (download dispatch,
+                # CLI rendering, tests).
+                result.new_on_cloud_ids.sort()
+                result.missing_locally_ids.sort()
+        except sqlite3.OperationalError as exc:
+            # Schema not ready (fresh install, migrations pending).
+            # Leave buckets empty and let the rest of the report
+            # surface whatever it can.
+            log.debug("Repair: cloud_listing not queryable yet (%s)", exc)
+
+    def _repair_refresh_listing(self, result: RepairResult) -> None:
+        """Refresh ``cloud_listing`` for :meth:`repair`.
+
+        Runs the standard listing pass under a fresh snapshot id. On
+        success, persists the ``last_snapshot_*`` keys in ``sync_kv``
+        (mirroring normal sync's bookkeeping). On failure, marks
+        ``result.listing_degraded`` and leaves the previous snapshot
+        intact (per :meth:`_run_listing_pass`'s atomicity contract).
+
+        Captures the **prior** ``last_snapshot_completed_at`` onto
+        ``result.last_snapshot_completed_at`` BEFORE overwriting it,
+        so :meth:`_compute_repair_buckets` partitions
+        ``new_on_cloud`` / ``missing_locally`` against the previous
+        cutoff (matching the user-facing semantics in the issue's
+        sample output) rather than the just-allocated one.
+
+        Called for both ``fix=False`` and ``fix=True``. The lock
+        contract that distinguishes the two is enforced by the CLI
+        layer, not here.
+        """
+        # Capture prior cutoff before any listing-pass writes mutate
+        # sync_kv. Read in a short-lived connection so we don't hold
+        # a writer transaction open across the network call.
+        try:
+            with get_connection_for_sync() as conn:
+                ensure_db_ready(conn, show_progress=False)
+                conn.commit()
+                state = SyncStateStore(conn)
+                result.last_snapshot_completed_at = state.get(
+                    "last_snapshot_completed_at",
+                )
+        except sqlite3.OperationalError as exc:
+            # Schema not ready (fresh install). Treat the cutoff as
+            # "never" — everything missing_locally falls into the
+            # architectural-gap bucket, which is the conservative
+            # choice.
+            log.debug("Repair: sync_kv not queryable yet (%s)", exc)
+
+        if not self.config.api_key:
+            result.listing_degraded = True
+            log.warning(
+                "Repair: API key unavailable; cannot refresh cloud listing. "
+                "Buckets reflect the previous snapshot."
+            )
+            return
+
+        try:
+            with get_connection_for_sync() as conn:
+                ensure_db_ready(conn, show_progress=False)
+                conn.commit()
+                with CloudClient(self.config.cloud_api_url, self.config.api_key) as client:
+                    listing = CloudListingStore(conn)
+                    state = SyncStateStore(conn)
+                    snapshot_id, total_listed = self._run_listing_pass(
+                        client, listing, conn, shutdown_check=None,
+                    )
+                    state.set("last_snapshot_id", snapshot_id)
+                    state.set("last_snapshot_completed_at", _utc_now_iso())
+                    state.set("last_snapshot_count", total_listed)
+                    conn.commit()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (401, 403):
+                raise SyncAuthError(
+                    f"Authentication failed (HTTP {e.response.status_code}). "
+                    "Check your API key."
+                )
+            log.warning(
+                "Repair: listing degraded (HTTP %s); "
+                "previous snapshot left intact.",
+                e.response.status_code,
+            )
+            result.listing_degraded = True
+        except (httpx.TimeoutException, httpx.ConnectError, SyncAbortedError) as e:
+            log.warning(
+                "Repair: listing degraded (%s); "
+                "previous snapshot left intact.", e,
+            )
+            result.listing_degraded = True
+        except Exception as e:
+            # Per the issue contract: "If listing fails mid-page (HTTP
+            # failure → abandon_snapshot(new_id)), --fix aborts with a
+            # warning before any downloads run." We degrade gracefully
+            # for any underlying listing failure (e.g. a fake client
+            # raising RuntimeError in tests, or an unexpected sqlite
+            # error during the listing pass). The previous snapshot is
+            # left intact by ``_run_listing_pass`` regardless.
+            log.warning(
+                "Repair: listing degraded (%s: %s); "
+                "previous snapshot left intact.", type(e).__name__, e,
+            )
+            result.listing_degraded = True
+
+    def _repair_apply_fix(self, result: RepairResult, *, prune: bool) -> None:
+        """Apply the destructive half of ``repair(fix=True)``.
+
+        Downloads ``missing_locally`` + ``modified_on_cloud`` via the
+        existing set-diff pipeline, then (when ``prune=True``) deletes
+        the ``removed_from_cloud`` rows and on-disk files. Counts
+        applied on ``result.downloaded_missing``,
+        ``result.refetched_modified``, ``result.pruned_removed``.
+
+        The caller MUST hold ``$OHTV_DIR/sync.lock`` (acquired by the
+        CLI). This method opens its own DB connection so the
+        transactional boundary stays inside.
+        """
+        download_ids = list(result.missing_locally_ids) + list(
+            result.modified_on_cloud_ids
+        )
+
+        if not download_ids and not (prune and result.removed_from_cloud_ids):
+            return
+
+        try:
+            with get_connection_for_sync() as conn:
+                ensure_db_ready(conn, show_progress=False)
+                conn.commit()
+                listing = CloudListingStore(conn)
+                with CloudClient(
+                    self.config.cloud_api_url, self.config.api_key,
+                ) as client:
+                    if download_ids:
+                        work_items = self._build_repair_work_items(
+                            listing, result.missing_locally_ids,
+                            result.modified_on_cloud_ids,
+                        )
+                        if work_items:
+                            sync_result = self._process_work_items(
+                                client, conn, work_items,
+                                dry_run=False, max_new=None,
+                                on_progress=None, parallel=True,
+                                shutdown_check=None,
+                            )
+                            result.downloaded_missing = sync_result.new
+                            result.refetched_modified = sync_result.updated
+
+                    if prune and result.removed_from_cloud_ids:
+                        result.pruned_removed = self._prune_removed_from_cloud(
+                            conn, result.removed_from_cloud_ids,
+                        )
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (401, 403):
+                raise SyncAuthError(
+                    f"Authentication failed (HTTP {e.response.status_code}). "
+                    "Check your API key."
+                )
+            raise
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            raise SyncAbortedError(f"Network error during --repair --fix: {e}")
+
+    def _build_repair_work_items(
+        self,
+        listing: CloudListingStore,
+        missing_ids: list[str],
+        modified_ids: list[str],
+    ) -> list[tuple[dict, str]]:
+        """Assemble ``(conv_dict, action)`` tuples for the repair download path.
+
+        Looks up each id in ``cloud_listing`` to recover the listing
+        payload (title, updated_at, parent_conversation_id, etc.) and
+        tags it ``"new"`` (missing) or ``"updated"`` (modified) so the
+        existing :meth:`_process_work_items` pipeline sees the same
+        shape as a normal sync.
+        """
+        items: list[tuple[dict, str]] = []
+
+        missing_set = set(missing_ids)
+        modified_set = set(modified_ids)
+        for conv_id in missing_ids + modified_ids:
+            row = listing.get(conv_id)
+            if row is None:
+                # The id was in the bucket but disappeared from
+                # cloud_listing between bucket computation and this
+                # call (race window — concurrent prune is impossible
+                # because we hold the lock, but a malformed snapshot
+                # might still have a gap). Skip rather than crash.
+                log.debug(
+                    "Repair --fix: id %s no longer in cloud_listing; "
+                    "skipping.", conv_id,
+                )
+                continue
+            conv = _listing_row_to_conv_dict(row)
+            action = "new" if conv_id in missing_set else "updated"
+            # Defensive: if a hypothetical malformed bucket places an
+            # id in both lists, missing wins (forces a fresh download).
+            if conv_id in missing_set and conv_id in modified_set:
+                action = "new"
+            items.append((conv, action))
+        return items
+
+    def _prune_removed_from_cloud(
+        self, conn, conv_ids: list[str],
+    ) -> int:
+        """Delete the on-disk + DB + manifest record for each id.
+
+        Only operates on rows where ``conversations.source = 'cloud'``
+        — the :meth:`CloudListingStore.removed_from_cloud` helper
+        already enforces this, but we double-check at deletion time so
+        a future schema change can't silently drop CLI rows. Returns
+        the number of rows actually pruned.
+        """
+        store = ConversationStore(conn)
+        pruned = 0
+        manifest_dirty = False
+        for conv_id in conv_ids:
+            normalized = conv_id.replace("-", "")
+            conv = store.get(normalized)
+            if conv is None:
+                continue
+            if conv.source != "cloud":
+                log.warning(
+                    "Repair --fix --prune: refusing to prune %s "
+                    "(source=%r is not 'cloud').",
+                    normalized, conv.source,
+                )
+                continue
+            # Delete the DB row (FK cascades cover the child tables).
+            store.delete(normalized)
+            # Delete the on-disk directory (best effort).
+            conv_dir = self._find_conversation_dir(normalized)
+            if conv_dir is not None:
+                shutil.rmtree(conv_dir, ignore_errors=True)
+            # Drop from manifest if present (still canonical for #87
+            # editable metadata until #114 retires the JSON file).
+            for manifest_key in list(self.manifest.conversations.keys()):
+                if manifest_key.replace("-", "") == normalized:
+                    del self.manifest.conversations[manifest_key]
+                    manifest_dirty = True
+            pruned += 1
+        if manifest_dirty:
+            self.manifest.save(self.manifest_path)
+        conn.commit()
+        log.info("Repair --fix --prune: deleted %d conversation(s).", pruned)
+        return pruned
 
     def _fetch_cloud_listing_for_repair(self) -> dict[str, dict]:
         """Pull the full cloud listing keyed by id, for ``repair`` to

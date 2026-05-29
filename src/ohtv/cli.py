@@ -285,6 +285,16 @@ def main() -> None:
 @click.option("--status", "-s", is_flag=True, help="Show sync status")
 @click.option("--repair", is_flag=True, help="Check and repair sync state consistency")
 @click.option(
+    "--prune",
+    is_flag=True,
+    help=(
+        "When used with --repair (without --dry-run), additionally delete "
+        "local conversations that have been removed from the cloud. "
+        "Required to act on the 'removed_from_cloud' category — never "
+        "automatic (Issue #113)."
+    ),
+)
+@click.option(
     "--update-metadata",
     "update_metadata_flag",
     is_flag=True,
@@ -317,6 +327,7 @@ def sync(
     max_new: int | None,
     status: bool,
     repair: bool,
+    prune: bool,
     update_metadata_flag: bool,
     quiet: bool,
     verbose: bool,
@@ -361,6 +372,25 @@ def sync(
         _show_status(manager)
         return
 
+    # Issue #113 AC: --prune is only valid with --repair --fix
+    # (i.e. --repair without --dry-run). Surface as a Click error so
+    # exit status is non-zero and message stylized.
+    if prune and not (repair and not dry_run):
+        raise click.UsageError(
+            "--prune requires --repair (without --dry-run). "
+            "--prune is the opt-in switch that authorizes deletion of "
+            "local conversations that have been removed from the cloud."
+        )
+
+    # Issue #113: read-only --repair (i.e. --repair --dry-run) is a
+    # pure diagnostic — it never writes to the manifest, DB, or disk.
+    # Skip sync.lock acquisition so it can run alongside an in-flight
+    # writer. The diagnostic numbers may shift between two reads; that
+    # is the documented contract.
+    if repair and dry_run:
+        _run_repair(manager, fix=False, prune=False, quiet=quiet)
+        return
+
     # Everything below this point writes to the conversations table
     # and/or the manifest. Serialize via $OHTV_DIR/sync.lock (Issue #109).
     try:
@@ -373,6 +403,7 @@ def sync(
                 dry_run=dry_run,
                 max_new=max_new,
                 repair=repair,
+                prune=prune,
                 update_metadata_flag=update_metadata_flag,
                 quiet=quiet,
                 verbose=verbose,
@@ -393,6 +424,7 @@ def _sync_writer_body(
     dry_run: bool,
     max_new: int | None,
     repair: bool,
+    prune: bool,
     update_metadata_flag: bool,
     quiet: bool,
     verbose: bool,
@@ -422,7 +454,10 @@ def _sync_writer_body(
         return
 
     if repair:
-        _run_repair(manager, fix=not dry_run, quiet=quiet)
+        # By the time we get here read-only repair was already
+        # short-circuited above (no lock). What remains is the
+        # writer leg: --repair (fix=True) optionally with --prune.
+        _run_repair(manager, fix=not dry_run, prune=prune, quiet=quiet)
         return
 
     if not config.api_key:
@@ -1575,74 +1610,160 @@ def _format_path_for_display(path: str) -> str:
     return path
 
 
-def _run_repair(manager: SyncManager, fix: bool, quiet: bool) -> None:
-    """Check and optionally repair sync state consistency."""
+def _run_repair(
+    manager: SyncManager,
+    fix: bool,
+    prune: bool = False,
+    quiet: bool = False,
+) -> None:
+    """Check and optionally repair sync state consistency (Issue #113).
+
+    Reports four cloud-vs-local categories — ``new_on_cloud``,
+    ``missing_locally``, ``removed_from_cloud``, ``modified_on_cloud``
+    — on top of the legacy manifest/disk ghost/orphan diff.
+    ``--fix`` downloads ``missing_locally`` + ``modified_on_cloud``;
+    ``--fix --prune`` additionally deletes ``removed_from_cloud``.
+    """
     try:
-        result = manager.repair(fix=fix, check_cloud=True)
+        result = manager.repair(fix=fix, check_cloud=True, prune=prune)
     except SyncAuthError as e:
         console.print(f"[red]Authentication error:[/red] {e}")
         raise SystemExit(1)
-    
+    except SyncAbortedError as e:
+        console.print(f"[red]Sync aborted:[/red] {e}")
+        raise SystemExit(1)
+
     if quiet:
-        # Quiet mode: just exit with status code
-        if result.is_consistent and result.cloud_disk_match:
+        # Quiet mode: just exit with status code.
+        if result.is_consistent:
             raise SystemExit(0)
         raise SystemExit(1)
-    
-    # Display results
+
+    # ----- Top-level sync state table ---------------------------------
     table = Table(title="Sync State Consistency Check", show_header=False)
     table.add_column("Field", style="bold")
     table.add_column("Value")
-    
-    table.add_row("Cloud conversations", str(result.cloud_count) if result.cloud_count else "[dim]unavailable[/dim]")
+
+    if result.last_snapshot_completed_at:
+        table.add_row(
+            "Cloud conversations",
+            str(result.cloud_count) if result.cloud_count else "[dim]0[/dim]",
+        )
+    else:
+        table.add_row("Cloud conversations", "[dim]listing unavailable[/dim]")
     table.add_row("Manifest entries", str(result.manifest_count))
     table.add_row("Conversations on disk", str(result.disk_count))
-    
-    # Show per-directory breakdown if multiple directories have conversations
+    if result.last_snapshot_completed_at:
+        table.add_row(
+            "Last snapshot completed at", result.last_snapshot_completed_at,
+        )
+
+    # Show per-directory breakdown if multiple directories have conversations.
     if len(result.disk_counts_by_dir) > 1:
         for dir_path, count in sorted(result.disk_counts_by_dir.items()):
             formatted_path = _format_path_for_display(dir_path)
             table.add_row(f"  {formatted_path}", str(count), style="dim")
-    
+
     console.print(table)
     console.print()
-    
-    # Cloud vs disk comparison
-    if result.cloud_count:
-        if result.cloud_disk_match:
-            console.print("[green]✓[/green] Cloud and disk counts match")
-        else:
-            diff = result.cloud_count - result.disk_count
-            if diff > 0:
-                console.print(f"[yellow]⚠[/yellow] Missing {diff} conversation(s) from cloud")
-            else:
-                console.print(f"[yellow]⚠[/yellow] {-diff} more conversation(s) on disk than in cloud")
-    
-    # Ghost entries (in manifest but not on disk)
+
+    # ----- Legacy ghost / orphan section ------------------------------
     if result.ghost_entries:
-        console.print(f"\n[red]✗[/red] Ghost entries (in manifest but not on disk): {len(result.ghost_entries)}")
+        console.print(
+            f"[red]✗[/red] Ghost entries (in manifest but not on disk): "
+            f"{len(result.ghost_entries)}"
+        )
         for conv_id in result.ghost_entries[:10]:
             console.print(f"  [dim]{conv_id}[/dim]")
         if len(result.ghost_entries) > 10:
-            console.print(f"  [dim]... and {len(result.ghost_entries) - 10} more[/dim]")
-    
-    # Orphaned files (on disk but not in manifest)
+            console.print(
+                f"  [dim]... and {len(result.ghost_entries) - 10} more[/dim]"
+            )
+    else:
+        console.print("[green]✓[/green] Ghost entries: 0")
+
     if result.orphaned_files:
-        console.print(f"\n[yellow]⚠[/yellow] Orphaned files (on disk but not in manifest): {len(result.orphaned_files)}")
+        console.print(
+            f"[yellow]⚠[/yellow] Orphaned files (on disk but not in manifest): "
+            f"{len(result.orphaned_files)}"
+        )
         for conv_id in result.orphaned_files[:10]:
             console.print(f"  [dim]{conv_id}[/dim]")
         if len(result.orphaned_files) > 10:
-            console.print(f"  [dim]... and {len(result.orphaned_files) - 10} more[/dim]")
-    
-    # Summary
+            console.print(
+                f"  [dim]... and {len(result.orphaned_files) - 10} more[/dim]"
+            )
+    else:
+        console.print("[green]✓[/green] Orphaned files: 0")
+
+    # ----- Issue #113: four cloud-vs-local buckets --------------------
+    console.print()
+    console.print("[bold]Cloud-vs-local set diff[/bold]")
+    if result.listing_degraded:
+        console.print(
+            "  [red]✗[/red] Listing degraded (HTTP failure or no API key); "
+            "previous snapshot left intact. Counts below reflect the "
+            "prior snapshot."
+        )
+    new_hint = "[dim][next sync will fetch][/dim]"
+    missing_hint = "[dim][--fix to download][/dim]"
+    removed_hint = "[dim][--fix --prune to delete][/dim]"
+    modified_hint = "[dim][--fix to refetch][/dim]"
+    console.print(f"  New on cloud (≥ last snapshot):   {result.new_on_cloud:>5}     {new_hint}")
+    console.print(f"  Missing locally (gap):            {result.missing_locally:>5}     {missing_hint}")
+    console.print(f"  Removed from cloud:               {result.removed_from_cloud:>5}     {removed_hint}")
+    console.print(f"  Modified on cloud:                {result.modified_on_cloud:>5}     {modified_hint}")
+
+    # ----- Summary / next-step hints ----------------------------------
     console.print()
     if result.is_consistent:
-        console.print("[green]✓[/green] Manifest and disk are consistent")
-    elif fix:
-        console.print(f"[green]✓[/green] Repaired: removed {result.removed_from_manifest} ghost entries, "
-                      f"added {result.added_to_manifest} orphaned files to manifest")
+        console.print("[green]✓[/green] Sync state is consistent")
+        return
+
+    if fix:
+        # Action recap (Issue #113).
+        console.print(
+            f"[green]✓[/green] Repaired: removed {result.removed_from_manifest} "
+            f"ghost entries, added {result.added_to_manifest} orphaned files "
+            f"to manifest"
+        )
+        bits = []
+        if result.downloaded_missing:
+            bits.append(f"{result.downloaded_missing} missing downloaded")
+        if result.refetched_modified:
+            bits.append(f"{result.refetched_modified} modified refetched")
+        if result.pruned_removed:
+            bits.append(f"{result.pruned_removed} removed-from-cloud pruned")
+        if bits:
+            console.print("[green]✓[/green] " + ", ".join(bits))
+        if result.removed_from_cloud and not prune:
+            console.print(
+                f"[yellow]⚠[/yellow] {result.removed_from_cloud} "
+                "removed-from-cloud entries NOT deleted. "
+                "Add --prune to also delete them."
+            )
     else:
-        console.print("[yellow]Run with --repair (without --dry-run) to fix inconsistencies[/yellow]")
+        # Read-only: recommend next action based on what we found.
+        actionable = result.missing_locally + result.modified_on_cloud
+        nondestructive = (
+            f"Run --repair (without --dry-run) to apply non-destructive "
+            f"fixes ({result.missing_locally} + {result.modified_on_cloud} = "
+            f"{actionable} items)."
+        )
+        if actionable:
+            console.print(f"[yellow]{nondestructive}[/yellow]")
+        if result.removed_from_cloud:
+            console.print(
+                f"[yellow]Add --prune to also delete {result.removed_from_cloud} "
+                "removed-from-cloud items.[/yellow]"
+            )
+        if not actionable and not result.removed_from_cloud and (
+            result.ghost_entries or result.orphaned_files
+        ):
+            console.print(
+                "[yellow]Run --repair (without --dry-run) to fix ghost / "
+                "orphan inconsistencies.[/yellow]"
+            )
 
 
 def _error_no_api_key() -> None:
