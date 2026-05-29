@@ -1442,3 +1442,73 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-29 00:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `467ef14` | docs | PR #134 — sub-conversation sync semantics | **NEW** running ([conv](https://app.all-hands.dev/conversations/467ef14a04134219b8ca03721c065a2e)) |
+
+**Spawned: Documentation Worker**
+
+- PR: [#134 — feat(sync): include sub-conversations in cloud listing (#108)](https://github.com/jpshackelford/ohtv/pull/134) (`oC green ready` 0💬)
+- Conversation: [`467ef14`](https://app.all-hands.dev/conversations/467ef14a04134219b8ca03721c065a2e)
+- Start task `d203563…` → POST 200 → `READY` on first 5s poll (second consecutive instantaneous READY transition — both this cycle's spawn and `c72b79a` previous cycle hit READY at first poll). `app_conversation_id=467ef14a04134219b8ca03721c065a2e`.
+- Non-ghost verification at 00:19:18Z (38s post-create): `execution_status=running`, `sandbox_status=RUNNING`, `created_at=00:18:40Z`, `updated_at=00:19:18Z` (38s real-activity gap — identical pattern to `c72b79a`'s 38s). The 22:22Z silent-spawn-failure pattern (`78c0ebe`) remains a one-off; four consecutive clean spawns now (`5fb1867` → `1204021` → `c72b79a` → `467ef14`).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- Prompt scope: docs-first per decision tree (docs BEFORE testing). #108 changes the default behaviour of `ohtv sync` (sub-conversations now included by default; new `parent_conversation_id` DB column + index from migration 019). No new CLI flags, so the docs delta is README sync-bullet update + new section in `docs/guides/syncing.md` + DB-reference table for `parent_conversation_id` + new AGENTS.md architecture item. Hard rules: no `src/ohtv/**` edits, no main pushes, no touching PR #130, single commit `docs: document sub-conversation sync semantics (#108)`, post structured comment listing files updated, exit (no testing).
+
+**Prior worker outcome (`c72b79a`, implementation worker for issue #108):**
+
+- Status: **finished** ✓ (last `updated_at=00:13:48Z`, ~22 min runtime from `created_at=23:51:37Z`). `sandbox_status=RUNNING` (sandbox hasn't paused yet but `execution_status=finished` is authoritative; same null-cost pattern as `5fb1867`/`1204021`).
+- **PR #134 opened** at 00:09:37Z (~18 min into the conversation) — title `feat(sync): include sub-conversations in cloud listing (#108)`, branch `feat/include-sub-conversations-108`, head SHA at last commit `00:09:03Z`, NOT draft (opened straight to ready — likely because CI was green on creation and the worker chose to skip the draft intermediate state). Implements all 5 acceptance criteria from #108 per the PR body's AC table.
+- CI: **all green** (`pr-review`, `lint`, `pytest` all SUCCESS; one duplicate `pr-review` SKIPPED row is the standard fork-PR skip-then-rerun pattern, not a problem).
+- Files changed (12): `src/ohtv/sources/cloud.py` (default-on kwarg), `src/ohtv/sync.py` + `src/ohtv/db/scanner.py` + `src/ohtv/db/models/conversation.py` + `src/ohtv/db/stores/conversation_store.py` (writeback path), `src/ohtv/db/migrations/019_parent_conversation_id.py` (new migration — note this is **019**, not **018** as the previous cycle's forecast guessed; the worker picked the next free number, not the one the WORKLOG hypothesized), 4 test files (8+9+2 new tests), `tests/unit/sync/test_behavioral.py` (scenarios 17+18 — implements the pending behaviour the harness from #110 had marked xfail), and `uv.lock` bump (worker noted this as a stale-lock cleanup unrelated to #108).
+- **No README.md change in the PR.** Confirms the docs-worker dispatch is correct per the decision tree's "PR exists, ready, CI green, **README not updated** → Spawn **docs worker**" row.
+- Acceptance criteria: 5/5 ✓ per PR body table. Behavioural scenario 17 covers AC #1 ("Sub-conversations land locally after sync") and #4 ("Behavioural test added"); the case-sensitive `include_sub_conversations=true` lock test addresses AC #5; the `count_conversations` forwarding test addresses AC #2.
+
+**PR #130 (out-of-band):** unchanged (`createdAt=2026-05-28T13:47:54Z`, `updatedAt=2026-05-28T23:57:12Z`, title `chore(worklog): instruct orchestrator to proceed on PR #119`, NOT draft — the prior worklog's "draft, out-of-band" label was inaccurate; it's an out-of-band non-draft worklog PR). Continuing established convention: untouched.
+
+**Release-please status:** Still no post-#133 release-please PR visible via `gh pr list --state all --search release-please` (only historic `#21` and merged `#120`). At this point the post-merge release-please workflow should have fired — this is 50+ minutes after the `feat(sync): ...` merge on `92a2805`. **Worth flagging:** the next cycle should specifically check `gh run list --workflow=release-please.yml --repo jpshackelford/ohtv` to see if the workflow ran and failed silently. Not blocking dispatch this cycle but a candidate for human surfacing if it persists through the PR #134 cycle.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0).
+- 0 running ohtv-repo workers at start of cycle. `c72b79a` finished cleanly at 00:13:48Z (within forecast's 30–90 min window).
+- **Expansion slot:** OPEN, IDLE. 14 open issues, 12 `ready` (excluding the 2 hold), 2 `hold` (#26, #90), **0 need expansion**. Slot stays idle. (Issue count dropped from 16 → 14 because #108 + #111 closed via PR merges.)
+- **PR slot:** OPEN (no PR worker running; PR #134 ready for next stage).
+  - PR #134 state: `oC green ready` 0💬, no README change in diff, no docs-updated comment, no manual-test-results comment.
+  - Canonical decision-tree row: **"PR exists, ready, CI green, README not updated → Spawn docs worker."** → dispatched `467ef14`.
+  - Docs-first principle (skill: "Documentation must be updated BEFORE testing") strictly observed.
+
+**Current State:**
+
+- Issue #108: still open; will close when PR #134 merges via the `Fixes #108` footer.
+- [PR #134](https://github.com/jpshackelford/ohtv/pull/134): `oC green ready` 0💬 — docs worker in flight
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): out-of-band non-draft (human to resolve)
+- **Need expansion (0):** ✓ board fully expanded
+- **Ready w/ priority:medium (1):** #109
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128
+- **On hold:** #26, #90
+
+**Housekeeping:** WORKLOG.md at 1444 lines pre-entry — still under repo-custom truncation threshold (~1500). Next cycle should likely truncate. Deferred again — keeping the prior cycle's detailed forecast available for cross-reference is worth ~100 lines for one more cycle.
+
+**Auto-disable counter:** **0 → 0** (productive cycle — docs worker dispatched, advancing PR #134 down the impl→docs→test→review→merge pipeline). Nine consecutive productive cycles now.
+
+**Forecast for next cycle (~00:50Z window):**
+
+- **If `467ef14` finishes with docs commit pushed + CI green + "Documentation updated for #108" comment posted** → PR slot advances to **testing worker** for PR #134. Per decision tree's docs-then-test ordering.
+- **If `467ef14` finishes posting a "Documentation spot-check: README/docs already cover sub-conversation sync ✓" comment** (i.e. docs were already covered by an earlier commit, which I don't expect but is the fallback path) → still advance to **testing worker**.
+- **If `467ef14` is still running** → log status and wait. Docs-only PR work is typically 15–45 min (smaller surface than implementation).
+- **If `467ef14` ghosts** → re-spawn once (matches the 22:22Z recovery pattern).
+- **If `467ef14` hits a guardrail** (e.g. tries to mark PR as draft) → investigate.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow it first.
+- **Expansion slot:** stays idle until human files a new issue.
+- **Side check:** verify whether release-please workflow ran for the post-#133 `feat(sync):` merge. If it didn't, log it for surfacing.
+
+**Sync notes:** `ohtv` 0.13.0 + `lxa` re-installed via `pip install --user git+...` after container respawn (the persistent pattern: `uv pip install --system` hits permission-denied on `/usr/local/lib/python3.13/site-packages`; `pip install --user` to `~/.local/bin` is the working fallback; `export PATH=$HOME/.local/bin:$PATH` then `which lxa` / `which ohtv` both resolve). `gh` 2.92.0 via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY`. Spawn POST via `X-Access-Token: $OPENHANDS_API_KEY`. Plugins in canonical `{source, repo_path, ref}` object form. `git pull --ff-only` on `main` confirmed up-to-date before commit.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
