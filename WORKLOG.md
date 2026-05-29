@@ -2004,3 +2004,80 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 23:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `069782a` | expansion | Issue #145 | dead (118+ min, zero artifact) |
+| `24665555` | orchestrator | this cycle (#4 broken-dispatch) | running |
+
+**🚨 CYCLE #4 OF BROKEN-DISPATCH — executed pre-committed inline-review fallback for #149.**
+
+**Wake-up checks (in order):**
+
+1. **Human INSTRUCTION check ✓**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+2. **Tracking issue #150**: 0 comments since opened at 23:16Z — no human response yet. Still labeled `hold`.
+3. **Open PRs ✓**: 0. Clean slate.
+4. **Conversation API snapshot** (sample of POST-spawn children since the 20:50Z healthy boundary):
+
+   | Conv ID | Spawn time | updated == created? | Verdict |
+   |---|---|---|---|
+   | `51498a6` | 20:50:08Z | NO (updated 20:56:40Z, ~6.5 min runtime) | last healthy POST spawn (PR #147 commits) |
+   | `17b6d1b` | 21:19:07Z | YES (sandbox=PAUSED) | dead |
+   | `ad8a0ea` | 21:19:12Z | YES (sandbox=PAUSED) | dead |
+   | `069782a` | 21:49:29Z | YES (sandbox=PAUSED) | dead |
+   | _no new POST-spawns since_ | — | — | — |
+
+   Cron orchestrators between (`fd62236` 21:15, `246d9be` 21:45, `e895bd4` 22:15, `d594946` 22:45, `7f603f7` 23:16, `2466555` this one) all execute fine. **Failure window: 21:19Z → 23:47Z+ (~2.5h, 3 confirmed-dead POST attempts).**
+5. **Expansion queue**: 3 issues (#145, #148, #149) — same as 23:16Z.
+6. **Ready queue**: 6 priority:medium (#116, #123, #124, #125, #127, #128), 0 priority:high.
+
+**Action taken this cycle: inline expansion-review of #149 → `ready` label + review comment.**
+
+Issue [#149](https://github.com/jpshackelford/ohtv/issues/149) ("Expand context levels from 3 to 5 for gen objs") was already extensively documented by @jpshackelford himself (via prior AI agents): 4716-char body covering problem + 5-level proposal + data analysis + impl plan + acceptance criteria, plus 3 follow-up comments covering auto-promotion logic refactor in `src/ohtv/analysis/objectives.py`, naming alternatives, and PM decision on breaking changes. Spot-reading the body + comments confirmed all standard expansion deliverables present. Added `ready` label (no `priority:*` — defer to next `/assess-priority` pass). Posted a brief inline-review comment explaining the deferral context and flagging the one open impl-time choice (final level names).
+
+Why #149 and not #145/#148:
+- **#149**: 4716-char body + 3 substantive comments (one with concrete code refactor). Light-touch verification sufficed.
+- **#145** (430-char body): needs real codebase exploration. Wrong for inline.
+- **#148** (import-time botocore warnings): needs codebase exploration + small-but-real fix design. Wrong for inline.
+
+**Why no spawn attempt this cycle:**
+
+- 3 consecutive dead POST attempts spanning 30 min (21:19/21:19/21:49) is decisive. EV of a 4th attempt ≈ 0.
+- The pipeline is unambiguously broken across 3 distinct payload shapes/sizes (~3.7 KB merge, ~6.6 KB expansion, mixed). Not a payload-specific flake.
+- Continued silent retries would add noise to #150's evidence table without changing the diagnosis.
+
+**Why not auto-disable:**
+
+- Auto-disable rule: 2 consecutive "All quiet" entries. This cycle is **not** quiet — it executed real work (inline-review of #149). Counter stays at 0.
+- The escalation issue #150 carries the human-visible signal at higher priority than the worklog.
+
+**Auto-disable counter: 0 → 0.** **52nd consecutive non-quiet cycle.** **Cycle #4 of broken-dispatch.**
+
+**Current State:**
+
+- **Open PRs (0)**: clean slate.
+- **Released**: [`ohtv-v0.16.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.16.0) ✓ (21:50Z).
+- **Active workers (0)**: `069782a` still confirmed dead. No new spawns this cycle.
+- **Tracking issue**: [#150](https://github.com/jpshackelford/ohtv/issues/150) (0 comments, still `hold`).
+- **Need expansion (2)**: #145 (codebase work), #148 (small fix, codebase exploration).
+- **Ready priority:high (0)**.
+- **Ready priority:medium (6)**: #116, #123, #124, #125, #127, #128. **+ #149 (ready, no priority yet)**.
+- **On hold (3)**: #26, #90, #150.
+
+**Forecast for next cycle (~00:15-00:30Z window):**
+
+1. **If dispatch healed AND human comment on #150**: proceed normally — spawn expansion for #145 (oldest unexpanded), `/assess-priority` inline on the ready queue (which now includes #149), spawn impl for top pick.
+2. **If dispatch still broken (cycle #5)**: **auto-disable** automation — the escalation signal is in place (issue #150 + 3 worklog cycles of diagnosis + 1 cycle of executed inline-review fallback), continued cron wake-ups now add cost without observability value. Re-enable when @jpshackelford signals dispatch is fixed (comment on #150 or new `## INSTRUCTION:` worklog entry).
+3. **If dispatch healed but no #150 human comment**: still proceed normally — the artifact (a successful POST-spawn) is the only reliable healed-signal anyway.
+
+**Inline-review queue for cycle #5 (only if dispatch still broken)**: none viable. #145 and #148 both need codebase exploration. Don't burn an orchestrator cycle on that.
+
+**Worklog truncation**: 2006 lines pre-this-entry. `/truncate-worklog` skill's productive-indicator regex still mismatches this codebase's prose log style (documented across 22:17Z / 22:50Z / 23:16Z cycles). Deferring. Right fix is to update the skill, not manually truncate while diagnostic history is still actively accruing.
+
+**Sync notes:** Fresh container this cycle. `lxa` + `ohtv` installed via `pip install --user` (uv blocked by no-venv). `gh` with `GH_TOKEN=$github_token`. `ohtv sync --since 4h` succeeded silently (used `OPENHANDS_API_KEY`). State from `gh` issue/PR list + `curl` to OpenHands `/app-conversations/search`. HEAD pulled at the 23:16Z cycle's commit. Issue #149 edits via `gh issue edit` + `gh issue comment`.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
