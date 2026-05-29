@@ -13,6 +13,7 @@ from ohtv.db.scanner import (
     discover_conversations,
     extract_metadata,
     get_events_mtime,
+    load_cloud_listing_parents,
     load_manifest_labels,
     load_manifest_metadata,
     scan_conversations,
@@ -883,3 +884,157 @@ class TestExtractMetadataNoBaseStateOpensIssue87:
         assert len(cloud_base_state_opens) >= 1
         # And selected_repository falls through to the base_state value.
         assert meta["selected_repository"] == "org/repo"
+
+
+class TestExtractMetadataParentConversationIdIssue108:
+    """``parent_conversation_id`` round-trip via parent_map (Issue #108)."""
+
+    def _make_conv(self, base: Path, conv_id: str) -> Path:
+        conv_dir = base / conv_id
+        (conv_dir / "events").mkdir(parents=True)
+        (conv_dir / "base_state.json").write_text(json.dumps({"title": "T"}))
+        return conv_dir
+
+    def test_returns_none_when_parent_map_absent(self, tmp_path):
+        conv_dir = self._make_conv(tmp_path, "child1")
+        meta = extract_metadata(conv_dir, "cloud", manifest_map={})
+        assert meta["parent_conversation_id"] is None
+
+    def test_returns_none_when_conv_not_in_parent_map(self, tmp_path):
+        conv_dir = self._make_conv(tmp_path, "root1")
+        meta = extract_metadata(
+            conv_dir, "cloud", manifest_map={}, parent_map={"someone_else": "x"}
+        )
+        assert meta["parent_conversation_id"] is None
+
+    def test_populates_parent_id_for_cloud_sub_conversation(self, tmp_path):
+        conv_dir = self._make_conv(tmp_path, "child1")
+        meta = extract_metadata(
+            conv_dir,
+            "cloud",
+            manifest_map={},
+            parent_map={"child1": "parent1"},
+        )
+        assert meta["parent_conversation_id"] == "parent1"
+
+    def test_local_source_ignores_parent_map(self, tmp_path):
+        """Local CLI conversations have no delegation concept (Issue #108)."""
+        conv_dir = self._make_conv(tmp_path, "child1")
+        meta = extract_metadata(
+            conv_dir,
+            "local",
+            manifest_map={},
+            parent_map={"child1": "parent1"},
+        )
+        assert meta["parent_conversation_id"] is None
+
+    def test_dashed_conv_id_lookup_via_normalization(self, tmp_path):
+        """Legacy dashed conv directories resolve to the normalized
+        listing key (AGENTS.md item #14)."""
+        dashed = "abcd1234-5678-90ab-cdef-1234567890ab"
+        undashed = dashed.replace("-", "")
+        conv_dir = self._make_conv(tmp_path, dashed)
+        meta = extract_metadata(
+            conv_dir,
+            "cloud",
+            manifest_map={},
+            parent_map={undashed: "parent1"},
+        )
+        assert meta["parent_conversation_id"] == "parent1"
+
+
+class TestLoadCloudListingParentsIssue108:
+    """``load_cloud_listing_parents`` reads from the snapshot (Issue #108)."""
+
+    def test_returns_empty_when_table_missing(self, tmp_path):
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        try:
+            result = load_cloud_listing_parents(conn)
+            assert result == {}
+        finally:
+            conn.close()
+
+    def test_returns_empty_when_table_empty(self, tmp_path):
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute(
+                "CREATE TABLE cloud_listing ("
+                "conversation_id TEXT PRIMARY KEY, "
+                "parent_conversation_id TEXT)"
+            )
+            result = load_cloud_listing_parents(conn)
+            assert result == {}
+        finally:
+            conn.close()
+
+    def test_maps_only_non_null_parent_rows(self, tmp_path):
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute(
+                "CREATE TABLE cloud_listing ("
+                "conversation_id TEXT PRIMARY KEY, "
+                "parent_conversation_id TEXT)"
+            )
+            conn.executemany(
+                "INSERT INTO cloud_listing VALUES (?, ?)",
+                [("root_a", None), ("child_b", "root_a"), ("root_c", None)],
+            )
+            result = load_cloud_listing_parents(conn)
+            # Only the sub-conversation appears.
+            assert result == {"child_b": "root_a"}
+        finally:
+            conn.close()
+
+
+class TestScanConversationsParentConversationId:
+    """End-to-end: parent_conversation_id flows from cloud_listing →
+    scanner → conversations table (Issue #108)."""
+
+    def test_scanner_writes_parent_id_from_listing(
+        self, db_conn, conversations_dir, monkeypatch, mock_config
+    ):
+        """A sub-conversation discovered on disk gets its
+        parent_conversation_id from the cloud_listing snapshot, not
+        from the manifest (which is parent-agnostic)."""
+        monkeypatch.setattr(
+            "ohtv.db.scanner.get_openhands_dir",
+            lambda: conversations_dir / ".openhands",
+        )
+
+        # Seed the cloud_listing snapshot with a parent/child relationship.
+        db_conn.execute(
+            "INSERT INTO cloud_listing "
+            "(conversation_id, fetched_at, snapshot_id, parent_conversation_id) "
+            "VALUES (?, ?, ?, ?), (?, ?, ?, ?)",
+            (
+                "rootabc", "2024-01-01T00:00:00Z", "snap1", None,
+                "childxyz", "2024-01-01T00:00:00Z", "snap1", "rootabc",
+            ),
+        )
+        db_conn.commit()
+
+        # Create the on-disk conv directories under the cloud subtree.
+        cloud_dir = (
+            conversations_dir / ".openhands" / "cloud" / "conversations"
+        )
+        for conv_id in ("rootabc", "childxyz"):
+            (cloud_dir / conv_id / "events").mkdir(parents=True)
+            (cloud_dir / conv_id / "base_state.json").write_text(
+                json.dumps({"title": conv_id})
+            )
+
+        scan_conversations(db_conn, config=mock_config)
+
+        rows = db_conn.execute(
+            "SELECT id, parent_conversation_id FROM conversations "
+            "ORDER BY id"
+        ).fetchall()
+        by_id = {r["id"]: r["parent_conversation_id"] for r in rows}
+        assert by_id["childxyz"] == "rootabc"
+        assert by_id["rootabc"] is None

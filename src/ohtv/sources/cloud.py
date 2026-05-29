@@ -78,13 +78,30 @@ class CloudClient:
         updated_since: datetime | None = None,
         limit: int = 100,
         page_id: str | None = None,
+        include_sub_conversations: bool = True,
     ) -> tuple[list[dict], str | None]:
-        """Search conversations, returning (items, next_page_id)."""
+        """Search conversations, returning (items, next_page_id).
+
+        Args:
+            updated_since: Optional ``updated_at`` lower bound (cloud-side
+                filter).
+            limit: Page size requested from the API.
+            page_id: Opaque pagination cursor returned by a prior call.
+            include_sub_conversations: Whether to include sub-conversations
+                (conversations whose ``parent_conversation_id`` is non-null)
+                in the listing. Defaults to ``True`` so the listing matches
+                what ``/count`` reports and ``ohtv sync`` produces a complete
+                local mirror. The cloud API defaults this parameter to
+                ``false``; we forward ``true`` so sub-conversations stop
+                being silently excluded (Issue #108).
+        """
         params: dict = {"limit": limit}
         if updated_since:
             params["updated_at__gte"] = _format_datetime_for_api(updated_since)
         if page_id:
             params["page_id"] = page_id
+        if include_sub_conversations:
+            params["include_sub_conversations"] = "true"
 
         response = self._request_with_retry("GET", "/api/v1/app-conversations/search", params=params)
         data = response.json()
@@ -94,8 +111,13 @@ class CloudClient:
     def search_all_conversations(
         self,
         updated_since: datetime | None = None,
+        include_sub_conversations: bool = True,
     ) -> list[dict]:
-        """Search all conversations, handling pagination."""
+        """Search all conversations, handling pagination.
+
+        See :meth:`search_conversations` for the
+        ``include_sub_conversations`` semantics. Defaults to ``True``.
+        """
         all_items: list[dict] = []
         page_id = None
 
@@ -103,6 +125,7 @@ class CloudClient:
             items, next_page_id = self.search_conversations(
                 updated_since=updated_since,
                 page_id=page_id,
+                include_sub_conversations=include_sub_conversations,
             )
             all_items.extend(items)
             if not next_page_id:
@@ -111,9 +134,21 @@ class CloudClient:
 
         return all_items
 
-    def count_conversations(self) -> int:
-        """Get total count of conversations."""
-        response = self._request_with_retry("GET", "/api/v1/app-conversations/count")
+    def count_conversations(self, include_sub_conversations: bool = True) -> int:
+        """Get total count of conversations.
+
+        The ``/count`` endpoint on the production cloud returns the
+        inclusive count regardless of this flag (the parameter is a
+        no-op there today), but we forward it for symmetry with
+        :meth:`search_conversations` so any future server-side honoring
+        is picked up automatically. See Issue #108.
+        """
+        params: dict = {}
+        if include_sub_conversations:
+            params["include_sub_conversations"] = "true"
+        response = self._request_with_retry(
+            "GET", "/api/v1/app-conversations/count", params=params
+        )
         return int(response.text)
 
     def download_trajectory(self, conversation_id: str) -> bytes:

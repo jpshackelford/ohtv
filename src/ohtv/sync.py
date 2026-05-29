@@ -185,7 +185,13 @@ class SyncManager:
         # after the pool drains. ``None`` means "no buffering, write
         # directly" (sequential / non-pool path).
         self._db_writer_lock = threading.Lock()
-        self._pending_cloud_updated_at: list[tuple[str, str, str | None]] | None = None
+        # Each queued tuple is
+        # (conv_id, location, cloud_updated_at, parent_conversation_id).
+        # parent_conversation_id was added in Issue #108; ``None`` means
+        # the conversation has no parent (i.e. is a root).
+        self._pending_cloud_updated_at: (
+            list[tuple[str, str, str | None, str | None]] | None
+        ) = None
 
     def sync(
         self,
@@ -837,7 +843,11 @@ class SyncManager:
             self._update_manifest_entry(conv, conv_id, cloud_updated_at, conv_dir)
             if conn is not None:
                 self._record_cloud_download_in_db(
-                    conn, conv_id, conv_dir, cloud_updated_at
+                    conn,
+                    conv_id,
+                    conv_dir,
+                    cloud_updated_at,
+                    parent_conversation_id=conv.get("parent_conversation_id"),
                 )
             log.debug("Downloaded %s (%s)", conv_id, action)
             return action
@@ -858,8 +868,14 @@ class SyncManager:
         conv_id: str,
         conv_dir: Path,
         cloud_updated_at: str,
+        *,
+        parent_conversation_id: str | None = None,
     ) -> None:
-        """Persist ``conversations.cloud_updated_at`` after a successful download.
+        """Persist post-download cloud metadata.
+
+        Writes ``conversations.cloud_updated_at`` (Issue #112) and
+        ``conversations.parent_conversation_id`` (Issue #108) after a
+        successful download.
 
         Best-effort: a DB-side failure is logged but does not bubble up
         through the download path. SQLite connections are not
@@ -877,7 +893,12 @@ class SyncManager:
         with self._db_writer_lock:
             if self._pending_cloud_updated_at is not None:
                 self._pending_cloud_updated_at.append(
-                    (conv_id, str(conv_dir), cloud_updated_at or None)
+                    (
+                        conv_id,
+                        str(conv_dir),
+                        cloud_updated_at or None,
+                        parent_conversation_id or None,
+                    )
                 )
                 return
         try:
@@ -886,6 +907,7 @@ class SyncManager:
                 conv_id,
                 location=str(conv_dir),
                 cloud_updated_at=cloud_updated_at or None,
+                parent_conversation_id=parent_conversation_id or None,
             )
             conn.commit()
         except Exception as exc:  # pragma: no cover - defensive
@@ -908,11 +930,12 @@ class SyncManager:
             return
         try:
             store = ConversationStore(conn)
-            for conv_id, location, cloud_updated_at in queued:
+            for conv_id, location, cloud_updated_at, parent_conv_id in queued:
                 store.record_cloud_download(
                     conv_id,
                     location=location,
                     cloud_updated_at=cloud_updated_at,
+                    parent_conversation_id=parent_conv_id,
                 )
             conn.commit()
         except Exception as exc:  # pragma: no cover - defensive
@@ -1654,6 +1677,12 @@ def _redash(undashed: str) -> str:
 def _listing_row_to_conv_dict(row) -> dict:
     """Adapt a ``cloud_listing`` table row into the dict shape used by
     the download pipeline (``conv["id"]``, ``conv["title"]``, etc.).
+
+    ``parent_conversation_id`` is carried through verbatim (None for
+    roots, the parent's id for sub-conversations) so the downstream
+    DB writeback (Issue #108) can populate
+    ``conversations.parent_conversation_id`` without re-reading the
+    listing.
     """
     return {
         "id": row["conversation_id"],
@@ -1663,6 +1692,7 @@ def _listing_row_to_conv_dict(row) -> dict:
         "selected_repository": row["selected_repository"],
         "selected_branch": row["selected_branch"],
         "tags": _maybe_json_loads(row["tags"]),
+        "parent_conversation_id": row["parent_conversation_id"],
     }
 
 

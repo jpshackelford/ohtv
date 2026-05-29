@@ -154,6 +154,73 @@ now **informational only**. It records the timestamp of the last
 successful reconciliation but is never compared against by the sync
 engine. The cursor-based filter that used it as a gate is gone.
 
+## Sub-conversations (Issue #108)
+
+`ohtv sync` includes **delegated sub-conversations by default** — conversations
+spawned by agent delegation / sub-agent flows whose
+`parent_conversation_id` on the cloud is non-null.
+
+The cloud listing endpoint
+(`GET /api/v1/app-conversations/search`) silently defaults
+`include_sub_conversations=false`. `ohtv` now forwards `true` on every
+listing request so the local mirror matches what
+`GET /app-conversations/count` reports and what the cloud UI shows. There
+is no new CLI flag; the change is in the API client.
+
+### What you'll see on the first sync after upgrading
+
+If your account has accumulated delegated sub-conversations on the cloud
+that previously never reached disk, your first post-upgrade `ohtv sync`
+will catch them up:
+
+- The set-diff engine (see "How the set-diff engine works" above)
+  observes new ids in the cloud listing and downloads them.
+- Multi-thousand-row spurious gaps that previously appeared under
+  `ohtv sync --repair --check-cloud` should now close in a single run.
+- Steady-state subsequent runs do zero extra downloads.
+
+### `parent_conversation_id` on `conversations`
+
+Each cloud conversation's row in `conversations` now carries a
+`parent_conversation_id` column (migration 019):
+
+- `NULL` for root conversations and for all local CLI conversations
+  (delegation is a cloud-only concept today).
+- Set to the parent's id (normalized / dashless) for sub-conversations.
+
+The column is populated two ways, both inside `ohtv sync`:
+
+1. The download writeback (`record_cloud_download`) carries
+   `parent_conversation_id` from the listing payload into the row at
+   download time.
+2. The scanner pass reads from the same `cloud_listing` snapshot table
+   (Issue #112) via `load_cloud_listing_parents`, so a fresh
+   `ohtv db scan` over a manifest-populated dataset stays consistent
+   with sync — no extra cloud round-trip needed.
+
+The sync manifest (`~/.ohtv/sync_manifest.json`) is intentionally
+**parent-agnostic** — it remains the canonical cache for cloud-side
+*editable* metadata (`title`, `labels`, `selected_repository`,
+`created_at`; see `--update-metadata` below), while
+`parent_conversation_id` is a structural relationship stored only in
+the DB. This matches the ownership shape used for `cloud_updated_at`
+(migration 018) and follows the same scope decision Issue #87
+established for the manifest.
+
+Downstream features (e.g. parent-rollup reports, child enumeration)
+can now query the relationship locally:
+
+```sql
+-- All sub-conversations of a given parent
+SELECT id, title FROM conversations
+WHERE parent_conversation_id = '<parent_id_dashless>';
+```
+
+The `idx_conversations_parent` partial index (also added by migration
+019) keeps that lookup cheap.
+
+---
+
 ## Metadata refresh (`--update-metadata`)
 
 Cloud-side edits to a conversation's title, labels, or `selected_repository`

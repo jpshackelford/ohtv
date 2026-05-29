@@ -142,11 +142,39 @@ def load_manifest_labels() -> dict[str, dict[str, str]]:
     }
 
 
+def load_cloud_listing_parents(conn: sqlite3.Connection) -> dict[str, str | None]:
+    """Map normalized conversation id → ``parent_conversation_id`` from
+    the ``cloud_listing`` snapshot (Issue #108).
+
+    Returns an empty dict when:
+
+    * The ``cloud_listing`` table does not yet exist (pre-#112 schema).
+    * The snapshot is empty (no sync has run yet).
+    * Any read error occurs (defensive: the scanner falls back to
+      whatever the conversations table already records).
+
+    Only rows with a non-null ``parent_conversation_id`` are returned —
+    NULL "root" rows are absent from the map. Callers that need
+    "explicitly root" semantics should treat absence as
+    "no information" rather than "is a root".
+    """
+    try:
+        cursor = conn.execute(
+            "SELECT conversation_id, parent_conversation_id "
+            "FROM cloud_listing "
+            "WHERE parent_conversation_id IS NOT NULL"
+        )
+    except sqlite3.OperationalError:
+        return {}
+    return {row[0]: row[1] for row in cursor.fetchall()}
+
+
 def extract_metadata(
     conv_path: Path,
     source: str,
     labels_map: dict[str, dict[str, str]] | None = None,
     manifest_map: dict[str, dict] | None = None,
+    parent_map: dict[str, str | None] | None = None,
 ) -> dict:
     """Extract metadata from a conversation directory.
 
@@ -165,9 +193,18 @@ def extract_metadata(
             manifest entry, the scanner skips ``base_state.json`` entirely
             (Issue #87 — cold-start cloud scans should not open the
             shim).
+        parent_map: Pre-loaded ``conversation_id → parent_conversation_id``
+            map sourced from the ``cloud_listing`` snapshot (Issue #108).
+            The scanner uses it to surface parent/child relationships in
+            ``conversations.parent_conversation_id`` without re-querying
+            the cloud. Manifest is intentionally parent-agnostic; this is
+            the DB-only sidecar. When ``parent_map`` is ``None`` or the
+            conv id is absent from it, ``parent_conversation_id`` is
+            returned as ``None``.
 
     Returns:
-        Dict with title, created_at, updated_at, selected_repository, labels.
+        Dict with title, created_at, updated_at, selected_repository,
+        labels, parent_conversation_id.
     """
     timestamps_are_utc = source != "local"
 
@@ -273,12 +310,26 @@ def extract_metadata(
         # dict with content means real labels
         labels = manifest_labels if manifest_labels else None
 
+    # Issue #108: parent_conversation_id is a cloud-only concept (local
+    # CLI does not have delegation). Look up from the cloud_listing
+    # snapshot when available; the conversations table's COALESCE-based
+    # upsert preserves any value already written by ``record_cloud_download``
+    # if the listing is empty for this id.
+    parent_conversation_id = None
+    if parent_map is not None and source != "local":
+        # Conv ids in the cloud_listing table are normalized (dashless)
+        # per AGENTS.md item #14; the directory name (== conv_id here)
+        # may be dashed for legacy LXA convs, so we look up both forms.
+        normalized = conv_id.replace("-", "")
+        parent_conversation_id = parent_map.get(normalized) or parent_map.get(conv_id)
+
     return {
         "title": title,
         "created_at": created_at,
         "updated_at": updated_at,
         "selected_repository": selected_repository,
         "labels": labels,
+        "parent_conversation_id": parent_conversation_id,
     }
 
 
@@ -395,6 +446,13 @@ def scan_conversations(
     # title takes precedence over base_state.json (Issue #86 — keeps a cold
     # `db scan` honest after a cloud-side rename).
     manifest_map = load_manifest_metadata()
+
+    # Load parent/child relationships from the latest cloud_listing
+    # snapshot (Issue #108). Returns ``{}`` on pre-#112 schemas or when
+    # no sync has populated the snapshot — extract_metadata then
+    # treats parent_conversation_id as None and the COALESCE in
+    # ConversationStore.upsert preserves any prior writeback.
+    parent_map = load_cloud_listing_parents(conn)
     
     # Discover from both local CLI and synced cloud locations
     local_dir = openhands_dir / "conversations"
@@ -437,7 +495,7 @@ def scan_conversations(
         
         if existing is None:
             # New conversation - extract metadata
-            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map)
+            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map, parent_map=parent_map)
             store.upsert(Conversation(
                 id=conv_id,
                 location=str(conv_path),
@@ -449,11 +507,12 @@ def scan_conversations(
                 selected_repository=metadata["selected_repository"],
                 source=source,
                 labels=metadata.get("labels"),
+                parent_conversation_id=metadata.get("parent_conversation_id"),
             ))
             new_count += 1
         elif force or _has_changed(existing, current_mtime, current_count):
             # Changed or forced update - re-extract metadata
-            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map)
+            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map, parent_map=parent_map)
             store.upsert(Conversation(
                 id=conv_id,
                 location=str(conv_path),
@@ -466,6 +525,7 @@ def scan_conversations(
                 selected_repository=metadata["selected_repository"],
                 source=source,
                 labels=metadata.get("labels"),
+                parent_conversation_id=metadata.get("parent_conversation_id"),
             ))
             updated_count += 1
         else:
@@ -521,6 +581,8 @@ def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
     
     # Load title + labels from manifest (manifest title wins; Issue #86)
     manifest_map = load_manifest_metadata()
+    # Issue #108: parent/child relationships from cloud_listing snapshot.
+    parent_map = load_cloud_listing_parents(conn)
     
     local_dir = openhands_dir / "conversations"
     cloud_dir = openhands_dir / "cloud" / "conversations"
@@ -540,7 +602,7 @@ def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
         existing = store.get(conv_id)
         
         if existing is None or _has_changed(existing, current_mtime, current_count):
-            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map)
+            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map, parent_map=parent_map)
             changed.append(Conversation(
                 id=conv_id,
                 location=str(conv_path),
@@ -552,6 +614,7 @@ def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
                 selected_repository=metadata["selected_repository"],
                 source=source,
                 labels=metadata.get("labels"),
+                parent_conversation_id=metadata.get("parent_conversation_id"),
             ))
     
     return changed
