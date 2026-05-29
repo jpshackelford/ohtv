@@ -2,6 +2,35 @@
 
 ## Log
 
+### 2026-05-29 15:38 UTC - Impl worker (Phase C of #114)
+
+**Conv:** `<this impl worker>` — spawned by orchestrator after Phase B (#143) merged at 14:52Z.
+**Issue:** #114 Phase C (per-conv cloud metadata cache → DB columns).
+**PR:** **#144** opened, **CI green** (`pytest pass 53s`, `lint pass 5s`), moved from draft to **ready for review**.
+
+**Branch:** `feat/per-conv-metadata-to-db-114c` (single squash-mergeable commit `fe0ebf0`).
+
+**What shipped (one phase, one PR):**
+
+- **Migration 021** adds `conversations.selected_branch` + additive backfill of any non-NULL manifest value into NULL DB columns. Covers all six Phase C fields (`title`, `labels`, `selected_repository`, `created_at`, `cloud_updated_at`, `selected_branch`).
+- **Sync gate flipped to DB.** `_categorize_via_set_diff` reads `conversations.cloud_updated_at` as canonical; manifest is cold-upgrade fallback only. Legacy `_determine_action` shim accepts optional `conn` with same semantics (kept manifest-only by default so `TestSyncManagerMaxNew` tests keep working).
+- **Download path writes editable metadata to DB.** `_record_cloud_download_in_db` extended with `title`/`labels`/`selected_repository`/`created_at`/`selected_branch` via the new `_write_phase_c_metadata` helper (wraps `ConversationStore.update_metadata`). Without this the DB would carry NULL editable metadata between a download and the next `db scan`.
+- **Scanner overlay reads DB first.** `extract_metadata` takes a new `db_overlay: Conversation | None` argument. DB row wins for the five Phase C fields; manifest is the cold-upgrade fallback. `skip_base_state` optimization from #87 still works — gated on DB columns being populated.
+- **`--status` reads from DB.** `get_status` sums `conversations.event_count` via `_read_db_event_count_summary` — closes brittle spot #5 (manifest snapshot went stale post-sync).
+- **Visibility-restore correctness.** Removed-from-cloud reconciliation also clears `conversations.cloud_updated_at` via new `_clear_cloud_updated_at` helper. Regular sync still does NOT delete DB rows — that stays on `--repair --fix --prune` per #113.
+- **AGENTS.md item #27 + `docs/reference/database.md` + `docs/reference/sync-state-ownership.md` updated.** The pre-Phase-C "selected_branch is scanner-only" codification was overturned: sync now writes it from the freshly-exported `base_state.json`. `ConversationStore.update_metadata` still does NOT accept `selected_branch` because the listing API doesn't carry it.
+- **Behavioral test scenario #14 flipped** from #87 manifest-canonical guard to Phase C DB-canonical guard (same fixture, new assertion target).
+
+**Test results:** 1933 passed, 2 skipped, 3 xfailed (pre-existing #11x placeholders) — no regressions. 10 new tests in `tests/unit/sync/test_phase_c_per_conv_metadata.py` covering the seven AC bullets.
+
+**Smoke:** `uv run ohtv sync --status` works end-to-end (table view unchanged for users; underlying read flipped to DB).
+
+**Used `Refs #114`** per the spawn brief — Phase D remains open work on #114.
+
+**Status:** EXIT per brief step 13 — PR is ready-for-review, CI green; review/QA/merge handled by separate workers.
+
+---
+
 ### 2026-05-29 14:28 UTC - Testing worker (PR #143)
 
 **PR:** #143 (`feat(sync): persist last_sync_at/sync_count/failed_ids in sync_kv (Phase B of #114)`, head `d7d3a607`).
