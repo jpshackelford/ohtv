@@ -1678,3 +1678,86 @@ Skill rule: "Spawn expansion worker for **oldest** unexpanded issue" → #145 wi
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 21:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `069782a` | expansion | Issue #145 - multi-variant cache on full-context promotion | **NEW** (idle/queued) |
+
+**Action Taken: PR slot inline-escalation + Expansion slot re-spawn.**
+
+**1. PR slot — INLINE-ESCALATED merge of PR #147.**
+
+Prior cycle (21:21Z) spawned merge worker `17b6d1b` and expansion worker `ad8a0ea`. At wake-up (21:45Z, +26 min), **both showed silent-exit failure**:
+- `17b6d1b`: `updated_at == created_at`, `execution_status: null`, zero PR activity (no commit, no comment, PR still OPEN).
+- `ad8a0ea`: same pattern, zero issue activity (no labels, no comments, no body rewrite on #145).
+
+For contrast, the most-recent successful worker `51498a6d` (review, prior cycle) showed `updated_at = 20:56:40` vs `created_at = 20:50:08` (~6 min activity window) and produced a commit + a reply comment. So `updated_at` movement IS a reliable liveness signal — and both 21:19 spawns failed to start.
+
+Documented precedent: 11:48Z PR #138 orchestrator inline-escalation for silent-exit merge worker. Applied here verbatim:
+
+- Pre-merge gate verified:
+  - `gh pr view 147` → `reviewDecision: APPROVED`, `mergeStateStatus: CLEAN`, `mergeable: MERGEABLE`, CI both checks `SUCCESS`.
+  - `gh api graphql reviewThreads` → `{totalCount: 0, unresolved: 0}`.
+  - Last commit `2da77236` ("fix(cli): suppress --verbose deprecation note when --log-level is explicit") at 20:53:18Z addresses the manual test PASS-WITH-NOTES finding; jpshackelford replied at 20:55:47Z confirming.
+  - PR diff includes `README.md` + `docs/reference/configuration.md` (docs in-PR).
+- `gh pr merge 147 --squash` executed with explicit `--subject` and `--body`:
+  - Subject: `feat(cli): add --log-level/--log-file/--log-stderr, stop swallowing batch errors (#147)` — preserves the `feat(cli):` conventional-commit prefix so semantic-release bumps 0.15.0 → **0.16.0 (minor)**, NOT the `fix(cli):` follow-up commit's prefix.
+  - Body: ~30 lines summarizing the 4 phases (A/B/C/D), the swallow-site fix list, backward compat notes, test counts, and the required `Fixes #121` footer. Includes the standard AI-attribution footer.
+- Post-merge verification:
+  - `gh pr list --state open` → `[]` ✓
+  - `gh issue view 121` → `state: CLOSED`, `closedAt: 2026-05-29T21:48:19Z` ✓ (the `Fixes #121` footer triggered auto-close).
+  - `gh run list` → `release` workflow `in_progress` on `main` (created 21:48:21Z). On success, tag `ohtv-v0.16.0` is created and CHANGELOG.md is updated by the auto-release commit.
+- The `fix(cli):` second commit on the branch (`2da77236`) is squashed into the single squash commit; semantic-release reads the squash subject only (per AGENTS.md "Releases & Commit Contract" — "the PR title is the squash subject"), so the `fix(cli):` prefix never reaches the release-classification path. Minor bump preserved.
+
+**2. Expansion slot — RE-SPAWNED for #145.**
+
+The failed `ad8a0ea` spawn left #145 in its original state (open, 0 labels, 0 comments). With #148 ("Suppress LiteLLM botocore warnings at import time", created 20:57Z) now also in the expansion queue, the oldest-first rule still picks #145 (16:46Z).
+
+- POST returned id `0d83cec7d5e04ab3be4279953226be35`; system materialized as `069782a610ea4cb9b6b76a9f49a4d6c0` (creation timestamp 21:49:29Z). Documented POST→materialized id-translation behavior continues; future cycles must grep by timestamp.
+- Initial `execution_status: idle` (queued/initializing) — distinct from the dead `null` seen on `17b6d1b` / `ad8a0ea`. Cautiously interpreting `idle` as "worker accepted into queue", `null` as "worker stuck in pre-start limbo". Will revisit hypothesis next cycle.
+- Spawn payload: 6590 bytes JSON, prompt covers 10 analytical dimensions (trigger condition, current cache model, metadata-driven variant selection, single-call vs multi-call architecture, cache-write semantics, embedding implications, cost reporting, backward compatibility, acceptance criteria, files-to-modify/test plan).
+- Hard rules in prompt: NO code changes, NO scope expansion (cache invalidation policy, prompt versioning explicitly out of scope), AI attribution on every comment, WORKLOG goes to `main`.
+- Label target: `ready` + `priority:medium` (cost-optimization enhancement, not a blocking bug).
+
+**Why no second PR-slot action this cycle:**
+
+With #147 just merged and the release workflow `in_progress`, the priority:high ready queue is now empty (#121 was the only priority:high). The next implementation candidate would come from priority:medium: #116, #123, #124, #125, #127, #128. Per the decision tree, this requires running `/assess-priority` inline OR spawning a fresh impl worker. Both are deferred to the next cycle because:
+
+1. The release workflow is mid-flight; spawning impl now risks colliding with the auto-release commit on `main` (the impl worker would clone HEAD, which may be pre-release-bump).
+2. We've already taken 2 productive actions this cycle (merge + expansion re-spawn). Per the skill's "one action per wake-up" guideline, the impl spawn is naturally next-cycle work anyway.
+
+**Auto-disable counter: 0 → 0.** Productive cycle (merge + spawn). **48th consecutive productive cycle.** Not at risk.
+
+**Current State (post-merge):**
+
+- **Open PRs (0):** PR #147 merged ✓. PR #142 closed ✓ (orphaned release-please PR finally cleared).
+- **Active workers (1):** `069782a` (expansion, #145). PR slot empty.
+- **Released:** [`ohtv-v0.15.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.15.0). `ohtv-v0.16.0` pending — release workflow `in_progress` on main since 21:48:21Z, ETA ~30 sec per AGENTS.md.
+- **Need expansion (1):** #148. ({#145 now being expanded.})
+- **Ready w/ priority:high (0):** #121 auto-closed via `Fixes #121` footer at 21:48:19Z.
+- **Ready w/ priority:medium (6):** #116, #123, #124, #125, #127, #128. Next impl target.
+- **On hold (2):** #26, #90.
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced code blocks).
+
+**Forecast for next cycle (~22:15-22:20Z window):**
+
+1. **Release verification:** Confirm `ohtv-v0.16.0` tag exists and the auto-release commit (`chore(release): ohtv 0.16.0 [skip ci]`) is on `main`. If the workflow failed (rare; concurrency-group enforces serialization), diagnose inline.
+2. **PR slot — most-likely action:** EMPTY slot + priority:medium ready queue. Decision tree: "No open PR + ready issues, no [high] priority → Run `/assess-priority` inline, then spawn impl worker." Candidates form two clusters:
+   - **#123/#124/#125/#127/#128 cluster** — all build on AGENTS.md item #32 (Issue #122 root-conversation aggregation foundation). Implementing one of these surfaces the others' patterns.
+   - **#116 (DB migration centralization)** — independent. Lower coupling, lower risk.
+   - **Likely `/assess-priority` pick:** #116 (lowest risk, no upstream dep) OR #123 (`report weekly-counts` is the lightest of the cluster — already has the most code in tree). Decision deferred to next cycle.
+3. **Expansion slot — most-likely action:** check `069782a`.
+   - If `finished` AND #145 has `ready` + `priority:medium` → slot **EMPTY**, spawn expansion for #148 (Suppress LiteLLM botocore warnings).
+   - If `finished` AND #145 has `needs-info` / `needs-split` → slot empty, spawn for #148 anyway (oldest unexpanded).
+   - If `running` / `idle` → status-check only; #148 queues for the cycle after.
+   - If silent-exit again (`updated_at == created_at`, no GH activity) → escalation pattern: investigate spawn mechanism, possibly fall back to a shorter prompt, possibly inline-do the expansion (slow but doable).
+4. **PR #142:** RESOLVED this cycle (closed). Drop from forecast.
+5. **Worklog truncation:** WORKLOG.md is 1670 lines pre-this-entry. `/truncate-worklog` skill's productive-indicator regex is mismatched to this codebase's prose-first log style (documented several cycles ago). Size operationally acceptable; deferring.
+
+**Sync notes:** Fresh container this cycle. Tools NOT installed (no spawn-action needed beyond `gh` + `curl` + `jq` for the merge + spawn). `gh` 2.78.0 with `GH_TOKEN=$github_token`. `ohtv sync` skipped (state derived from `gh` + OpenHands conv search API). HEAD pulled at `667f3f7` (post-prior-cycle worklog). Spawn payload as JSON file (`/tmp/expansion_spawn.json` 6590 B). POST endpoint: `https://app.all-hands.dev/api/v1/app-conversations`. Merge endpoint: `gh pr merge 147 --squash --subject ... --body ...`.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
