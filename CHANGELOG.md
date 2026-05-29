@@ -11,6 +11,20 @@ Releases from this point forward are managed automatically by
 Direct pushes to `main` with `chore:` / `chore(worklog):` / `docs(worklog):` subjects (such
 as `WORKLOG.md` updates) are intentionally ignored and never trigger a release.
 
+## [0.15.0](https://github.com/jpshackelford/ohtv/compare/ohtv-v0.14.0...ohtv-v0.15.0) (2026-05-29)
+
+
+### Features
+
+* **db:** add root_conversation_id column, view, and list_roots helper ([#138](https://github.com/jpshackelford/ohtv/issues/138)) ([54cc7d1](https://github.com/jpshackelford/ohtv/commit/54cc7d159a3425837c6796ca4e448e7bab572e27))
+* **sync:** dual-write sync state scalars to sync_kv (Phase B of [#114](https://github.com/jpshackelford/ohtv/issues/114)) ([0792f98](https://github.com/jpshackelford/ohtv/commit/0792f987f5f81ce2c06674376635d52efb2ec5f8))
+* **sync:** make DB canonical for per-conv cloud metadata (Phase C of [#114](https://github.com/jpshackelford/ohtv/issues/114)) ([3302139](https://github.com/jpshackelford/ohtv/commit/33021397baaeb9955654198385d463e424ce06ff))
+
+
+### Bug Fixes
+
+* **classify:** label sub-conversations 'sub_agent' ([#126](https://github.com/jpshackelford/ohtv/issues/126)) ([604df79](https://github.com/jpshackelford/ohtv/commit/604df7968a1f298aece9ba48569ebf5d10dfe9a8))
+
 ## [0.14.0](https://github.com/jpshackelford/ohtv/compare/ohtv-v0.13.0...ohtv-v0.14.0) (2026-05-29)
 
 
