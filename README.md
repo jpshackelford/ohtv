@@ -77,6 +77,18 @@ The most common variables:
 Full list, defaults, and precedence rules:
 [docs/reference/configuration.md](docs/reference/configuration.md).
 
+### Logs
+
+ohtv writes a rotating log file to `~/.ohtv/logs/ohtv.log` (1 MB, 3
+backups). Every command accepts `--log-level {DEBUG,INFO,WARNING,
+ERROR,CRITICAL}` (default `INFO`) and `--log-file PATH` (use `-` for
+stderr-only). Equivalent env vars: `OHTV_LOG_LEVEL`, `OHTV_LOG_FILE`.
+Batch failures from `gen objs`, `db embed`, etc. land in the file log
+even under `--quiet`. The legacy `--verbose` flag still works and is
+equivalent to `--log-level DEBUG --log-stderr` (with a one-shot
+deprecation note). See
+[docs/reference/configuration.md#logging](docs/reference/configuration.md#logging).
+
 ## Automation
 
 ohtv plays nicely with cron / systemd timers — every long-running command

@@ -1,5 +1,6 @@
 """Utilities for parallel processing with progress display."""
 
+import logging
 import signal
 import threading
 import time
@@ -11,6 +12,8 @@ from typing import TypeVar
 
 T = TypeVar("T")
 R = TypeVar("R")
+
+log = logging.getLogger("ohtv")
 
 
 def format_rate(count: int, elapsed_seconds: float, unit: str = "items") -> str:
@@ -147,8 +150,16 @@ def run_parallel(
                     on_result(item, result)
             except Exception as e:
                 results.append((item, None, e))
-                if on_error:
+                if on_error is not None:
                     on_error(item, e)
+                else:
+                    # Issue #121: default-safe — surface the traceback to
+                    # the file log so silent batch failures are
+                    # diagnosable. Callers that want absolute silence can
+                    # pass ``on_error=lambda i, e: None``.
+                    log.exception(
+                        "run_parallel worker raised for item=%r", item
+                    )
     else:
         # Parallel processing
         with ThreadPoolExecutor(max_workers=actual_workers) as executor:
@@ -177,8 +188,14 @@ def run_parallel(
                     except Exception as e:
                         with lock:
                             results.append((item, None, e))
-                        if on_error:
+                        if on_error is not None:
                             on_error(item, e)
+                        else:
+                            # See sequential branch above (Issue #121).
+                            log.exception(
+                                "run_parallel worker raised for item=%r",
+                                item,
+                            )
     
     return results
 

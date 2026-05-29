@@ -527,7 +527,9 @@ def generate_embeddings_only(
             
     except Exception as e:
         batch.error = str(e)
-        log.warning("Error generating embeddings for %s: %s", conv_id, e)
+        # Issue #121: keep full traceback in ~/.ohtv/logs/ohtv.log so the
+        # caller can diagnose silent batch failures.
+        log.exception("Error generating embeddings for %s", conv_id)
     
     return batch
 
@@ -640,8 +642,10 @@ class EmbeddingWriter:
                         self._write_batches(store, conn, pending)
                         pending = []
                         
-                except Exception as e:
-                    log.error("Error in embedding writer: %s", e)
+                except Exception:
+                    # Issue #121: keep the writer loop alive but make the
+                    # full traceback land in ~/.ohtv/logs/ohtv.log.
+                    log.exception("Error in embedding writer")
     
     def _write_batches(self, store, conn, batches: list[EmbeddingBatch]) -> None:
         """Write a list of batches to the database."""
@@ -682,7 +686,9 @@ class EmbeddingWriter:
                 
             log.debug("Wrote %d batches (%d embeddings)", count, embed_count)
             
-        except Exception as e:
-            log.error("Error writing embedding batches: %s", e)
+        except Exception:
+            # Issue #121: include the traceback so silent batch failures
+            # are diagnosable from ~/.ohtv/logs/ohtv.log.
+            log.exception("Error writing embedding batches")
             with self._lock:
                 self._errors += len(batches)

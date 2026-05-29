@@ -76,6 +76,7 @@ class SectionedGroup(click.Group):
                 formatter.write_dl(llm_commands)
 
 
+from ohtv.cli_logging import init_logging_from_cli, logging_options
 from ohtv.logging import setup_logging
 from ohtv.sources import ConversationInfo, LocalSource
 from ohtv.sync import (
@@ -267,8 +268,14 @@ GIT_URL_PATTERNS = {
 
 
 def _init_logging(verbose: bool = False) -> None:
-    """Initialize logging for the CLI."""
-    setup_logging(verbose=verbose)
+    """Initialize logging for the CLI.
+
+    Delegates to :func:`ohtv.cli_logging.init_logging_from_cli`, which
+    reads ``--log-level`` / ``--log-file`` / ``--log-stderr`` from the
+    active Click context and applies the deprecated ``verbose=True``
+    alias when set (Issue #121).
+    """
+    init_logging_from_cli(verbose=verbose)
 
 
 @click.group(cls=SectionedGroup)
@@ -307,7 +314,8 @@ def main() -> None:
     ),
 )
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output for cron jobs")
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 @click.option("--no-llm", is_flag=True, help="Skip LLM-powered analysis (summaries won't be generated)")
 @click.option("--no-embed", is_flag=True, help="Skip embedding generation")
 @click.option(
@@ -1192,6 +1200,12 @@ def _run_post_sync_processing(quiet: bool, verbose: bool, no_llm: bool = False, 
                 try:
                     processor(conn, conv)
                 except Exception as e:
+                    # Always log to file; only echo to console under verbose.
+                    log.exception(
+                        "Error in stage %s for conversation %s",
+                        stage_name,
+                        conv.id,
+                    )
                     if verbose:
                         console.print(f"    [red]Error processing {conv.id}:[/red] {e}")
             
@@ -1266,12 +1280,18 @@ def _run_post_sync_llm_analysis(quiet: bool, verbose: bool) -> None:
                             if verbose:
                                 console.print(f"    [dim]Analyzed {conv.id[:8]}[/dim]")
                 except Exception as e:
+                    # Always log to file; only echo to console under verbose.
+                    log.exception(
+                        "Error generating LLM analysis for conversation %s",
+                        conv.id,
+                    )
                     if verbose:
                         console.print(f"    [red]Error analyzing {conv.id}:[/red] {e}")
             
             conn.commit()
             
         except ImportError as e:
+            log.exception("Could not import analysis module")
             if verbose:
                 console.print(f"  [red]Could not import analysis module:[/red] {e}")
     
@@ -1452,7 +1472,11 @@ def _run_post_sync_embeddings(quiet: bool, verbose: bool) -> None:
                         return batch.stats, None
                         
                     except Exception as e:
-                        log.debug("Error on %s: %s", conv.id[:12], e)
+                        # Upgrade from debug to exception so traceback lands
+                        # in ~/.ohtv/logs/ohtv.log (Issue #121).
+                        log.exception(
+                            "Error generating embeddings for %s", conv.id[:12]
+                        )
                         return None, str(e)
             
             # Start the writer thread (it creates its own DB connection)
@@ -2619,7 +2643,8 @@ def _populate_error_info(
               help="Show Idle column (minutes since last event). Colorized: red if < MINS (default: 7), green if >= MINS")
 @click.option("--with-errors", "-E", "with_errors", is_flag=True, help="Include error info column (agent/LLM errors)")
 @click.option("--errors-only", "errors_only", is_flag=True, help="Show only conversations with agent/LLM errors")
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def list_conversations(
     reverse: bool,
     limit: int | None,
@@ -2741,7 +2766,8 @@ def list_conversations(
     default="table",
     help="Output format (default: table)",
 )
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def search(
     query: str,
     limit: int,
@@ -3083,7 +3109,8 @@ def _display_retrieval_breakdown(
 @click.option("--explain-only", is_flag=True, help="Show retrieval breakdown without generating an LLM answer")
 @click.option("--agent", is_flag=True, help="Enable multi-turn investigation mode")
 @click.option("--max-steps", type=int, default=5, help="Max investigation steps (with --agent)")
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def ask(
     question: str,
     context: int,
@@ -3914,7 +3941,8 @@ def _format_duration(duration: timedelta | None) -> str:
     help="Output format (default: text)",
 )
 @click.option("--file", type=click.Path(), help="Write output to file")
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def show(
     conversation_id: str,
     user_messages: bool,
@@ -4744,7 +4772,8 @@ def _format_action_details(tool_name: str, action: dict) -> str:
     default="text",
     help="Output format (default: text)",
 )
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def errors(
     conversation_id: str,
     fmt: str,
@@ -4900,7 +4929,8 @@ def _print_error_detail(err) -> None:
 @click.option("--actions", "-a", is_flag=True, help="Show only refs with detected interactions (read or write)")
 @click.option("--write-only", "-w", is_flag=True, help="Show only refs with write actions (pushed, created, merged, etc.)")
 @click.option("--no-index", is_flag=True, help="Skip database indexing (faster, but refs won't be queryable)")
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def refs(
     conversation_id: str | None,
     limit: int | None,
@@ -6775,7 +6805,16 @@ def db() -> None:
 
 
 @db.command("init")
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed migration output")
+@logging_options
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help=(
+        "Show detailed migration output. (Domain flag retained; for logging "
+        "verbosity use --log-level DEBUG --log-stderr.)"
+    ),
+)
 def db_init(verbose: bool) -> None:
     """Initialize or migrate the database.
     
@@ -6806,7 +6845,8 @@ def db_init(verbose: bool) -> None:
 @click.argument("stage", type=click.Choice([*STAGES.keys(), "all"]))
 @click.option("--force", "-f", is_flag=True, help="Reprocess all conversations, ignoring stage completion")
 @click.option("--conversation", "-c", help="Process only this conversation ID")
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def db_process(stage: str, force: bool, conversation: str | None, verbose: bool) -> None:
     """Run a processing stage on conversations.
     
@@ -6943,7 +6983,8 @@ def _run_process_stage(stage: str, force: bool, conversation: str | None, verbos
 @db.command("scan")
 @click.option("--force", "-f", is_flag=True, help="Update all conversations regardless of mtime")
 @click.option("--remove-missing", is_flag=True, help="Remove DB entries for conversations no longer on disk")
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 @click.option(
     "--lock-timeout",
     type=float,
@@ -7173,7 +7214,8 @@ def db_status() -> None:
 
 
 @db.command("index-cache")
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def db_index_cache(verbose: bool) -> None:
     """Index existing analysis cache files into the database.
     
@@ -7301,7 +7343,8 @@ def db_index_cache(verbose: bool) -> None:
 @db.command("migrate-cache")
 @click.option("--delete-legacy", is_flag=True, help="Delete legacy cache files after migration")
 @click.option("--dry-run", is_flag=True, help="Show what would be migrated without doing it")
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def db_migrate_cache(delete_legacy: bool, dry_run: bool, verbose: bool) -> None:
     """Migrate analysis cache files from conversation directories to ~/.ohtv.
 
@@ -7442,7 +7485,8 @@ def db_reset(yes: bool) -> None:
 @click.option("--force", "-f", is_flag=True, help="Rebuild all embeddings")
 @click.option("--estimate", is_flag=True, help="Show cost estimate only, don't embed")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
     """Build embeddings for semantic search and RAG.
     
@@ -8113,7 +8157,8 @@ def _error_no_github_token() -> None:
 @click.option("--dry-run", is_flag=True, help="Show what would be fetched without making API calls")
 @click.option("--limit", type=int, help="Cap rows processed this run (default: unlimited)")
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output (no progress bar)")
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def fetch_loc_cmd(
     repo_filter: str | None,
     force: bool,
@@ -8385,7 +8430,8 @@ def gen() -> None:
 @click.option("--refresh", "-r", "refresh", is_flag=True, help="Force re-analysis (refresh cache)")
 @click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-@click.option("--verbose", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 # Multi-conversation options (when conversation_id is not provided)
 @click.option("--max", "-n", "limit", type=int, help="Maximum conversations to analyze (default: 10)")
 @click.option("--all", "-A", "show_all", is_flag=True, help="Analyze all conversations (no limit)")
@@ -8782,10 +8828,23 @@ def _run_batch_objectives_analysis(
             }
             return result_dict, None, analysis_result.cost, analysis_result.from_cache
         except (ValueError, RuntimeError) as e:
+            # Known-recoverable: skip with a warning so the file log shows
+            # at least the conversation id and the message.
+            log.warning(
+                "Skipping objectives analysis for %s: %s",
+                conv.short_id,
+                e,
+            )
             return None, (conv.short_id, str(e)[:50]), 0.0, False
         except Exception as e:
             if "api_key" in str(e).lower() or "LLM_" in str(e):
                 raise  # Re-raise auth errors to handle at top level
+            # Unexpected: full traceback to the file log so --quiet
+            # `N err` totals can be diagnosed (Issue #121).
+            log.exception(
+                "Unexpected error analysing objectives for %s",
+                conv.short_id,
+            )
             return None, (conv.short_id, str(e)[:50]), 0.0, False
 
     # Show progress for LLM analysis (skip if all cached)
@@ -9134,12 +9193,15 @@ def _run_objectives_analysis(
                 analysis = result.analysis
                 analysis_cost = result.cost
         except ValueError as e:
+            log.warning("Objectives analysis failed for %s: %s", conv_id, e)
             console.print(f"[red]Error:[/red] {e}")
             raise SystemExit(1)
         except RuntimeError as e:
+            log.warning("Objectives analysis runtime error for %s: %s", conv_id, e)
             console.print(f"[red]Analysis failed:[/red] {e}")
             raise SystemExit(1)
         except Exception as e:
+            log.exception("Unexpected error analysing objectives for %s", conv_id)
             if "api_key" in str(e).lower() or "LLM_" in str(e):
                 console.print(
                     "[red]Error:[/red] LLM not configured. Set LLM_API_KEY environment variable."
@@ -9198,7 +9260,8 @@ def _run_objectives_analysis(
 @click.option("--model", "-m", help="LLM model override (e.g. haiku)")
 @click.option("--yes", "-y", is_flag=True,
               help="Skip the >5-conv confirmation prompt")
-@click.option("--verbose", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 @click.option(
     "--lock-timeout",
     type=float,
@@ -9960,7 +10023,8 @@ def _apply_local_title_writeback(
 @click.argument("job_id")
 @click.option("--model", "-m", help="LLM model to use for analysis")
 @click.option("--refresh", "-r", is_flag=True, help="Force re-analysis (refresh cache)")
-@click.option("--verbose", is_flag=True, help="Show debug output")
+@logging_options
+@click.option("--verbose", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 # Date range options
 @click.option("--since", "-S", "since_date", help="Start date (YYYY-MM-DD)")
 @click.option("--until", "-U", "until_date", help="End date (YYYY-MM-DD)")
@@ -10390,7 +10454,8 @@ def _display_aggregate_results_table(
     default=None,
     help="Output format for --list-unknown (default: table).",
 )
-@click.option("--verbose", "-v", is_flag=True, help="Show debug output.")
+@logging_options
+@click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def classify(
     conversation_id: str | None,
     source: str | None,
@@ -10773,7 +10838,16 @@ def report() -> None:
     show_default=True,
     help="Figure suptitle (only meaningful with --chart).",
 )
-@click.option("--verbose", "-v", is_flag=True, help="Show the rendered SQL and per-week row counts")
+@logging_options
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help=(
+        "Show the rendered SQL and per-week row counts. (Domain flag "
+        "retained; for logging verbosity use --log-level DEBUG --log-stderr.)"
+    ),
+)
 def report_velocity(
     fmt: str,
     since_str: str | None,
