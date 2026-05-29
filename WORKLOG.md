@@ -1184,3 +1184,90 @@ Docs were already updated by `2c12c07` (the docs commit at 17:52Z + the pivot at
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 18:51 UTC - Orchestrator
+
+**Active Workers (at cycle entry):**
+
+_Testing worker `14762b5` for PR #146 finished cleanly at ~18:28Z. Posted comprehensive `## Manual Test Results` comment: **10/10 scenarios PASS**, **1948 unit tests pass**, all test fixtures aligned to the post-pivot `'sub_agent'` design. PR slot CLEAR at cycle entry._
+
+**Active Workers (at cycle exit):**
+| Conv ID   | Type  | Working On                                   | Status      |
+|-----------|-------|----------------------------------------------|-------------|
+| `a3c3ba0` | merge | PR #146 — `classify` sub_agent (#126)        | **NEW** running |
+
+**Action Taken: Spawned merge worker for PR #146.**
+
+Per decision-tree row *"PR exists, ready, test results valid, good rating, docs valid → Spawn **merge worker**"*. All merge gates green:
+
+| Gate | Status | Source |
+|------|--------|--------|
+| `mergeStateStatus` | CLEAN | `gh pr view 146 --json mergeStateStatus` |
+| `reviewDecision` | APPROVED | `github-actions` `pr-review` bot at 17:34Z |
+| Inline review threads (unresolved) | **0 / 0** | GraphQL `reviewThreads(first:50)` |
+| Status checks | 3 / 3 SUCCESS | lint (lint-pr-title) × 2 + pytest (tests) at 18:04-18:05Z |
+| Manual test report | POSTED 18:28Z | 10/10 PASS, 1948 unit tests pass |
+| Docs | UPDATED post-pivot | `docs/guides/classification.md` re-edited in commit `0b4f3043` |
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced blocks).
+- **Expansion slot:** OPEN, IDLE. **33rd consecutive idle expansion cycle.** 0 issues need expansion (`gh issue list … contains(["ready"]) or contains(["hold"]) | not` → empty; #145 has `on-hold`).
+- **Active conv check:** testing worker `14762b5` = `finished`. Docs worker `2c12c07` = paused (sandbox), no longer relevant. No ohtv-tagged worker in `running` status across conv API.
+- **Open PRs (3):**
+  - **[PR #146](https://github.com/jpshackelford/ohtv/pull/146)** @ `0b4f3043`: ready, CLEAN, APPROVED. **Spawn target.** Last commit 18:03Z, last comment 18:28Z (manual test report). 3 PR comments total — all from orchestrator-pipeline workers (docs update notice, design-pivot explanation, manual test results); no human review feedback.
+  - **[PR #141](https://github.com/jpshackelford/ohtv/pull/141)** @ `2b88202`: `mergeStateStatus=UNKNOWN`, last `updatedAt=2026-05-29T12:03:20Z`. Actions-policy gate. **Cycle 12.** Human action required. Skip.
+  - **[PR #142](https://github.com/jpshackelford/ohtv/pull/142)** @ release-please, last `updatedAt=2026-05-29T16:55:17Z`. Bot-managed `chore(main): release ohtv 0.15.0`. Skip.
+
+**Why merge (not docs spot-check, not re-test):**
+
+- **Not docs spot-check:** docs were updated in the SAME conversation as the design pivot (`2c12c07` commits `bdef60b3` at 17:52Z + `0b4f3043` at 18:03Z, the second of which re-edited `classification.md` to reflect `'sub_agent'`). Testing worker explicitly verified: *"Documentation matches observed behavior in every detail tested"*. No drift between docs and code.
+- **Not re-test:** test report was posted at 18:28Z, AFTER the last code commit at 18:03Z. Per the orchestrate skill: *"Re-test if … Source files changed after the last test"* — last commit predates last test by 25 minutes, so no re-test trigger.
+- **Stale approval caveat:** `github-actions` approved at 17:34Z, before the 18:03Z pivot. But (a) GitHub still treats the PR as APPROVED with mergeStateStatus=CLEAN, (b) the `pr-review` workflow does not appear to re-run on subsequent pushes in this repo (current status checks contain only `lint` and `pytest`, no `pr-review`), and (c) the manual test report provides post-pivot verification stronger than the original auto-approval. Proceeding with merge.
+
+**Spawn details:**
+
+- **Conv:** [`a3c3ba0`](https://app.all-hands.dev/conversations/a3c3ba058e3748fe9ba31272d3349ef8). Start task `4f92ee48…` → READY on poll #2 (~10s) → `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 18:51:00Z. Cosmetic title "Conversation a3c3b" (sandbox-display quirk).
+- **Plugin:** `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- **Prompt highlights (pre-baked):**
+  - Full pre-flight snapshot of all merge gates (CLEAN/APPROVED/0-threads/SUCCESS).
+  - 3-commit history with timestamps and the pivot rationale baked in.
+  - Pointer to migration 022, the `'sub_agent'` value, velocity-report 0-mapping, and `classification.md` updates.
+  - Conventional-commit guidance: **squash subject `fix(classify): label sub-conversations 'sub_agent' (#126)`** (matches PR title, `fix:` triggers patch bump in release-please, gets batched into PR #142's `0.15.0` cut).
+  - Required commit-body sections: auto-step summary, pivot rationale, schema impact, velocity adjustment, test sign-off, `Fixes #126` footer.
+  - Verification steps: `gh pr view 146 --json state,mergedAt,mergeCommit` + `gh issue view 126 --json state,closedAt`.
+  - Hard guardrails: no new commits to PR branch, no manual issue close, no touching PR #141/#142, STOP and post `## Merge Blocked` if a diff-review issue is discovered.
+  - Explicit "do not edit WORKLOG.md" — orchestrator owns that.
+
+**Silent-exit risk:** Low. Merge workers on this codebase have a clean track record; the task is well-scoped (read diff → craft commit body → `gh pr merge`). Default escape-hatch: if `a3c3ba0` is `finished` at next wake-up with PR #146 still open, inline-merge from the orchestrator (single `gh pr merge` call with a synthesized commit body from the test report + pivot comment).
+
+**One action per wake-up:** ✓ one spawn.
+
+**Worklog truncation deferred (again):** Per the truncate-worklog skill's "productive entry" heuristic, the orchestrator-style entries on this codebase don't trigger the productive-indicator regex (`🚀 **Launched:`, `✅ **Completed:`, etc. — we use prose like "Action Taken: Spawned …" instead). Dry-run reports "0 productive entries" and keeps everything. This is a known impedance mismatch between the skill's classification taxonomy and the actual log-entry style used here. WORKLOG is now 1186 lines pre-this-entry; will revisit (either retrofitting log entries to use the productive markers, or relaxing the skill heuristic) in a non-spawn cycle.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned merge worker post-test-pass). **43rd consecutive productive cycle.** Not at risk.
+
+**Current State (post-spawn):**
+
+- **Open PRs (3):**
+  - [PR #146](https://github.com/jpshackelford/ohtv/pull/146): merge in flight via `a3c3ba0`.
+  - [PR #141](https://github.com/jpshackelford/ohtv/pull/141): cycle 12 on Actions-policy gate. Human action required.
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): release-please for `ohtv-v0.15.0`. Bot-managed. Will re-batch with `fix(classify):` line once #146 merges.
+- **Need expansion (0):** ✓ (33rd consecutive idle cycle).
+- **Ready w/ priority:high (0):** #126 in merge pipeline (auto-closes on merge via `Fixes #126`).
+- **Ready w/ priority:medium (6):** #116, #123, #124, #125, #127, #128. Next-up: #123/#124 (both consume the `apply_sub_classification` foundation #126 just established).
+- **Ready w/ priority:low (1):** #121.
+- **On hold (3):** #26, #90, #145.
+
+**Forecast for next cycle (~19:21Z window):**
+
+1. **PR slot — most-likely action:** check `a3c3ba0`. Merge envelope: 5-15 min (clone, review diff, craft body, `gh pr merge`). If finished with PR #146 MERGED → release-please re-batches PR #142 within ~1 min; PR slot becomes free → **assess-priority** inline (already documented next-up is #123 or #124, both priority:medium) → spawn **implementation worker**. If silent-exit → inline-merge fallback per orchestrator skill.
+2. **PR #141:** unchanged unless human intervened.
+3. **PR #142:** auto-updated by release-please bot once #146 merges (new commit appended to release branch with the `fix(classify):` entry under "Bug Fixes" in `CHANGELOG.md`). Bot-managed; no orchestrator action.
+4. **Expansion slot:** unchanged, IDLE (34th cycle pending).
+5. **Issue #126:** should auto-close via `Fixes #126` footer in the merge commit. Will verify on next wake-up.
+
+**Sync notes:** Fresh container this cycle. Tools installed via `.venv` (system-path permission-blocked, same as prior cycles). `ohtv sync` skipped — decision data sourced from `gh` 2.92.0 (`GH_TOKEN=$github_token`) + OpenHands conv API (`OPENHANDS_API_KEY`).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
