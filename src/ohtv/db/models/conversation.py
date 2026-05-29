@@ -38,6 +38,21 @@ class Conversation:
             migration also backfills existing rows.
             See AGENTS.md item #32 for the policy ("the root is the
             unit of 'what the user did'"). Issue #122.
+        selected_branch: Git branch that was checked out when the
+            trajectory was downloaded. Mirrored from the trajectory
+            ZIP's ``meta.json`` by ``ohtv sync`` (Issue #114 Phase C
+            — migration 021 added the column). NULL for local CLI
+            conversations and for cloud conversations whose
+            trajectory has not yet been downloaded (the listing API
+            does not carry this field). See AGENTS.md item #27 for
+            the Phase C ownership flip.
+        cloud_updated_at: The cloud's ``updated_at`` at the time of
+            the last download. Distinct from ``updated_at``
+            (event-derived). Written by ``ohtv sync`` via
+            ``record_cloud_download``; consumed by the set-diff sync
+            gate (Issue #112 column + Issue #114 Phase C reader flip).
+            NULL for local CLI rows and for cloud rows downloaded by
+            pre-#112 binaries.
     """
     id: str
     location: str
@@ -53,3 +68,5 @@ class Conversation:
     labels: dict[str, str] | None = None
     parent_conversation_id: str | None = None
     root_conversation_id: str | None = None
+    selected_branch: str | None = None
+    cloud_updated_at: str | None = None

@@ -286,11 +286,14 @@ class SyncManager:
         # directly" (sequential / non-pool path).
         self._db_writer_lock = threading.Lock()
         # Each queued tuple is
-        # (conv_id, location, cloud_updated_at, parent_conversation_id).
+        # (conv_id, location, cloud_updated_at, parent_conversation_id,
+        #  selected_branch).
         # parent_conversation_id was added in Issue #108; ``None`` means
         # the conversation has no parent (i.e. is a root).
+        # selected_branch was added in Issue #114 Phase C; ``None`` means
+        # no branch info in the trajectory ``meta.json``.
         self._pending_cloud_updated_at: (
-            list[tuple[str, str, str | None, str | None]] | None
+            list[tuple[str, str, str | None, str | None, str | None]] | None
         ) = None
 
     def sync(
@@ -505,7 +508,7 @@ class SyncManager:
         max_new: int | None,
         result: SyncResult | None = None,
     ) -> list[tuple[dict, str]]:
-        """Build the work list from cloud_listing vs manifest diff.
+        """Build the work list from cloud_listing vs DB diff.
 
         Returns ``[(conv_dict, action), ...]`` where ``action`` is one
         of ``"new"`` (missing locally), ``"updated"`` (stale locally),
@@ -517,12 +520,15 @@ class SyncManager:
         ``updated_at`` older than ``since`` drop out, matching the
         ``--since`` UX after #111.
 
-        **Source-of-truth**: the manifest (per AGENTS.md item #27 —
-        "manifest stays authoritative until #114"). The conversations
-        table is consulted as a *consistency check* on
-        ``cloud_updated_at`` (set-diff helpers on
-        :class:`CloudListingStore`), but the manifest is what the
-        engine compares against and what the engine mutates.
+        **Source-of-truth** (Issue #114 Phase C): the
+        ``conversations.cloud_updated_at`` column is canonical. The
+        manifest is still dual-written for one release for downgrade
+        safety, but the sync gate now compares against the DB. The
+        manifest is consulted only as a cold-upgrade fallback when
+        the DB column is NULL on a row that has a manifest entry —
+        migration 021 backfills the gap on upgrade, so this fallback
+        primarily protects users whose first post-upgrade run is
+        racing the backfill.
         """
         # Pre-strip every manifest key into its dashless form for O(1)
         # set-diff comparisons. Manifest may carry either shape per
@@ -530,6 +536,11 @@ class SyncManager:
         manifest_norm: dict[str, str] = {
             mid.replace("-", ""): mid for mid in self.manifest.conversations
         }
+
+        # Phase C: load the DB's view of ``cloud_updated_at`` for every
+        # locally-known cloud conversation. This is the canonical store
+        # we gate against; the manifest is now back-compat only.
+        db_cloud_updated_at: dict[str, str | None] = self._load_db_cloud_updated_at(conn)
 
         work: list[tuple[dict, str]] = []
         seen_in_cloud: set[str] = set()  # for the removed-from-cloud reconciliation below
@@ -554,19 +565,20 @@ class SyncManager:
                     work.append((conv, "new"))
                 continue
 
-            manifest_key = manifest_norm.get(cid)
-            if manifest_key is None:
-                # Missing locally — download as "new".
+            cloud_ts = conv.get("updated_at") or ""
+            local_ts = self._resolve_local_cloud_updated_at(
+                cid, db_cloud_updated_at, manifest_norm
+            )
+
+            if local_ts is None:
+                # Missing locally — download as "new". "None" means
+                # neither the DB nor the manifest knows about this
+                # conversation.
                 if _passes_since_filter(conv, since):
                     work.append((conv, "new"))
                 continue
 
-            # Present locally: compare cloud_updated_at to detect drift.
-            cloud_ts = conv.get("updated_at") or ""
-            manifest_entry = self.manifest.conversations.get(manifest_key) or {}
-            manifest_ts = manifest_entry.get("updated_at") or ""
-
-            if not manifest_ts or cloud_ts != manifest_ts:
+            if not local_ts or cloud_ts != local_ts:
                 # Stale (or never recorded). Use != not > so a
                 # server-side rewind also reconciles. Scenario #3.
                 if _passes_since_filter(conv, since):
@@ -578,21 +590,39 @@ class SyncManager:
             # without us recomputing it.
 
         # Removed-from-cloud reconciliation: drop manifest entries
-        # that disappeared from the listing. #113 will add the
-        # user-facing report; #111 just keeps the manifest coherent so
-        # the property tests pass (scenario #15). Emit a WARNING so
-        # accidental cloud-side data loss or permission changes
-        # surface in the log rather than silently shrinking the
-        # manifest — bot-review feedback on this PR.
+        # that disappeared from the listing AND clear the
+        # ``conversations.cloud_updated_at`` cursor so the Phase C
+        # gate matches the manifest's "I have nothing here" view.
+        # Phase C does **not** delete DB rows in regular sync — that
+        # is #113's ``--repair --fix --prune`` path. Clearing the
+        # cursor instead is enough for the engine to recognize a
+        # visibility-restore as a fresh download.
+        #
+        # We base the iteration on the UNION of known-cloud-local
+        # stores so a DB row that has no manifest counterpart still
+        # gets counted for ``result.removed_from_cloud`` — and a
+        # manifest entry that has no DB counterpart still gets
+        # cleaned up.
         removed_count = 0
-        for normalized, manifest_key in list(manifest_norm.items()):
+        cleared_in_db: list[str] = []
+        all_local_norm = set(manifest_norm) | set(db_cloud_updated_at)
+        for normalized in all_local_norm:
             if normalized in seen_in_cloud:
                 continue
-            del self.manifest.conversations[manifest_key]
+            manifest_key = manifest_norm.get(normalized)
+            if manifest_key is not None:
+                del self.manifest.conversations[manifest_key]
+            if (
+                normalized in db_cloud_updated_at
+                and db_cloud_updated_at[normalized] is not None
+            ):
+                cleared_in_db.append(normalized)
             removed_count += 1
+        if cleared_in_db:
+            self._clear_cloud_updated_at(conn, cleared_in_db)
         if removed_count:
             log.warning(
-                "Removed %d conversation(s) from manifest "
+                "Removed %d conversation(s) from local sync state "
                 "(no longer visible in cloud listing).",
                 removed_count,
             )
@@ -603,6 +633,106 @@ class SyncManager:
             result.removed_from_cloud = removed_count
 
         return work
+
+    def _load_db_cloud_updated_at(self, conn) -> dict[str, str | None]:
+        """Phase C of #114: map normalized cloud conv_id → cloud_updated_at.
+
+        Reads ``conversations.cloud_updated_at`` for every row where
+        ``source = 'cloud'``. Returns ``{}`` on a pre-#112 schema
+        (table or column missing) so the manifest fallback in
+        :meth:`_resolve_local_cloud_updated_at` keeps working during
+        the cold-upgrade window.
+
+        Returned values can be ``None`` for rows whose
+        ``cloud_updated_at`` has not been backfilled yet (migration 021
+        runs once on upgrade and migration 018 ran once on pre-Phase-C
+        upgrade — but a freshly-imported row from #113's repair path
+        can still legitimately have NULL).
+        """
+        try:
+            cursor = conn.execute(
+                "SELECT id, cloud_updated_at FROM conversations "
+                "WHERE source = 'cloud'"
+            )
+        except sqlite3.OperationalError as exc:
+            log.debug(
+                "Phase C: cannot read conversations.cloud_updated_at "
+                "(%s); falling back to manifest-only gate",
+                exc,
+            )
+            return {}
+        return {row[0]: row[1] for row in cursor.fetchall()}
+
+    def _clear_cloud_updated_at(self, conn, normalized_ids: list[str]) -> None:
+        """Phase C of #114: clear the sync cursor for removed-from-cloud rows.
+
+        When the regular sync engine reconciles a removed-from-cloud
+        event, it drops the manifest entry (back-compat) and clears
+        ``conversations.cloud_updated_at`` for the matching DB row.
+        The row itself stays on disk — only #113's ``--repair --fix
+        --prune`` path actually deletes it. Clearing the cursor is
+        what makes the Phase C gate see a subsequent
+        visibility-restore as a fresh download instead of mistakenly
+        treating the stale cursor as "still in sync".
+        """
+        if not normalized_ids:
+            return
+        try:
+            conn.executemany(
+                "UPDATE conversations SET cloud_updated_at = NULL "
+                "WHERE id = ? AND source = 'cloud'",
+                [(cid,) for cid in normalized_ids],
+            )
+        except sqlite3.OperationalError as exc:
+            # Best-effort: pre-#112 schema (no column) is the only
+            # plausible cause; the manifest cleanup above is still
+            # enough to keep the gate self-consistent.
+            log.debug(
+                "Phase C: could not clear cloud_updated_at for %d "
+                "rows (%s); manifest cleanup will carry the gate",
+                len(normalized_ids), exc,
+            )
+
+    def _resolve_local_cloud_updated_at(
+        self,
+        cid: str,
+        db_cloud_updated_at: dict[str, str | None],
+        manifest_norm: dict[str, str],
+    ) -> str | None:
+        """Phase C of #114: per-conv local-side ``updated_at`` resolution.
+
+        Returns the canonical local-side ``updated_at`` for the gate
+        comparison. Resolution order:
+
+        1. DB ``conversations.cloud_updated_at`` (Phase C canonical).
+        2. Manifest ``updated_at`` (cold-upgrade fallback — applies
+           when the DB column is NULL but the legacy manifest entry
+           has a value; primarily protects users whose first
+           post-upgrade run is racing migration 021's backfill).
+        3. ``None`` if neither store knows about the conversation —
+           the caller treats this as ``"new"`` and downloads.
+
+        Note that an empty-string return value is distinct from
+        ``None``: it means "the local store has an entry for this
+        conv but never wrote ``updated_at``", which the gate treats
+        as stale (matches the pre-Phase-C behavior).
+        """
+        if cid in db_cloud_updated_at:
+            db_ts = db_cloud_updated_at[cid]
+            if db_ts:
+                return db_ts
+            # DB row exists but cloud_updated_at is NULL — fall through
+            # to manifest if it has a value; otherwise treat as stale.
+        manifest_key = manifest_norm.get(cid)
+        if manifest_key is None:
+            # Manifest doesn't know about it either. If the DB row
+            # exists with NULL, return empty string to mean "stale" so
+            # the engine refetches and writes a real timestamp.
+            if cid in db_cloud_updated_at:
+                return ""
+            return None
+        manifest_entry = self.manifest.conversations.get(manifest_key) or {}
+        return manifest_entry.get("updated_at") or ""
 
     def _add_failed_conversations(
         self, work_items: list[tuple[dict, str]]
@@ -927,8 +1057,49 @@ class SyncManager:
             log.debug("Cleaning up existing directory for %s", conv_id)
             shutil.rmtree(conv_dir)
 
-    def _determine_action(self, conv_id: str, cloud_updated_at: str, force: bool) -> str:
-        """Determine what action to take for a conversation."""
+    def _determine_action(
+        self,
+        conv_id: str,
+        cloud_updated_at: str,
+        force: bool,
+        *,
+        conn=None,
+    ) -> str:
+        """Determine what action to take for a conversation.
+
+        Issue #114 Phase C: when ``conn`` is provided this method
+        consults ``conversations.cloud_updated_at`` as the canonical
+        store, falling back to the manifest only when the DB has no
+        usable value (the cold-upgrade window before migration 021's
+        backfill catches up).
+
+        ``conn`` defaults to ``None`` to keep the legacy test path in
+        ``TestSyncManagerMaxNew`` (``tests/unit/test_sync.py``)
+        working — those tests seed ``manager.manifest.conversations``
+        directly without a DB, and the manifest-only branch
+        preserves the pre-Phase-C contract for them. Production code
+        goes through :meth:`_categorize_via_set_diff` (which is DB-
+        canonical) and does not call this method.
+        """
+        if conn is not None:
+            try:
+                row = conn.execute(
+                    "SELECT cloud_updated_at FROM conversations "
+                    "WHERE source = 'cloud' AND id = ?",
+                    (conv_id.replace("-", ""),),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                row = None
+            if row is not None:
+                db_ts = row[0]
+                if db_ts:
+                    if force or db_ts < cloud_updated_at:
+                        return "updated"
+                    return "unchanged"
+                # DB row exists but cloud_updated_at is NULL — fall
+                # through to manifest fallback, then to "new" if the
+                # manifest also has no entry.
+
         local_info = self.manifest.conversations.get(conv_id)
         if not local_info:
             return "new"
@@ -959,7 +1130,16 @@ class SyncManager:
             log.debug("Downloading %s", conv_id)
             zip_bytes = client.download_trajectory(conv_id)
             conv_dir = self.exporter.export_from_zip_bytes(conv_id, zip_bytes)
-            self._update_manifest_entry(conv, conv_id, cloud_updated_at, conv_dir)
+            # Read selected_branch once from the freshly-exported
+            # ``base_state.json`` (mirrored from the trajectory ZIP's
+            # ``meta.json``). Shared between the manifest write (back-
+            # compat) and the Phase C DB write below so the two
+            # stores cannot diverge on this field.
+            selected_branch = _read_selected_branch(conv_dir)
+            self._update_manifest_entry(
+                conv, conv_id, cloud_updated_at, conv_dir,
+                selected_branch=selected_branch,
+            )
             if conn is not None:
                 self._record_cloud_download_in_db(
                     conn,
@@ -967,6 +1147,18 @@ class SyncManager:
                     conv_dir,
                     cloud_updated_at,
                     parent_conversation_id=conv.get("parent_conversation_id"),
+                    selected_branch=selected_branch,
+                    # Issue #114 Phase C: write the editable-cloud
+                    # metadata fields straight to the DB so the
+                    # canonical store stays in sync with the cloud
+                    # listing payload that drove this download. The
+                    # scanner used to be the only writer for these
+                    # columns; Phase C makes sync the writer at
+                    # download time too.
+                    title=conv.get("title"),
+                    labels=conv.get("tags"),
+                    selected_repository=conv.get("selected_repository"),
+                    created_at=conv.get("created_at"),
                 )
             log.debug("Downloaded %s (%s)", conv_id, action)
             return action
@@ -989,12 +1181,21 @@ class SyncManager:
         cloud_updated_at: str,
         *,
         parent_conversation_id: str | None = None,
+        selected_branch: str | None = None,
+        title: str | None = None,
+        labels: dict | None = None,
+        selected_repository: str | None = None,
+        created_at: str | None = None,
     ) -> None:
         """Persist post-download cloud metadata.
 
-        Writes ``conversations.cloud_updated_at`` (Issue #112) and
-        ``conversations.parent_conversation_id`` (Issue #108) after a
-        successful download.
+        Writes ``conversations.cloud_updated_at`` (Issue #112),
+        ``conversations.parent_conversation_id`` (Issue #108),
+        ``conversations.selected_branch`` (Issue #114 Phase C —
+        migration 021), and the editable cloud metadata fields
+        ``title`` / ``labels`` / ``selected_repository`` /
+        ``created_at`` (Issue #114 Phase C) after a successful
+        download.
 
         Best-effort: a DB-side failure is logged but does not bubble up
         through the download path. SQLite connections are not
@@ -1017,6 +1218,11 @@ class SyncManager:
                         str(conv_dir),
                         cloud_updated_at or None,
                         parent_conversation_id or None,
+                        selected_branch or None,
+                        title,
+                        labels,
+                        selected_repository,
+                        created_at,
                     )
                 )
                 return
@@ -1027,6 +1233,15 @@ class SyncManager:
                 location=str(conv_dir),
                 cloud_updated_at=cloud_updated_at or None,
                 parent_conversation_id=parent_conversation_id or None,
+                selected_branch=selected_branch or None,
+            )
+            self._write_phase_c_metadata(
+                store,
+                conv_id,
+                title=title,
+                labels=labels,
+                selected_repository=selected_repository,
+                created_at=created_at,
             )
             conn.commit()
         except Exception as exc:  # pragma: no cover - defensive
@@ -1049,18 +1264,80 @@ class SyncManager:
             return
         try:
             store = ConversationStore(conn)
-            for conv_id, location, cloud_updated_at, parent_conv_id in queued:
+            for (
+                conv_id,
+                location,
+                cloud_updated_at,
+                parent_conv_id,
+                selected_branch,
+                title,
+                labels,
+                selected_repository,
+                created_at,
+            ) in queued:
                 store.record_cloud_download(
                     conv_id,
                     location=location,
                     cloud_updated_at=cloud_updated_at,
                     parent_conversation_id=parent_conv_id,
+                    selected_branch=selected_branch,
+                )
+                self._write_phase_c_metadata(
+                    store,
+                    conv_id,
+                    title=title,
+                    labels=labels,
+                    selected_repository=selected_repository,
+                    created_at=created_at,
                 )
             conn.commit()
         except Exception as exc:  # pragma: no cover - defensive
             log.warning(
                 "Failed to flush %d queued cloud_updated_at writes: %s",
                 len(queued), exc,
+            )
+
+    def _write_phase_c_metadata(
+        self,
+        store: ConversationStore,
+        conv_id: str,
+        *,
+        title: str | None,
+        labels: dict | None,
+        selected_repository: str | None,
+        created_at: str | None,
+    ) -> None:
+        """Issue #114 Phase C: write the editable cloud metadata fields.
+
+        Called right after :meth:`ConversationStore.record_cloud_download`
+        so the DB row carries the canonical title / labels /
+        selected_repository / created_at right out of the download.
+        Without this, the scanner used to be the only writer for these
+        columns — meaning a freshly-downloaded cloud conv showed up in
+        Phase C readers (like ``get_status`` or the scanner overlay)
+        with NULL editable metadata until ``db scan`` ran.
+
+        ``created_at`` is the listing-API ISO string; we parse it
+        through :func:`_parse_datetime` to match
+        :meth:`ConversationStore.update_metadata`'s contract (datetime
+        or None — raw strings raise ``TypeError`` there).
+        """
+        parsed_created_at: datetime | None = None
+        if isinstance(created_at, str) and created_at:
+            parsed_created_at = _parse_datetime(created_at)
+        normalized_labels = _normalize_labels(labels)
+        try:
+            store.update_metadata(
+                conv_id,
+                title=title,
+                labels=normalized_labels,
+                selected_repository=selected_repository,
+                created_at=parsed_created_at,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            log.debug(
+                "Phase C: update_metadata failed for %s (%s); cursor write still landed",
+                conv_id, exc,
             )
 
     def _record_failure(self, result: SyncResult, conv_id: str, error: str) -> None:
@@ -1086,6 +1363,8 @@ class SyncManager:
         conv_id: str,
         cloud_updated_at: str,
         conv_dir: Path,
+        *,
+        selected_branch: str | None = None,
     ) -> None:
         """Update the manifest with new conversation info.
 
@@ -1095,10 +1374,26 @@ class SyncManager:
         is read from the freshly-extracted ``base_state.json`` (mirrored
         from the trajectory ZIP's ``meta.json`` by the exporter) — it is
         NOT in the cloud listing payload.
+
+        Issue #114 Phase C: ``selected_branch`` is now passed in by
+        the caller so the manifest write and the DB write
+        (``_record_cloud_download_in_db``) see the same value from a
+        single ``_read_selected_branch`` invocation. When the caller
+        omits the argument we fall back to reading from disk to
+        preserve the pre-Phase-C contract.
         """
         # Extract labels/tags from API response (may be empty dict or None)
         tags = conv.get("tags")
         labels = tags if tags and isinstance(tags, dict) and len(tags) > 0 else None
+
+        # Back-compat: the pre-Phase-C signature did not accept
+        # ``selected_branch``; callers that haven't been updated yet
+        # still see a single read from disk inside this function.
+        resolved_branch = (
+            selected_branch
+            if selected_branch is not None
+            else _read_selected_branch(conv_dir)
+        )
 
         self.manifest.conversations[conv_id] = {
             "title": conv.get("title"),
@@ -1108,7 +1403,7 @@ class SyncManager:
             "labels": labels,
             # Issue #87: full cloud metadata cache.
             "selected_repository": conv.get("selected_repository"),
-            "selected_branch": _read_selected_branch(conv_dir),
+            "selected_branch": resolved_branch,
             "created_at": conv.get("created_at"),
         }
 
@@ -1166,15 +1461,74 @@ class SyncManager:
         _mirror_sync_state_to_db(self.manifest, conn=conn)
 
     def get_status(self) -> dict:
-        """Get current sync status."""
-        total_events = sum(c.get("event_count", 0) for c in self.manifest.conversations.values())
+        """Get current sync status.
+
+        Issue #114 Phase C: ``total_events`` and ``total_conversations``
+        now read from the DB (the scanner-maintained live counts) when
+        a DB is reachable, falling back to the manifest's
+        download-time snapshot otherwise. This fixes the
+        :ref:`brittle-spot-5 <brittle-spot-5>` reported in
+        ``docs/reference/sync-state-ownership.md`` — the manifest
+        ``event_count`` was captured at download time and went stale
+        whenever the agent kept emitting events after the sync ran.
+
+        ``last_sync_at`` / ``sync_count`` / ``pending_retries`` keep
+        reading from ``self.manifest`` because Phase B's
+        :func:`_overlay_sync_state_from_db` already populates that
+        view from ``sync_kv`` on every ``SyncManager.__init__``.
+        """
+        total_conversations, total_events = self._read_db_event_count_summary()
+        if total_conversations is None or total_events is None:
+            # Fallback: manifest snapshot (pre-Phase-C behavior).
+            total_conversations = len(self.manifest.conversations)
+            total_events = sum(
+                c.get("event_count", 0)
+                for c in self.manifest.conversations.values()
+            )
         return {
             "last_sync_at": self.manifest.last_sync_at,
             "sync_count": self.manifest.sync_count,
-            "total_conversations": len(self.manifest.conversations),
+            "total_conversations": total_conversations,
             "total_events": total_events,
             "pending_retries": len(self.manifest.failed_ids),
         }
+
+    def _read_db_event_count_summary(self) -> tuple[int | None, int | None]:
+        """Phase C of #114: live-count cloud convs + sum their event_count.
+
+        Returns ``(total_conversations, total_events)`` from the DB. On
+        any failure (DB file missing, table missing on a pre-#112
+        schema, sqlite read error) returns ``(None, None)`` so
+        :meth:`get_status` falls back to its manifest snapshot.
+
+        Cloud-only filter: matches the manifest's per-conv set
+        (``self.manifest.conversations``), which only carries cloud
+        convs — local CLI convs live in
+        ``~/.openhands/conversations`` and never enter the manifest.
+        """
+        try:
+            db_path = get_db_path()
+        except Exception:  # pragma: no cover - defensive
+            return (None, None)
+        if not db_path.exists():
+            return (None, None)
+        try:
+            conn = sqlite3.connect(db_path)
+        except sqlite3.Error:
+            return (None, None)
+        try:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(event_count), 0) AS ev "
+                "FROM conversations WHERE source = 'cloud'"
+            ).fetchone()
+            if row is None:
+                return (None, None)
+            return (int(row["n"]), int(row["ev"]))
+        except sqlite3.Error:
+            return (None, None)
+        finally:
+            conn.close()
 
     def get_local_conversation_count(self) -> int:
         """Get count of locally synced conversations."""
