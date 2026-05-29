@@ -13,9 +13,9 @@ uv run ohtv --help         # Run CLI
 
 ## Releases & Commit Contract
 
-Releases are automated by [release-please](https://github.com/googleapis/release-please) on every push to `main`. It opens (and keeps current) a single "release PR" that bumps the version in `pyproject.toml` and `src/ohtv/__init__.py`, regenerates `CHANGELOG.md`, and on merge tags `vX.Y.Z` and creates the GitHub release.
+Releases are automated by [python-semantic-release](https://python-semantic-release.readthedocs.io/) on every push to `main`. There is **no release PR**: the workflow parses the new conventional-commit subject(s) since the last `ohtv-vX.Y.Z` tag, bumps the version in `pyproject.toml` and `src/ohtv/__init__.py`, appends a new section to `CHANGELOG.md`, commits all three with `chore(release): ohtv X.Y.Z [skip ci]` directly to `main`, pushes the new tag, and creates the GitHub Release. End-to-end takes ~30 seconds. If no commits since the last tag warrant a bump, the workflow exits cleanly with no side effects.
 
-Release-please reads the **subject line** of each commit on `main` and classifies it by [Conventional Commits](https://www.conventionalcommits.org/). The contract:
+The workflow reads the **subject line** of each commit on `main` and classifies it by [Conventional Commits](https://www.conventionalcommits.org/). The contract:
 
 | Subject pattern                                            | Bumps version | Appears in CHANGELOG |
 |------------------------------------------------------------|---------------|----------------------|
@@ -28,10 +28,12 @@ Release-please reads the **subject line** of each commit on `main` and classifie
 Concrete rules for this repo:
 
 - **PR squash-merges** become the release-triggering commits. The PR title is the squash subject, so every PR title MUST be a conventional-commit subject. This is enforced by `.github/workflows/pr-title.yml`.
-- **Direct pushes to `main` for orchestrator / worklog activity** MUST use `chore(worklog):` or `docs(worklog):` subjects so they are silently ignored by release-please. Never write `Update WORKLOG.md` or similar — that bypasses every safeguard by accident.
+- **Direct pushes to `main` for orchestrator / worklog activity** MUST use `chore(worklog):` or `docs(worklog):` subjects so they are silently ignored by the release workflow. Never write `Update WORKLOG.md` or similar — that bypasses every safeguard by accident.
+- **Concurrent merges produce separate releases.** Unlike the previous release-please setup, there is no batching: if two `feat:` PRs merge a minute apart you'll see two tags (e.g. `ohtv-v0.15.0` and `ohtv-v0.15.1`). The `concurrency` group on the workflow serialises the runs so they don't race, but each gets its own release.
+- **The auto-generated `chore(release):` commit carries `[skip ci]`** so it doesn't re-trigger the workflow. Don't strip that marker.
 - **PyPI publish is intentionally not configured.** If we ever want it, hang a `release-published` workflow off the GitHub Release event.
 
-See `.github/workflows/release-please.yml`, `release-please-config.json`, and `CHANGELOG.md`.
+See `.github/workflows/release.yml`, the `[tool.semantic_release]` block in `pyproject.toml`, and `CHANGELOG.md`.
 
 ## Code Structure
 
