@@ -10478,6 +10478,25 @@ def classify(
         )
         raise SystemExit(1)
 
+    # Self-healing (issue #126): sub-conversations are deterministically
+    # 'automation' (the parent agent's delegated task description, not a
+    # human request). Run this on every invocation so any residual
+    # 'human' / 'unknown' on subs — including the residue of a pre-fix
+    # ``--has-followups --source human`` bulk run — is corrected
+    # automatically. No new flag, no LLM, single SQL UPDATE.
+    try:
+        with get_connection() as conn:
+            classify_mod._assert_parent_column_present(conn)
+            sub_changed = classify_mod.apply_sub_classification(conn)
+    except RuntimeError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise SystemExit(1) from exc
+    if sub_changed:
+        console.print(
+            f"[dim]Auto-classified {sub_changed} sub-conversation(s) "
+            "as 'automation'.[/dim]"
+        )
+
     if conversation_id:
         _classify_single(classify_mod, get_connection, conversation_id, source)
         return

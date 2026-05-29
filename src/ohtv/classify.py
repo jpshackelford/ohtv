@@ -334,6 +334,71 @@ def count_matching(
     return int(cur.fetchone()[0])
 
 
+def _assert_parent_column_present(conn: sqlite3.Connection) -> None:
+    """Guardrail: verify migration 019 (``parent_conversation_id``) has run.
+
+    Mirrors the #123 / #124 / #125 pattern. Raised at runtime (not
+    import time) so the CLI can format a friendly error and exit before
+    any classification work happens.
+
+    The issue body (#126) refers to this as "migration 018" because the
+    parent column was committed to ``018_parent_conversation_id.py``
+    pre-merge; it was renumbered to ``019_parent_conversation_id.py``
+    when the set-diff-sync schema landed first. The check is on the
+    column name, not the migration filename, so the error message
+    points users at the actual repair path (``ohtv db scan`` reapplies
+    pending migrations regardless of number).
+    """
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(conversations)")}
+    if "parent_conversation_id" not in cols:
+        raise RuntimeError(
+            "classify requires migration 019 (parent_conversation_id); "
+            "run 'ohtv db scan' to apply pending migrations"
+        )
+
+
+def apply_sub_classification(conn: sqlite3.Connection) -> int:
+    """Set ``initial_prompt_source='automation'`` on every sub-conversation.
+
+    A "sub-conversation" is one whose ``conversations.parent_conversation_id``
+    is non-NULL (populated by migration 019, originally proposed as 018
+    in #108). This is the one deterministic label in the system: a sub
+    is by construction initiated by the parent agent, not a human.
+
+    Unlike :func:`apply_classification` (#83), this CAN overwrite rows
+    whose current value is ``'human'`` or ``'unknown'`` — those values
+    are wrong for subs and the helper is idempotent in either direction.
+    Returns the number of rows actually changed (``0`` on a second
+    identical run by construction).
+
+    Issue #126. Self-healing: every ``ohtv classify`` invocation runs
+    this before its mode-specific work, so any residual mis-classification
+    (e.g. from a pre-fix ``--has-followups --source human`` bulk run that
+    flipped subs to ``'human'`` because subs frequently have follow-ups
+    from the orchestrating agent) is corrected automatically. No new flag
+    is added.
+
+    The ``UPDATE ... WHERE EXISTS (...)`` form silently skips subs that
+    have no ``conversation_human_input`` row yet (the ``human_input``
+    stage hasn't processed them) — there's nothing to update. No
+    exception, no special-case branch.
+    """
+    cur = conn.execute(
+        """
+        UPDATE conversation_human_input AS chi
+        SET initial_prompt_source = 'automation'
+        WHERE chi.initial_prompt_source <> 'automation'
+          AND EXISTS (
+              SELECT 1 FROM conversations c
+              WHERE c.id = chi.conversation_id
+                AND c.parent_conversation_id IS NOT NULL
+          )
+        """
+    )
+    conn.commit()
+    return cur.rowcount or 0
+
+
 def apply_classification(
     conn: sqlite3.Connection,
     *,
@@ -514,7 +579,9 @@ __all__ = [
     "Source",
     "UnknownRow",
     "VALID_SOURCES",
+    "_assert_parent_column_present",
     "apply_classification",
+    "apply_sub_classification",
     "count_matching",
     "list_unknown",
     "set_single",
