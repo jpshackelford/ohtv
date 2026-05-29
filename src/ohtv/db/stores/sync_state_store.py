@@ -21,9 +21,17 @@ Documented (non-exhaustive) keys:
   the snapshot finished. Same writers/readers as above.
 * ``last_snapshot_count`` (int) — number of cloud_listing rows in the
   committed snapshot. Same writers/readers.
-* ``last_sync_at`` (str, ISO 8601 UTC) — dual-written by #111 alongside
-  the manifest field of the same name. Pure UX field; never consumed by
-  the sync engine as a gate.
+* ``last_sync_at`` (str, ISO 8601 UTC) — dual-written alongside the
+  manifest field of the same name. Pure UX field; never consumed by
+  the sync engine as a gate. #111 began the dual-write; #114 Phase B
+  completes the read-side flip.
+* ``sync_count`` (int) — running counter of successful sync runs.
+  Dual-written with the manifest by #114 Phase B.
+* ``failed_ids`` (JSON array of str) — conversation ids that failed
+  the most recent sync. Dual-written with the manifest by #114 Phase B.
+  Stored as a single JSON-encoded array (one row) rather than a row
+  per id — the set is small (typically empty or a handful) and the
+  read-side wants the whole list at once.
 """
 
 from __future__ import annotations
@@ -32,6 +40,13 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
+
+# Canonical key names for the sync-state scalars drained from the
+# manifest by #114 Phase B. Imported by ``ohtv.sync`` so the dual-write
+# and overlay paths agree on the spelling.
+KEY_LAST_SYNC_AT = "last_sync_at"
+KEY_SYNC_COUNT = "sync_count"
+KEY_FAILED_IDS = "failed_ids"
 
 
 def _utc_now_iso() -> str:
