@@ -624,3 +624,72 @@ Merged PR #143 (Phase B of Issue #114).
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 15:18 UTC - Orchestrator
+
+**Active Workers (at cycle entry):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `604e570` | merge | PR #143 - Phase B of #114 | finished ✓ (merged `0792f987` @ 14:52:56Z) |
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c6f7ba1` | implementation | Issue #114 Phase C - per-conv cloud metadata → DB | **NEW** running |
+
+**Action Taken: Spawned implementation worker for #114 Phase C.**
+
+This matches the 14:51Z forecast exactly: "if Phase B merged by 15:21Z → spawn next impl worker for #114 Phase C (next priority:medium ready row after #114 Phase B ships)". Phase B did merge (within the predicted 5-15 min envelope — merge worker `604e570` ran ~1 min), so the slot opened up cleanly. Phase D remains parked behind a release cadence; Phase C is implementable now.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced code blocks).
+- **Expansion slot:** OPEN, IDLE. **27th consecutive idle expansion cycle.** 0 issues need expansion (`gh issue list --json labels --jq '[.[] | select(.labels | map(.name) | (contains(["ready"]) or contains(["hold"])) | not)] | length'` → 0). All ready-queue churn is on the PR slot.
+- **PR slot at entry:** OPEN (no active PR worker). Two open PRs, both still blocked on external action:
+  - **[PR #141](https://github.com/jpshackelford/ohtv/pull/141)** @ `2b88202`: `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `statusCheckRollup=[]`. **Cycle 7 on the Actions-policy gate.** Skip — human action required.
+  - **[PR #142](https://github.com/jpshackelford/ohtv/pull/142)** @ release-please for `ohtv-v0.15.0`: `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `statusCheckRollup=[]`. **Bot-managed**, also missing CI. After #143 merged (`feat(sync): dual-write…`), release-please is expected to recompute the batch and likely re-title to `ohtv-v0.16.0` or append to the existing PR. **Observe only.**
+- **Decision tree row matched:** "No (actionable) open PR + ready issues with priority → Spawn impl worker for highest priority ready issue." Highest priority ready issue = **#114 (priority:medium)**. Phase B just shipped on `main`; Phase C is unblocked (deps #109 ✓ closed, #112 ✓ closed). Phase D stays queued behind the release cadence (#141/#142 are the bottleneck — orchestrator tracks but does not act).
+- **Precedent for "two open phantom PRs + new impl spawn":** the 14:51Z cycle already established that #141/#142 being stuck on external action does not block the PR slot from accepting a new actionable worker. This is the second cycle to apply that rule.
+
+**Spawn details:**
+
+- **Conv:** [`c6f7ba1`](https://app.all-hands.dev/conversations/c6f7ba1707f043ed98e78966444511a6). Start task `e198a4e1…` → READY on first poll (≤5s, fastest start so far) → `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 15:18:30Z. (Title cosmetically shows "Conversation c6f7b" — same sandbox quirk noted for `604e570` / `c189fe4` / `d247987`. Non-blocking.)
+- **Plugin:** `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- **Prompt scope highlights** (pre-baked, no inference required from worker):
+  - **Branch name:** `feat/per-conv-metadata-to-db-114c`.
+  - **Conventional-commit subject:** `feat(sync): make DB canonical for per-conv cloud metadata (Phase C of #114)`. release-please will pick this as a minor bump.
+  - **`Refs #114` footer (not `Fixes`)** — issue stays open for Phase D, per established convention (#137 set the precedent, #143 reaffirmed).
+  - **Migration number:** next available after Phase B's migration (told to grep `src/ohtv/db/migrations/` to find it).
+  - **Scope hard limits:** **do NOT** delete manifest reads/writes (that's Phase D). Dual-write pattern preserved for one release, mirroring Phase B's pattern in PR #143 commit `0792f987`. **Do NOT touch PRs #141 or #142.**
+  - **AC checklist** pre-baked from Issue #114 §4 (Phase C subsection) — 7 items + file:line citations from `docs/reference/sync-state-ownership.md` to localize the work.
+  - **Worker completion contract:** push DRAFT → CI green → `gh pr ready` → log `chore(worklog):` entry → EXIT. Docs/testing/review/merge handled by separate workers.
+- **Silent-exit risk:** 1st impl worker spawned since the precedent set by `d247987` (Phase B impl, ran to completion). The 11:48Z testing worker for PR #138 silent-exited; the merge worker `ce1657e` for PR #138 also silent-exited (escape-hatch inline-merge triggered). Hypothesis from 14:51Z was that silent-exit was PR-#138-specific. This cycle is the second data point on the "non-#138-related work runs end-to-end" theory. **Escape hatch pre-committed:** if `c6f7ba1` silent-exits at the spawn boundary (no commits pushed within ~25 min), next-cycle orchestrator will check the conversation logs, decide whether to respawn with the same prompt or inline-implement.
+
+**One action per wake-up:** ✓ one spawn.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned worker). **37th consecutive productive cycle.** Not at risk.
+
+**Current State (post-spawn):**
+
+- **Open PRs (2 phantom + 1 incoming = 3):**
+  - [PR #141](https://github.com/jpshackelford/ohtv/pull/141): blocked on Actions policy. **Human action required.** Cycle 7.
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): release-please for `ohtv-v0.15.0` (may auto-rebatch to v0.16.0 after #143 merged). **Bot-managed.**
+  - (incoming) PR for #114 Phase C: worker `c6f7ba1` will draft & open it in ~15-30 min.
+- **Need expansion (0):** ✓ (27th consecutive idle cycle).
+- **Ready w/ priority:medium (1):** #114 (Phase C now being implemented; Phase D blocked on release cadence).
+- **Ready w/o priority (8):** #116, #121, #123–#128.
+- **On hold (2):** #26, #90.
+
+**Forecast for next cycle (~15:48Z window):**
+
+1. **PR slot — most-likely action:** check `c6f7ba1` status. Phase C is a medium-complexity refactor (one new migration + scanner overlay flip + sync gate flip + 1 test marker flip + 2 docs edits). Expected envelope: 25-50 min to draft PR open with CI green. If `c6f7ba1` is still running at 15:48Z → no action this cycle (worker is iterating CI). If finished and PR exists → handle PR state per decision tree (docs check → testing → review → merge).
+2. **PR #142 (release-please):** may have recomputed and updated title to `ohtv-v0.16.0` (or similar) following the `feat(sync):` merge from PR #143. Still blocked on Actions policy.
+3. **PR #141:** unchanged unless human intervened on Actions policy in the window.
+4. **Expansion slot:** unchanged, IDLE (28th cycle pending).
+5. **Silent-exit risk:** see above. If `c6f7ba1` silent-exits before pushing any commits, escape hatch is respawn-with-same-prompt or inline-implement.
+6. **Worklog truncation:** at 707+ lines now (after this entry). Oldest entry is 11:48Z (3.5h old this cycle, 4h next cycle). Still within the 6-hour productive window. Next-cycle orchestrator should archive 11:48Z entry once it crosses ~17:48Z, dropping ~85 lines.
+
+**Sync notes:** Fresh container this cycle. `uv sync` + `uv pip install -q git+https://github.com/jpshackelford/lxa.git` to project venv (the `uv pip install --system` path failed in prior cycles; using the project venv via `uv run` works cleanly). `ohtv` is the project itself, available via `uv run ohtv`. `ohtv sync` was skipped this cycle (not strictly needed for orchestrator state-gathering; `gh` + API calls cover everything). `gh` 2.92.0 via `GH_TOKEN=$github_token`. `lxa repo add jpshackelford/ohtv` spawned a fresh "Unnamed Board 1" (ephemeral; deliberately not renamed). `lxa pr list "jpshackelford/ohtv#NNN"` form works for individual PRs.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
