@@ -1125,3 +1125,62 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 **Sync notes:** Container fresh-respawn this cycle (no `~/.local/bin` carryover, but the system Python + `gh` 2.92.0 are present). `lxa` + `ohtv` install skipped (orchestrator used direct `gh` + GraphQL queries for state — the documented fallback when sync is slow on fresh sandboxes, consistent with the last two cycles). `gh` authenticated via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY` (no rate limit). Spawn via `X-Access-Token: $OPENHANDS_API_KEY`. `git pull --ff-only origin main` confirmed up-to-date before commit (HEAD `7d540a1`).
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+### 2026-05-29 06:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `12cce68` | review | PR #136 — address `cloud_count` formula thread on `sync.py:1297` | **NEW** running |
+
+**Spawned: Review Worker for PR #136**
+- PR: [#136 — feat(sync): rewrite --repair into four-category reconciliation (#113)](https://github.com/jpshackelford/ohtv/pull/136)
+- Conversation: [`12cce68`](https://app.all-hands.dev/conversations/12cce682b81b420b93884647006117cd) — `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `selected_branch=feat/repair-four-categories-113`.
+- Start task `c2f55724…` → READY on the **1st** 5s poll (~5s — sub-second sandbox path, consistent with prior dispatches).
+- Plugin form: canonical object `{source: github:jpshackelford/.openhands, repo_path: plugins/ohtv-workflow, ref: feat/ohtv-workflow-plugin}`. `initial_message` shape per `openhands-api` skill: `{role: user, content: [{type: text, text: <prompt>}]}`. Returned shape echoes `"run": false`, but agent picks up the initial message on sandbox-ready (verified by `execution_status=running` 5s post-spawn).
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0 outside fenced code blocks).
+- **Prior cycle's testing worker `a21edac`:** `execution_status=finished`, `sandbox_status=RUNNING` (kept alive, work done). Posted the manual-test report at **05:55:16Z** (~5 min after spawn — tight, focused test run). Verdict ✅ **All blackbox tests pass; all 12 acceptance criteria verified; full unit suite matches PR description's claimed numbers exactly (1918 / 2 / 3); zero lint regression.** Test report comprehensive (T1–T9 + lint), and importantly **explicitly noted** the unresolved review thread on `src/ohtv/sync.py:1297` is not addressed (per the worker brief — review worker's job) AND that the `cloud_count` formula's correctness is **not pinned by any test** — only its execution path is exercised. That note is the actionable lead for this cycle's review worker.
+- **Expansion slot:** OPEN, IDLE. 13 open issues, 12 `ready` (3 prioritized: #113-priority:high in PR, #114 + #122 priority:medium), 2 `hold` (#26, #90). **0 need expansion.** Slot stays idle (9th consecutive idle cycle).
+- **PR slot:** OCCUPIED at cycle start (testing worker had finished, but no PR worker active until this cycle's review-worker dispatch). PR #136 state at decision time:
+  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=null`.
+  - CI: 2 of 2 required checks GREEN (`lint` SUCCESS 5s, `pytest` SUCCESS 49s) on head `c2a8f950`. `pr-review` ran once at 05:16Z (COMMENTED state).
+  - Docs comment present (05:26Z) → docs-gate satisfied.
+  - Manual-test comment present (05:55Z) with verdict **✅ ready for code review** (T1–T9 all PASS, 1918/2/3, zero lint regression).
+  - **1 unresolved review thread** on `src/ohtv/sync.py:1297` from `github-actions` (auto pr-review bot) flagging the `cloud_count` derivation formula as conceptually unclear (uses `disk_count` which mixes synced cloud + local CLI + extras to estimate cloud count; in the post-#108 four-category world we have the exact cloud-side count available from the listing snapshot). Thread ID `PRRT_kwDOR9seq86FlwB...`. Confirmed unresolved via `gh api graphql reviewThreads(first:30) | select(.isResolved == false)`.
+- **Canonical decision-tree row:** **"PR exists, ready, CI green, test results valid, 💬 > 0 → Spawn review worker."** Test results are NOT outdated (no commits since 05:25Z `c2a8f950`; both the docs commit and the test report ran on that head). No docs spot-check needed (docs were the prior cycle's bonus; no review changes intervened). Dispatched review worker.
+- One action per wake-up rule honored.
+
+**Current State:**
+
+- [PR #136](https://github.com/jpshackelford/ohtv/pull/136): `oCFcT` history, CI green (lint + pytest), ready, docs ✓, test ✅, **review worker in flight (thread on `sync.py:1297`)**. Branch `feat/repair-four-categories-113` @ `c2a8f950`.
+- Issue #113 (`priority:high`): implementation in PR #136, awaiting review-round-1 → potentially re-test → merge.
+- **Need expansion (0):** ✓ board fully expanded.
+- **Ready w/ priority:high (0):** #113 already in PR.
+- **Ready w/ priority:medium (2):** #114, #122.
+- **Ready w/o priority (8):** #116, #121, #123, #124, #125, #126, #127, #128.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ still failing on the workflow-permissions block (no change since 01:50Z diagnosis). Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`. Queue still 3 minor bumps pre-#136; will grow to 4 after #136 merges. Not blocking dispatch.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → #109 ✅ → **#113 in PR #136 (review phase)** → #114 (final).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — PR slot advanced from "test ✅" to "review in flight"). Nineteen consecutive productive cycles.
+
+**Forecast for next cycle (~06:50Z window):**
+
+- **If `12cce68` still running** → wait + log. Review workers typically take 15–35 min (set draft, read review thread, study `sync.py:1297` surroundings, either implement the fix + add a pinning test + push + verify CI green + reply+resolve thread + un-draft, OR decline with rationale + reply+resolve + un-draft). The review-thread suggestion is well-defined and the fix likely fits in ~30 LOC + 1–2 tests, so the lower end is plausible.
+- **If `12cce68` finished, thread resolved, fix pushed, CI green** → check if the code change is **significant** by the AGENTS.md heuristic (source files `.py` changed, not just tests, >50 lines). The likely fix here is small (a few lines in the formula + ~20 LOC of new test) so it falls UNDER the 50-LOC threshold; per the skill's "Heuristics for 'Significant Changes'", **re-testing is NOT required for small fix + test-only changes**. Advance straight to **merge worker**. Decision-tree row: "PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker."
+  - If the fix turns out to be larger than expected (>50 LOC of source change) → spawn **re-testing worker** instead.
+- **If `12cce68` finished but thread NOT resolved** (e.g. worker decided to decline and the reply needs human adjudication) → log status, do not spawn anything; wait for human review.
+- **If `12cce68` finished but new review threads opened by another reviewer** → spawn another review round.
+- **If `12cce68` errored or stuck** → re-spawn once with diagnostics.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until human files a new issue.
+- **Release-please:** unchanged forecast.
+
+**Sync / spawn notes:** Container fresh-respawn this cycle. `uv tool install` for `lxa` + `ohtv` succeeded after `--system` perm-denied workaround; PATH bootstrapped from `~/.local/bin`. `lxa repo add jpshackelford/ohtv` created `Unnamed Board 1` (per-sandbox board persistence; harmless). `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY`. Used `Authorization: Bearer` (per `openhands-api` skill) for spawn — **first spawn attempt at 06:19:01Z** used `X-Session-API-Key` header + non-standard `initial_user_msg` field name (legacy worklog pattern); response was `WORKING` but the request shape echoed `"initial_message": null`, meaning the field was silently dropped → conversation `1ea745c` started idle with no instructions. **Diagnosed via** `openhands-api` skill which documented the canonical `initial_message: {content: [{type: text, text: ...}]}` shape. **Second spawn at 06:24Z** used the canonical shape + Bearer auth → start task `c2f55724` → READY on 1st poll → `app_conversation_id=12cce682...`. Verified via `GET /api/v1/app-conversations?ids=12cce68...` showing `execution_status=running`, `selected_repository=jpshackelford/ohtv`, `selected_branch=feat/repair-four-categories-113`. **Cleanup of orphans:** the idle `1ea745c` (from the failed first spawn) plus a second orphan `00a1946` (from a `{}` endpoint probe used to confirm the spawn-endpoint response shape) were paused via `POST /api/v1/sandboxes/{sandbox_id}/pause` (both returned `{"success": true}`). The conversations themselves still exist (no delete endpoint visible in the skill); they will idle out naturally with `sandbox_status=PAUSED`. Lesson captured for the orchestrator: **the legacy `X-Session-API-Key` + `initial_user_msg` spawn pattern in older worklog entries is wrong / fragile.** Future orchestrator cycles should use the canonical `Authorization: Bearer` + `initial_message: {content: [{type: text, text: ...}]}` shape from the `openhands-api` skill. (Older successful spawns presumably worked because the API used to accept the alternative shape; the current production behavior silently drops the legacy field.)
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
