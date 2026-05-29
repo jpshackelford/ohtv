@@ -41,16 +41,16 @@ For each field that lives on a conversation, this table records:
 
 | Field | Manifest writer | DB writer | Canonical | Read-overlap (scan-time) |
 |---|---|---|---|---|
-| Sync-state scalars: `last_sync_at`, `sync_count`, `failed_ids` | `sync.py:1121-1142` (`_finalize_sync`); reset path `sync.py:2095-2115` | `sync_kv` mirror only (`sync.py:1149-1157`) | manifest (`sync_kv` is a write-only mirror) | n/a |
-| Per-conv cloud `updated_at` (sync gate) | `sync.py:1091` (`_update_manifest_entry`) | `conversations.cloud_updated_at` via `_record_cloud_download_in_db` (`sync.py:970-986`) | manifest (engine still compares manifest, not DB — see `sync.py:553-556`) | `_build_work_items_from_cloud_listing` (`sync.py:531-557`); legacy path `_determine_action` (`sync.py:916-924`) |
+| Sync-state scalars: `last_sync_at`, `sync_count`, `failed_ids` | `sync.py:1121-1142` (`_finalize_sync`); reset path `sync.py:2095-2115` | `sync_kv` mirror + DB-canonical overlay on `__init__` (Phase B of [#114]) | **DB** (`sync_kv`); manifest dual-written one release | n/a |
+| Per-conv cloud `updated_at` (sync gate) | `sync.py:1091` (`_update_manifest_entry`) — dual-write | `conversations.cloud_updated_at` via `_record_cloud_download_in_db` (Phase C of [#114] also writes title/labels/selected_repository/created_at/selected_branch alongside) | **DB** (engine compares `conversations.cloud_updated_at`; Phase C — `_categorize_via_set_diff`); manifest fallback for cold upgrade | `_build_work_items_from_cloud_listing` (`sync.py:531-557`); legacy path `_determine_action` (`sync.py:916-924`, now accepts `conn`) |
 | Per-conv `downloaded_at` | `sync.py:1093`, repair `sync.py:1700` | — | manifest only | n/a |
-| Per-conv `event_count` (downloaded-time snapshot) | `sync.py:1092`, repair `sync.py:1699` | — | manifest only | `--status` sums it at `sync.py:1161` |
+| Per-conv `event_count` (downloaded-time snapshot) | `sync.py:1092`, repair `sync.py:1699` | — | **DB** (`--status` sums `conversations.event_count` per Phase C of [#114]); manifest snapshot is fallback only | `--status` reads via `_read_db_event_count_summary` (`sync.py`) |
 | Per-conv `event_count` (scan-time live count) | — | `scanner.py:499-511, 516-529` (`store.upsert`) | DB | refreshed every scan via `count_events` (`scanner.py:492`) |
-| Per-conv `selected_branch` | `sync.py:1097` (from `meta.json` via `_read_selected_branch`), repair `sync.py:1704` | — | manifest only (no DB column) | `scanner.py:235-241` (presence-key gate); read at `scanner.py:263-271` |
-| Per-conv `title` | `sync.py:1090` (download) + `sync.py:1940-1947` (refresh path) | `scanner.py:499-511, 516-529` (overlay); `sync.py:1971` (`update_metadata`) | manifest ([#86]) | `scanner.py:221-228, 254-261` |
-| Per-conv `labels` | `sync.py:1094` (download) + `sync.py:1940-1947` (refresh path) | `scanner.py:499-511, 516-529` (overlay); `sync.py:1971` (`update_metadata`) | manifest ([#86]) | `scanner.py:299-311` |
-| Per-conv `selected_repository` | `sync.py:1096` (download) + `sync.py:1940-1947` (refresh path) | `scanner.py:499-511, 516-529` (overlay); `sync.py:1971` (`update_metadata`) | manifest ([#87]) | `scanner.py:235-261` |
-| Per-conv `created_at` | `sync.py:1098` (download) + `sync.py:1940-1947` (refresh path) | `scanner.py:499-511, 516-529` (overlay); `sync.py:1971` (`update_metadata`) | manifest ([#87]) | `scanner.py:235-271` |
+| Per-conv `selected_branch` | `sync.py:1097` (from `meta.json` via `_read_selected_branch`) — dual-write | `conversations.selected_branch` via `_record_cloud_download_in_db` + scanner extraction from `base_state.json` (Phase C of [#114] — migration 021) | **DB** | `scanner.py` — DB overlay wins; manifest fallback only for cold-upgrade |
+| Per-conv `title` | `sync.py:1090` (download) + `sync.py:1940-1947` (refresh path) — dual-write | `_write_phase_c_metadata` after download (Phase C of [#114]); scanner overlay; `update_metadata` (refresh) | **DB** (Phase C of [#114]); manifest dual-written one release | `scanner.py` — DB overlay wins; manifest fallback only |
+| Per-conv `labels` | `sync.py:1094` (download) + `sync.py:1940-1947` (refresh path) — dual-write | `_write_phase_c_metadata` after download (Phase C of [#114]); scanner overlay; `update_metadata` (refresh) | **DB** (Phase C of [#114]); manifest dual-written one release | `scanner.py` — DB overlay wins; manifest fallback only |
+| Per-conv `selected_repository` | `sync.py:1096` (download) + `sync.py:1940-1947` (refresh path) — dual-write | `_write_phase_c_metadata` after download (Phase C of [#114]); scanner overlay; `update_metadata` (refresh) | **DB** (Phase C of [#114]); manifest dual-written one release | `scanner.py` — DB overlay wins; manifest fallback only |
+| Per-conv `created_at` | `sync.py:1098` (download) + `sync.py:1940-1947` (refresh path) — dual-write | `_write_phase_c_metadata` after download (Phase C of [#114]); scanner overlay; `update_metadata` (refresh) | **DB** (Phase C of [#114]); manifest dual-written one release | `scanner.py` — DB overlay wins; manifest fallback only |
 | Per-conv `parent_conversation_id` | — | `sync.py:980-986` (`record_cloud_download`); scanner overlay at `scanner.py:318-324` | DB (manifest is parent-agnostic — see AGENTS.md #31) | scanner reads from `cloud_listing` via `load_cloud_listing_parents` (`scanner.py:448-455`) |
 | `id`, `location`, `registered_at`, `events_mtime` | — | `scanner.py:499-511, 516-529`; `conversation_store.py` upsert | DB | — |
 | Events-derived `updated_at` (per-conv) | — | `scanner.py:499-511, 516-529` via `extract_metadata` (`scanner.py:280-282`) | DB | — |
@@ -191,9 +191,9 @@ expanded-issue comment on [#114].
 
 | Phase | What | Depends on | Status |
 |---|---|---|---|
-| A | This document + AGENTS.md note | nothing | **This PR** |
-| B | Move sync-state scalars to `sync_state` | [#111] | Bundles **inside** [#111]'s set-diff PR (now closed — see "current state" below). |
-| C | Move per-conv cloud metadata cache to DB columns | [#109], [#112] | Separate PR, opens after [#109] + [#112] merge (both **closed**). |
+| A | This document + AGENTS.md note | nothing | ✅ Shipped (PR #137) |
+| B | Move sync-state scalars to `sync_state` | [#111] | ✅ Shipped (PR #143) |
+| C | Move per-conv cloud metadata cache to DB columns | [#109], [#112] | ✅ **This PR** — migration 021 + DB-canonical reads in sync gate + scanner overlay + `--status`. Manifest dual-written for one release. |
 | D | Retire manifest reads + writes | Phase C ships for one release | Final PR. |
 
 Companion: PR #119 ([#110] test harness) is **not** a blocker for any
@@ -242,7 +242,7 @@ bundled Phase B into [#111] because [#111] retired `last_sync_at` as the
 sync gate. [#111] has shipped; the dual-write landed; the read-side flip
 did not. Phase B is now a small standalone PR.
 
-### Phase C — per-conv cloud metadata cache to DB columns
+### Phase C — per-conv cloud metadata cache to DB columns ✅ SHIPPED
 
 Depends on:
 - [#109]'s mutex contract (closed) — without it, this is just moving the
@@ -250,39 +250,67 @@ Depends on:
 - [#112]'s `cloud_updated_at` column (closed, migration 018) — the
   foundation for retiring `manifest.conversations[*].updated_at`.
 
-Steps, in order:
+**As shipped in this PR:**
 
-1. Sync writes `conversations.cloud_updated_at` directly (it already does,
-   via `_record_cloud_download_in_db` at `sync.py:967-986` — keep it).
-2. `event_count`'s manifest snapshot is dropped; `--status` sums
-   `conversations.event_count` (the scanner-maintained live count).
-3. Scanner's `extract_metadata` reads `title` / `labels` /
-   `selected_repository` / `created_at` from the DB columns instead of
-   `load_manifest_metadata()`. The `skip_base_state` shortcut from [#87]
-   stays — it just keys on DB columns being populated rather than manifest
-   keys being present.
-4. One-time backfill migration copies any non-NULL manifest value that
-   the DB lacks. Runs once via `maintenance_tasks` (AGENTS.md item #25).
-5. **Add `conversations.selected_branch` column** (migration 020-ish).
-   Sync's `_update_manifest_entry` (`sync.py:1097`) and
-   `_build_repaired_manifest_entry` (`sync.py:1703`) start writing it to
-   the DB too. The cold-start case where the cloud listing has the conv
-   but no trajectory has been downloaded yet leaves the column NULL until
-   the first download fills it. This is the **only** new sync write to
-   `conversations` permitted by the [#109] column-ownership table — every
-   other column in Phase C is already on sync's side.
-6. Fix brittle spot #7 on the DB-overlay path while we're rewriting it —
-   an explicit-None DB value should clear the title, same as
-   `created_at`'s handling at `scanner.py:268-271`.
+1. Sync writes `conversations.cloud_updated_at` directly via
+   `_record_cloud_download_in_db` (already existed in #112). The Phase
+   C addition: `_categorize_via_set_diff` now **reads** the DB column
+   as the canonical sync gate instead of the manifest entry. Manifest
+   fallback retained for the cold-upgrade window. The legacy
+   `_determine_action` shim now accepts an optional `conn` to do the
+   same thing (production callers go through `_categorize_via_set_diff`;
+   `_determine_action` is test-only back-compat).
+2. `--status` sums `conversations.event_count` via
+   `_read_db_event_count_summary` (the scanner-maintained live count).
+   Manifest snapshot remains the fallback only when the DB is
+   unreachable (fresh install, schema mid-migration). Brittle spot #5
+   is now closed.
+3. Scanner's `extract_metadata` takes a `db_overlay: Conversation |
+   None` argument. When the cloud-source DB row carries non-NULL
+   values for `title` / `labels` / `selected_repository` /
+   `created_at` / `selected_branch`, those win over the manifest
+   overlay. The `skip_base_state` shortcut from [#87] now keys on DB
+   columns being populated; the manifest-presence gate is retained as
+   a back-stop for the cold-upgrade window.
+4. One-time backfill migration ([021](../../src/ohtv/db/migrations/021_selected_branch_and_backfill.py))
+   copies any non-NULL manifest value that the DB lacks. Purely
+   additive — DB-populated values are never clobbered. Covers
+   `title` / `labels` / `selected_repository` / `created_at` /
+   `cloud_updated_at` / `selected_branch`.
+5. **`conversations.selected_branch` column added** (migration 021).
+   Sync's `_record_cloud_download_in_db` writes it (read once from
+   `base_state.json` via `_read_selected_branch`, shared between the
+   manifest write and the DB write so they cannot diverge). The
+   scanner extracts it from `base_state.json` on cold rescans. The
+   AGENTS.md item #27 "scanner-only" codification has been overturned —
+   sync now writes `selected_branch`. See PR description for the
+   coordinated AGENTS.md update.
+6. Removed-from-cloud reconciliation now also clears
+   `conversations.cloud_updated_at` (`_clear_cloud_updated_at`) so a
+   subsequent visibility-restore is correctly seen as a fresh
+   download. Regular sync still does NOT delete DB rows — that
+   stays on the `--repair --fix --prune` path per [#113].
+7. Phase C also extends `_record_cloud_download_in_db` to write the
+   editable cloud metadata fields (`title` / `labels` /
+   `selected_repository` / `created_at`) alongside the cursor, via the
+   new `_write_phase_c_metadata` helper. Without this, the DB would
+   carry a NULL `title` between the download and the next `db scan` —
+   the canonical-flip would be a regression for the `--status`,
+   `list`, and `gen titles` paths that read those columns straight
+   off the DB row.
 
-**PR #119 ([#110]) interaction:** scenario #14 ("Manifest as canonical
-metadata source survives sync (#87 guard)") currently asserts the
-manifest contract. Phase C flips its assertion to "DB columns are
-canonical metadata source". Same test, different overlay layer.
-PR #119 has **merged** (2026-05-28); Phase C is now safe to flip
-scenario #14's assertion target. The original sequencing constraint
-("do not touch the scenario marker until PR #119 merges") is recorded
-here for historical context — the gate has cleared.
+**Brittle spot #7 deferred to Phase D.** An explicit-None DB value
+clobbering a fresh download was on the Phase C work list but turned
+out to need a wider refactor of `update_metadata`'s sentinel
+semantics. The current behavior (DB wins when non-NULL, manifest
+fills NULL gaps) is the same in-band behavior as today's manifest
+overlay — there is no regression, only the work list was trimmed.
+
+**PR #119 ([#110]) interaction (historical):** scenario #14 has been
+flipped from manifest-canonical to DB-canonical. The test file
+(`tests/unit/sync/test_behavioral.py`) now asserts the new contract,
+and the marker has been retitled. PR #119 merged on 2026-05-28; the
+sequencing concern is closed.
 
 ### Phase D — retire manifest reads + writes
 

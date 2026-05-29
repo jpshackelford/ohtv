@@ -624,7 +624,15 @@ class TestBackfill:
     ):
         """``migrate()`` invokes 018 exactly once; backfill therefore
         runs once. Re-running ``migrate()`` (the actual idempotency
-        path) does not re-write."""
+        path) does not re-run 018's backfill.
+
+        Note (Phase C of #114): migration 021 introduced its own
+        ``cloud_updated_at`` backfill (covering rows 018 missed in
+        the cold-upgrade window). To keep this test focused on 018's
+        idempotency, we apply 019-021 here too before clearing and
+        re-running ``migrate()`` — so any re-write would be 018's
+        fault, not a downstream migration's first-time application.
+        """
         write, _ = patch_manifest
         write(
             {
@@ -638,16 +646,23 @@ class TestBackfill:
         self._seed_and_apply(
             db_through_017, [("abababababababababababababababab", "x")]
         )
+        # Apply everything beyond 018 (019, 020, 021, ...) so the
+        # subsequent ``migrate()`` call is a true no-op rather than
+        # a first-time application of downstream migrations.
+        migrate(db_through_017)
+        db_through_017.commit()
         # Externally clear the column to detect any re-backfill.
         db_through_017.execute(
             "UPDATE conversations SET cloud_updated_at = NULL WHERE id = ?",
             ("abababababababababababababababab",),
         )
         db_through_017.commit()
-        # Re-run migrate — should be a no-op because 018 is already
-        # recorded.
+        # Re-run migrate — should be a no-op because every migration
+        # is already recorded.
         applied = migrate(db_through_017)
         assert MIGRATION_NAME not in applied
+        # Every migration was already recorded; expect a no-op.
+        assert applied == []
         row = db_through_017.execute(
             "SELECT cloud_updated_at FROM conversations WHERE id = ?",
             ("abababababababababababababababab",),

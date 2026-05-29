@@ -28,7 +28,7 @@ Scenario index (from the issue comment, with PR markers):
   11. ID normalization preserved across sync                     — passes today
   12. Timestamps round-trip canonical UTC ISO-8601 w/ microseconds — xfail #112
   13. --repair reports four categories                           — skip #113
-  14. Manifest as canonical metadata source survives sync        — passes today
+  14. DB as canonical metadata source survives sync (Phase C)    — passes today (#114)
   15. Property: reconciliation is idempotent                     — xfail #111 (hypothesis)
   16. Property: applying same listing twice leaves DB unchanged  — xfail #111 (hypothesis)
   17. Sub-conversations land locally with parent id populated    — passes today (#108)
@@ -478,17 +478,20 @@ def test_repair_reports_four_categories_new_missing_removed_modified(
 
 
 # ---------------------------------------------------------------------------
-# Scenario 14 — manifest as canonical metadata source survives sync (#87 guard).
+# Scenario 14 — DB as canonical metadata source survives sync (#114 Phase C).
 #
-# Issue #87 made the manifest the authoritative cache for cloud-side editable
-# metadata. After a sync, manifest entries carry title, labels,
-# selected_repository, created_at, AND selected_branch (read from the
-# downloaded base_state.json). This regression guard fails if any of those
-# fields gets dropped from the manifest.
+# Issue #87 originally made the **manifest** the authoritative cache for
+# cloud-side editable metadata. Issue #114 Phase C flips the canonical
+# bit to the DB: ``conversations.title`` / ``labels`` /
+# ``selected_repository`` / ``created_at`` / ``selected_branch`` are now
+# the source of truth, with the manifest dual-written for one release
+# for downgrade safety. This regression guard asserts the new contract.
 # ---------------------------------------------------------------------------
-def test_manifest_as_canonical_metadata_source_survives_sync(
-    sync_manager_factory, fake_cloud: FakeCloudClient
+def test_db_as_canonical_metadata_source_survives_sync(
+    sync_manager_factory, fake_cloud: FakeCloudClient, tmp_path
 ):
+    import sqlite3 as _sqlite3
+
     fake_cloud.add(
         FakeConversation(
             id="a",
@@ -502,14 +505,42 @@ def test_manifest_as_canonical_metadata_source_survives_sync(
     manager = sync_manager_factory(fake_cloud)
     manager.sync()
 
+    # Phase C canonical: read straight from the DB.
+    db_path = tmp_path / "index.db"
+    assert db_path.exists()
+    conn = _sqlite3.connect(db_path)
+    conn.row_factory = _sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT title, labels, selected_repository, created_at, "
+            "       cloud_updated_at, selected_branch "
+            "FROM conversations WHERE id = 'a'"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row is not None
+    assert row["title"] == "My Convo"
+    # ``labels`` is stored as a JSON string in the DB (matches the
+    # column shape in conversation_store.py).
+    import json as _json
+    assert _json.loads(row["labels"]) == {"phase": "qa"}
+    assert row["selected_repository"] == "acme/widget"
+    assert row["created_at"].startswith("2024-01-01")
+    # Phase C added cloud_updated_at (the cloud-side cursor) as the
+    # sync gate and selected_branch as the new column. The fake
+    # trajectory does not embed a branch in meta.json, so
+    # selected_branch is None — but the column exists.
+    assert row["cloud_updated_at"] == "2024-01-01T00:00:00Z"
+    assert "selected_branch" in row.keys()
+
+    # Manifest dual-write contract: the manifest entry is still
+    # written (Phase D removes this), so legacy callers keep
+    # working. Phase C does NOT delete the manifest entry.
     entry = manager.manifest.conversations["a"]
-    # #87's full metadata cache:
     assert entry["title"] == "My Convo"
-    assert entry["labels"] == {"phase": "qa"}
     assert entry["selected_repository"] == "acme/widget"
-    assert entry["created_at"] == "2024-01-01T00:00:00Z"
-    # selected_branch is read from base_state.json (None when not present).
-    assert "selected_branch" in entry
+    assert entry["labels"] == {"phase": "qa"}
 
 
 # ---------------------------------------------------------------------------

@@ -175,6 +175,7 @@ def extract_metadata(
     labels_map: dict[str, dict[str, str]] | None = None,
     manifest_map: dict[str, dict] | None = None,
     parent_map: dict[str, str | None] | None = None,
+    db_overlay: "Conversation | None" = None,
 ) -> dict:
     """Extract metadata from a conversation directory.
 
@@ -189,10 +190,9 @@ def extract_metadata(
             conversation ID, with at minimum ``{"title": ..., "labels": ...}``
             and optionally Issue #87 fields
             ``selected_repository``, ``selected_branch``, ``created_at``.
-            When provided for a cloud-source conversation with a complete
-            manifest entry, the scanner skips ``base_state.json`` entirely
-            (Issue #87 — cold-start cloud scans should not open the
-            shim).
+            Phase C of #114 demotes this to a *cold-upgrade fallback*:
+            consulted only when ``db_overlay`` is None or has NULL
+            columns. Migration 021 backfills the gap once on upgrade.
         parent_map: Pre-loaded ``conversation_id → parent_conversation_id``
             map sourced from the ``cloud_listing`` snapshot (Issue #108).
             The scanner uses it to surface parent/child relationships in
@@ -201,10 +201,18 @@ def extract_metadata(
             the DB-only sidecar. When ``parent_map`` is ``None`` or the
             conv id is absent from it, ``parent_conversation_id`` is
             returned as ``None``.
+        db_overlay: Existing :class:`Conversation` row from the DB, if
+            any. Phase C of #114 promotes this to the **canonical
+            overlay** for ``title`` / ``labels`` /
+            ``selected_repository`` / ``created_at`` / ``selected_branch``
+            on cloud convs. When all five columns are populated and the
+            row's source is ``'cloud'``, the scanner skips
+            ``base_state.json`` entirely — the same optimization
+            previously gated on the manifest having all three #87 keys.
 
     Returns:
         Dict with title, created_at, updated_at, selected_repository,
-        labels, parent_conversation_id.
+        labels, parent_conversation_id, selected_branch.
     """
     timestamps_are_utc = source != "local"
 
@@ -212,12 +220,30 @@ def extract_metadata(
     selected_repository = None
     created_at = None
     updated_at = None
+    selected_branch = None
     conv_id = conv_path.name
 
-    # Title-source precedence (Issue #86):
-    #   1. Non-empty manifest title (reflects cloud-side renames)
-    #   2. base_state.json title
-    #   3. First user message extraction (later fallback)
+    # Phase C of #114: pull the existing DB row's overlay columns up
+    # front. These are the canonical store for cloud convs; the
+    # manifest is now only a cold-upgrade fallback.
+    db_title: str | None = None
+    db_selected_repository: str | None = None
+    db_created_at: datetime | None = None
+    db_labels: dict[str, str] | None = None
+    db_selected_branch: str | None = None
+    db_has_overlay = source != "local" and db_overlay is not None
+    if db_has_overlay:
+        db_title = db_overlay.title if isinstance(db_overlay.title, str) and db_overlay.title.strip() else None
+        db_selected_repository = db_overlay.selected_repository
+        db_created_at = db_overlay.created_at
+        db_labels = db_overlay.labels if isinstance(db_overlay.labels, dict) and db_overlay.labels else None
+        db_selected_branch = db_overlay.selected_branch
+
+    # Title-source precedence (Issue #86, Phase C update):
+    #   1. DB title (Phase C canonical for cloud convs)
+    #   2. Manifest title (cold-upgrade fallback)
+    #   3. base_state.json title
+    #   4. First user message extraction (later fallback)
     manifest_title: str | None = None
     manifest_entry: dict | None = None
     if manifest_map is not None:
@@ -227,18 +253,32 @@ def extract_metadata(
             if isinstance(mt, str) and mt.strip():
                 manifest_title = mt
 
-    # Issue #87: cloud convs with a complete manifest entry skip
-    # base_state.json reads. "Complete" means the manifest entry carries
-    # ALL three new keys (any value, including None, is fine — the key's
-    # presence proves the entry was written post-#87 and the value is
-    # authoritative).
-    skip_base_state = (
+    # Issue #87 / Phase C of #114: cloud convs with a fully-populated
+    # DB row skip ``base_state.json`` reads. "Fully populated" means
+    # the DB carries non-NULL values for title, selected_repository,
+    # created_at, and selected_branch. Labels are allowed to be NULL
+    # because explicit-no-labels is normalized to NULL in the DB
+    # (matching :class:`ConversationStore.update_metadata`).
+    #
+    # Cold-upgrade fallback: when the DB row hasn't been backfilled
+    # yet (migration 021 still pending or never seen the conv), the
+    # legacy manifest-presence gate takes over so #87 still works.
+    skip_base_state_db = (
+        db_has_overlay
+        and isinstance(db_overlay.title, str)
+        and db_overlay.title.strip() != ""
+        and db_overlay.selected_repository is not None
+        and db_overlay.created_at is not None
+        and db_overlay.selected_branch is not None
+    )
+    skip_base_state_manifest = (
         source != "local"
         and manifest_entry is not None
         and "selected_repository" in manifest_entry
         and "selected_branch" in manifest_entry
         and "created_at" in manifest_entry
     )
+    skip_base_state = skip_base_state_db or skip_base_state_manifest
 
     base_state = conv_path / "base_state.json"
     if not skip_base_state and base_state.exists():
@@ -248,30 +288,53 @@ def extract_metadata(
             selected_repository = data.get("selected_repository")
             created_at = _parse_datetime(data.get("created_at"), timestamps_are_utc)
             updated_at = _parse_datetime(data.get("updated_at"), timestamps_are_utc)
+            bs_branch = data.get("selected_branch")
+            if isinstance(bs_branch, str) and bs_branch:
+                selected_branch = bs_branch
         except (json.JSONDecodeError, OSError):
             pass
 
-    # Issue #87: pull manifest-cached selected_repository/created_at when
-    # present. These override any base_state.json values for CLOUD convs
-    # only — the manifest is the canonical cache for cloud-side editable
-    # metadata. Local CLI convs are explicitly out of scope per the
-    # issue ("base_state.json remains canonical").
-    if source != "local" and manifest_entry is not None:
-        if "selected_repository" in manifest_entry:
-            selected_repository = manifest_entry.get("selected_repository")
-        if "created_at" in manifest_entry:
-            manifest_created_at = manifest_entry.get("created_at")
-            if isinstance(manifest_created_at, str) and manifest_created_at:
-                parsed = _parse_datetime(manifest_created_at, assume_utc=True)
-                if parsed is not None:
-                    created_at = parsed
-            elif manifest_created_at is None and skip_base_state:
-                # Authoritative None from manifest — no base_state read to
-                # fall back to.
-                created_at = None
+    # Issue #87 / Phase C of #114: overlay editable-cloud-metadata
+    # fields. DB wins for cloud convs; manifest is the cold-upgrade
+    # fallback only. Local CLI convs are out of scope (base_state.json
+    # remains canonical).
+    if source != "local":
+        if db_has_overlay:
+            if db_selected_repository is not None:
+                selected_repository = db_selected_repository
+            if db_created_at is not None:
+                created_at = db_created_at
+            if db_selected_branch is not None:
+                selected_branch = db_selected_branch
+        # Manifest fallback applies regardless of db_has_overlay so
+        # that a partially-backfilled DB row still honours the
+        # manifest values it lacks. The DB values above (when
+        # non-NULL) win against the manifest because they were
+        # applied first.
+        if manifest_entry is not None:
+            if "selected_repository" in manifest_entry and selected_repository is None:
+                selected_repository = manifest_entry.get("selected_repository")
+            if "selected_branch" in manifest_entry and selected_branch is None:
+                ms_branch = manifest_entry.get("selected_branch")
+                if isinstance(ms_branch, str) and ms_branch:
+                    selected_branch = ms_branch
+            if "created_at" in manifest_entry and created_at is None:
+                manifest_created_at = manifest_entry.get("created_at")
+                if isinstance(manifest_created_at, str) and manifest_created_at:
+                    parsed = _parse_datetime(manifest_created_at, assume_utc=True)
+                    if parsed is not None:
+                        created_at = parsed
+                elif manifest_created_at is None and skip_base_state:
+                    # Authoritative None from manifest — no base_state
+                    # read to fall back to.
+                    created_at = None
 
-    # Manifest title wins over base_state.json title when present.
-    if manifest_title:
+    # Title overlay (Phase C order): DB title wins, then manifest,
+    # then base_state.json (already applied above), then first-user-
+    # message fallback.
+    if db_title:
+        title = db_title
+    elif manifest_title:
         title = manifest_title
 
     # Prefer timestamps from events for accuracy. Always reads events for
@@ -296,19 +359,25 @@ def extract_metadata(
     if not title:
         title = _get_title_from_first_user_message(conv_path)
 
-    # Get labels from manifest (for cloud conversations)
-    # Empty dict {} means labels were explicitly removed; convert to None for storage
-    labels = None
-    effective_labels_map: dict[str, dict[str, str]] | None = labels_map
-    if manifest_map is not None and effective_labels_map is None:
-        effective_labels_map = {
-            cid: meta.get("labels", {}) for cid, meta in manifest_map.items()
-        }
-    if effective_labels_map:
-        manifest_labels = effective_labels_map.get(conv_id)
-        # {} from manifest means no labels (explicit removal), store as None
-        # dict with content means real labels
-        labels = manifest_labels if manifest_labels else None
+    # Labels overlay (Phase C):
+    #   1. DB labels (canonical for cloud convs)
+    #   2. Manifest labels (cold-upgrade fallback)
+    #   3. ``labels_map`` legacy parameter (back-compat for callers that
+    #      only supplied labels)
+    # Empty dict in the manifest means labels were explicitly removed
+    # (store as None to match :class:`ConversationStore.update_metadata`).
+    labels: dict[str, str] | None = None
+    if db_has_overlay:
+        labels = db_labels
+    if labels is None:
+        effective_labels_map: dict[str, dict[str, str]] | None = labels_map
+        if manifest_map is not None and effective_labels_map is None:
+            effective_labels_map = {
+                cid: meta.get("labels", {}) for cid, meta in manifest_map.items()
+            }
+        if effective_labels_map:
+            manifest_labels = effective_labels_map.get(conv_id)
+            labels = manifest_labels if manifest_labels else None
 
     # Issue #108: parent_conversation_id is a cloud-only concept (local
     # CLI does not have delegation). Look up from the cloud_listing
@@ -330,6 +399,7 @@ def extract_metadata(
         "selected_repository": selected_repository,
         "labels": labels,
         "parent_conversation_id": parent_conversation_id,
+        "selected_branch": selected_branch,
     }
 
 
@@ -495,7 +565,12 @@ def scan_conversations(
         
         if existing is None:
             # New conversation - extract metadata
-            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map, parent_map=parent_map)
+            metadata = extract_metadata(
+                conv_path, source,
+                manifest_map=manifest_map,
+                parent_map=parent_map,
+                db_overlay=None,
+            )
             store.upsert(Conversation(
                 id=conv_id,
                 location=str(conv_path),
@@ -508,11 +583,25 @@ def scan_conversations(
                 source=source,
                 labels=metadata.get("labels"),
                 parent_conversation_id=metadata.get("parent_conversation_id"),
+                # Phase C of #114: scanner extracts selected_branch from
+                # base_state.json (when present) so cold scans against a
+                # pre-Phase-C corpus heal themselves on first pass. Sync
+                # is the primary writer; this is the back-stop.
+                selected_branch=metadata.get("selected_branch"),
             ))
             new_count += 1
         elif force or _has_changed(existing, current_mtime, current_count):
             # Changed or forced update - re-extract metadata
-            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map, parent_map=parent_map)
+            metadata = extract_metadata(
+                conv_path, source,
+                manifest_map=manifest_map,
+                parent_map=parent_map,
+                # Phase C of #114: DB row is the canonical overlay for
+                # cloud convs. extract_metadata trusts it over the
+                # manifest for title / labels / selected_repository /
+                # created_at / selected_branch.
+                db_overlay=existing,
+            )
             store.upsert(Conversation(
                 id=conv_id,
                 location=str(conv_path),
@@ -526,6 +615,7 @@ def scan_conversations(
                 source=source,
                 labels=metadata.get("labels"),
                 parent_conversation_id=metadata.get("parent_conversation_id"),
+                selected_branch=metadata.get("selected_branch"),
             ))
             updated_count += 1
         else:

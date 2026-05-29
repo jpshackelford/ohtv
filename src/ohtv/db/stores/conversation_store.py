@@ -14,7 +14,8 @@ class ConversationStore:
     _ALL_COLUMNS = """
         id, location, registered_at, events_mtime, event_count,
         title, created_at, updated_at, selected_repository, source, summary, labels,
-        parent_conversation_id, root_conversation_id
+        parent_conversation_id, root_conversation_id,
+        selected_branch, cloud_updated_at
     """
     
     def __init__(self, conn: sqlite3.Connection):
@@ -65,6 +66,13 @@ class ConversationStore:
             labels=labels,
             parent_conversation_id=self._safe_get(row, "parent_conversation_id"),
             root_conversation_id=self._safe_get(row, "root_conversation_id"),
+            # Issue #114 Phase C: ``selected_branch`` is a new column
+            # (migration 021); ``cloud_updated_at`` predates Phase C
+            # (migration 018 / Issue #112) but its reader path flips
+            # here. Both go through ``_safe_get`` so a pre-021 row
+            # decoder still works.
+            selected_branch=self._safe_get(row, "selected_branch"),
+            cloud_updated_at=self._safe_get(row, "cloud_updated_at"),
         )
 
     def _resolve_root_conversation_id(
@@ -187,9 +195,10 @@ class ConversationStore:
             INSERT INTO conversations (
                 id, location, registered_at, events_mtime, event_count,
                 title, created_at, updated_at, selected_repository, source, summary, labels,
-                parent_conversation_id, root_conversation_id
+                parent_conversation_id, root_conversation_id,
+                selected_branch
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 location = excluded.location,
                 events_mtime = excluded.events_mtime,
@@ -219,6 +228,17 @@ class ConversationStore:
                 root_conversation_id = COALESCE(
                     excluded.root_conversation_id,
                     conversations.root_conversation_id
+                ),
+                -- Issue #114 Phase C: ``selected_branch`` is owned by
+                -- sync (read from the trajectory ZIP's ``meta.json``
+                -- at download time). The scanner does not have a
+                -- reliable source for it, so we COALESCE-preserve
+                -- whatever sync / the migration-021 backfill already
+                -- wrote. A scanner pass that does carry a value (e.g.
+                -- a future read from ``base_state.json``) wins.
+                selected_branch = COALESCE(
+                    excluded.selected_branch,
+                    conversations.selected_branch
                 )
             """,
             (
@@ -236,6 +256,7 @@ class ConversationStore:
                 labels_json,
                 parent_conversation_id,
                 root_conversation_id,
+                conversation.selected_branch,
             ),
         )
     
@@ -653,26 +674,40 @@ class ConversationStore:
         location: str,
         cloud_updated_at: str | None,
         parent_conversation_id: str | None = None,
+        selected_branch: str | None = None,
     ) -> None:
         """Record that the cloud trajectory for ``conversation_id`` was just synced.
 
         Inserts a minimal row if the conversation has not been seen
         before (location + source='cloud' + cloud_updated_at +
-        parent_conversation_id), or updates only ``location``,
-        ``cloud_updated_at``, and ``parent_conversation_id`` on an
+        parent_conversation_id + selected_branch), or updates only
+        ``location``, ``cloud_updated_at``,
+        ``parent_conversation_id``, and ``selected_branch`` on an
         existing row. Crucially, this method NEVER overwrites
         metadata columns (``title``, ``event_count``, ``labels``,
         etc.) — those are owned by the scanner / LLM analysis paths.
 
-        This is the writer for the column reserved by migration 018
-        (Issue #112) and migration 019 (Issue #108); Issue #111 is the
-        first consumer of ``cloud_updated_at`` and ``ohtv sync`` is the
-        first consumer of ``parent_conversation_id``.
+        This is the writer for the columns reserved by migration 018
+        (Issue #112 — ``cloud_updated_at``), migration 019
+        (Issue #108 — ``parent_conversation_id``), and migration 021
+        (Issue #114 Phase C — ``selected_branch``). Issue #111 is
+        the first consumer of ``cloud_updated_at``; ``ohtv sync`` is
+        the first consumer of ``parent_conversation_id``; Issue #114
+        Phase C is the first consumer of ``selected_branch`` (mirrored
+        from the trajectory ZIP's ``meta.json`` — the listing API
+        doesn't carry this field).
 
         ``parent_conversation_id`` is normalized (dashes stripped) on
         write to match the rest of the conversations table per
         AGENTS.md item #14. ``None`` means "root conversation"; the
         column distinguishes the row.
+
+        ``selected_branch`` carries through as-is; ``None`` means
+        "no branch info available" (e.g. detached HEAD, or the
+        trajectory pre-dates the field). Callers should pass
+        ``None`` when the field is missing — explicitly clearing the
+        column requires an empty string today (matching the rest of
+        the cloud metadata cache).
         """
         normalized = conversation_id.replace("-", "")
         normalized_parent = (
@@ -695,14 +730,20 @@ class ConversationStore:
         # subsequent scanner mtime check still treats the row as
         # "needs work" (an mtime delta vs the freshly-extracted events
         # dir always wins).
+        #
+        # Issue #114 Phase C: ``selected_branch`` participates in
+        # COALESCE-preserve on update. Sync's typical case is that the
+        # value moves from None → "main" on first download and then
+        # stays put; but a re-download that produces no branch info
+        # (None) should never clobber a previously-recorded value.
         self.conn.execute(
             """
             INSERT INTO conversations (
                 id, location, registered_at, event_count, source,
                 cloud_updated_at, parent_conversation_id,
-                root_conversation_id
+                root_conversation_id, selected_branch
             )
-            VALUES (?, ?, ?, 0, 'cloud', ?, ?, ?)
+            VALUES (?, ?, ?, 0, 'cloud', ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 location = excluded.location,
                 cloud_updated_at = excluded.cloud_updated_at,
@@ -710,6 +751,10 @@ class ConversationStore:
                 root_conversation_id = COALESCE(
                     excluded.root_conversation_id,
                     conversations.root_conversation_id
+                ),
+                selected_branch = COALESCE(
+                    excluded.selected_branch,
+                    conversations.selected_branch
                 )
             """,
             (
@@ -719,5 +764,6 @@ class ConversationStore:
                 cloud_updated_at,
                 normalized_parent,
                 root_conversation_id,
+                selected_branch,
             ),
         )

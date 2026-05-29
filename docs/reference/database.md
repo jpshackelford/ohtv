@@ -369,10 +369,10 @@ treat the (#112) rows as N/A.
 | `created_at`                            | sync (`update_metadata`; manifest is canonical)           | scanner (`base_state.json`)                                | Source-dependent. Mutex required for `source='cloud'`.                         |
 | `updated_at`                            | scanner (last event timestamp)                            | scanner (last event timestamp)                             | scanner-only. Cloud-side `updated_at` lives in `cloud_updated_at` (#112).      |
 | `cloud_updated_at` (#112)               | sync (cloud listing payload)                              | N/A — NULL                                                 | sync-only. No race.                                                            |
-| `selected_repository`                   | sync (`update_metadata`; manifest is canonical)           | scanner (`base_state.json`)                                | Source-dependent. Mutex required for `source='cloud'`.                         |
-| `selected_branch`                       | scanner-only — sync NEVER writes (listing API doesn't return it) | scanner                                              | scanner-only by explicit policy (#87). NOT a parameter of `update_metadata`.   |
+| `selected_repository`                   | sync (`_record_cloud_download_in_db` + `update_metadata`; DB is canonical post-#114 Phase C) | scanner (`base_state.json`)                                | Source-dependent. Mutex required for `source='cloud'`.                         |
+| `selected_branch` (#114 Phase C)        | sync (`_record_cloud_download_in_db`; from freshly-exported `base_state.json` — listing API still doesn't return it) | scanner (`base_state.json` on cold rescans) | Source-dependent. Phase C of #114 added the column AND added sync as a writer. **Still NOT a parameter of `update_metadata`** (the metadata-refresh path) because the listing API doesn't carry it.   |
 | `source`                                | scanner                                                   | scanner                                                    | scanner-only; immutable after insert.                                          |
-| `labels`                                | sync (`update_metadata`; manifest is canonical)           | scanner — NULL (cloud-only feature)                        | Source-dependent. Mutex required for `source='cloud'`.                         |
+| `labels`                                | sync (`_record_cloud_download_in_db` + `update_metadata`; DB is canonical post-#114 Phase C) | scanner — NULL (cloud-only feature)                        | Source-dependent. Mutex required for `source='cloud'`.                         |
 | `parent_conversation_id` (#108)         | sync (cloud listing payload, scanner reads `cloud_listing` snapshot) | N/A — NULL                                      | Effectively sync-only. `upsert` uses `COALESCE` so scanner cannot clobber.     |
 | `root_conversation_id` (#122)           | `ConversationStore` (resolved at write time from effective parent) | `ConversationStore` (always own id; no delegation) | Store-owned derived column. `COALESCE` on upsert preserves prior value.        |
 | `summary`                               | analysis pipeline (`gen objs`)                            | analysis pipeline                                          | Independent column; sync/scan don't touch it.                                  |
@@ -383,12 +383,14 @@ treat the (#112) rows as N/A.
 
 - Rows marked "Source-dependent" are the races today. They are all
   governed by the same fix: serialize sync and scan via `sync.lock`.
-- The `selected_branch` row is the explicit resolution of the
-  listing-API-doesn't-return-it ambiguity (see AGENTS.md item #27
-  caveat). It is scanner-only because there is no other source. Sync's
-  metadata refresh deliberately omits it; this is codified as a policy
-  by not adding it to `ConversationStore.update_metadata`'s parameter
-  list.
+- The `selected_branch` row was migrated from scanner-only to
+  source-dependent in #114 Phase C (migration 021 added the column;
+  sync now writes it at download time from the freshly-exported
+  `base_state.json`). The listing API still doesn't return it, so the
+  metadata-refresh path (`update_metadata`) deliberately omits it; this
+  is codified as a policy by not adding it to
+  `ConversationStore.update_metadata`'s parameter list. See AGENTS.md
+  item #27 for the full ownership-flip history.
 - `cloud_updated_at` (#112) is the new sync-owned cloud-listing mirror
   that replaces the historical overload of writing the cloud
   `updated_at` value into the scanner-owned `updated_at` column.
