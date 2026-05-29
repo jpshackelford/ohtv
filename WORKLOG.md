@@ -2,6 +2,37 @@
 
 ## Log
 
+### 2026-05-29 14:10 UTC - Impl worker (Phase B of #114)
+
+**Conv:** `<this impl worker>` — spawned by orchestrator at 13:53Z.
+**Issue:** #114 Phase B (sync-state scalars → `sync_kv`).
+**PR:** **#143** opened, **CI green** (`pytest pass 53s`, `lint pass 5s`), moved from draft to **ready for review**.
+
+**Branch:** `feat/sync-state-scalars-to-sync_kv-114` (single squash-mergeable commit `d7d3a60`).
+
+**What shipped (one phase, one PR):**
+
+- `SyncManager.__init__` overlays `sync_kv` rows on top of the loaded `SyncManifest` (reader half — Phase B AC #3).
+- `_finalize_sync` + `reset_to_n_newest` dual-write all three scalars (`last_sync_at` / `sync_count` / `failed_ids`) to `sync_kv` after the manifest `save()` (writer half — Phase B AC #1 + #2).
+- New `sync_state_backfill_114` maintenance task registered against migration_018, copies any missing key from the manifest. Idempotent (Phase B AC #5).
+- `get_status()` transparently picks up `sync_kv` values via the overlay — no API surface change to `--status` (Phase B AC #4).
+- Shared key constants in `ohtv.db.stores.sync_state_store` so the dual-write and overlay paths can't drift.
+- 16 new tests in `tests/unit/sync/test_phase_b_sync_state.py` covering AC #6(a) cold upgrade, #6(b) warm round-trip, #6(c) dual-write parity.
+
+**Test results:** 1972 passed, 2 skipped, 3 xfailed (pre-existing #11x placeholders) — no regressions.
+
+**Design choice flagged in PR:** `failed_ids` stored as one JSON-array `sync_kv` row (not row-per-id). Rationale documented in the PR description per the spawn brief's stop-condition.
+
+**Test-isolation drive-by:** `TestSyncManagerFinalizeSync.manager` fixture in `tests/unit/test_sync.py` now patches `get_db_path` alongside `get_manifest_path`. Without it, the new overlay reads from a developer's real `~/.ohtv/index.db` locally (CI unaffected). Documented in the fixture docstring.
+
+**Used `Refs #114`** (not `Closes`) per the spawn brief — Phases C/D remain open work on #114.
+
+**Out of scope (preserved):** per-conv cloud metadata cache (Phase C), `selected_branch` DB column (Phase C migration 021+), manifest read removal (Phase D), PR #119 scenario #14 marker (Phase C concern).
+
+**Status:** EXIT per impl-worker template step 11. Docs/testing/review handled by separate workers on next orchestrator cycles.
+
+---
+
 ### 2026-05-29 11:48 UTC - Orchestrator
 
 **Active Workers:** _(none — spawned testing worker died silently; orchestrator escalated inline)_
