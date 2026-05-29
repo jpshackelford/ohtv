@@ -1579,3 +1579,64 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 01:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e3e85a3` | testing | PR #134 — sub-conversation sync semantics | **NEW** running ([conv](https://app.all-hands.dev/conversations/e3e85a3caa66412da91a6c1adc9d6248)) |
+
+**Spawned: Testing Worker** (re-attempt of the 00:53Z auth-blocked dispatch — succeeded this cycle)
+
+- PR: [#134 — feat(sync): include sub-conversations in cloud listing (#108)](https://github.com/jpshackelford/ohtv/pull/134) (`oCFc green ready` 1💬 docs-comment, 1 auto-review with `🟢 Good taste`)
+- Conversation: [`e3e85a3`](https://app.all-hands.dev/conversations/e3e85a3caa66412da91a6c1adc9d6248)
+- Start task `3943155f…` → POST 200 → `READY` on first 8s poll (consistent with the four prior clean spawns; the 22:22Z silent-spawn-failure remains a one-off). `app_conversation_id=e3e85a3caa66412da91a6c1adc9d6248`. `sandbox_id` allocated and conversation reached `running` / `sandbox_status=RUNNING` by 01:21:18Z (~24s post-create, real activity gap — clean non-ghost spawn).
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin` (canonical `{source, repo_path, ref}` object).
+- Prompt scope: blackbox-test the new sub-conversation-included-by-default sync behaviour for #108. Test surface explicitly enumerated: (a) `ohtv sync` default includes sub-conversations, (b) `parent_conversation_id` populated in DB after sync, (c) migration 019 applies cleanly on existing DB, (d) documented examples in `docs/guides/syncing.md` work as documented (testing-against-docs principle), (e) backward compatibility with legacy listing payloads lacking `parent_conversation_id`, (f) case-sensitive `include_sub_conversations=true` query parameter. Plus full unit test suite via `uv run pytest tests/ -v`. Hard rules: no `src/ohtv/**` edits, no main pushes, no PR-state changes (don't draft, don't retitle, don't touch #130), no review continuation — just post the structured `/manual-test`-formatted comment and exit.
+
+**Prior-cycle resolution (`00:53Z` ERROR):**
+
+- The previous cycle's spawn ERROR (`"Git provider authentication issue when getting remote URL"`) appears to have **resolved itself** between 00:53Z and 01:21Z — no `## INSTRUCTION:` was added by the user, no observable user activity on the GitHub OAuth grant (I have no way to inspect the OpenHands platform-side OAuth tokens), but the spawn-and-clone-from-fork-PR path went green this cycle without any operator intervention from my side. The first cycle's 401-on-`$github_token` + 200-on-embedded-`ghu_…` finding still holds for the in-sandbox environment, but the platform-side OAuth used by the spawn-and-clone path is independent of those, and was apparently auto-refreshed (or the prior failure was transient, not credentials — the wording was misleading). Logging this for future-cycle reference: don't treat a single spawn ERROR as confirmation of expired credentials; re-attempt next cycle as a first diagnostic step. (The 00:53Z entry's `🛠 How to unblock` instructions for the user remain valid as fallback advice if the same error recurs.)
+- No `## INSTRUCTION:` entries (`grep -nE "^## INSTRUCTION:" WORKLOG.md` → 0).
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries.
+- 0 running ohtv-repo workers at start of cycle. Recent OpenHands search returned 4 `running` conversations but only `c1bd269` had a `selected_repository` and it was `jpshackelford/voice-relay`, not ohtv. The two `d7f7440` and `80a8269` conversations had `repo=null` (not workflow workers). `da040c4` ("👔 Accessing GitHub Contribution Graph Data") is also unrelated.
+- **Expansion slot:** OPEN, IDLE. 14 open issues, 12 `ready` (excluding 2 hold), 2 `hold` (#26, #90), **0 need expansion**. Slot stays idle. (Same issue-shape as previous cycle — no new issues filed in the ~30 min interval.)
+- **PR slot:** OPEN (no PR worker running). PR #134 state: `oCFc green ready` 1💬 (the docs-update comment from `467ef14`'s 00:22:33Z commit), 1 automated review from `github-actions[bot]`, **no manual-test-results comment**.
+  - Canonical decision-tree row: **"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker."** → dispatched `e3e85a3`.
+  - Auto-review note: the `github-actions[bot]` review at 00:14:30Z (BEFORE docs commit) gave `🟢 Good taste` with `⚠️ Risk Assessment: 🟡 MEDIUM`, called it `✅ Worth merging`. The review is a `COMMENTED` state (not `APPROVED`, not `CHANGES_REQUESTED`), so per the decision tree this is not a 💬>0 review-feedback-needed signal — it's a passive +1. Testing still required as next gate.
+
+**Current State:**
+
+- Issue #108: still open; will close when PR #134 merges via the `Fixes #108` footer.
+- [PR #134](https://github.com/jpshackelford/ohtv/pull/134): `oCFc green ready` 1💬 — testing worker in flight
+- [PR #130](https://github.com/jpshackelford/ohtv/pull/130): closed (not merged) at 23:57:11Z — confirmed still closed
+- **Need expansion (0):** ✓ board fully expanded
+- **Ready w/ priority:medium (1):** #109
+- **Ready w/o priority (11):** #113, #114, #116, #121, #122, #123, #124, #125, #126, #127, #128
+- **On hold:** #26, #90
+
+**Release-please status:** Still no post-#133 release-please PR. This is now 3+ cycles persistent. The next productive cycle (post-#134-merge) should explicitly run `gh run list --workflow=release-please.yml --repo jpshackelford/ohtv --limit 10` and surface the result to the user if no recent run appears. NOT blocking dispatch this cycle.
+
+**Housekeeping — Worklog:** WORKLOG.md is at 1581 lines post-entry. Past the soft truncation threshold for two cycles running. Deferred again this cycle to keep dispatch path tight (productive work was time-critical: re-attempting the prior cycle's blocked spawn). **Hard commitment:** next productive cycle MUST run `/truncate-worklog` as Step 0.5 before any other work — three deferrals is enough.
+
+**Auto-disable counter:** **0 → 0** (productive cycle — testing worker dispatched, advancing PR #134 along the impl→docs→**test**→review→merge pipeline). Ten consecutive productive cycles (counting 00:53Z's blocked-but-correctly-diagnosed dispatch as productive; if you treat 00:53Z as a wash, this is the productive cycle that re-attempts and succeeds, so the productive streak is intact regardless).
+
+**Forecast for next cycle (~01:55Z window):**
+
+- **If `e3e85a3` finishes with a `## Manual Test Results` comment posted + tests passing** → PR slot advances to **review worker** if there are review comments to address (currently only the auto-review which doesn't trigger a round) OR directly to **merge worker** if no review needed. Per the decision tree's "test results valid, good rating, docs valid → merge worker" row, the merge path looks reachable next cycle.
+- **If `e3e85a3` finishes with a test failure reported** → PR slot dispatches an **implementation/fixup worker** to address the failure (this is implicitly the "PR exists, draft, CI failing" or "review worker" flow depending on the failure shape).
+- **If `e3e85a3` is still running** → log status and wait. Testing-worker runs are typically 20–60 min (clone + uv sync + targeted tests + full suite + comment).
+- **If `e3e85a3` ghosts** → re-spawn once.
+- **If `e3e85a3` hits the same `"Git provider authentication issue"` error as 00:53Z** → reinstate the unblock-the-human surface message and stop re-attempting until the user acts.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow it first.
+- **Expansion slot:** stays idle until human files a new issue.
+- **MUST DO:** truncate WORKLOG.md as Step 0.5 before any other work next cycle.
+
+**Sync notes:** Fresh container respawn this cycle. `uv sync` (created `.venv`) succeeded inside the repo; `lxa` and `ohtv` installed via `uv pip install git+https://github.com/jpshackelford/{lxa,ohtv}.git` (no `--system` — that hit `/usr/local/lib/python3.13/site-packages` perm-denied per the persistent pattern). PATH picked up `.venv/bin/{lxa,ohtv}` via `source .venv/bin/activate`. `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token` (working this cycle — `gh auth status` → 200 for `jpshackelford`). OH API search/spawn via `Authorization: Bearer $OPENHANDS_API_KEY` (search) / `X-Access-Token: $OPENHANDS_API_KEY` (spawn). `ohtv sync --since 4h --quiet` ran clean (no HTTP 500 like previous cycle). `git pull --ff-only` on `main` confirmed up-to-date before commit. `uv.lock` had a local modification (from `uv sync` resolution drift on Python 3.13 vs the pinned 3.12 lockfile); stashed before commit, not pushed.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
