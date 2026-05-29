@@ -281,3 +281,70 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 **Plugin-maintainer note still open.** This cycle's merge worker is the FIRST non-silent-exit worker on PR #138 across three prior silent-exits (`7ff3c76`, `6bacec7`, `8824962f`). The plugin-maintainer follow-up logged in the 10:51Z entry is unchanged in scope but now has a fourth data point (and a counter-example: this worker ran end-to-end without issue, so the pattern is not a global container regression).
 
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-29 13:18 UTC - Orchestrator
+
+**Active Workers (at cycle entry):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| _none_ | — | — | — |
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `ce1657e` | merge | PR #138 - root_conversation_id foundation | finished ✓ (merged at 13:20:51Z) |
+
+**Action Taken: Spawned merge worker for PR #138 → SUCCESS (pre-committed Path B fired).**
+
+This is an out-of-order entry — the merge worker's 13:21Z completion entry was already pushed to `main` by the time this orchestrator commit landed. Adding the decision-log retrospectively so the audit trail is complete.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries.
+- **Expansion slot:** OPEN, IDLE. **23rd consecutive idle expansion cycle.** 0 issues need expansion.
+- **PR slot at entry:** OPEN. Two PRs:
+  - **PR #138** @ `39d8596`: all gates closed (CI green from 10:49Z, docs ✓ 10:49Z, manual test PASS ✓ 11:54Z, 0 review threads, `reviewDecision=""`). `mergeable`/`mergeStateStatus=UNKNOWN` at the orchestrator's 13:16Z check — transient GitHub re-compute, expected to resolve in seconds. **Was deferred behind #141 per 12:23Z decision; the 12:53Z forecast pre-committed the pivot.**
+  - **PR #141** @ `2b88202`: `statusCheckRollup=[]`, 0 check-runs, 0 workflow runs — **unchanged from 12:53Z.** Still requires human Actions-policy intervention.
+- **Decision:** Pivot off the #141 deferral. Spawn merge worker for #138. Rationale (from 12:53Z Path B): release-please pipeline is confirmed working (PR #139 → `ohtv-v0.14.0` shipped at 12:00Z), so the original "wait for #141 to land first" benefit is small; cost of waiting (#138 sitting merge-ready 90+ min) is real.
+
+**Spawn details:**
+
+- **Conv:** [`ce1657e`](https://app.all-hands.dev/conversations/ce1657e3ebdb4d249a205ff5a13846a3). Start task `840a6658…` → READY in ~10s → `execution_status=running` at 13:18Z.
+- **Plugin:** `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- **Prompt scope:** explicit "first merge worker on this PR, just merge it" framing + pre-baked commit message + the `Refs #122` (not `Closes`) instruction + the inline escape-hatch pre-commit (orchestrator does the merge directly if worker silent-exits).
+
+**Outcome (~3 min after spawn — confirmed via `gh pr view 138`):**
+
+- ✅ Worker merged PR #138 at 13:20:51Z. Squash commit `54cc7d1` on main with the pre-baked subject. `Refs #122` footer honored. Issue #122 left open as intended.
+- ✅ Worker followed up by appending its own 13:21Z completion entry to `WORKLOG.md` on main (`d802aa9`) — the orchestrator pulled it on the next push attempt.
+- ✅ **Breaks the 3-in-a-row silent-exit streak on PR #138.** All three prior silent-exits were `review`/`testing` workers; this `merge` worker ran end-to-end without issue. Hypothesis: the failure mode is worker-type or prompt-specific, not container-wide. Worth a controlled retry of a `review` worker on a future PR to validate. The plugin-maintainer follow-up logged earlier still stands.
+
+**One action per wake-up:** ✓ one spawn.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned worker, merge landed). **33rd consecutive productive cycle.** Not at risk.
+
+**Current State (post-merge):**
+
+- Open PRs: **1** ([PR #141](https://github.com/jpshackelford/ohtv/pull/141) — still blocked on Actions policy).
+- [Issue #122](https://github.com/jpshackelford/ohtv/issues/122) (`priority:medium`, `ready`): umbrella, PR #138 (foundation phase) landed. Phases B/C/D queued conceptually; next concrete PR would be the aggregation layer.
+- [Issue #114](https://github.com/jpshackelford/ohtv/issues/114) (`priority:medium`, `ready`): Phases B/C/D queued. **Top of the queue for next-cycle impl worker.**
+- **Need expansion (0):** ✓ (23rd consecutive cycle).
+- **Ready w/ priority:medium (2):** #114, #122.
+- **Ready w/o priority (8):** #116, #121, #123–#128.
+- **On hold:** #26, #90.
+- **Release-please:** will auto-open / refresh the release PR for `ohtv-v0.15.0` (1 `feat` since `ohtv-v0.14.0`) within minutes of the `54cc7d1` push. Orchestrator just observes.
+
+**Forecast for next cycle (~13:48Z window):**
+
+1. **PR slot — likely action:** spawn impl worker for [#114](https://github.com/jpshackelford/ohtv/issues/114) (Phases B/C/D — manifest-retirement). It's the highest-priority unblocked candidate. #122's next phase (aggregation layer on top of the foundation that just merged) needs a re-read of the issue body for a fresh implementation plan before spawning — that can also happen next cycle if #114 is somehow blocked.
+2. **Release-please PR:** if open by 13:48Z, leave it alone; release-please merges on its own schedule.
+3. **PR #141:** still on the human-intervention queue.
+4. **Expansion slot:** unchanged, IDLE (24th cycle pending).
+
+**Sync notes:** Fresh container. `uv pip install --system` failed on `frozenlist` perms (same as prior cycles); `uv venv` + activate + install path worked. `lxa repo add` spawned a fresh "Unnamed Board 1" (board state ephemeral in this sandbox shape, harmless). `ohtv sync --since 4h` succeeded silently. `gh` 2.92.0 via `GH_TOKEN=$github_token`. Initial `git push` attempted before identity was set; fell back to `git config user.email/name` per `AGENTS.md` defaults. During `git pull --rebase` the merge worker's completion commit (`d802aa9`) had already landed; recovered by `git reset --hard origin/main` and re-appending this entry.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
