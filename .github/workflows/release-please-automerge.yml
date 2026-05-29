@@ -1,0 +1,31 @@
+name: auto-merge release-please PRs
+
+# When release-please opens (or updates) its release PR, immediately enable
+# auto-merge so the release fires without a manual click. The release PR exists
+# for seconds, not days. This preserves release-please's batching semantics
+# (multiple feature merges in quick succession produce one release, not many)
+# while removing the human gate that surprised us in the v0.14.0 cycle.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    # Match release-please's own PRs: opened by the GitHub Actions bot, head
+    # branch named release-please--*. Both conditions required so we never
+    # auto-merge an unrelated bot PR.
+    if: >-
+      github.event.pull_request.user.login == 'github-actions[bot]' &&
+      startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enable auto-merge (squash)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --auto --squash --delete-branch
