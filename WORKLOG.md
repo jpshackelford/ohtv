@@ -693,3 +693,64 @@ This matches the 14:51Z forecast exactly: "if Phase B merged by 15:21Z → spawn
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 15:50 UTC - Orchestrator
+
+**Active Workers (at cycle entry & exit — unchanged):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c6f7ba1` | implementation | Issue #114 Phase C - per-conv cloud metadata → DB | running (~29 min in) |
+
+**Action Taken: NO SPAWN. Wait — PR slot occupied by running impl worker, expansion slot has nothing to expand.**
+
+This is the first **observe-only** cycle since the 14:21Z review-completion cycle. Falls cleanly within the forecast envelope set at 15:18Z: *"Expected envelope: 25-50 min to draft PR open with CI green. If `c6f7ba1` is still running at 15:48Z → no action this cycle (worker is iterating CI)."* Worker is 29 min in, still iterating, no branch pushed yet — matches "still working" leg of the forecast.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced blocks).
+- **Expansion slot:** OPEN, IDLE. **28th consecutive idle expansion cycle.** 0 issues need expansion (`gh issue list --json labels --jq '[.[] | select(.labels | map(.name) | (contains(["ready"]) or contains(["hold"])) | not)] | length'` → 0).
+- **PR slot:** OCCUPIED by `c6f7ba1` (impl worker, conv status `running` / sandbox `RUNNING`, last update 15:49:06Z = ~1 min before cycle entry — actively working).
+  - Verification that worker has not silent-exited: `gh api repos/jpshackelford/ohtv/branches` shows **no** `feat/per-conv-metadata-to-db-114c` branch yet (draft PR not yet opened); `git log origin/main` shows no new commits beyond `ac23810` (the 15:18Z worklog commit). Consistent with "still implementing locally, hasn't pushed first commit yet" — expected at this point in a 25-50 min envelope.
+- **Open PRs (both bot/blocked, observe-only — same as last 7 cycles):**
+  - **[PR #141](https://github.com/jpshackelford/ohtv/pull/141)** @ `2b88202`: `oC --` (lxa). Still no CI run after 3h on `ci/swap-to-python-semantic-release`. **Cycle 8 on Actions-policy gate.** Skip — human action required.
+  - **[PR #142](https://github.com/jpshackelford/ohtv/pull/142)** @ release-please: title still `chore(main): release ohtv 0.15.0`, last GitHub `updatedAt` = `2026-05-29T14:52:36Z` (= 22 sec before PR #143's merge at 14:52:56Z). **release-please has NOT re-batched yet to pick up the `feat(sync):` from PR #143.** Lxa shows "57m ago" last-activity but that's stale display — the API timestamp is canonical. Hypothesis: the `chore(worklog):` commit on main from 15:18Z did not re-trigger release-please (per AGENTS.md: release-please workflow is on push to main; `chore(worklog):` should still trigger the *workflow* but is hidden from the changelog/release calc — the workflow may have run silently and decided no batch update was needed because the prior batch is already open). **Observe only.** Will revisit when PR #143's feat commit shows up in #142's title (→ `0.16.0`) or when human acts on #141.
+
+**Decision tree row matched:** "PR exists, draft, CI failing → Wait (impl worker may still be active)" — closest fit. The actual rule applied: *PR slot occupied by running impl worker, no actionable open PR (the two phantoms #141/#142 don't count), expansion slot has no work → no spawn.*
+
+**Not "All quiet":** Per skill semantics, "All quiet" entries are when *both slots are empty AND no work exists*. This cycle has an **active running worker** (`c6f7ba1`), so it does not count toward the auto-disable counter. Counter stays at 0.
+
+**Auto-disable counter:** **0 → 0.** Productive in spirit (waiting on running worker, not idle). **38th consecutive non-idle cycle** (37 productive + 1 observe-with-active-worker).
+
+**Sandbox / silent-exit check on `c6f7ba1`:**
+
+- Spawned at 15:21:30Z. Conv API last `updated_at` = 15:49:06Z (29 min in, ~1 min before cycle entry).
+- 29 min ≤ lower bound of forecast envelope (25-50 min). Within range. No silent-exit symptoms.
+- No branch pushed yet → expected (no impl commits yet). Will check next cycle.
+- If `c6f7ba1` is still running at 16:20Z (~50 min in) with no branch push → escalate concern. If still running at 16:50Z (~90 min, double upper bound) → assume silent-exit, escape-hatch as planned in 15:18Z entry.
+
+**Current State (unchanged from cycle entry):**
+
+- **Open PRs (2 phantom):**
+  - [PR #141](https://github.com/jpshackelford/ohtv/pull/141): blocked on Actions policy. **Cycle 8.**
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): release-please for `ohtv-v0.15.0` (not yet re-batched to v0.16.0 despite PR #143 having merged ~58 min ago).
+  - (incoming) PR for #114 Phase C: worker `c6f7ba1` will draft & open it — expected window 15:50Z–16:11Z.
+- **Need expansion (0):** ✓ (28th consecutive idle expansion cycle).
+- **Ready w/ priority:medium (1):** #114 (Phase C in progress).
+- **Ready w/o priority (8):** #116, #121, #123–#128.
+- **On hold (2):** #26, #90.
+
+**Forecast for next cycle (~16:20Z window):**
+
+1. **PR slot — most-likely action:** check `c6f7ba1`. Three branches:
+   - (a) PR for #114 Phase C is open in draft, CI running/green → next cycle is a *handle-PR* cycle (docs check / testing depending on PR state).
+   - (b) Worker still running, no PR yet (40-50 min in) → still within envelope, observe again.
+   - (c) Worker `finished` but no PR opened → silent-exit. Escape hatch: respawn with same prompt or inline-implement (depends on next-cycle judgment).
+2. **PR #141:** unchanged unless human intervened on Actions policy (cycle 9).
+3. **PR #142:** may finally re-batch to `ohtv-v0.16.0` if release-please runs (unclear what triggers it now — possibly nothing until next non-worklog commit to main, which Phase C PR will provide).
+4. **Expansion slot:** unchanged, IDLE (29th cycle pending).
+5. **Worklog truncation:** WORKLOG.md now at ~708 lines. Oldest entry visible is from 11:48Z (4h old this cycle, will be ~4.5h old next cycle). Still within the 6-hour productive window. Next-cycle orchestrator should check whether 11:48Z entry has crossed ~17:48Z (the 6h boundary) — if so, archive it (~85 lines saved).
+
+**Sync notes:** Fresh container this cycle. Set up `~/.venvs/orchestrator` via `uv venv` + `uv pip install` (system install path was permission-blocked, mirrors prior cycle's workaround). `lxa` & `ohtv` installed cleanly there. `ohtv sync` ran but never completed within the soft timeout window — skipped (not needed for `gh`-based state-gathering, same call-pattern as prior cycle). `gh` 2.92.0 via `GH_TOKEN=$github_token`. `lxa repo add` again created a fresh "Unnamed Board 1" (ephemeral, ignored). All decision data sourced from `gh` + OpenHands conv API.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
