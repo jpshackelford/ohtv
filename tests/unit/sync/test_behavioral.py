@@ -31,6 +31,8 @@ Scenario index (from the issue comment, with PR markers):
   14. Manifest as canonical metadata source survives sync        — passes today
   15. Property: reconciliation is idempotent                     — xfail #111 (hypothesis)
   16. Property: applying same listing twice leaves DB unchanged  — xfail #111 (hypothesis)
+  17. Sub-conversations land locally with parent id populated    — passes today (#108)
+  18. Missing parent_conversation_id in listing → NULL column    — passes today (#108)
 """
 
 from __future__ import annotations
@@ -584,3 +586,89 @@ def test_applying_same_listing_twice_leaves_db_unchanged(
     # datetime — assertion fails → xfail.
     if fake_cloud.search_calls:
         assert fake_cloud.search_calls[-1] is None
+
+
+# ---------------------------------------------------------------------------
+# Scenario 17 — sub-conversations are included in the listing + DB (#108).
+#
+# When the fake cloud returns a parent + 1 sub-conversation, ``sync()``
+# downloads BOTH and the sub-conversation's
+# ``conversations.parent_conversation_id`` points at the parent. This
+# is the issue's primary acceptance criterion (AC #4): "Behavioral
+# test in tests/unit/sync/test_behavioral.py covers the case where
+# the fake cloud client returns a parent + 1 sub-conversation, and
+# asserts both end up locally."
+#
+# NOT xfail — this PR implements #108. The test passes today.
+# ---------------------------------------------------------------------------
+def test_sync_includes_sub_conversations(
+    sync_manager_factory, fake_cloud: FakeCloudClient
+):
+    """Fake cloud → parent + 1 sub. Sync → both land locally, sub has parent id."""
+    parent = FakeConversation(id="parentaaa", title="Parent")
+    sub = FakeConversation(
+        id="childbbb",
+        title="Sub-conversation",
+        parent_conversation_id="parentaaa",
+    )
+    fake_cloud.add(parent)
+    fake_cloud.add(sub)
+
+    manager = sync_manager_factory(fake_cloud)
+    result = manager.sync()
+
+    # AC #1 + #4: both conversations land in the manifest.
+    assert result.new == 2
+    assert {"parentaaa", "childbbb"} <= manager.manifest.conversations.keys()
+
+    # AC #4 (download path): both trajectory blobs were fetched.
+    assert set(fake_cloud.download_calls) == {"parentaaa", "childbbb"}
+
+    # AC #5: include_sub_conversations is forwarded as True on every
+    # listing call (no silent exclusion).
+    assert fake_cloud.search_log
+    assert all(
+        call.include_sub_conversations is True
+        for call in fake_cloud.search_log
+    )
+
+    # AC #3: the DB stores parent_conversation_id so the parent/child
+    # relationship is queryable without re-querying the cloud.
+    from ohtv.sync import get_connection_for_sync
+
+    with get_connection_for_sync() as conn:
+        rows = conn.execute(
+            "SELECT id, parent_conversation_id FROM conversations "
+            "ORDER BY id"
+        ).fetchall()
+    parent_by_id = {r["id"]: r["parent_conversation_id"] for r in rows}
+    assert parent_by_id["childbbb"] == "parentaaa"
+    assert parent_by_id["parentaaa"] is None
+
+
+# ---------------------------------------------------------------------------
+# Scenario 18 — regression guard: when the cloud listing is missing the
+# parent_conversation_id key (older payload shape), sync still works and
+# leaves the column NULL. Defends against accidental KeyError if the API
+# ever stops returning the field for some rows.
+# ---------------------------------------------------------------------------
+def test_sync_handles_missing_parent_field_in_listing(
+    sync_manager_factory, fake_cloud: FakeCloudClient, conv_factory: ConvFactory
+):
+    # All vanilla conversations — parent_conversation_id is None on each
+    # FakeConversation, which surfaces as None in the listing payload.
+    for c in conv_factory.batch(3):
+        fake_cloud.add(c)
+
+    manager = sync_manager_factory(fake_cloud)
+    result = manager.sync()
+
+    assert result.new == 3
+    from ohtv.sync import get_connection_for_sync
+
+    with get_connection_for_sync() as conn:
+        rows = conn.execute(
+            "SELECT parent_conversation_id FROM conversations"
+        ).fetchall()
+    # All three rows are roots — NULL parent_conversation_id.
+    assert all(r["parent_conversation_id"] is None for r in rows)

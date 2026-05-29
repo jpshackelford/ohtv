@@ -127,7 +127,9 @@ class TestConversationStoreLabels:
                 selected_repository TEXT,
                 source TEXT,
                 summary TEXT,
-                labels TEXT
+                labels TEXT,
+                cloud_updated_at TEXT,
+                parent_conversation_id TEXT
             )
         """)
         conn.commit()
@@ -322,7 +324,9 @@ class TestLabelRemoval:
                 selected_repository TEXT,
                 source TEXT,
                 summary TEXT,
-                labels TEXT
+                labels TEXT,
+                cloud_updated_at TEXT,
+                parent_conversation_id TEXT
             )
         """)
         conn.commit()

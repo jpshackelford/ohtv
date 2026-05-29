@@ -13,7 +13,8 @@ class ConversationStore:
     # All columns for SELECT queries
     _ALL_COLUMNS = """
         id, location, registered_at, events_mtime, event_count,
-        title, created_at, updated_at, selected_repository, source, summary, labels
+        title, created_at, updated_at, selected_repository, source, summary, labels,
+        parent_conversation_id
     """
     
     def __init__(self, conn: sqlite3.Connection):
@@ -62,7 +63,21 @@ class ConversationStore:
             source=row["source"],
             summary=summary,
             labels=labels,
+            parent_conversation_id=self._safe_get(row, "parent_conversation_id"),
         )
+
+    @staticmethod
+    def _safe_get(row: sqlite3.Row, column: str):
+        """Read ``column`` from ``row``, returning ``None`` if absent.
+
+        Older databases that predate a column-add migration may not
+        have the column in their SELECT result set; sqlite3.Row raises
+        ``IndexError`` in that case.
+        """
+        try:
+            return row[column]
+        except (IndexError, KeyError):
+            return None
     
     def upsert(self, conversation: Conversation) -> None:
         """Insert or update a conversation.
@@ -76,13 +91,21 @@ class ConversationStore:
         updated_at_str = conversation.updated_at.isoformat() if conversation.updated_at else None
         labels_json = json.dumps(conversation.labels) if conversation.labels else None
         
+        # Normalize parent id (Issue #108) to the dashless form per
+        # AGENTS.md item #14. ``None`` flows through unchanged so we
+        # can distinguish "I don't know" from "explicitly root".
+        parent_conversation_id = conversation.parent_conversation_id
+        if parent_conversation_id:
+            parent_conversation_id = parent_conversation_id.replace("-", "")
+
         self.conn.execute(
             """
             INSERT INTO conversations (
                 id, location, registered_at, events_mtime, event_count,
-                title, created_at, updated_at, selected_repository, source, summary, labels
+                title, created_at, updated_at, selected_repository, source, summary, labels,
+                parent_conversation_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 location = excluded.location,
                 events_mtime = excluded.events_mtime,
@@ -93,7 +116,16 @@ class ConversationStore:
                 selected_repository = excluded.selected_repository,
                 source = excluded.source,
                 summary = COALESCE(excluded.summary, conversations.summary),
-                labels = excluded.labels
+                labels = excluded.labels,
+                -- Preserve a parent id already written by
+                -- ``record_cloud_download`` when the scanner does not
+                -- carry one (Issue #108). This makes the scanner's
+                -- upsert idempotent with respect to sync's earlier
+                -- writeback.
+                parent_conversation_id = COALESCE(
+                    excluded.parent_conversation_id,
+                    conversations.parent_conversation_id
+                )
             """,
             (
                 conversation.id,
@@ -108,6 +140,7 @@ class ConversationStore:
                 conversation.source,
                 conversation.summary,
                 labels_json,
+                parent_conversation_id,
             ),
         )
     
@@ -382,20 +415,34 @@ class ConversationStore:
         *,
         location: str,
         cloud_updated_at: str | None,
+        parent_conversation_id: str | None = None,
     ) -> None:
         """Record that the cloud trajectory for ``conversation_id`` was just synced.
 
         Inserts a minimal row if the conversation has not been seen
-        before (location + source='cloud' + cloud_updated_at), or
-        updates only ``location`` and ``cloud_updated_at`` on an
+        before (location + source='cloud' + cloud_updated_at +
+        parent_conversation_id), or updates only ``location``,
+        ``cloud_updated_at``, and ``parent_conversation_id`` on an
         existing row. Crucially, this method NEVER overwrites
         metadata columns (``title``, ``event_count``, ``labels``,
         etc.) — those are owned by the scanner / LLM analysis paths.
 
         This is the writer for the column reserved by migration 018
-        (Issue #112); Issue #111 is the first consumer.
+        (Issue #112) and migration 019 (Issue #108); Issue #111 is the
+        first consumer of ``cloud_updated_at`` and ``ohtv sync`` is the
+        first consumer of ``parent_conversation_id``.
+
+        ``parent_conversation_id`` is normalized (dashes stripped) on
+        write to match the rest of the conversations table per
+        AGENTS.md item #14. ``None`` means "root conversation"; the
+        column distinguishes the row.
         """
         normalized = conversation_id.replace("-", "")
+        normalized_parent = (
+            parent_conversation_id.replace("-", "")
+            if parent_conversation_id
+            else None
+        )
         registered_at = datetime.now(timezone.utc).isoformat()
         # INSERT path: we don't know the metadata yet. The scanner will
         # backfill on its next run. We set event_count=0 so a
@@ -406,12 +453,19 @@ class ConversationStore:
             """
             INSERT INTO conversations (
                 id, location, registered_at, event_count, source,
-                cloud_updated_at
+                cloud_updated_at, parent_conversation_id
             )
-            VALUES (?, ?, ?, 0, 'cloud', ?)
+            VALUES (?, ?, ?, 0, 'cloud', ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 location = excluded.location,
-                cloud_updated_at = excluded.cloud_updated_at
+                cloud_updated_at = excluded.cloud_updated_at,
+                parent_conversation_id = excluded.parent_conversation_id
             """,
-            (normalized, location, registered_at, cloud_updated_at),
+            (
+                normalized,
+                location,
+                registered_at,
+                cloud_updated_at,
+                normalized_parent,
+            ),
         )

@@ -21,6 +21,12 @@ class Conversation:
         source: Source identifier ('local', 'cloud', or custom name)
         summary: Brief summary of conversation goal/objective (for RAG)
         labels: Cloud-sourced labels/tags (key=value pairs from API)
+        parent_conversation_id: For sub-conversations spawned by agent
+            delegation, the id of the parent conversation (normalized
+            / dashless, matching how ``id`` is stored). NULL for root
+            conversations and for local CLI conversations.
+            Populated by ``ohtv sync`` from the cloud listing payload
+            (Issue #108).
     """
     id: str
     location: str
@@ -34,3 +40,4 @@ class Conversation:
     source: str | None = None
     summary: str | None = None
     labels: dict[str, str] | None = None
+    parent_conversation_id: str | None = None

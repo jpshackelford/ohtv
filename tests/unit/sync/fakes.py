@@ -79,6 +79,14 @@ class FakeConversation:
             scenarios stay opt-in; populate it on at least one fixture
             per sync scenario to exercise the cloud_listing JSON-encoding
             path (PR #133 regression).
+        parent_conversation_id: For sub-conversations spawned by agent
+            delegation, the id of the parent conversation. ``None`` for
+            root conversations. The fake's listing path uses this field
+            to honor the ``include_sub_conversations`` query param
+            (Issue #108): when the param is falsy/missing, items with a
+            non-None ``parent_conversation_id`` are filtered out of the
+            listing — mirroring the production cloud's default-off
+            behavior.
     """
 
     id: str
@@ -90,6 +98,7 @@ class FakeConversation:
     visible: bool = True
     selected_repository: str | None = None
     pr_number: list[int] | None = None
+    parent_conversation_id: str | None = None
 
     def to_listing_dict(self) -> dict:
         """Serialize to the dict shape the real listing API returns."""
@@ -104,6 +113,11 @@ class FakeConversation:
             # ``[N]`` when a PR is tagged. ``None`` is preserved so tests
             # can deliberately probe the "key absent" path.
             "pr_number": self.pr_number if self.pr_number is not None else [],
+            # Issue #108: cloud listing carries the parent id for
+            # sub-conversations (NULL for roots). The fake mirrors the
+            # field unconditionally so test assertions can probe both
+            # the present-but-None and the populated paths.
+            "parent_conversation_id": self.parent_conversation_id,
         }
 
 
@@ -115,6 +129,9 @@ class SearchCall:
     updated_since: datetime | None
     limit: int | None = None
     page_id: str | None = None
+    # Issue #108: track which value the caller forwarded so tests can
+    # assert the production sync engine asks for sub-conversations.
+    include_sub_conversations: bool = True
 
 
 @dataclass(frozen=True)
@@ -265,11 +282,23 @@ class FakeCloudClient:
             >= since
         ]
 
+    @staticmethod
+    def _filter_by_sub_conversations(
+        candidates: list[FakeConversation], include_sub_conversations: bool
+    ) -> list[FakeConversation]:
+        """Filter out sub-conversations when ``include_sub_conversations`` is
+        false — mirroring the cloud API's default-off behavior for
+        ``GET /api/v1/app-conversations/search`` (Issue #108)."""
+        if include_sub_conversations:
+            return candidates
+        return [c for c in candidates if c.parent_conversation_id is None]
+
     def search_conversations(
         self,
         updated_since: datetime | None = None,
         limit: int = 100,
         page_id: str | None = None,
+        include_sub_conversations: bool = True,
     ) -> tuple[list[dict], str | None]:
         """Mirror :meth:`CloudClient.search_conversations`.
 
@@ -281,6 +310,12 @@ class FakeCloudClient:
         page *after* the first. ``search_all_conversations`` continues
         to run them through its private ``_serve_page`` path, so the
         two surfaces produce the same observable behaviour.
+
+        ``include_sub_conversations`` mirrors the real client's
+        Issue #108 kwarg: when ``False``, sub-conversations
+        (``parent_conversation_id IS NOT NULL``) are filtered out of
+        the listing, matching the cloud API's default-off behavior on
+        the ``/search`` endpoint.
         """
         # Run inter-page mutators on subsequent pages so the production
         # set-diff engine's manual pagination loop exercises the same
@@ -301,6 +336,7 @@ class FakeCloudClient:
                 updated_since=updated_since,
                 limit=limit,
                 page_id=page_id,
+                include_sub_conversations=include_sub_conversations,
             )
         )
 
@@ -311,8 +347,9 @@ class FakeCloudClient:
         if page_number in self._fail_listing_at_page:
             raise self._fail_listing_at_page[page_number]
 
-        candidates = self._filter_by_updated_since(
-            self._visible_sorted(), updated_since
+        candidates = self._filter_by_sub_conversations(
+            self._filter_by_updated_since(self._visible_sorted(), updated_since),
+            include_sub_conversations,
         )
 
         page = candidates[offset : offset + limit]
@@ -322,12 +359,18 @@ class FakeCloudClient:
         return [c.to_listing_dict() for c in page], next_page_id
 
     def search_all_conversations(
-        self, updated_since: datetime | None = None
+        self,
+        updated_since: datetime | None = None,
+        include_sub_conversations: bool = True,
     ) -> list[dict]:
         """Mirror :meth:`CloudClient.search_all_conversations`."""
         self.search_calls.append(updated_since)
         self.search_log.append(
-            SearchCall(method="search_all_conversations", updated_since=updated_since)
+            SearchCall(
+                method="search_all_conversations",
+                updated_since=updated_since,
+                include_sub_conversations=include_sub_conversations,
+            )
         )
 
         all_items: list[dict] = []
@@ -344,7 +387,9 @@ class FakeCloudClient:
                 raise self._fail_listing_at_page[self._listing_page_counter]
 
             items, next_page_id = self._serve_page(
-                updated_since=updated_since, page_id=page_id
+                updated_since=updated_since,
+                page_id=page_id,
+                include_sub_conversations=include_sub_conversations,
             )
             all_items.extend(items)
             if not next_page_id:
@@ -361,7 +406,11 @@ class FakeCloudClient:
         return all_items
 
     def _serve_page(
-        self, *, updated_since: datetime | None, page_id: str | None
+        self,
+        *,
+        updated_since: datetime | None,
+        page_id: str | None,
+        include_sub_conversations: bool = True,
     ) -> tuple[list[dict], str | None]:
         """Internal: serve one page WITHOUT recording a duplicate SearchCall.
 
@@ -371,21 +420,30 @@ class FakeCloudClient:
         extra ``SearchCall`` per page, which clutters assertions.
         """
         offset = int(page_id) if page_id else 0
-        candidates = self._filter_by_updated_since(
-            self._visible_sorted(), updated_since
+        candidates = self._filter_by_sub_conversations(
+            self._filter_by_updated_since(self._visible_sorted(), updated_since),
+            include_sub_conversations,
         )
         page = candidates[offset : offset + self._page_size]
         next_offset = offset + len(page)
         next_page_id = str(next_offset) if next_offset < len(candidates) else None
         return [c.to_listing_dict() for c in page], next_page_id
 
-    def count_conversations(self) -> int:
+    def count_conversations(self, include_sub_conversations: bool = True) -> int:
         """Mirror :meth:`CloudClient.count_conversations`.
 
         Counts only visible conversations — matches the cloud's behavior of
         hiding archived / deleted conversations from the count endpoint.
+        When ``include_sub_conversations`` is False, sub-conversations
+        are also excluded from the count to match the same
+        Issue #108 contract the listing endpoints honor.
         """
-        return sum(1 for c in self._store.values() if c.visible)
+        return sum(
+            1
+            for c in self._store.values()
+            if c.visible
+            and (include_sub_conversations or c.parent_conversation_id is None)
+        )
 
     def download_trajectory(self, conversation_id: str) -> bytes:
         """Mirror :meth:`CloudClient.download_trajectory`.
@@ -483,12 +541,16 @@ class RecordingCloudClient(FakeCloudClient):
         self._raw_listing: list[dict] = listing
 
     def search_all_conversations(
-        self, updated_since: datetime | None = None
+        self,
+        updated_since: datetime | None = None,
+        include_sub_conversations: bool = True,
     ) -> list[dict]:
         self.search_calls.append(updated_since)
         self.search_log.append(
             SearchCall(
-                method="search_all_conversations", updated_since=updated_since
+                method="search_all_conversations",
+                updated_since=updated_since,
+                include_sub_conversations=include_sub_conversations,
             )
         )
         return list(self._raw_listing)
