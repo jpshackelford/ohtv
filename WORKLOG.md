@@ -2,6 +2,38 @@
 
 ## Log
 
+### 2026-05-29 03:05 UTC - Impl Worker (Issue #109)
+
+**PR opened:** [#135 — feat(locks): add sync.lock writer mutex + column-ownership table (#109)](https://github.com/jpshackelford/ohtv/pull/135)
+
+- Branch: `feat/sync-lock-109`
+- Head SHA: `edb3c4a`
+- State: ready for review (moved from draft after CI green)
+- CI: `lint` ✅ (3s), `pytest` ✅ (47s, 1897 passed / 3 skipped / 4 xfailed)
+- Scope: 6 files, +941/-62 LOC. New module `src/ohtv/locks.py` + 24 tests across 2 new test files. Docs in `docs/reference/database.md` (new section) + AGENTS.md item #27 (extended).
+
+**What landed:**
+- `fcntl.flock(LOCK_EX | LOCK_NB)` mutex at `$OHTV_DIR/sync.lock`, wrapped at the CLI layer for `sync`, `db scan`, `gen titles`. `--lock-timeout=N` flag on each; default 0 = fail-fast.
+- Read-only commands (`list`, `show`, `refs`, `errors`, `search`, `ask`, `report *`, `db status`, `db process *`, `db embed`, `gen objs`) deliberately unaffected — verified by parametrized negative-contract CLI test.
+- `sync --status` short-circuits BEFORE lock acquisition (read-only). `--update-metadata` flag-conflict validation also runs before the lock so the error surfaces regardless of `--status`.
+- Column-ownership table covers every column on `conversations` (post-#112, post-#108): id, location, registered_at, events_mtime, event_count, title, created_at, updated_at, cloud_updated_at, selected_repository, selected_branch, source, labels, parent_conversation_id, summary, sync_state, cloud_listing.
+- `selected_branch` codified as scanner-only — sync forbidden from writing it (NOT a parameter of `update_metadata`).
+- Windows = no-op + logged warning (documented out-of-scope).
+
+**AC coverage:**
+- ✅ Column-ownership table in AGENTS.md + database.md.
+- ✅ Every column has documented canonical writer per source value.
+- ✅ `selected_branch` explicitly scanner-only.
+- ✅ Mutex taken by sync, db scan, gen titles; fail-fast with clear error.
+- ✅ Read-only commands unaffected (parametrized negative test).
+- ✅ `--lock-timeout=N` flag on writers, default 0.
+- ⚠️ Behavioral "concurrent sync+scan" test in tests/unit/sync/ harness deliberately not added — substituted with subprocess-based cross-process tests in `tests/unit/test_locks.py` which exercise real flock contention (single-process threaded "concurrent" tests cannot demonstrate flock semantics). Trade-off documented in PR body.
+- ✅ Two-sync race: second invocation fails fast in <1s, manifest untouched (trivially consistent).
+
+**Follow-ups (not in this PR):**
+- Windows support via `msvcrt.locking`.
+- Optional defensive `sync_lock` call inside `scan_conversations` / `Syncer.sync()` for library users that bypass the CLI (per technical-approach comment; currently CLI-only wrap is sufficient).
+
 ### 2026-05-28 18:21 UTC - Orchestrator
 
 **Active Workers:**
