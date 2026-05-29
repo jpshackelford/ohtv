@@ -2,6 +2,28 @@
 
 ## Log
 
+### 2026-05-29 14:28 UTC - Testing worker (PR #143)
+
+**PR:** #143 (`feat(sync): persist last_sync_at/sync_count/failed_ids in sync_kv (Phase B of #114)`, head `d7d3a607`).
+
+**Unit tests:** Full suite **1972 passed, 2 skipped, 3 xfailed** in 33.07 s. Phase B suite **16/16 passed** in 0.35 s. No regressions vs. impl worker's claim.
+
+**Blackbox** (CLI-only, all four scenarios from spawn brief):
+
+- **B-1 — cold-upgrade backfill:** PASS. Fresh `$OHTV_DIR=/tmp/ohtv-b1`, hand-crafted manifest with `last_sync_at`/`sync_count=42`/`failed_ids=[…]` → `ohtv db init` + `ohtv report weekly-counts` (the read-only command that goes through `ensure_db_ready`). All three scalars present in `sync_kv` byte-for-byte; `maintenance_tasks.sync_state_backfill_114` row complete with `triggered_by='migration_018'` and `details='{"backfilled": 3, …}'`.
+- **B-2 — dual-write parity:** PASS. Three sequential `ohtv sync -n <small>` runs against the real cloud (`$OPENHANDS_API_KEY`). `sync_count` agreed in manifest and `sync_kv` after every run (1→2→3); `failed_ids` agreed (`[]` throughout — no transient cloud failures during testing); `last_sync_at` agreed (`None` in both — sandbox account has ~3845 conversations, every run was capped with `-n`, and the engine intentionally does not advance `last_sync_at` while `result.has_skipped_new` is true at `sync.py:1150-1157`). Writer side correct end-to-end.
+- **B-3 — overlay precedence:** PASS. Hand-edited manifest to `sync_count=999` and `last_sync_at=1999-01-01` while leaving DB values intact. `ohtv sync --status` displayed `42` / `2026-05-28` — DB values won. AC #3 confirmed.
+- **B-4 — pre-018 fallback:** PASS. `DROP TABLE sync_kv` + `ohtv sync --status` — no crash, manifest values surfaced. Tolerance path holds end-to-end.
+- **Design-choice sanity:** PASS. `sync_kv.value` for `failed_ids` round-trips through `json.loads` to a `list[str]`. Single-row JSON-encoded array as the PR description committed to.
+
+**Observation, non-blocking:** `ohtv sync --status` and `ohtv db status` do not themselves trigger `ensure_db_ready`. This is fine for Phase B (the backfill is best-effort; any sync/scan/report command fires it on the first invocation), but worth tracking when Phase D retires the manifest — `--status` may need its own gate. Documented inline in the PR test report comment.
+
+**Rating:** Excellent — ship it. No blockers. Test report posted to PR as `https://github.com/jpshackelford/ohtv/pull/143#issuecomment-4576292578`.
+
+**Status:** EXIT per manual-test workflow step 7.
+
+---
+
 ### 2026-05-29 14:10 UTC - Impl worker (Phase B of #114)
 
 **Conv:** `<this impl worker>` — spawned by orchestrator at 13:53Z.
