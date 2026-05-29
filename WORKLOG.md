@@ -1380,3 +1380,57 @@ Docs workers no-op'd twice in a row on PR #138 despite hyper-specific briefs. Su
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 11:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `8824962` | testing | PR #138 — root_conversation_id foundation | **NEW** READY ([conv](https://app.all-hands.dev/conversations/8824962f6af4468f9ee1dc9ad82c9e52)) |
+
+**Spawned: Testing Worker for PR #138**
+
+- PR: [#138 — feat(db): add root_conversation_id column, view, and list_roots helper](https://github.com/jpshackelford/ohtv/pull/138) (branch `feat/aggregate-sub-conversations-122`, head `39d85969`)
+- Conversation: [`8824962`](https://app.all-hands.dev/conversations/8824962f6af4468f9ee1dc9ad82c9e52) — start-task `8acc726b3ff445f5b5eb17c83a7952f4` returned `status=READY` on first 5s poll. `sandbox_id=172eZWZ9DK1J9yN2Ni8vHk`. **Tracking the `app_conversation_id` per the corrected pattern established at 10:50Z.**
+- Worker brief: clone PR branch, `uv sync`, execute six blackbox test categories (`db status` new output format / migration 020 fresh+seeded / `conversation_trees` view / `list_roots()` helper / COALESCE non-clobber invariant / full unit suite), post structured `## Manual Test Results - PR #138` comment with per-category pass/fail. Hard fences: testing-only (no PR code edits), no draft toggle, no `WORKLOG.md` writes, AI-disclosure footer required. On real failures: post the report with failure section — do NOT attempt to fix in-band.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk` over WORKLOG with fenced-block exclusion → 0 hits).
+- **Prior cycle's escape-hatch commit `39d8596`:** CI re-ran on the new commit and both checks passed — `lint` SUCCESS at 10:49:09Z, `pytest` SUCCESS at 10:49:55Z. The `pr-review` bot did NOT re-run on the docs-only commit (expected: the bot fires on draft→ready transition + substantive code commits; a 1-line docs example update doesn't satisfy either trigger). **CI state confirmed via `gh api repos/.../commits/39d85969.../check-runs`** — only 2 check-runs on this SHA, both `completed=success`.
+- **PR #138 state at decision time:** `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=""` (no reviews yet), **0 review threads**, **1 PR comment** (the escape-hatch's "Documentation updated for `db status` root/sub split" posted at 10:49:11Z, matching the orchestrator's regex). **Docs gate CLOSED ✓.**
+- **Expansion slot:** OPEN, IDLE. 12 open issues (10 `ready` w/ 2 prioritized — #122 in flight via #138, #114 queued — and 2 `hold` for #26, #90). **0 need expansion.** **19th consecutive idle expansion cycle.**
+- **PR slot:** OPEN at cycle start (all prior ohtv worker sandboxes `PAUSED`). No active PR worker. **PR #138 needs the next workflow-sequence step**: Implementation ✓ → CI Green ✓ → Docs Updated ✓ → **Manual Testing** → Review → Merge.
+- **Decision-tree row applied:** **"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker."** This is the row the 10:51Z forecast pre-committed to. Both preconditions hold (CI green, no new commits/comments since the escape-hatch). Dispatched cleanly.
+- **Sub-decision — why testing before review:** the workflow sequence is strict: testing gates review. Even though `pr-review` bot ran clean on the impl PR (no diagnostic comments at 09:38:55Z), the substantive code review is supposed to begin AFTER manual test results post — so reviewers see what was tested. Spawning review before testing would invert the gate.
+- **Sub-decision — why no inline priority sweep on #116/#121/#123–#128:** #114 + #122 already `priority:medium`, so the "no prioritized ready work" precondition doesn't fire. Sweep also wasted budget: #123–#128 are blocked on #138 merging and #122 closing. Defer.
+- One action per wake-up rule honored.
+- **Auto-disable counter:** **0 → 0** (productive cycle). **Twenty-ninth consecutive productive cycle.** No quiet-period risk.
+
+**Current State:**
+
+- Open PRs: **1** — [PR #138](https://github.com/jpshackelford/ohtv/pull/138) (foundation for #122, CI green, docs gate CLOSED ✓, testing in flight via `8824962`).
+- [Issue #122](https://github.com/jpshackelford/ohtv/issues/122) (`priority:medium`, `ready`): PR #138 in flight (`Refs #122`, stays open until per-command issues land).
+- [Issue #114](https://github.com/jpshackelford/ohtv/issues/114) (`priority:medium`, `ready`): Phases B/C/D queued.
+- **Need expansion (0):** ✓ (19th consecutive cycle).
+- **Ready w/ priority:medium (2):** #122 (in flight), #114.
+- **Ready w/o priority (8):** #116, #121, #123–#128. Six of eight unblock post-#138.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ workflow-permissions block persists. Queue: **4 minor bumps** (#133–#136). PR #138 will add a 5th `feat(db):` bump on merge.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → #109 ✅ → #113 ✅ (PR #136) → #114 Phase A ✅ (PR #137) → **#122 foundation in flight (PR #138, testing)** → #114 Phases B/C/D + #123–128 (post-#122).
+
+**Forecast for next cycle (~11:50Z window):**
+
+- **If `8824962` running** → wait + log.
+- **If `8824962` finished, test report posted with overall PASS** → re-evaluate decision tree. The `pr-review` bot was clean and no human review threads exist — the workflow's "review worker only when 💬>0" rule means the next step is likely **merge worker**, not review worker. Plan tentatively: merge dispatch next cycle if test report is green.
+- **If `8824962` finished, test report posted with FAILURE** → spawn scoped fix worker for the specific failure.
+- **If `8824962` finished without posting a comment** (would be 3rd silent-exit on this PR after `7ff3c76`, `6bacec7`) → escalate to inline orchestrator action: run the test suite directly + post a minimal verify comment. Track the pattern.
+- **If `8824962` errored mid-flight** → re-spawn with the same prompt.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle.
+- **WORKLOG truncation:** at 1382 lines pre-this-entry → ~1450 post-this-entry. Past the ~1300 operational trigger. Plan unchanged: defer to the cycle AFTER PR #138 merges. If PR #138 stays open 4+ more cycles, reconsider mid-flight truncation — worklog approaching 1700+ would be operationally painful for next-cycle agents.
+
+**Sync notes:** Container respawned this cycle. `gh` 2.92.0 authenticated cleanly via `GH_TOKEN=$github_token`. Tooling `lxa` + `ohtv` already present in `~/.local/bin` (persisted-volume container shape this cycle — different from prior cycles' re-install pattern). `ohtv sync` skipped per prior-cycle long-poll-hang note. **Start-task semantics confirmed for the fourth consecutive cycle:** `POST /api/v1/app-conversations` → start-task `id=8acc726b…`; `GET /api/v1/app-conversations/start-tasks?ids=<post_id>` → `app_conversation_id=8824962f…` + `sandbox_id=172eZWZ9…`. Tracking `app_conversation_id` in the active-workers table. Spawn response time was fast this cycle (`READY` on first 5s poll, vs. the 25–40s wait observed in earlier cycles). `git pull --ff-only origin main` clean (HEAD `024b464` from the 10:51Z escape-hatch worklog commit).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
