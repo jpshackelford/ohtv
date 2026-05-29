@@ -1412,3 +1412,76 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 04:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `52c660e` | implementation | Issue #113 — `sync --repair` four-category UX | **NEW** running |
+
+**Spawned: Implementation Worker for Issue #113**
+- Issue: [#113 — `ohtv sync --repair` reports the cloud-side gap but cannot fix it](https://github.com/jpshackelford/ohtv/issues/113)
+- Conversation: [`52c660e`](https://app.all-hands.dev/conversations/52c660ea10db4ba4b4efffd57b62bb5e) — `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`.
+- Start task `41d5085d…` → READY on the **1st** 5s poll (~5s — sub-second sandbox path, identical cadence to prior cycle's dispatches).
+- Plugin form: canonical object `{source: github:jpshackelford/.openhands, repo_path: plugins/ohtv-workflow, ref: feat/ohtv-workflow-plugin}`. `run: true` at `initial_message` level. Single attempt, accepted.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 hits outside fenced code blocks).
+- **Prior cycle's merge worker `4fe43cf`:** `execution_status=null`, `sandbox_status=PAUSED`, last updated 04:23:55Z (~3 min after dispatch). **Mission accomplished:** PR #135 squash-merged at **04:21:51Z** (under 2 min after the merge worker came up). Merge commit `4799ad03e17b4f75130b11f0a9b3dcf8c050b7a6`. Issue #109 auto-closed at 04:21:52Z via `Fixes #109`. The prior cycle's primary-action forecast (item #1: PR squash-merged, Issue #109 auto-closed → advance to next ready w/o priority) matches exactly.
+- **Expansion slot:** OPEN, IDLE. 13 open issues post-#109-close. 11 `ready` (all w/o priority pre-this-cycle), 2 `hold` (#26, #90). **0 need expansion.** Slot stays idle (7th consecutive idle cycle).
+- **PR slot:** EMPTY at cycle start (PR #135 merged, no other open PRs — `gh pr list --state open` returned `[]`).
+- Canonical decision-tree row: **"No open PR + ready issues, no priority → Run `/assess-priority` inline, then spawn impl worker."**
+
+**Priority Assessment (inline `/assess-priority` invocation):**
+
+Assessed all 11 ready w/o-priority issues by reading each issue body. Three clusters identified:
+
+1. **Sync-rewrite arc (#113, #114)** — chain in flight; 4 issues already merged (#110/#112/#111/#108) + #109 (just merged). #113 explicitly declares "Depends on: #111, #112. Lock contract via #109. Independent of #114" — **all deps merged**. #114 is the architectural umbrella for #109/#113.
+2. **Sub-conversation cluster (#122 → #123–#128)** — #108 just landed making subs first-class rows; #122 establishes the `root_conversation_id` foundation that #123–#128 build on. #122 is the keystone, unblocking 6 follow-ons.
+3. **Orthogonal:** #116 (DB migration consolidation), #121 (CLI logging UX refactor).
+
+**Labels applied:**
+
+| Issue | Priority | Rationale |
+|-------|----------|-----------|
+| #113 — `sync --repair` four-category UX | `priority:high` ⬅️ **NEXT** | Known production gap (1133-item miss), tool that lies about its scope, all deps merged, completes the 4-PR sync-rewrite arc, momentum & thematic continuity. |
+| #122 — root_conversation_id foundation | `priority:medium` | Unblocks 6 follow-on cluster issues (#123–#128), but foundation work with silent (not active) regressions. |
+| #114 — Sync state two-sources-of-truth (architectural) | `priority:medium` | Sync-arc consolidation; logical follow-on after #113 lands the `--repair` UX. |
+| #116, #121, #123–#128 | unlabeled | #123–#128 depend on #122; #116/#121 orthogonal. Re-assess next cycle. |
+
+Dispatched impl worker for **#113** (highest priority, immediate continuation of the active arc, concrete bounded scope per its technical-approach comment).
+
+One action per wake-up rule honored.
+
+**Current State:**
+
+- **Open PRs:** 0 (PR #135 merged at 04:21Z, no replacement open yet — the new impl worker will draft one).
+- Issue #109: ✅ CLOSED via PR #135 squash-merge.
+- **Need expansion (0):** ✓ board fully expanded.
+- **Ready w/ priority:high (1):** #113 (impl worker `52c660e` in flight).
+- **Ready w/ priority:medium (2):** #114, #122.
+- **Ready w/o priority (8):** #116, #121, #123, #124, #125, #126, #127, #128.
+- **On hold:** #26, #90.
+- **Release-please:** ❌ still failing on the workflow-permissions block (no change since 01:50Z diagnosis). Unblock requires @jpshackelford to flip `Settings → Actions → Workflow permissions → Allow GitHub Actions to create and approve pull requests`. Post-#135 the queue is now 3 minor bumps (#133 + #134 + #135). Not blocking dispatch.
+- **Sync rewrite arc:** #110 ✅ → #112 ✅ → #111 ✅ → #108 ✅ → #109 ✅ (PR #135 merged) → **#113 (in flight as PR-to-be by `52c660e`)** → #114 (final).
+
+**Auto-disable counter:** **0 → 0** (productive cycle — PR slot advanced from "merge done" to "next impl in flight"; #109 cleared the board, #113 takes its place). Seventeen consecutive productive cycles.
+
+**Forecast for next cycle (~05:20Z window):**
+
+- **If `52c660e` is still running** → log + wait. Issue #113 is a substantial concurrency-aware refactor: four explicit categories carved into the existing `SyncManager.repair`, requires new SQL against `cloud_listing` + `cloud_updated_at`, new CLI output sections, and probably new tests using the #110 cloud-sync harness. Typical impl-worker shape: 60–120 min before opening a draft PR.
+- **If `52c660e` opens a DRAFT PR with CI not yet green** → wait (impl worker is iterating on CI).
+- **If `52c660e` opens a PR that is READY (not draft) and CI green** → advance the PR slot pipeline. Per docs-before-test rule: #113 changes `--repair` user-visible output and adds categories → README/docs likely need updates. If the PR's diff didn't touch `docs/guides/syncing.md` or the `--repair` example block, spawn **docs worker**; else spawn **testing worker** directly.
+- **If `52c660e` finishes without opening a PR (errored/ghosted)** → re-spawn once and surface diagnostics; check that the PR-title conventional-commit gate didn't trip on first push.
+- **If `52c660e` hits a spawn or git-provider auth error** → reinstate the unblock-the-human message.
+- **If new `## INSTRUCTION:` (outside fenced code) on main** → follow first.
+- **Expansion slot:** stays idle until human files a new issue.
+- **Release-please:** unchanged forecast (waiting on human to flip repo permission toggle). Post-#135 the queue grows to 3 minor bumps.
+- **WORKLOG truncation:** at ~1410 lines pre-this-entry, over the 300-line threshold for **five** consecutive cycles. Will trigger a truncation pass next idle cycle (or first cycle that finds the PR slot in a wait-state with no other dispatch action — e.g., "draft PR, CI yellow" entry). Deferred again here to keep dispatch surgical and one-action-per-wake-up.
+
+**Sync notes:** Container fresh-respawn this cycle (no `~/.local/bin` carryover, `.venv` existed from prior `uv sync`). `gh` 2.92.0 authenticated via `GH_TOKEN=$github_token`. OH API search via `Authorization: Bearer $OPENHANDS_API_KEY` (no rate limit this cycle). Spawn via `X-Access-Token: $OPENHANDS_API_KEY`. `ohtv sync` skipped (orchestrator's documented fallback to direct `gh` + GraphQL when sync is slow/uncached on a fresh sandbox). `git pull --ff-only origin main` confirmed up-to-date before commit.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
