@@ -872,3 +872,88 @@ Merged PR #144 (Phase C of Issue #114).
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 17:23 UTC - Orchestrator
+
+**Active Workers (at cycle entry — none ohtv-related):**
+
+_No active ohtv workers — `c6f7ba1` (impl, Phase C) and `a895ce9` (testing, PR #144) both finished cleanly, and the merge worker that took PR #144 over the line completed at 16:54Z._
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `434b541` | implementation | Issue #126 — classify short-circuit subs | **NEW** running |
+
+**Action Taken: Inline `/assess-priority` on 8 ready issues + spawned impl worker for Issue #126.**
+
+This is the success path for the 16:54Z merge-worker completion: PR slot opened up, expansion slot remained idle (0 issues need expansion — 30th consecutive idle cycle), and the 8 ready issues had no priority labels. Per the decision-tree row *"No open PR + ready issues, no priority → Run `/assess-priority` inline, then spawn impl worker"*, I assessed all 8 inline and spawned the highest-priority issue.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced blocks).
+- **Expansion slot:** OPEN, IDLE. **30th consecutive idle expansion cycle.** 0 issues need expansion.
+- **PR slot at entry:** OPEN. The merge of PR #144 (`feat(sync): make DB canonical for per-conv cloud metadata (Phase C of #114)`, squash `3302139`) cleared the slot at 16:54Z. No active ohtv workers in OpenHands conv API (`execution_status=running` filter returned `15760ce` = this orchestrator + `15e8189` = an unrelated "Assess Capacity for Rolling Deploys" conv with `repo=null`).
+- **Open PRs (2 phantom, both bot/blocked — unchanged stance):**
+  - **[PR #141](https://github.com/jpshackelford/ohtv/pull/141)** @ `2b88202`: `mergeStateStatus=UNKNOWN`, last `updatedAt=2026-05-29T12:03:20Z`. No CI run on `ci/swap-to-python-semantic-release`. **Cycle 10 on the Actions-policy gate.** Skip — human action required.
+  - **[PR #142](https://github.com/jpshackelford/ohtv/pull/142)** @ release-please: title still `chore(main): release ohtv 0.15.0`, last `updatedAt=2026-05-29T16:55:17Z` (=~12 sec after PR #144's `3302139` merge). **release-please DID re-batch** — body now lists all three `feat:` entries: `feat(db): add root_conversation_id column (#138)` + `feat(sync): dual-write to sync_kv Phase B (#114)` + `feat(sync): make DB canonical Phase C (#114)`. Title remained at `0.15.0` because release-please collapses any number of `feat:` commits since the last tag (0.14.0) into a single minor bump — that is the correct behavior. Bot-managed, `autorelease: pending`. Skip.
+- **Inline `/assess-priority` on 8 ready issues:**
+
+| Issue | Title | Impact | Urgency | Complexity | Deps | Risk | Priority |
+|-------|-------|--------|---------|------------|------|------|----------|
+| **#126** ⬅️ NEXT | classify short-circuit subs to `automation` | High (corrects velocity/weekly-counts attribution silently corrupted by #108) | High (foundational for #123/#124 correctness; without it, switching reports to `list_roots` would still mis-attribute) | Low (1 SQL `UPDATE … WHERE EXISTS`, one Click wire-up at known line, helper signature pre-baked in tech-approach comment) | None standalone; unblocks #123/#124 | Low (deterministic SQL, easy rollback) | **`priority:high`** |
+| #116 | Centralize DB migration into single 'ensure ready' | Medium (internal cleanup, 16 call sites) | Medium | Medium (touches many files) | Standalone | Medium (sequencing matters during in-flight #114 Phase D rollout) | `priority:medium` |
+| #123 | `report weekly-counts` overcount with subs | Medium-High (report correctness) | Medium (depends on #126 for full correctness) | Low (swap to `list_roots`) | Soft-blocks on #126 for full correctness | Low | `priority:medium` |
+| #124 | `report velocity` overcount with subs | Medium-High (report correctness) | Medium (same dep on #126) | Low (same pattern) | Soft-blocks on #126 | Low | `priority:medium` |
+| #125 | `gen objs/titles/run` treat subs as independent | Medium (wasted LLM spend on `gen objs/titles`) | Medium | Medium (touches filter pipeline) | None | Medium (LLM cost regression risk) | `priority:medium` |
+| #127 | `list`/`refs` surface subs as siblings of roots | Medium (UX confusion) | Medium | Medium-High (display + filter resolution rework) | None | Medium (cosmetic + filter semantics shift) | `priority:medium` |
+| #128 | RAG `ask`/`search` cite sub IDs user doesn't know | Medium (display/dedup) | Medium | Medium | None | Low | `priority:medium` |
+| #121 | CLI logging refactor (`--verbose` rename, `--log-level/--log-file`) | Medium (operator UX) | Low (workarounds exist) | Medium-High (flag-rename is breaking) | None | Medium-High (operator scripts may pin `--verbose`) | `priority:low` |
+
+**Recommendation chosen:** #126 — best Pareto frontier (high impact × high urgency × low complexity × unblocks two other ready issues × low risk × pure-DB no-LLM change). Labels applied per the table above via `gh issue edit … --add-label "priority:<level>"`.
+
+**Why #126 over #123/#124 (which are also high-impact report-correctness):** the issue's pre-baked technical-approach comment makes #126's surface explicit — single helper, single wire-up at known line (cli.py:10225), self-healing default semantics so no `--refresh` flag debate, and the existing `_assert_parent_column_present` guardrail pattern from #123/#124/#125 to copy. #123/#124 are the natural follow-ups in the same cluster once #126 establishes the auto-step pattern.
+
+**Why not #116 (DB migration centralization):** higher merge-conflict risk with #114 Phase D (when the manifest writes get retired, the migration path will be in flux). Better to wait until Phase D ships.
+
+**Spawn details:**
+
+- **Conv:** [`434b541`](https://app.all-hands.dev/conversations/434b541d53f44b58af675d6b40de4aab). Start task `ca43578f…` → READY on poll #1 (~4 s) → `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 17:22:11Z. Cosmetic title "Conversation 434b5" (same sandbox-display quirk as prior spawns — non-blocking).
+- **Plugin:** `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- **Prompt highlights** (pre-baked):
+  - Pointer to the technical-approach comment as the source of truth (helper signature, cut-shape B, exact CLI line 10225 wire-up).
+  - Migration-dependency note: only requires migration 018 (`parent_conversation_id`, from #108) — already in main. NOT blocked by #122/#138.
+  - Explicit correction of the original issue's premise: classify makes **zero LLM calls** today; this is pure-DB correctness, not cost optimization. Worker instructed not to introduce LLM calls.
+  - Test plan items mapped to AC: helper unit tests for sub→automation in three starting-source variants + no-op for sub without `conversation_human_input` row (the T-D scenario) + CLI smoke for all three modes + idempotency + `--list-unknown` no longer surfaces subs.
+  - Conventional-commit guidance: `fix(classify):` recommended (user-observable report-attribution correction → patch bump via release-please's grammar).
+  - PR description must include `Fixes #126`.
+  - AI-attribution footer required.
+- **Silent-exit risk:** zero precedent for impl-worker silent-exit on this codebase. The 3 silent-exits in this WORKLOG history were all on testing workers for PR #138 (per the 11:21Z/14:21Z entries). Impl workers `c6f7ba1` (Phase C) and `feb50a3`-equivalent precedents all ran cleanly. Default escape-hatch: if `434b541` is `finished` at next wake-up with no branch pushed, respawn or inline-implement.
+
+**One action per wake-up:** ✓ one spawn (priority labeling counts as inline assessment, not a worker spawn).
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned worker after merge). **40th consecutive productive cycle.** Not at risk.
+
+**Current State (post-spawn):**
+
+- **Open PRs (2):**
+  - [PR #141](https://github.com/jpshackelford/ohtv/pull/141): blocked on Actions policy. **Cycle 10.** Human action required.
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): release-please for `ohtv-v0.15.0`, re-batched with all three Phase B/C/#138 features. Bot-managed.
+  - (incoming) PR for #126: worker `434b541` will draft & open it.
+- **Need expansion (0):** ✓ (30th consecutive idle cycle).
+- **Ready w/ priority:high (1):** #126 (in implementation).
+- **Ready w/ priority:medium (6):** #116, #123, #124, #125, #127, #128.
+- **Ready w/ priority:low (1):** #121.
+- **On hold (2):** #26, #90.
+
+**Forecast for next cycle (~17:53Z window):**
+
+1. **PR slot — most-likely action:** check `434b541`. #126 is a small change (~50 LOC + tests). Expected envelope: 15–35 min to draft PR open with CI green. If still running at 17:53Z (~30 min in) → still within envelope, observe. If PR opened and ready → docs-update check (likely NOT required — internal classify behavior, no new CLI flags or output formats) → testing worker.
+2. **PR #141:** unchanged unless human intervened (cycle 11 pending).
+3. **PR #142:** unchanged — autorelease pending until human merges (or until next non-feat commit re-triggers re-batch).
+4. **Expansion slot:** unchanged, IDLE (31st cycle pending).
+5. **Worklog truncation:** WORKLOG.md now at ~1000 lines. Oldest visible entry is 11:48Z (5h35m old this cycle; will cross 6h around 17:48Z = 25 min from now). Next cycle should run the truncation skill — the 11:48Z and possibly 12:23Z entries will be archive-eligible (~70 lines saved).
+
+**Sync notes:** Fresh container this cycle. `lxa` and `ohtv` installed cleanly into `.venv` (system install path was permission-blocked, mirrors prior cycles' workaround). `ohtv sync` hit soft-timeout — skipped (not needed; all decision data sourced from `gh` 2.92.0 with `GH_TOKEN=$github_token` and OpenHands conv API with `OPENHANDS_API_KEY`). `lxa repo add` again created a fresh "Unnamed Board 1" (ephemeral, ignored).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
