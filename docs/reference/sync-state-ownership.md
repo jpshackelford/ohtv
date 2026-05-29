@@ -45,7 +45,7 @@ For each field that lives on a conversation, this table records:
 | Per-conv cloud `updated_at` (sync gate) | `sync.py:1091` (`_update_manifest_entry`) | `conversations.cloud_updated_at` via `_record_cloud_download_in_db` (`sync.py:970-986`) | manifest (engine still compares manifest, not DB — see `sync.py:553-556`) | `_build_work_items_from_cloud_listing` (`sync.py:531-557`); legacy path `_determine_action` (`sync.py:916-924`) |
 | Per-conv `downloaded_at` | `sync.py:1093`, repair `sync.py:1700` | — | manifest only | n/a |
 | Per-conv `event_count` (downloaded-time snapshot) | `sync.py:1092`, repair `sync.py:1699` | — | manifest only | `--status` sums it at `sync.py:1161` |
-| Per-conv `event_count` (scan-time live count) | — | `scanner.py:499-511, 516-529` (`store.upsert`) | DB | refreshed every scan via `count_events` (`scanner.py:489`) |
+| Per-conv `event_count` (scan-time live count) | — | `scanner.py:499-511, 516-529` (`store.upsert`) | DB | refreshed every scan via `count_events` (`scanner.py:492`) |
 | Per-conv `selected_branch` | `sync.py:1097` (from `meta.json` via `_read_selected_branch`), repair `sync.py:1704` | — | manifest only (no DB column) | `scanner.py:235-241` (presence-key gate); read at `scanner.py:263-271` |
 | Per-conv `title` | `sync.py:1090` (download) + `sync.py:1940-1947` (refresh path) | `scanner.py:499-511, 516-529` (overlay); `sync.py:1971` (`update_metadata`) | manifest ([#86]) | `scanner.py:221-228, 254-261` |
 | Per-conv `labels` | `sync.py:1094` (download) + `sync.py:1940-1947` (refresh path) | `scanner.py:499-511, 516-529` (overlay); `sync.py:1971` (`update_metadata`) | manifest ([#86]) | `scanner.py:299-311` |
@@ -71,6 +71,8 @@ Phase D can ship.
 | Site | File:line | Purpose |
 |---|---|---|
 | `SyncManager.__init__` | `src/ohtv/sync.py:263-266` | Long-lived in-process manifest held for the duration of a sync run. |
+| `SyncManager.get_status` | `src/ohtv/sync.py:1159-1168` | `ohtv sync --status` reads `last_sync_at` / `sync_count` / `failed_ids` / `len(conversations)` and sums per-conv `event_count` directly off `self.manifest`. |
+| `SyncManager.reset_to_n_newest` | `src/ohtv/sync.py:2029-2127` | `ohtv sync --reset-to-newest N` clears `self.manifest.conversations`, then re-writes per-conv entries plus `last_sync_at` after the bulk redownload. |
 | `load_manifest_metadata` | `src/ohtv/db/scanner.py:70-131` | Per-scan snapshot read; consumed by `extract_metadata`. |
 | `load_manifest_labels` (legacy wrapper) | `src/ohtv/db/scanner.py:133-142` | Back-compat shim over `load_manifest_metadata`. |
 | `extract_metadata` overlay | `src/ohtv/db/scanner.py:172-333` | Reads the snapshot and overlays it onto the DB write — the cold-`db scan` skip-`base_state.json` optimization from [#87]. |
@@ -277,8 +279,10 @@ Steps, in order:
 metadata source survives sync (#87 guard)") currently asserts the
 manifest contract. Phase C flips its assertion to "DB columns are
 canonical metadata source". Same test, different overlay layer.
-**Do not touch the scenario marker until PR #119 merges** — otherwise
-Phase C has a moving target.
+PR #119 has **merged** (2026-05-28); Phase C is now safe to flip
+scenario #14's assertion target. The original sequencing constraint
+("do not touch the scenario marker until PR #119 merges") is recorded
+here for historical context — the gate has cleared.
 
 ### Phase D — retire manifest reads + writes
 
@@ -309,9 +313,11 @@ because the scenarios pin the current contract:
 - **Scenario #14** ("Manifest as canonical metadata source survives sync
   ([#87] guard)") asserts the current contract — manifest wins for
   `title` / `labels` / `selected_repository` / `created_at`. Phase C will
-  flip its assertion target to "DB columns win". **Do not touch the
-  scenario marker until PR #119 merges**, otherwise Phase C is chasing a
-  test fixture that is itself in motion.
+  flip its assertion target to "DB columns win". PR #119 has **merged**
+  (2026-05-28); Phase C is now safe to flip scenario #14. The original
+  sequencing constraint ("do not touch the scenario marker until PR #119
+  merges") is preserved here for historical context — the gate has
+  cleared.
 - **Scenarios #2 / #3 / #5 / #8 / #9 / #10** (`xfail(strict=True,
   reason="#111")`) flipped to passing when [#111] landed. Phase B (the
   sync-state scalar move that did not ship inside [#111]) inherits those
@@ -332,6 +338,11 @@ because the scenarios pin the current contract:
   documented [#109] "scanner-only column" rule (`scanner.py:235-241,
   263-271`); Phase C must extend the column-ownership table in
   `docs/reference/database.md` to record sync's new write privilege.
+  **Note: Phase C step 5 directly overturns the `selected_branch`
+  scanner-only codification recorded in [AGENTS.md item #27](../../AGENTS.md);
+  `docs/reference/database.md` and AGENTS.md item #27 will need a
+  coordinated update in the Phase C PR so reviewers reading only AGENTS.md
+  do not miss the divergence.**
 
 - **Concurrent older + newer binaries.** Phase B dual-writes; Phase C
   dual-writes. A user who downgrades after upgrading sees a manifest that
@@ -367,6 +378,10 @@ because the scenarios pin the current contract:
 - Sub-conversation support ([#108]) — Phase C touches the conversations
   table but does not add the `parent_conversation_id` column, which
   [#108] already owns (migration 019).
+- `cloud_listing` snapshot table ([#112] / migration 018) — prerequisite
+  foundation, not a retirement target. Phase C reads from it via
+  `load_cloud_listing_parents` (and continues to honour [#112]'s atomic
+  snapshot contract); no [#114] phase touches its ownership.
 - Cloud-API contract changes — none.
 - New CLI surface — none, apart from removing `--repair`'s
   manifest-specific output once Phase D ships.
