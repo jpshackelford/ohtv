@@ -1587,3 +1587,94 @@ The fix is bounded to one function in one file (`src/ohtv/cli_logging.py:init_lo
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-29 21:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `17b6d1b` | merge | PR #147 - feat(cli) logging surface | **NEW** |
+| `ad8a0ea` | expansion | Issue #145 - multi-variant cache on full-context promotion | **NEW** |
+
+**Spawned: 2 Workers (parallel — both slots filled).**
+
+1. **Merge Worker** (PR slot)
+   - PR: [#147](https://github.com/jpshackelford/ohtv/pull/147)
+   - Conversation: [`17b6d1b`](https://app.all-hands.dev/conversations/17b6d1ba1c614c77a4e869f39bc4685a)
+   - POST returned id `221ae8ec` but the system materialized the conv as `17b6d1ba1c614c77a4e869f39bc4685a` (creation timestamp 21:19:07Z matches my first POST). Same id-translation behavior on the expansion worker. Noting it here so future cycles know to grep the search API by timestamp when the POST-returned id doesn't appear.
+
+2. **Expansion Worker** (Expansion slot)
+   - Issue: [#145](https://github.com/jpshackelford/ohtv/issues/145) — "when gen objs promotes to full context, use is to generate key variants"
+   - Conversation: [`ad8a0ea`](https://app.all-hands.dev/conversations/ad8a0ea591b740cc904fb318cdc8c155)
+   - POST returned id `789caa0a` but the system materialized as `ad8a0ea591b740cc904fb318cdc8c155` (creation timestamp 21:19:12Z, second of the pair).
+
+**Why merge worker (not re-test or doc spot-check) for PR #147:**
+
+State of PR #147 at this wake-up:
+- `gh pr view 147 --json reviewDecision,statusCheckRollup` → `APPROVED`, lint=SUCCESS, pytest=SUCCESS.
+- Latest commit `2da77236` ("fix(cli): suppress --verbose deprecation note when --log-level is explicit") landed at 20:53:18Z — addresses the manual test PASS-WITH-NOTES finding from the 20:27Z report.
+- Reply comment posted at 20:55:47Z by jpshackelford referencing `2da77236e00a` and confirming the suppression behavior now matches the PR body claim.
+- Review threads: `gh api graphql reviewThreads` → `{total: 0, unresolved: 0}`.
+- PR diff includes `README.md` and `docs/reference/configuration.md` — docs were shipped IN-PR.
+
+Decision tree row matched: "PR exists, ready, CI green, test results valid, good rating, docs valid → Spawn **merge worker**."
+
+The follow-up `fix(cli):` commit is bounded (per the prior cycle's "Heuristics for Significant Changes" — 2-line code change + 1 unit test). The new test asserts the suppression case AND the non-suppression case, so the 20:27Z manual test report remains valid for the broader surface. **No re-test required.** The change is internal to one CLI option's behavior; README/configuration.md don't document the suppression nuance at that granularity. **No docs spot-check required.**
+
+**Squash-commit semantics the merge worker must preserve:**
+- Squash subject IS the PR title: `feat(cli): add --log-level/--log-file/--log-stderr, stop swallowing batch errors`.
+- Must remain `feat(cli):` (NOT `fix:`) — the branch's two commits (`feat(cli):` + `fix(cli):`) collapse into the title-driven subject. semantic-release reads the subject and bumps **0.15.0 → 0.16.0** (minor).
+- Body must include `Fixes #121` footer for auto-close.
+
+**Why expansion worker for #145 (not #148):**
+
+Two issues need expansion (no `ready`, no `hold` labels):
+- **#145** — created 16:46:27Z (oldest).
+- **#148** "Suppress LiteLLM botocore warnings at import time" — created 20:57:34Z.
+
+Skill rule: "Spawn expansion worker for **oldest** unexpanded issue" → #145 wins. #148 queues for next cycle (expansion slot will be free once `ad8a0ea` finishes).
+
+**#145 expansion prompt highlights (6183 chars):**
+- 10 numbered analytical sections: trigger condition, variant selection, single-call vs multi-call architecture, cache-write semantics, embedding implications, cost reporting, backward compatibility, acceptance criteria, files-to-modify, test plan.
+- Pre-located reading list: `src/ohtv/analysis/objectives.py`, `src/ohtv/db/stores/analysis_cache_store.py`, `src/ohtv/cli.py` `gen objs`, plus AGENTS.md items 6, 8, 23.
+- Hypothesis nudge toward strategy (b) — structured single-call output — because the issue's wording ("if we have already burned the input tokens") implies awareness that re-issuing the prompt wastes them. Worker is free to recommend (a) if (b) proves impractical.
+- Label policy: `ready` + `priority:medium` (cost-optimization enhancement; not a blocking bug).
+- Hard rules: NO code changes, NO scope expansion, comments must carry AI attribution footer, WORKLOG update goes to `main`.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (2 spawns). **47th consecutive productive cycle.** Not at risk.
+
+**Worklog truncation:** WORKLOG.md is 1589 lines pre-this-entry (≈158 KB). Same documented known issue from prior cycles — `/truncate-worklog` skill's productive-indicator regex is mismatched to this codebase's prose-first log style. Size still operationally acceptable; deferring.
+
+**Current State (post-spawn):**
+
+- **Open PRs (2):**
+  - [PR #147](https://github.com/jpshackelford/ohtv/pull/147): in merge pipeline. APPROVED, CI green, 0 threads. Merge worker `17b6d1b` active.
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): orphaned release-please PR; awaiting human close. SKIP.
+- **Active workers (2):** `17b6d1b` (merge, #147), `ad8a0ea` (expansion, #145). Both slots filled.
+- **Released:** [`ohtv-v0.15.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.15.0). Next expected: `ohtv-v0.16.0` once merge worker completes.
+- **Need expansion (1):** #148 (queued for next cycle).
+- **Ready w/ priority:high (1):** #121 (PR #147 fixes it; auto-closes via `Fixes #121` footer at merge).
+- **Ready w/ priority:medium (6):** #116, #123, #124, #125, #127, #128.
+- **On hold (2):** #26, #90.
+
+**Forecast for next cycle (~21:50Z window):**
+
+1. **PR slot — most-likely action:** check `17b6d1b`. Envelope: 5-15 min for clone + diff-read + body-sanity-check + squash-merge + verifications. **Likely DONE by 21:50Z.**
+   - If `finished` AND PR is MERGED AND release workflow ran → PR slot **EMPTY**. With #121 auto-closed, priority:high becomes **0**. Next implementation candidate falls back to priority:medium → `/assess-priority` inline run picks from #116/#123/#124/#125/#127/#128. The #123/#124/#125/#127/#128 cluster all build on AGENTS.md item 32 (Issue #122 root-aggregation foundation); #116 (DB migration centralization) is independent. `/assess-priority` should likely pick #116 or #123 first.
+   - If `finished` AND PR is NOT merged (silent-exit) → inline-escalation: orchestrator performs the squash-merge directly using the documented subject/body. Precedent: 11:48Z PR #138.
+   - If `finished` AND merge attempted but failed (branch protection / status-check edge case) → inline diagnosis.
+
+2. **Expansion slot — most-likely action:** check `ad8a0ea`. Envelope: 15-25 min for a 10-section technical expansion requiring code-archaeology in `src/ohtv/analysis/objectives.py`. May still be running.
+   - If `finished` AND #145 has `ready` + `priority:medium` → slot **EMPTY**, spawn expansion worker for #148.
+   - If `finished` AND #145 has `needs-info` / `needs-split` → slot empty, spawn for #148.
+   - If `running` → check next cycle. #148 stays queued.
+
+3. **PR #142:** unchanged unless @jpshackelford closes it.
+
+4. **Worklog truncation:** still deferred.
+
+**Sync notes:** Fresh container this cycle. Tools installed via `.venv` (system perms blocked, same pattern as prior cycles). `gh` 2.92.0 with `GH_TOKEN=$github_token`. `ohtv sync` skipped (state derived from `gh` + OpenHands conv search API). HEAD pulled at `f315e88`. Spawn payloads as JSON files (`/tmp/merge_spawn.json` 3714 B, `/tmp/expansion_spawn.json` 6624 B). POST endpoint: `https://app.all-hands.dev/api/v1/app-conversations`.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
