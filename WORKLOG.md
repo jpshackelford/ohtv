@@ -783,3 +783,73 @@ This is the first **observe-only** cycle since the 14:21Z review-completion cycl
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 16:19 UTC - Orchestrator
+
+**Active Workers (at cycle entry):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c6f7ba1` | implementation | Issue #114 Phase C - per-conv cloud metadata → DB | finished ✓ (PR #144 opened @ 15:50:31Z, conv PAUSED @ 15:53:26Z) |
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `a895ce9` | testing | PR #144 - Phase C of #114 | **NEW** running |
+
+**Action Taken: Spawned testing worker for PR #144.**
+
+This is the success path (a) from the 15:50Z forecast: "PR for #114 Phase C is open in draft, CI running/green → next cycle is a *handle-PR* cycle (docs check / testing depending on PR state)." Worker `c6f7ba1` actually shipped the PR straight to ready (not draft) within the 25-50 min envelope (32 min total: 15:21:30Z spawn → 15:53:26Z PAUSED). The impl worker also pushed a `chore(worklog):` commit `cf84f99` to main at 15:52:19Z marking its completion — pattern matches the precedent set by prior impl workers in this issue's phase rollout.
+
+**Decision-tree trace this cycle:**
+
+- 0 unacknowledged `## INSTRUCTION:` entries (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → 0 outside fenced blocks).
+- **Expansion slot:** OPEN, IDLE. **29th consecutive idle expansion cycle.** 0 issues need expansion (`gh issue list --json labels --jq '[.[] | select(.labels | map(.name) | (contains(["ready"]) or contains(["hold"])) | not)] | length'` → 0).
+- **PR slot at entry:** OPEN (impl worker finished). Three open PRs:
+  - **[PR #144](https://github.com/jpshackelford/ohtv/pull/144)** @ `c6f7ba1`'s output: `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=""` (no human review, but pr-review bot has run). CI all green: lint=SUCCESS, pytest=SUCCESS, pr-review=SUCCESS (15:51:50→15:56:02Z). 0 review threads. 0 human comments. 1 automated bot review (github-actions) — verdict **🟡 Acceptable / "Worth merging"**, risk MEDIUM (transitional complexity is expected for Phase C). No manual test results yet. **This is the actionable PR.**
+  - **[PR #141](https://github.com/jpshackelford/ohtv/pull/141)** @ `2b88202`: still no CI run on `ci/swap-to-python-semantic-release`. **Cycle 9 on the Actions-policy gate.** Skip — human action required.
+  - **[PR #142](https://github.com/jpshackelford/ohtv/pull/142)** @ release-please: title still `chore(main): release ohtv 0.15.0`, last GitHub `updatedAt` = `2026-05-29T14:52:36Z`. Still has not re-batched to pick up `feat(sync):` from PR #143 (~85 min ago). PR #144's eventual `feat(sync):` merge may finally rebatch it. **Observe only.**
+- **Docs-update gate for PR #144:** README.md is **NOT** in the changed files. Internal-refactor heuristic applies: no new CLI commands/flags, no env vars, no output-format changes, no documented default behavior changes. The PR does update `docs/reference/database.md`, `docs/reference/sync-state-ownership.md`, and `AGENTS.md` (item #27 codification flip) — those are reference docs the impl worker correctly handled inline. **README update NOT required.** Skip docs worker, proceed to testing.
+- **Decision tree row matched:** "PR exists, ready, CI green, docs updated, **no manual test results** → Spawn testing worker."
+- **Bot-review-only state:** the pr-review bot's COMMENTED review with 0 review threads does NOT count as 💬 > 0 for the review-worker gate (which requires actionable threads). Bot verdict is "Worth merging" so the path is testing → merge, not testing → review.
+
+**Spawn details:**
+
+- **Conv:** [`a895ce9`](https://app.all-hands.dev/conversations/a895ce9792f04452ad814e1599105f9e). Start task `f0433ff1…` → READY on poll #2 (~5s) → `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 16:19:35Z. Title cosmetically shows "Conversation a895c" — same sandbox quirk noted previously, non-blocking.
+- **Plugin:** `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`.
+- **Prompt scope highlights** (pre-baked):
+  - **Scope summary** of Phase C reproduced for the worker (migration 021, sync gate flip, download path, scanner overlay, `--status` event_count, visibility-restore, manifest dual-write preserved).
+  - **6 suggested blackbox scenarios (A–F)** keyed off the PR body's promised behavior — A (cold-upgrade backfill), B (no-clobber), C (`--status` event_count), D (`selected_branch` column exists), E (manifest dual-write preserved), F (scanner overlay prefers DB). Worker free to adapt.
+  - **Unit suite target:** 1933 tests (per PR body).
+  - **Live-cloud testing optional** (no cloud key in sandbox → note as gap, do NOT fail PR for it).
+  - **Hard constraints:** read-only on the PR branch, do NOT touch PRs #141/#142, post the test report as a regular PR comment (not a review), then EXIT.
+  - **AI-attribution footer** required.
+- **Silent-exit risk:** 2nd testing worker this issue (after `c189fe4` for PR #143, which ran cleanly). Hypothesis from 14:51Z (silent-exit was PR-#138-specific) continues to hold. No special escape hatch needed; default pattern is "if `a895ce9` is `finished` at next wake-up without a PR comment, respawn or inline-test."
+
+**One action per wake-up:** ✓ one spawn.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned worker). **39th consecutive productive cycle.** Not at risk.
+
+**Current State (post-spawn):**
+
+- **Open PRs (3):**
+  - [PR #141](https://github.com/jpshackelford/ohtv/pull/141): blocked on Actions policy. **Cycle 9.** Human action required.
+  - [PR #142](https://github.com/jpshackelford/ohtv/pull/142): release-please for `ohtv-v0.15.0` (still not re-batched). Bot-managed.
+  - [PR #144](https://github.com/jpshackelford/ohtv/pull/144): **testing in progress** (`a895ce9`).
+- **Need expansion (0):** ✓ (29th consecutive idle cycle).
+- **Ready w/ priority:medium (1):** #114 (Phase C testing now; Phase D queued behind release cadence).
+- **Ready w/o priority (8):** #116, #121, #123–#128.
+- **On hold (2):** #26, #90.
+
+**Forecast for next cycle (~16:49Z window):**
+
+1. **PR slot — most-likely action:** check `a895ce9`. Testing workers for this issue have run 8-15 min (`c189fe4` for PR #143 ran ~10 min; impl-then-test cycle on Phase C ran longer). If PASS posted by 16:49Z → spawn merge worker. If still running → observe again. If FAIL or significant concerns → spawn review worker.
+2. **PR #142:** may finally re-batch to `ohtv-v0.16.0` after PR #144's `feat(sync):` merges (still blocked until then).
+3. **PR #141:** unchanged unless human intervened (cycle 10 pending).
+4. **Expansion slot:** unchanged, IDLE (30th cycle pending).
+5. **Worklog truncation:** WORKLOG.md crossing ~780 lines after this entry. Oldest visible entry is the 11:48Z worklog block (4.5h old this cycle, will be 5h old next cycle, 5.5h two cycles out). Still inside the 6-hour productive window. Truncation likely due ~17:49Z cycle (when 11:48Z crosses 6h).
+6. **Release cadence:** Phase D of #114 stays blocked behind release cadence. After PR #144 merges, release-please rebatches; once `ohtv-v0.16.0` (or whatever the next release line is) ships from #142, Phase D becomes eligible.
+
+**Sync notes:** Fresh container this cycle. All state-gathering done via `gh` (2.92.0, `GH_TOKEN=$github_token`) and OpenHands conv API (`OPENHANDS_API_KEY`). `lxa`/`ohtv` tool install skipped this cycle — not needed (this orchestrator pattern has been workable for the last several cycles). The `cf84f99` "chore(worklog): impl worker shipped Phase C of #114 as PR #144" commit landed at 15:52:19Z (the impl worker's completion marker per its prompt contract) but the file diff did not surface as a new `### ` worklog header — likely because the shallow grafted clone makes commit-by-commit forensics noisy. Not a concern for orchestration.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
