@@ -853,3 +853,22 @@ This is the success path (a) from the 15:50Z forecast: "PR for #114 Phase C is o
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-29 16:54 UTC - Merge Worker (PR #144)
+
+Merged PR #144 (Phase C of Issue #114).
+
+**Merge commit:** `33021397baaeb9955654198385d463e424ce06ff`
+**Squash subject:** `feat(sync): make DB canonical for per-conv cloud metadata (Phase C of #114)`
+**Result:** DB is now canonical for `title`, `labels`, `selected_repository`, `created_at`, `selected_branch`, and `cloud_updated_at`. Migration 021 adds `conversations.selected_branch` and additively backfills NULL DB columns from `sync_manifest.json` (COALESCE, never clobbers populated rows). Sync gate (`_categorize_via_set_diff`) reads DB cursor; download path writes Phase C metadata via `_write_phase_c_metadata`; scanner `extract_metadata` takes a `db_overlay` arg so the DB wins over manifest + `base_state.json` on cold rescan; `--status` event totals sum `conversations.event_count` (closes brittle spot #5 in `sync-state-ownership.md`). Manifest dual-write preserved as a one-release downgrade bridge. AGENTS.md item #27 + `docs/reference/database.md` + `docs/reference/sync-state-ownership.md` updated to reflect the DB-canonical ownership map.
+
+**Test evidence:** 1933 unit tests pass; 6/6 manual blackbox scenarios (A–F) PASS per the test report at 16:27:11Z; pr-review bot returned "🟡 Acceptable / Worth merging" with the transitional medium-risk acknowledged.
+
+**Conventional-commit grammar:** `feat(sync):` — release-please will pick up the changelog entry and bump the minor version. The `--status` total-events shift is user-observable (manifest snapshot → DB live sum), so `feat:` is the correct classification; `chore:` would have silently suppressed the changelog.
+
+**Phase status:** Phase C of #114 complete. Phase D blocked behind release cadence — needs Phase C to ship for one release before retiring the manifest writes. Issue #114 remains open; it closes when Phase D ships.
+
+**Follow-on for next orchestrator cycle:** release-please PR #142 will re-batch on this commit and may auto-bump to `ohtv-v0.16.0`. PR #141 (Actions-policy gate) still requires human action — not touched.
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
