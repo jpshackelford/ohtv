@@ -118,13 +118,7 @@ ohtv gen objs --week --include-sub-conversations
 | `detailed` | Full hierarchical objectives with subordinate goals |
 | `detailed_assess` | Detailed + completion assessment for each objective |
 
-**Context Levels:**
-
-| Level | Name | Includes | Use When |
-|-------|------|----------|----------|
-| 1 | `minimal` | User messages only | Quick summaries, low token cost |
-| 2 | `default` | User messages + finish action | Balanced (default) |
-| 3 | `full` | All messages + action summaries | Need to assess what was actually done |
+**Context Levels:** See [Context levels (`gen objs --c` flag)](#context-levels-gen-objs--c-flag) below for the full 5-level ladder and per-prompt defaults.
 
 **Example Output (brief):**
 ```
@@ -150,7 +144,7 @@ Primary Objectives
     ├── → Update user session handling [In Progress]
     └── ✗ Add refresh token support [Not Achieved]
 
-Analyzed: 2024-03-15 14:30 UTC • Model: claude-sonnet-4 • Context: full
+Analyzed: 2024-03-15 14:30 UTC • Model: claude-sonnet-4 • Context: actions
 
 Outputs:
   pushed user/repo
@@ -232,7 +226,7 @@ Showing 2 of 150 (2/2 cached)
 | Flag | Description |
 |------|-------------|
 | `-v, --variant` | Output variant (default: `brief`) |
-| `-c, --context` | Context level (default: `minimal` for token efficiency) |
+| `-c, --context` | Context level: 1-5 or name (default: from prompt). See [Context levels](#context-levels-gen-objs--c-flag). |
 | `-n, --max N` | Maximum conversations to analyze (default: 10) |
 | `-A, --all` | Analyze all conversations (no limit) |
 | `-k, --offset N` | Skip first N conversations |
