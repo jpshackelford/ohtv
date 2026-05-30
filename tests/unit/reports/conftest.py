@@ -52,11 +52,33 @@ def seed_repo(
     return repo_id
 
 
-def seed_conversation(conn: sqlite3.Connection, conv_id: str) -> None:
-    """Insert a minimal conversations row."""
+def seed_conversation(
+    conn: sqlite3.Connection,
+    conv_id: str,
+    *,
+    parent_conversation_id: str | None = None,
+    root_conversation_id: str | None = None,
+) -> None:
+    """Insert a minimal conversations row.
+
+    Issue #124: ``parent_conversation_id`` / ``root_conversation_id``
+    let tests seed sub-conversation trees. When ``root_conversation_id``
+    is not passed, it defaults to ``conv_id`` (i.e., this row is its
+    own root), which preserves the pre-#124 behaviour of every
+    existing test seeding only roots.
+    """
+    if root_conversation_id is None:
+        root_conversation_id = conv_id
     conn.execute(
-        "INSERT INTO conversations (id, location) VALUES (?, ?)",
-        (conv_id, f"/tmp/{conv_id}"),
+        "INSERT INTO conversations "
+        "(id, location, parent_conversation_id, root_conversation_id) "
+        "VALUES (?, ?, ?, ?)",
+        (
+            conv_id,
+            f"/tmp/{conv_id}",
+            parent_conversation_id,
+            root_conversation_id,
+        ),
     )
     conn.commit()
 

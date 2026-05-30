@@ -65,9 +65,35 @@ from ohtv.analysis.periods import iterate_periods
 
 
 # Pure SQL query — Python performs ISO-week bucketing afterwards.
-# The DISTINCT sub-select collapses (created / pushed / merged) rows
-# for the same conversation against the same change_ref to one row,
-# which is the natural de-dup boundary the issue calls out.
+#
+# Root-grain dedup (issue #124): the DISTINCT sub-select is keyed on
+# ``(change_ref_id, root_conversation_id)`` — NOT
+# ``(change_ref_id, conversation_id)`` — and the outer
+# ``conversation_human_input`` join is keyed on the root's id, so
+# the human-input join only ever sees the root's row even when an
+# agent-delegated sub also contributed to the same PR.
+#
+# Why this matters: once sub-conversation sync (#108) + migration
+# 020 (#122) landed, a parent that delegates a sub task (e.g., the
+# sub runs ``git push`` against the parent's PR branch) produced two
+# ``conversation_contributions`` rows for one ``change_ref`` — one
+# for the root, one for the sub. Each one also had its own
+# ``conversation_human_input`` row. Pre-#124 the outer
+# ``GROUP BY cr.id`` summed both ``chi`` rows, inflating ``Words``
+# and ``Msgs`` by the sub's followup counts (the sub's
+# ``initial_prompt_words`` was already masked out by the
+# ``'automation'`` CASE branch, but ``followup_word_count`` and
+# ``followup_message_count`` slipped through).
+#
+# A ``WHERE`` predicate cannot fix this — the duplication is in the
+# join cardinality, not in the row set of ``conversations``. The
+# minimal fix is to substitute the join key from conversation grain
+# to root grain. Orphan contributions (a contributions row whose
+# ``conversation_id`` is not in ``conversations``) are dropped by
+# the ``INNER JOIN`` here, which matches the pre-#124 behaviour of
+# the outer ``LEFT JOIN`` returning NULL → 0 words for them.
+#
+# The column is indexed by migration 020 (``idx_conversations_root``).
 _VELOCITY_SQL = """
 SELECT
     cr.id           AS change_ref_id,
@@ -97,8 +123,11 @@ SELECT
 FROM change_refs cr
 JOIN repositories r ON r.id = cr.repo_id
 LEFT JOIN (
-    SELECT DISTINCT change_ref_id, conversation_id
-    FROM conversation_contributions
+    SELECT DISTINCT
+        cc.change_ref_id          AS change_ref_id,
+        c.root_conversation_id    AS conversation_id
+    FROM conversation_contributions cc
+    JOIN conversations c ON c.id = cc.conversation_id
 ) dcc ON dcc.change_ref_id = cr.id
 LEFT JOIN conversation_human_input chi
        ON chi.conversation_id = dcc.conversation_id
@@ -110,6 +139,24 @@ WHERE cr.status = 'merged'
 GROUP BY cr.id
 ORDER BY cr.merged_at
 """
+
+
+def _assert_root_column_present(conn: sqlite3.Connection) -> None:
+    """Guard against running on a pre-migration-020 schema.
+
+    The report's word/message counts are fundamentally wrong without
+    ``root_conversation_id`` (they would over-count by the agent
+    delegation rate — see issue #124). Silently falling back to the
+    legacy conversation-grain SQL would just reintroduce the bug
+    this issue fixes, so we fail loudly instead. Mirrors the guard
+    landed in :mod:`ohtv.reports.weekly_counts` (#123).
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(conversations)")}
+    if "root_conversation_id" not in cols:
+        raise RuntimeError(
+            "report velocity requires migration 020; "
+            "run 'ohtv db scan' to apply pending migrations"
+        )
 
 
 @dataclass
@@ -219,6 +266,7 @@ def fetch_raw_rows(
     # Bind on raw=None when the caller is dict-style only.
     if conn.row_factory is None:
         conn.row_factory = sqlite3.Row
+    _assert_root_column_present(conn)
     cursor = conn.execute(
         _VELOCITY_SQL,
         {"repo_id": repo_id, "since": since, "until": until},
