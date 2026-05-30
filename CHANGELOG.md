@@ -1,6 +1,107 @@
 # CHANGELOG
 
 
+## v0.18.0 (2026-05-30)
+
+### Chores
+
+- **worklog**: Impl worker opened PR #155 for #127 (list/refs root grain)
+  ([`ef18d33`](https://github.com/jpshackelford/ohtv/commit/ef18d33ac08b29b81833278082fc1572dfeac59b))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Merge PR #154 — ohtv-v0.17.0 released with BREAKING CHANGES
+  ([`ed8ee97`](https://github.com/jpshackelford/ohtv/commit/ed8ee970cc8e6d0d216cc97acfe96f094c045c80))
+
+Squash commit 4f2217dc landed on main with the BREAKING CHANGE: footer intact. Semantic-release
+  produced ohtv-v0.17.0 (minor bump per major_on_zero=false) with a Breaking Changes section in the
+  release notes. Closes #125 via Fixes footer.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-05-30T09:53:54Z — retry testing worker for PR #155
+  ([`906a786`](https://github.com/jpshackelford/ohtv/commit/906a786753652739ad4a884a113123192d2e044f))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-05-30T10:21:00Z — spawned merge worker for PR #155
+  ([`670e52b`](https://github.com/jpshackelford/ohtv/commit/670e52b7f56c43512e0d48d61e3f3f6eadac32e8))
+
+- **worklog**: Orchestrator spawn docs worker for PR #155
+  ([`2ffd96b`](https://github.com/jpshackelford/ohtv/commit/2ffd96b4ddc6fee9655e40f3e8e333bcd9964485))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawn testing worker for PR #155
+  ([`486a6ce`](https://github.com/jpshackelford/ohtv/commit/486a6cefb8bda97c4705414810f1a45e2d7a60a7))
+
+- **worklog**: Orchestrator spawned merge worker for PR #154 (merge raced ahead to 4f2217d)
+  ([`79731ea`](https://github.com/jpshackelford/ohtv/commit/79731ea73dd9c7a1f9dac397f9f9481f7dada319))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Truncate archive + orchestrator 07:50Z spawn impl worker for #127
+  ([`6ab5c96`](https://github.com/jpshackelford/ohtv/commit/6ab5c96bb797e8e1fba52984829e89464d1b98f8))
+
+- Archived 7 entries older than 6h productive span (to WORKLOG_ARCHIVE_2026-05-29.md /
+  -2026-05-30.md) - WORKLOG.md reduced from 1645 -> ~1253 lines - Spawned implementation worker
+  18f797e for issue #127 (list/refs root-grain display + filter-resolution) - Next root-grain
+  cluster issue post v0.17.0 release
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- **list,refs**: Roots-only by default with subtree rollup (#127)
+  ([#155](https://github.com/jpshackelford/ohtv/pull/155),
+  [`5c0adfb`](https://github.com/jpshackelford/ohtv/commit/5c0adfb3b551dd2dd18d48107dd440b3e04a3d53))
+
+`ohtv list` and the multi-conversation form of `ohtv refs` now show **root conversations only** by
+  default, and `ohtv refs <root-id>` rolls up its entire delegation subtree (union of every sub's
+  refs, deduped by URL). Filters on `list` (`--pr`, `--repo`, `--label`, `--action`) resolve through
+  the new `expand_to_roots` helper so a PR touched only by a delegated sub still surfaces the
+  matching root row, not the sub. The display/filter counterpart to #125's batch-mode flip on `gen
+  objs / titles / run`.
+
+Pass `--include-sub-conversations` on either command to restore the pre-#127 per-sub rendering. The
+  single-conv `ohtv refs <sub-id>` and `ohtv show <id>` paths are unaffected (a sub-id is still a
+  valid query target). Migration-020 (`root_conversation_id`) is enforced inline at command
+  invocation on both code paths — pre-020 DBs see a friendly "run `ohtv db scan`" `RuntimeError`
+  rather than a silent regression.
+
+This is the **fourth** PR in the #122 root-grain rollout series (after #150 → weekly-counts v0.16.1,
+  #153 → velocity v0.16.2, #154 → gen-family v0.17.0 ⚠ BREAKING). `major_on_zero = false` in
+  `pyproject.toml` ships this as **v0.18.0** (minor) with a ⚠ BREAKING CHANGES CHANGELOG entry. Only
+  #128 (RAG citation dedup) remains in the cluster.
+
+Tests: +19 new tests (`TestExpandToRoots` ×8 in `test_filters.py`; `TestFilterByPrRootExpansion` ×3,
+  `TestRefsSubtreeRollup` ×3, `TestMigration020Guardrail` ×3, `TestCliOptionSurface` ×2 in
+  `test_cli_list_refs_subs.py`). Suite: 2082 passed, 2 skipped, 3 xfailed (+19 from baseline
+  `ed8ee97`). Manual testing: all 8 scenarios verified end-to-end against a populated DB (220 roots
+  + 42 subs across 42 trees) — `list` collapses 262→220 rows by default,
+  `--include-sub-conversations` restores 262; `refs -D` reports 41 vs 42 conversations aggregated;
+  `refs <root-id>` printed the subtree-rollup banner and unioned the ref set; `--pr 155` routes
+  through `expand_to_roots` (3 root rows vs 6 with the flag).
+
+Fixes #127.
+
+BREAKING CHANGE: ohtv list and the multi-conv form of ohtv refs (-D and other filters) now exclude
+  sub-conversations by default; rows represent root conversations and filters like
+  --pr/--repo/--label/--action resolve through the root grain. ohtv refs <root-id> additionally
+  rolls up refs from every sub under the root (union, deduped by URL). Pass
+  --include-sub-conversations on either command to restore the pre-v0.18.0 behavior of rendering
+  every conversation as its own row.
+
+### Breaking Changes
+
+- **list,refs**: Ohtv list and the multi-conv form of ohtv refs (-D and other filters) now exclude
+  sub-conversations by default; rows represent root conversations and filters like
+  --pr/--repo/--label/--action resolve through the root grain. ohtv refs <root-id> additionally
+  rolls up refs from every sub under the root (union, deduped by URL). Pass
+  --include-sub-conversations on either command to restore the pre-v0.18.0 behavior of rendering
+  every conversation as its own row.
+
+
 ## v0.17.0 (2026-05-30)
 
 ### Chores
