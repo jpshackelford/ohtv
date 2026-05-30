@@ -1274,3 +1274,59 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 06:19 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e2f465f` | testing | PR #154 — `--include-sub-conversations` (#125) | running |
+
+✅ **PR slot occupied, expansion slot idle (nothing to expand)** — no action this cycle.
+
+**State at wake-up:**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged.
+- **Step 2 — Active workers**: `e2f465f` (testing PR #154) queried → `execution_status=running`, `updated_at=2026-05-30T06:17:39Z` (mid-cycle, ~1 min before this wake-up). Worker is **alive and progressing**. The other `running` row in the search response (`90859fc`) is this orchestrator conversation itself.
+- **Step 4 — Open PRs**: 1 — PR #154 (`feat/gen-roots-only-125`).
+- **PR #154 snapshot**:
+  - Not draft, `reviewDecision = CHANGES_REQUESTED` (pr-review bot's breaking-change concern from 05:15Z — unchanged).
+  - CI: `lint=SUCCESS`, `pytest=SUCCESS` (both on docs-commit `7b37cec`).
+  - `commentCount=1` (the docs-update notification); **no `Manual Test Results` comment yet** — testing worker hasn't posted its report.
+  - `mergeable=UNKNOWN` (transient GH state, not a blocker).
+- **Step 4 — Issue census**:
+  - Issues needing expansion (no `ready`, no `hold`): **0**.
+  - Ready, prioritized: #125 (in PR #154), #127, #128 (all `priority:medium`).
+  - Ready, unprioritized: #145, #148, #149.
+
+**Decision tree path:**
+
+- **Expansion slot**: 0 issues need expansion → slot **idle**. **29th consecutive idle expansion cycle**, but PR slot is occupied with active in-flight work → no auto-disable risk.
+- **PR slot**: `!CAN_SPAWN_PR_WORKER` (testing worker still running) → row matches ***"Wait (PR worker running)"***. No spawn.
+
+**Auto-disable check**: Prior 2 cycles (05:14Z docs spawn, 05:50Z testing spawn) were both **productive**. The skill's auto-disable trigger requires "two consecutive 'All quiet' entries"; this entry is a no-spawn cycle but it's *waiting on active work*, not an idle-both-slots quiet. Per the skill's intent (avoid useless wake-ups when there's literally no work to do), the spirit is **not** triggered — there's a worker we're explicitly waiting on. Counter logic: no change. **Forty-first consecutive cycle with progress on the system.** Not at risk.
+
+**Worklog housekeeping**: 1276 lines (above 300 threshold). Prior orchestrator (05:14Z) executed the cycle's truncation pass (1723 → 1066 lines). This cycle is only `+210` lines on top, and the trigger established by the prior cycles is *"first productive cycle after PR #154 merges, force-truncate regardless"*. Truncating mid-PR while testing report is imminent would lose context the review worker needs. **Deferring** per the established pattern.
+
+**Sibling-contrast tracker** (unchanged):
+
+| # | Surface | Fix style | Status |
+|---|---|---|---|
+| #123 | `report weekly-counts` | predicate in `WHERE` | shipped `v0.16.1` |
+| #124 | `report velocity` | DISTINCT-keyed-on-root | shipped `v0.16.2` |
+| **#125** | `gen objs/titles/run` | flag-threaded predicate | **PR #154 in testing leg** |
+| #126 | `classify` policy | sub→`automation` short-circuit | (separate cluster) |
+| #127 | `list`/`refs` display | (roll-up UX) | not started |
+| #128 | RAG `ask`/`search` dedup | (`EmbeddingStore.search_conversations`) | not started |
+
+**Next cycle expectations (~06:45-07:00Z window):**
+
+- Testing worker `e2f465f` was spawned at 05:50Z, was last updated at 06:17:39Z — turnaround so far ~28 min on the 15-30 min envelope. Likely `finished` by next wake-up with a manual test report comment posted.
+- If test report is **all ✓** → decision-tree row matches ***"test results valid, 💬 > 0 → review worker"***. Review worker will face the **semver-classification A-vs-B** decision (option A: `BREAKING CHANGE:` footer → v1.0.0; option B: invert to opt-in `--exclude-sub-conversations` with deprecation warning → v0.17.0).
+- If test report flags a regression (most likely candidates: `--help` text mismatch with docs, or migration-020 guard not firing on a pre-020 DB) → next dispatch is an impl-fix worker before review.
+- Carry-forward review-worker brief (from 05:14Z entry): (1) breaking-change footer or opt-in invert, (2) FS-fallback warning level in `conversations.py` L72-76.
+
+EXIT per orchestrate skill — one decision per wake-up; this one was "no action, wait on `e2f465f`".
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
