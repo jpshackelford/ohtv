@@ -87,7 +87,29 @@ ohtv list --idle 15               # Custom: 15 min threshold
 
 # Hide refs from title column
 ohtv list --no-refs               # Refs shown by default
+
+# Roots-only by default (since #127 / v0.18.0):
+# rows represent root conversations; agent-delegated subs are hidden.
+ohtv list -A
+
+# Opt back into per-sub rendering (pre-#127 behaviour):
+ohtv list -A --include-sub-conversations
 ```
+
+<a id="roots-only-default"></a>
+
+> **Roots-only default (v0.18.0).** Since
+> [#127](https://github.com/jpshackelford/ohtv/issues/127), `ohtv list`
+> shows **root conversations only**: sub-conversations created by agent
+> delegation are hidden so each row represents a unit of human intent.
+> Filters like `--pr`, `--repo`, `--label`, and `--action` resolve
+> through the root grain — a PR or repo touched only by a delegated sub
+> still surfaces the matching root row (not the sub). Pass
+> `--include-sub-conversations` to restore the pre-#127 behavior of
+> rendering every conversation as its own row. This is a **breaking
+> change** that ships alongside the same flip on `ohtv refs`
+> (v0.17.0 already flipped `gen objs / titles / run` — see
+> [analysis guide](analysis.md)).
 
 **Options:**
 | Flag | Description |
@@ -111,6 +133,7 @@ ohtv list --no-refs               # Refs shown by default
 | `--no-refs` | Hide git refs from title (refs shown by default) |
 | `-E, --with-errors` | Include error info column (agent/LLM errors) |
 | `--errors-only` | Show only conversations with agent/LLM errors |
+| `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
 | `-v, --verbose` | Show debug output |
 
 **Action Type Aliases:**
@@ -232,7 +255,26 @@ ohtv refs abc123 --format json
 
 # Skip database indexing (faster for one-off lookups)
 ohtv refs abc123 --no-index
+
+# When abc123 is a *root* conversation (since #127 / v0.18.0):
+# refs are rolled up across the entire delegation subtree (union, dedup by URL).
+ohtv refs <root-id>
+
+# When abc123 is a *sub-conversation*: behavior is unchanged — single-conv
+# view always shows only that conversation's own refs.
+ohtv refs <sub-id>
 ```
+
+> **Subtree rollup on root ids (v0.18.0).** Since
+> [#127](https://github.com/jpshackelford/ohtv/issues/127),
+> `ohtv refs <root-id>` walks the delegation tree and unions the refs
+> from every sub under that root (deduped by URL). Interactions
+> (`created`, `pushed`, `merged`, …) merge per ref so the strongest
+> link wins. Pointing `ohtv refs` at a sub-id is unchanged — the
+> single-conv path always shows that conversation's own refs.
+> `--include-sub-conversations` is accepted for API symmetry with the
+> multi-conv path but does not change single-conv behavior (rollup on a
+> root is already the "show every sub's refs" mode).
 
 **Multi-Conversation Mode (requires at least one filter):**
 ```bash
@@ -250,7 +292,23 @@ ohtv refs -D --actions --format csv
 
 # All refs from today as JSON
 ohtv refs -D --format json
+
+# Roots-only by default (since #127 / v0.18.0):
+# only root conversations are scanned; each root's refs roll up its subtree.
+ohtv refs -D
+
+# Opt back into per-sub iteration (pre-#127 behaviour):
+ohtv refs -D --include-sub-conversations
 ```
+
+> **Roots-only default in multi-conv mode (v0.18.0).** The filter
+> pipeline (`--pr`, `--repo`, `--action`, `--label`, `-D`, `-W`, etc.)
+> resolves through the root grain so a PR or repo touched only by a
+> delegated sub still surfaces the matching root row, not the sub.
+> Each rendered root then rolls up its subtree's refs (same logic as
+> single-conv on a root id). Pass `--include-sub-conversations` to opt
+> back into the pre-#127 per-sub iteration where each sub is rendered
+> separately with its own refs.
 
 **Output Formats:**
 | Format | Description |
@@ -290,6 +348,7 @@ ohtv refs -D --format json
 | `-a, --actions` | Show only refs with detected interactions (read or write) |
 | `-w, --write-only` | Show only refs with write actions (pushed, created, etc.) |
 | `--no-index` | Skip database indexing |
+| `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only in multi-conv mode; no-op on single-conv form). See notes above. |
 | `-v, --verbose` | Show debug output |
 
 ---
