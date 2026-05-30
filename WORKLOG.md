@@ -2188,3 +2188,45 @@ Spot-scanned the priority:medium queue (6 issues: #116, #123–#125, #127, #128)
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-30 00:54 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7c9951d` | testing | PR #151 (#116 centralize DB migration) | **NEW** running |
+| `25468bb` | expansion | Issue #148 (suppress LiteLLM botocore warnings) | **NEW** running |
+
+**Spawned: 2 Workers (parallel — both slots filled)**
+
+1. **Testing Worker** — [`7c9951d`](https://app.all-hands.dev/conversations/7c9951d06cd14ae2aec63f38b65e8bd7)
+   - PR: [#151](https://github.com/jpshackelford/ohtv/pull/151) `refactor(db): centralize migration through get_ready_connection`
+   - Branch: `feat/centralize-db-migration-116` → `main`
+   - State at spawn: `lxa pr list` → `ocA green ready 10m` (opened ~00:37Z, ready, CI green, APPROVED by `github-actions`/pr-review bot, 0 inline threads, 1 AC-reflection comment from impl worker — NOT a manual test report).
+   - Rationale: ready + CI green + no manual test results comment yet. Internal refactor with no user-facing changes → docs update NOT required (per orchestrate decision tree), so testing is the next gate. Brief asks for fresh-install scenarios (the failure mode the refactor exists to prevent), idempotency, `tests/unit/test_no_raw_migrate.py` allow-list enforcement (including a deliberate-violation negative check), and `db init` migration-list output (the one allow-listed `migrate(conn)` call site).
+
+2. **Expansion Worker** — [`25468bb`](https://app.all-hands.dev/conversations/25468bb354834417adcec52720f8f478)
+   - Issue: [#148](https://github.com/jpshackelford/ohtv/issues/148) "Suppress LiteLLM botocore warnings at import time"
+   - Only unexpanded issue in the open-issue list (all other 8 open issues carry `ready`).
+   - Brief notes #121 (PR #147 CLI logging overhaul, just merged) so the worker coordinates filter placement with the new `setup_logging` / `init_logging_from_cli` architecture rather than picking a stale insertion point.
+
+**Current State:**
+- **PR slot:** [PR #151](https://github.com/jpshackelford/ohtv/pull/151) `ocA green ready` — now in testing.
+- **Expansion slot:** Issue #148 (now being expanded).
+- **Ready backlog (8 open, all priority:medium except #145/#149 which are unprioritized):** #116 (this PR), #123, #124, #125, #127, #128, #145, #149. `#145` is sequencing-blocked behind `#149` per the expansion worker's prior note.
+- **Issues needing expansion:** 0 once the expansion worker finishes.
+- **Recently merged on `main`:** v0.15.0 release commit at 00:00Z; PR #146 (`#126 classify short-circuit subs`), PR #147 (`#121 CLI logging overhaul`) earlier in the day.
+- **Active runtime conversations:** only the two workers above plus this orchestrator (`635aa68c`). All older sandboxes in `app-conversations/search` are `MISSING` or `PAUSED` (clean — no zombie workers).
+
+**Decisions / non-actions:**
+- Did NOT spawn a docs worker for PR #151: the diff touches `AGENTS.md`, `src/ohtv/{analysis/cache.py,cli.py,conversations.py,db/{__init__,connection}.py}`, and three test files. Zero user-facing CLI surface change (no new flag, no new command, no behavior change a user could observe — the visible effect is "fewer `no such table` errors after a fresh checkout"). README does not need an update; the orchestrate skill explicitly carves out internal refactors.
+- Did NOT run `/assess-priority`: PR slot is filled by #151's testing → no impl spawn needed this cycle, so backlog prioritization is deferred until the slot frees.
+- Did NOT pre-emptively spawn an impl worker for #145/#149/#123/#124/#125/#127/#128 — only one PR worker allowed at a time, and #151 is mid-testing.
+
+**Worklog housekeeping:** WORKLOG.md is 2190 lines (above the 300-line truncation threshold). Deferring truncation to next idle cycle to avoid touching `main` twice in one orchestrator pass while two workers are actively writing to it; truncation can run safely once the PR slot is empty.
+
+**Next check:** ~30 min (next cron trigger) — expected state: testing worker has posted manual-test report on #151 (→ review-or-merge decision) and expansion worker has labeled #148 `ready` (→ expansion slot idle until next issue arrives).
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
