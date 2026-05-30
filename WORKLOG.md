@@ -2,911 +2,6 @@
 
 ## Log
 
-### 2026-05-30 16:33 UTC - Implementation Worker (Issue #145)
-
-**Issue:** #145 — when `gen objs` promotes to full context, use it to generate key variants (priority:low; #149 unblocked it earlier today via PR #157)
-
-**PR:** [#159 — feat(gen-objs): warm key cache variants when context auto-promotes (#145)](https://github.com/jpshackelford/ohtv/pull/159) — opened DRAFT, CI green (lint ✅, pytest ✅, pr-review skipped on draft), then marked **ready-for-review** to trigger the review bot.
-
-**What landed:**
-- Frontmatter contract: `PromptMetadata.key_variant_on_promotion: bool = False` (parsed in `prompts/parser.py`).
-- Discovery helper: `prompts/discovery.py:list_key_variants_on_promotion(family)` — single source of truth for the candidate set. No hardcoded variant lists in `objectives.py`.
-- Opt-in: only `src/ohtv/prompts/objs/standard_assess.md` flips `key_variant_on_promotion: true` in this PR (per AC #2). Detailed/brief/etc. stay opt-out — follow-up issues can flip them after team review of cost/benefit.
-- Refactor: extracted `_run_single_analysis(...)` from the inline LLM block so primary + fan-out share the framed-transcript + LLM-call + JSON-parse + `ObjectiveAnalysis`-construction code.
-- Fan-out: `_warm_key_variant_cache(...)` runs after primary cache-save, only when `effective_context != context`. Cache-probe-then-LLM per variant; `try/except` per variant so failures never bubble to the caller; INFO summary log line aggregates variant costs separately so `AnalysisResult.cost` stays primary-only.
-
-**Tests added:** 3 AC-mandated unit tests in `tests/unit/analysis/test_key_variant_warming.py` (promotion → primary+variants all cached, pre-populated variant → LLM skipped, one variant raises → primary + other variant survive), plus parser + discovery unit tests in `tests/unit/prompts/test_parser.py`. Existing `test_cache_alias_promoted_context.py` updated to account for the variant LLM call on the first analyze.
-
-**Test matrix:**
-- `uv run python -m pytest tests/unit/analysis -q` → 426 passed
-- `uv run python -m pytest tests/ -q` → 2214 passed, 2 skipped, 3 xfailed
-- `uv run ruff check` on touched files → clean
-- GHA CI: lint ✅ (3s), pytest ✅ (57s), pr-review skipped (draft, then ready)
-
-**Cache-invalidation note** (called out in PR description): adding the new frontmatter line to `standard_assess.md` bumps that prompt's `content_hash`, so existing cached `standard_assess` analyses go stale and re-generate lazily on the next `gen objs` per conversation. Documented one-time cost.
-
-**Hard guardrails maintained:**
-- Cache-key format unchanged (`assess=…,context_level=…,detail_level=…`) — #149's contract byte-stable.
-- 5-level context ladder unchanged.
-- `AnalysisResult.cost` semantics primary-only (AC #6).
-- Variant set 100% metadata-driven (AC #1, no hardcoded lists in `objectives.py`).
-- No new LLM-batch surface; single-call-per-variant.
-- Auto-promotion trigger conditions unchanged.
-
-**Possible follow-up issues** (NOT in this PR's scope — orchestrator's decision whether to file):
-- Flip `objs/detailed_assess.md` to `key_variant_on_promotion: true` once usage justifies the extra LLM call (technical-approach comment explicitly recommended opt-out for this variant in initial PR).
-- Pre-existing maintenance-task error surfaced during testing: `cache_index_backfill_005 failed: make_cache_key() got an unexpected keyword argument 'context_level'` (orthogonal to #145; lives in `db/maintenance.py`).
-
-Worker exiting cleanly. Docs / testing / review / merge are separate handlers per orchestrator contract.
-
-
-
-### 2026-05-30 15:20 UTC - Orchestrator (spawned testing worker for PR #158)
-
-**Active Workers (at cycle exit):**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `6c514c7` | testing | PR #158 — LiteLLM log suppression (#148) | **NEW** running |
-
-**Spawned: Testing Worker for PR #158**
-- PR: [#158 — fix(logging): suppress LiteLLM botocore pre-load warnings (#148)](https://github.com/jpshackelford/ohtv/pull/158)
-- Conversation: [`6c514c7`](https://app.all-hands.dev/conversations/6c514c7dae2b4247bf477f40c467e1b3) (`execution_status=running, sandbox_status=RUNNING`)
-- Start task `69edac5e` → READY on **first poll (~5s)** — warm sandbox, no cold-start penalty.
-
-**Step 0 — Setup:** Container respawned again (15:16Z wake-up). Skipped the `lxa`/`ohtv` install dance this cycle — every decision-tree input was available via `gh` CLI + the `/app-conversations/search` REST endpoint, and the previous five cycles have shown that the `uv pip install --system` path consistently fails on read-only `/usr/local/lib/python3.13/site-packages` while the `.venv` fallback succeeds. Net: zero tooling install, zero `ohtv sync` ⇒ ~30s saved. `GH_TOKEN=$github_token` bridge applied directly.
-
-**Step 0.5 — Housekeeping (truncation deferred AGAIN):** WORKLOG.md is **1,465 lines** at wake-up. The 14:49Z orchestrator established the "defer until 1,500 lines" rule (since 13:48Z just truncated 2,427 → 1,287 lines, churning again for <100 lines of headroom is wasteful). Current state is 35 lines under that ceiling. After appending this entry (~70 lines), file will sit at ~1,535 — JUST crossing the deferred-to threshold. Next cycle's first action should be truncation. Marking the file with a soft-deferred flag here so the next orchestrator picks it up.
-
-**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty; the prior cycle's grep-match false-positives are inside fenced code blocks, hence the awk-with-fence-toggle pattern).
-
-**Step 2/3 — Active workers at cycle entry:**
-- API query `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` → only `6b5e12d` (this orchestrator) is `execution_status=running`.
-- **Impl worker `2d4299a`** (spawned 14:49Z by previous cycle): `execution_status=finished, sandbox_status=RUNNING (released)` at 14:54:53Z — **5-minute turnaround** on a tightly-scoped 3-line fix. **Best impl-worker latency** of this orchestration cluster (typical is 15–30 min). The 14:54Z WORKLOG entry it self-authored matches the spawn brief verbatim: scope-locked to the 3-line `setdefault` + 2 subprocess tests + 1-row docs touch, no scope creep, conventional commit subject `fix(logging): suppress LiteLLM botocore pre-load warnings (#148)` as forecasted.
-- Both worker slots **CLEAR at cycle entry**.
-
-**Step 4 — State gather:**
-
-- **Open PRs**: **1** — PR #158 (`fix/litellm-log-suppression-148`), created `14:52:58Z`, updated `14:55:48Z` (just 21 min before this cycle wakeup).
-- **PR #158 state probe** (`gh pr view` + `gh pr checks` + `gh pr diff --name-only`):
-  - `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`.
-  - `reviewDecision=APPROVED` by `@github-actions` (the pr-review bot) at `14:55:48Z` with the verdict **"🟢 Good taste — Clean, minimal solution that solves a real problem"**.
-  - CI: **3/3 green** — `lint-pr-title=3s`, `tests/pytest=53s` (the 2,156-test suite + the 2 new subprocess tests), `PR Review by OpenHands/pr-review=1m48s`.
-  - Files changed: `src/ohtv/__init__.py` (+10), `tests/unit/test_litellm_log_suppression.py` (new, +70), `docs/reference/configuration.md` (+1 row), `uv.lock` (version bump 0.18.1 → 0.19.0, fixing the post-#149 release-workflow lockfile drift as a bonus).
-  - Manual test results: **NONE** (no comments on the PR yet apart from the bot review).
-
-- **Issue census** (no change from 14:49Z entry — picking from the same backlog):
-  - Needs expansion (no `ready`, no `hold`): **0** — expansion slot stays IDLE. **Forty-fourth consecutive idle expansion cycle.** Not at auto-disable risk because PR slot productive this cycle.
-  - Ready + prioritized: **#148** (in PR #158, now testing), **#145** (`priority:low`, still queued).
-  - On hold: #90, #26.
-
-**Step 5 — Decision-tree row matched:** *"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker"*.
-
-- Docs-updated check: README.md was NOT touched, but `docs/reference/configuration.md` was (the `LITELLM_LOG` row in the env-var table). The README delegates env-var documentation entirely to `docs/reference/configuration.md` (line 84: `[docs/reference/configuration.md](docs/reference/configuration.md)` and line 96: same link with `#logging` anchor). So a logging-suppression env var landing in `configuration.md` satisfies the docs gate without needing a README touch. The skill's "Do NOT require docs update if only … Bug fixes that don't change documented behavior" carve-out also applies — this is a UX-cleanup fix that introduces one new opt-in env var, fully documented where the README points users.
-- No-test-results check: `gh pr view 158 --json comments,reviews` → `comments=[]`, only the bot's APPROVED review. The impl worker's WORKLOG entry self-reports "manual smoke check already confirmed the user-visible acceptance criterion" but that was an in-sandbox `ohtv --help | grep` check, not a PR-comment-formatted test report. The skill is explicit: testing comment must exist on the PR, posted by `openhands-ai` or carrying the AI-disclosure footer. **Spawn testing worker.**
-- The fact that `pr-review` already APPROVED does **not** skip testing. Per skill: *"The testing step is NOT skipped just because review started. CI must be green to test."* Both gates pass here.
-
-**Step 6 — Spawn dispatch:** ✅ Testing worker spawned (PR slot).
-
-**Spawn payload highlights** (sent to `POST /api/v1/app-conversations`):
-- Plugin: `source=github:jpshackelford/.openhands, repo_path=plugins/ohtv-workflow, ref=feat/ohtv-workflow-plugin` (had to correct from the WRONG-shape `git_provider/repository/version` field set on first attempt — API rejected with `Field required: source` and `pr_number must be list`; second attempt with correct shape succeeded).
-- `selected_repository=jpshackelford/ohtv`, `selected_branch=fix/litellm-log-suppression-148`, `pr_number=[158]` (list, not scalar).
-- 9-step ordered test plan: clone-and-checkout-PR → `uv venv .venv && uv sync` (fallback path, since the system `uv pip install --system` keeps hitting read-only `site-packages` errors) → diff-read → full pytest → focused regression test → **CRITICAL BLACKBOX smoke**: stash + `git checkout origin/main -- src/ohtv/__init__.py` to reproduce the pre-fix state, capture `2>/tmp/stderr_before.txt`, restore the fix, capture `2>/tmp/stderr_after.txt`, `grep -i 'litellm\|botocore\|bedrock\|sagemaker'` both → escape-hatch verification (`LITELLM_LOG=WARNING` re-enables warnings) → multi-command sanity (`prompts list`, `db status`, `--version`) → ruff lint.
-- Hard guardrails: NO push to PR branch (read-only QA); NO approve/merge (next worker handles); NO `gh pr review --request-changes` (surface blockers in the test report comment, not in a review action); 15-minute budget hard cap.
-- Required test-report fields: `## Manual Test Results` heading (regex-detection), `git rev-parse HEAD` SHA, acceptance-criterion-to-status table, unit test pass/fail summary, 🟢/🟡/🔴 rating, AI-disclosure footer.
-
-**Auto-disable counter:** **0 → 0.** Productive cycle (spawned testing worker — advances PR #158 through the docs→test→merge lifecycle). **Fifty-fifth consecutive productive cycle.** Not at risk.
-
-**Next cycle expectations (~15:50Z window):**
-- Testing worker `6c514c7` turnaround for a 3-line-fix QA pass: typical 8–15 min (clone, `uv sync`, run pytest, run blackbox smoke, post comment, exit). The PR is small enough that the worker should comfortably finish well within the 15-min budget. Plausible states at next cycle:
-  - **Most likely (~75%)**: Test report posted, 🟢 GOOD rating. Decision-tree row at next cycle: *"PR exists, ready, CI green, test results valid, 💬 > 0"* (the test report itself counts as a comment, but the pr-review bot already approved → effective state is APPROVED + green + docs OK + tested) → matches the **merge worker** row: *"PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker"*. Merge → squash → semantic-release bumps `fix:` subject to **`ohtv-v0.19.1`** (patch, with `🐛 Bug Fixes` CHANGELOG entry).
-  - **Likely (~15%)**: Test report posted with 🟡 OK + notes (e.g., a sanity-check command surfaced an unrelated pre-existing stderr warning). Next cycle weighs the note severity; most likely still routes to merge with a "noted, not blocking" annotation.
-  - **Unlikely (~8%)**: 🔴 BLOCKERS found (e.g., the blackbox smoke unexpectedly shows warnings still leaking — maybe a sibling import path that loads litellm before `import ohtv` triggers). Would route to review worker for round-2 implementation. Low probability because the impl worker's in-sandbox smoke check already confirmed cleanliness.
-  - **Rare (~2%)**: Worker times out or sandbox dies → counter goes to 1, re-spawn on cycle after that.
-
-**Backlog forecast post-#158 merge:**
-- #148 ships → `ohtv-v0.19.1` (patch via `fix:` subject + `(#148)` issue link → semantic-release auto-closes the issue).
-- **Single pre-staged action for the orchestrator that picks the next cycle**: drop a priority-graduation comment on **#145** (`priority:low` → `priority:medium`) before spawning impl. The 13:48Z + 14:49Z entries both forecasted this. Single follow-up issue, single spawn.
-- After #145: prioritized backlog **EMPTY for the first time** since this orchestration cluster started. #90 (label CLI) + #26 (MCP server) stay on `hold`. Auto-disable counter will start accruing: **productive #145-spawn → wait-cycle → 1 → 2 → disable** over ~90 min.
-
-**Sync notes:**
-- `gh pr list` shows 1 open (PR #158). `git log --oneline -1 origin/main` confirms HEAD is at `1dbb92a` (impl worker's worklog commit, NOT a `chore(release):` — the release workflow has NOT fired yet because PR #158 hasn't merged).
-- Did NOT run `ohtv sync` — same reasoning as 14:49Z entry (direct API queries covered all decision-tree needs, sync is only needed when downstream commands need the local conversation snapshot).
-
-EXIT per orchestrate skill — one action per wake-up.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-
-### 2026-05-30 14:54 UTC - Implementation Worker (Issue #148)
-
-**Worked on:** Issue #148 — Suppress LiteLLM botocore warnings at import time.
-
-**PR:** [#158 — fix(logging): suppress LiteLLM botocore pre-load warnings (#148)](https://github.com/jpshackelford/ohtv/pull/158) — opened draft, flipped to **ready for review** after `lint` + `pytest` came back green.
-
-**Changes (matches the issue's technical-approach scope exactly — no scope creep):**
-- `src/ohtv/__init__.py` — `import os as _os` + `_os.environ.setdefault("LITELLM_LOG", "ERROR")` before `__version__ = "0.19.0"`. Runs once at first `import ohtv.*`, before any submodule triggers a transitive `import litellm`. `setdefault` preserves user-provided values (so `LITELLM_LOG=DEBUG ohtv ask ...` still works for debugging).
-- `tests/unit/test_litellm_log_suppression.py` (new) — Two subprocess-isolated regression tests: `test_ohtv_sets_litellm_log_to_error_when_unset` (no `LITELLM_LOG` in child env → expect `ERROR`) and `test_ohtv_preserves_litellm_log_when_set` (`LITELLM_LOG=DEBUG` in child env → expect `DEBUG` preserved). Subprocess isolation is required because sibling pytest tests in the same process have already imported `litellm._logging`, which reads `LITELLM_LOG` once at module init.
-- `docs/reference/configuration.md` — Added `LITELLM_LOG` row to the env-var table next to `OHTV_LOG_LEVEL` / `OHTV_LOG_FILE`, documenting the `ERROR` default and the `LITELLM_LOG=WARNING` override pattern.
-- `uv.lock` — 1-line metadata refresh (`version = "0.18.1"` → `"0.19.0"`); pre-existing drift on main since the release workflow doesn't touch `uv.lock`.
-
-**Verification:**
-- `uv run pytest tests/unit/test_litellm_log_suppression.py -v` → 2 passed.
-- `uv run pytest tests/unit -x -q` → **2156 passed**, 2 skipped, 3 xfailed (no regressions).
-- Manual smoke: `uv run ohtv --help 2>&1 | grep -i 'litellm\|botocore'` → empty (success path).
-- CI on PR #158 head: `lint=pass (3s)`, `pytest=pass (53s)`, `pr-review=running` (triggered after draft → ready flip).
-
-**Decision-tree note for the orchestrator:** PR #158 is now in the "PR ready, CI green, awaiting bot review / human merge decision" lane. No manual test scenarios were spawned by this worker — change is a single-line env-var setdefault with subprocess-isolated regression tests covering both branches of the contract, and the manual smoke check already confirmed the user-visible acceptance criterion. The orchestrator's next pass should evaluate `pr-review` bot output once it lands and route to either review-response, manual-test, or merge per the standard decision tree.
-
-### 2026-05-30 07:16 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `7220b3d` | review | PR #154 — round 1 | finished ✓ (at 06:55Z) |
-| `fc23665` | merge | PR #154 — `feat(gen): exclude sub-conversations …` | **NEW** running |
-
-**Spawned: Merge Worker**
-- PR: [#154 — feat(gen): exclude sub-conversations from multi-conv mode by default (#125)](https://github.com/jpshackelford/ohtv/pull/154)
-- Conversation: [`fc23665`](https://app.all-hands.dev/conversations/fc23665bb2e341969eab8dbf8d78cc19)
-- Start task: `6245cb83` → READY in ~15s, sandbox RUNNING.
-
-**Why merge (decision-tree match):**
-
-- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
-- **Step 2/3 — Active workers**: Review worker `7220b3d` queried via `/app-conversations/search?selected_repository=jpshackelford/ohtv` filtered to `running` → only `f349efe` (self) returned. `7220b3d` is no longer running. Last entry from review worker at 06:55Z confirmed exit. Both slots free at wake-up.
-- **Step 4 — Open PRs**: 1 — PR #154 (`feat/gen-roots-only-125`).
-- **Step 4 — PR #154 status @ 07:16Z**:
-  - Not draft, `reviewDecision = APPROVED` (pr-review bot, ~06:59Z).
-  - `mergeStateStatus = CLEAN` (no conflicts, base up-to-date).
-  - CI on head `11f35231`: `lint=SUCCESS`, `pytest=SUCCESS`, `pr-review=SUCCESS`.
-  - Last 3 commits on branch: `7b37cec` (docs), `cd15dad` (review fixes), `11f35231` (BREAKING CHANGE empty footer).
-- **Decision-tree walk** (in order):
-  - "PR exists, draft" → ❌ (not draft).
-  - "PR ready, CI green, README not updated" → ❌ (docs commit `7b37cec` already updated README).
-  - "PR ready, CI green, docs updated, no manual test results" → ❌ (testing worker `e2f465f` posted 9-scenario report at 06:23Z, comment `#4581947363`).
-  - "PR ready, CI green, test results outdated" → ❌. Changes since last test: `cd15dad` (log.debug → log.warning in degraded-FS fallback — no CLI surface impact) + `11f35231` (empty `--allow-empty` commit, runtime no-op). Per review worker's explicit hand-off note: *"Re-testing: NOT required. (a) log.debug → log.warning (no behavior change at the CLI surface), (b) type-annotation deletion (no runtime effect)."* 9-scenario report stays current.
-  - "PR ready, CI green, test results valid, 💬 > 0" → ❌ (round-1 review threads were all resolved by review worker; `reviewDecision = APPROVED` now).
-  - "PR ready, test results valid, good rating, docs outdated" → ❌ (no `src/` changes since the docs commit affect documented behavior; README still describes the flag correctly).
-  - **"PR ready, test results valid, good rating, docs valid" → ✅ MATCH → Spawn merge worker.**
-
-**Critical context injected into the merge worker's prompt:**
-
-The merge worker MUST preserve the `BREAKING CHANGE:` footer (introduced by empty commit `11f35231`) in the squash-merge body. `pyproject.toml` pins `[tool.semantic_release] major_on_zero = false`, so the footer ships as **v0.17.0 with a ⚠ BREAKING CHANGES CHANGELOG entry — not v1.0.0**. The PR description was already rewritten by the round-1 review worker to reproduce the footer at the bottom for belt-and-suspenders coverage.
-
-The prompt also instructs the worker to:
-1. Read both the testing worker's report (`#4581947363`) and the review worker's semver-decision comment (`#4582012978`).
-2. Verify on `main` after merge that the `BREAKING CHANGE:` footer survived (`gh api repos/.../commits/main --jq '.commit.message'`).
-3. Watch `release.yml` workflow to confirm tag is `ohtv-v0.17.0` and release notes contain the `⚠ BREAKING CHANGES` section.
-4. Log the merge outcome to WORKLOG.md on main with a `chore(release):` or `chore(worklog):` prefix to avoid triggering a duplicate release run.
-
-**Expansion slot:**
-
-- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 29th consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
-- Ready issues queue: #149, #148, #145, #128 (priority:medium), #127 (priority:medium), #125 (priority:medium — being merged now). After #154 merges, #125 will close (`Fixes #125`) and the priority:medium queue becomes #127, #128. Both are part of the root-grain cluster, so the next implementation worker (post-merge) will pick from those.
-
-**Next cycle expectations (~07:46Z window):**
-
-- Merge worker `fc23665` turnaround: ~10-20 minutes (squash merge + verification + WORKLOG entry). Should be `finished` by next wake-up.
-- After merge: semantic-release runs on `main`, ~30s end-to-end, produces tag `ohtv-v0.17.0` + GitHub Release with `⚠ BREAKING CHANGES` section.
-- After `v0.17.0` ships:
-  - No open PR → check ready+priority queue → #127 or #128 (both priority:medium, tie-break by issue number → **#127**).
-  - Spawn implementation worker for #127 (`ohtv list` and `refs` surface sub-conversations as siblings of their roots).
-
-**Worklog housekeeping note:** WORKLOG.md is now 1525+ lines (well past the 300-line truncation threshold). The orchestrate skill recommends running `/truncate-worklog` when this happens. Deferred this cycle to keep one productive action (merge spawn) per wake-up; flagging for a future cycle (likely after `v0.17.0` ships and before the #127 impl worker spawns, since that's a natural break-point).
-
-**Auto-disable counter:** **0 → 0.** Productive cycle (spawned merge worker — terminal action that closes the PR #154 / Issue #125 leg of the root-grain cluster). **Forty-third consecutive productive cycle.** Not at risk.
-
-EXIT per orchestrate skill — one action per wake-up.
-
-**Late addendum (~07:22Z, before this entry was pushed):** While the orchestrator was preparing this WORKLOG entry, the merge worker `fc23665` raced ahead and squash-merged PR #154 as commit [`4f2217d`](https://github.com/jpshackelford/ohtv/commit/4f2217dc1aa64d996a5fc67ac99d00db384aade2) on `main`. Verified the squash commit body retained the `BREAKING CHANGE:` footer:
-
-```
-BREAKING CHANGE: ohtv gen objs/titles/run multi-conv mode now excludes
-sub-conversations by default. Use --include-sub-conversations to restore
-the pre-v1.0.0 behavior.
-```
-
-`release.yml` workflow run `26677937192` is now `in_progress` on head `4f2217d` (started 07:21:25Z). Next orchestrator wake-up should see the new `ohtv-v0.17.0` tag + `⚠ BREAKING CHANGES` CHANGELOG entry, after which the merge worker will likely push its own outcome entry to WORKLOG. If the merge worker's own entry doesn't appear by the next cycle, the orchestrator should write a follow-up confirming the v0.17.0 release before spawning the #127 impl worker.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 07:24 UTC - Merge worker (PR #154)
-
-**Outcome: PR #154 merged, `ohtv-v0.17.0` released with `⚠ BREAKING CHANGES` section.**
-
-**Merge execution:**
-
-- Pre-flight check: PR `mergeStateStatus=CLEAN`, `reviewDecision=APPROVED`, head `11f35231`, all checks green (lint 5s, pytest 55s, pr-review 3m23s).
-- PR description already carried the `BREAKING CHANGE:` footer at the bottom (review worker had rewritten it for belt-and-suspenders coverage). No description update needed.
-- Squash subject: `feat(gen): exclude sub-conversations from multi-conv mode by default (#125) (#154)`. Body authored with the authoritative footer from commit [`11f35231`](https://github.com/jpshackelford/ohtv/commit/11f35231476b1bbccf6bd4ed594c6340bc24abff) verbatim, not a paraphrase.
-- `gh pr merge 154 --squash --subject ... --body ...` → squash commit [`4f2217dc`](https://github.com/jpshackelford/ohtv/commit/4f2217dc1aa64d996a5fc67ac99d00db384aade2) on `main`. Full message verified — the `BREAKING CHANGE:` line survived intact at the very bottom of the squash body (the part python-semantic-release parses for footer detection).
-
-**Semantic-release run:**
-
-- Triggered automatically on push to `main`. Run [`26677937192`](https://github.com/jpshackelford/ohtv/actions/runs/26677937192) completed in 1m17s.
-- Output: tag `ohtv-v0.17.0`, GitHub Release [ohtv-v0.17.0](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.17.0), CHANGELOG appended with `### Breaking Changes` entry.
-- Release notes confirm the `### Breaking Changes` section contains the exact footer wording:
-
-  > **gen**: Ohtv gen objs/titles/run multi-conv mode now excludes sub-conversations by default. Use --include-sub-conversations to restore the pre-v1.0.0 behavior.
-
-- Minor bump (0.16.2 → 0.17.0) rather than major bump confirms `major_on_zero = false` in `pyproject.toml` is doing its job, exactly as the round-1 review worker predicted.
-
-**State after merge:**
-
-- PR #154: merged, closed.
-- Issue #125: closed via `Fixes #125` in squash body.
-- Open PRs: 0.
-- Ready+priority:medium queue: #127, #128 (both root-grain cluster siblings of #125 — same cluster context as the v0.16.1/v0.16.2/v0.17.0 trio).
-
-**Cluster progress (`#122` root-grain rollout):**
-
-| Issue | PR | Status | Release |
-|---|---|---|---|
-| #123 weekly-counts | #150 | merged | v0.16.1 |
-| #124 velocity | #153 | merged | v0.16.2 |
-| **#125 gen objs/titles/run** | **#154** | **merged** | **v0.17.0 (this entry)** |
-| #126 classification policy | — | open | — |
-| #127 list/refs display roll-up | — | open | — |
-| #128 RAG citation dedup | — | open | — |
-
-Next root-grain issue is #127 — orchestrator's late-addendum prediction stands.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 07:50 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `18f797e` | implementation | Issue #127 — `list`/`refs` root-grain | **NEW** running |
-
-**Spawned: Implementation Worker**
-- Issue: [#127 — `ohtv list` and `refs` surface sub-conversations as siblings of their roots](https://github.com/jpshackelford/ohtv/issues/127) (`priority:medium`)
-- Conversation: [`18f797e`](https://app.all-hands.dev/conversations/18f797e3fb7643a5b762237331c65ef5)
-- Start task: `36bd613f` → READY in ~5s (first poll), sandbox RUNNING.
-
-**Why implementation (decision-tree match):**
-
-- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
-- **Step 2/3 — Active workers**: API query `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` → only `0b9b6f9` (self) was `running`; merge worker `fc23665` (PR #154) had `execution_status=null` (finished — confirmed by 07:24Z entry pushing the v0.17.0 outcome to WORKLOG). Both slots free at wake-up.
-- **Step 4 — Open PRs**: 0 (PR #154 merged 07:21Z as `4f2217d`; `ohtv-v0.17.0` released via [run `26677937192`](https://github.com/jpshackelford/ohtv/actions/runs/26677937192) at 07:23Z with the `⚠ BREAKING CHANGES` CHANGELOG entry — confirmed by the previous orchestrator's late addendum and the merge worker's own entry).
-- **Step 4 — Issue census**:
-  - Issues needing expansion: **0**.
-  - Ready, prioritized: #127 (`priority:medium`), #128 (`priority:medium`).
-  - Ready, unprioritized: #145, #148, #149.
-- **Decision-tree walk** (PR slot, no open PR branch):
-  - "No open PR + ready issues with priority" → ✅ MATCH.
-  - Tie-break between #127 and #128 (both `priority:medium`): by issue number → **#127**. Also matches the merge worker's hand-off prediction ("Next root-grain issue is #127") and the late addendum from the prior orchestrator.
-
-**Critical context injected into the implementation worker's prompt:**
-
-The worker brief carries forward the full root-grain cluster history because the pattern matters for cluster consistency:
-- **Sibling pattern reference**: #123 (predicate in WHERE), #124 (DISTINCT-keyed-on-root), **#125 (flag-threaded, `--include-sub-conversations`, BREAKING)**. #127 is `--include-sub-conversations` again — the display surface follows #125's flag spelling exactly, not `--include-subs`.
-- **BREAKING CHANGE semver call**: pre-emptively framed as Option A from #154's playbook. `[tool.semantic_release] major_on_zero = false` means the footer ships as **v0.18.0** with a `⚠ BREAKING CHANGES` CHANGELOG entry — NOT v1.0.0. The prompt explicitly instructs the worker to add a `BREAKING CHANGE:` footer to the eventual squash-merge commit body (mirror #154's `11f35231` empty-commit pattern OR include it in the PR description's belt-and-suspenders Breaking Change Acknowledgment section).
-- **Exact cut sites** from issue #127's expanded body: `cli.py` `_filter_by_pr` L1899, `_filter_by_repo` L2072, `_filter_by_action` L2106, `_filter_by_label` L2179; new helper `expand_to_roots` in `src/ohtv/filters.py`; `ConversationStore.list_by_date_range` gains `include_subs` kwarg; `ohtv refs <id>` rolls up subtree refs only when id is a root.
-- **AC test matrix**: 5 scenarios (T-1 through T-5) explicitly listed in the issue — worker instructed to cover all five.
-- **Migration-019 guardrail pattern**: PRAGMA check raises friendly `RuntimeError` at command invocation, not import time (matches #123/#124/#125/#126's idiom).
-
-**Spawn payload shape** (validated):
-- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker creates feature branch from main).
-- `pr_number=[]` (new implementation, no existing PR).
-- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
-- `initial_message.content[].type=text`, `run=true`.
-- POST `/api/v1/app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY` → start task `36bd613f` returned `status=WORKING`; first poll (5s later) → `READY`, `app_conversation_id=18f797e3…`; `/app-conversations?ids=18f797e3…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
-
-**Worklog housekeeping (executed this cycle):**
-
-- WORKLOG.md was **1645 lines** at wake-up (well past the 300-line truncation threshold the previous orchestrator flagged).
-- This wake-up is the natural break-point the previous orchestrator predicted (post-v0.17.0 release, before the #127 impl spawn).
-- Truncation ran the canonical algorithm from `/truncate-worklog` skill:
-  - Parsed 28 total entries, 15 productive.
-  - Newest productive entry: `2026-05-30 07:24:00+00:00` (merge worker outcome for PR #154 / v0.17.0).
-  - Cutoff calculated as 6-hour productive span back → `2026-05-30 00:55:00+00:00` (the 00:55Z expansion worker for #148).
-  - Kept 21 entries spanning the full PR #151 → PR #152 → PR #153 → PR #154 sequence (the complete root-grain cluster ship-off).
-  - Archived 7 older entries to `WORKLOG_ARCHIVE_2026-05-29.md` (3 entries) and `WORKLOG_ARCHIVE_2026-05-30.md` (4 entries).
-- WORKLOG.md is now ~1253 lines (still long because the kept productive entries are individually verbose, but the 6h span is intact and the dead-spawn diagnostic noise from 22:50Z–00:21Z is offloaded).
-
-**Cluster progress snapshot** (post-v0.17.0):
-
-| Issue | PR | Status | Release |
-|---|---|---|---|
-| #123 weekly-counts | #150 | merged | v0.16.1 |
-| #124 velocity | #153 | merged | v0.16.2 |
-| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
-| **#127 list/refs display** | — | **in implementation now** | (target: v0.18.0 ⚠ BREAKING) |
-| #126 classification policy | — | open, queued | — |
-| #128 RAG citation dedup | — | open, queued | — |
-
-**Expansion slot:**
-
-- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 30th consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
-
-**Next cycle expectations (~08:20Z window):**
-
-- Implementation worker `18f797e` turnaround: typical impl-worker cycle is 30-60 minutes for an issue of #127's size (3-4 module touches, ~5 ACs, regression test matrix). Could take longer if test infrastructure needs new fixtures for sub-conv scenarios.
-- Most likely next-cycle state:
-  - **Draft PR created, CI running** → wait (impl worker finishing up).
-  - **Draft PR + CI green** → wait (impl worker about to flip to ready).
-  - **Ready PR, no docs comment** → spawn **docs worker** (mirror #154's lifecycle).
-- If `18f797e` is still `running` and no PR exists by 08:50Z, investigate per the "dead spawn" pattern from 2026-05-29 22:50Z–00:21Z (but the recent productive impl-worker cycles `5c05fff` for #125, `d3fcf92` for #124 indicate dispatch is healthy — no immediate cause for concern).
-
-**Auto-disable counter:** **0 → 0.** Productive cycle (spawned implementation worker — terminal action that opens the #127 leg of the root-grain cluster). **Forty-fourth consecutive productive cycle.** Not at risk.
-
-EXIT per orchestrate skill — one action per wake-up (the truncation was Step 0.5 housekeeping; the spawn is the dispatch action).
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 08:20 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `f7c21ca` | docs | PR #155 — `list`/`refs` README delta | **NEW** running |
-
-**Spawned: Documentation Worker**
-- PR: [#155 — feat(list,refs): roots-only by default with subtree rollup (#127)](https://github.com/jpshackelford/ohtv/pull/155)
-- Conversation: [`f7c21ca`](https://app.all-hands.dev/conversations/f7c21cab4d25438f93a6a8b439d39a04)
-- Start task: `9ff807e9` → READY in ~5s (first poll), sandbox RUNNING, agent `execution_status=running`.
-
-**Why docs (decision-tree match):**
-
-- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
-- **Step 2/3 — Active workers**: API query for `selected_repository=jpshackelford/ohtv` → `5a19b24` is this orchestrator (running); `18f797e` (the #127 impl worker spawned at 07:50Z) is now **`execution_status=finished`** with sandbox RUNNING-but-released; `0b9b6f9` (prior orchestrator) is sandbox MISSING (terminated). Both worker slots free at wake-up.
-- **Step 4 — Open PRs**: **1** — PR #155 opened at 08:06:47Z by the just-completed impl worker.
-- **Step 4 — Issue census**: 0 issues need expansion; ready/prioritized: #127 (now in PR #155), #128. Ready/unprioritized: #145, #148, #149.
-- **PR #155 state probe** (`gh pr view 155 --json …`):
-  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `reviewDecision=APPROVED`.
-  - CI: `lint=SUCCESS`, `pytest=SUCCESS`, `pr-review=SUCCESS` (1 SKIPPED + 1 SUCCESS pr-review entries — the latter is the binding one).
-  - `last_commit=2026-05-30T08:05:51Z`, `n_comments=0` (no docs comment, no test comment, no review threads).
-  - Files changed (4): `src/ohtv/cli.py`, `src/ohtv/filters.py`, `tests/unit/test_cli_list_refs_subs.py`, `tests/unit/test_filters.py`. **README.md absent** — confirmed via `gh pr diff 155 --name-only`.
-- **Decision-tree walk** (PR slot):
-  - "PR exists, ready, CI green, **README not updated**" → ✅ MATCH.
-  - Other branches eliminated: not draft (skip "still in impl"), 0 comments (skip review), no test comment (cannot skip ahead to merge, would violate "test what's documented" ordering principle).
-
-**Critical context injected into the docs worker's prompt:**
-
-The brief carries the full breaking-change framing because the docs delta is the user-facing migration surface for the v0.18.0 ship:
-
-- **Two surfaces flipping**: `ohtv list` default and `ohtv refs` default both move from "show every row including subs" → "show roots only". New `--include-sub-conversations` flag (spelling matches PR #154 verbatim, NOT `--include-subs`) is the opt-out.
-- **Single-conv `refs <root-id>` rollup** documented separately: when id IS a root, returns union of subtree refs (dedup by URL); when id IS a sub, falls through to existing single-conv path.
-- **Filter resolution semantic change** (`--pr`, `--repo`, `--label`, `--action` now route through `expand_to_roots`): flagged as "worth a one-liner if existing doc text would mislead readers."
-- **v0.18.0 ⚠ BREAKING CHANGES callout**: cluster pattern is now well-established (#125 / v0.17.0 introduced it for `gen objs/titles/run`). Worker instructed to mirror PR #154's README section as template.
-- **AGENTS.md item #32 cross-reference**: explicitly told NOT to renumber; just add a sub-bullet noting #127 has shipped if the existing list mentions the predecessors.
-- **Hard guardrails**: do NOT touch CHANGELOG.md (semantic-release owns it on merge); do NOT touch source/tests/pyproject.toml; do NOT flip PR back to draft (docs-only commit is safe on ready+approved+green PR); do NOT remove existing `BREAKING CHANGE:` marker.
-- **Bug-discovery branch**: if worker spots an implementation bug while writing docs (e.g. flag spelling mismatch with #154, `--include-sub-conversations` broken on `refs`), they're instructed to flag-via-comment and EXIT without committing — so the next orchestrator cycle can spawn a review-round worker instead of merging a buggy default flip.
-- **Commit message contract**: `docs:` subject (silently ignored by semantic-release per AGENTS.md commit contract table); the eventual squash-merge keeps `feat(list,refs)!` + `BREAKING CHANGE:` footer.
-- **Marker comment for next worker**: explicit template provided — `## Documentation updated for PR #155` header so the next orchestrator can detect "docs done → spawn testing worker" via the regex in the decision tree.
-
-**Spawn payload shape** (validated):
-- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker `git checkout`s the PR branch itself).
-- `pr_number=[155]` so the worker has PR context out of the box.
-- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
-- `initial_message.content[].type=text`, `run=true`.
-- POST `/api/v1/app-conversations` with `X-Session-API-Key: $OPENHANDS_API_KEY` → start task `9ff807e9` returned `status=WORKING`; first 5s poll → `READY`, `app_conversation_id=f7c21cab…`; `/app-conversations?ids=f7c21cab…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
-
-**Worklog housekeeping (deferred this cycle):**
-
-- WORKLOG.md was ~1382 lines at wake-up (slightly above the 300-line threshold but the 07:50Z orchestrator already executed a truncation in the previous cycle — bringing it from 1645 down to ~1253 lines and archiving 7 older entries to `WORKLOG_ARCHIVE_2026-05-29.md` / `WORKLOG_ARCHIVE_2026-05-30.md`).
-- Deferring another truncation to keep "one action per wake-up" discipline — the spawn IS this cycle's action, and the prior cycle's truncation kept the productive 6-hour window intact. Next truncation opportunity: after the testing worker posts results (expected next cycle).
-
-**Cluster progress snapshot** (post-impl, pre-docs):
-
-| Issue | PR | Status | Release |
-|---|---|---|---|
-| #123 weekly-counts | #150 | merged | v0.16.1 |
-| #124 velocity | #153 | merged | v0.16.2 |
-| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
-| **#127 list/refs display** | **#155** | **docs round in progress** | (target: v0.18.0 ⚠ BREAKING) |
-| #126 classification policy | — | open, queued | — |
-| #128 RAG citation dedup | — | open, queued | — |
-
-**Expansion slot:**
-
-- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 31st consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
-
-**Next cycle expectations (~08:50Z window):**
-
-- Docs worker `f7c21ca` turnaround: docs-only commits typically complete in 10-25 minutes. Worker needs to (1) `git checkout` PR branch, (2) read diffs for context, (3) write README delta + AGENTS.md sub-bullet, (4) push & wait for CI (lint+pytest run on docs commits too — should stay green), (5) post the marker comment.
-- Most likely next-cycle state:
-  - **Docs commit pushed, CI green, marker comment posted** → spawn **testing worker** per "test what's documented" principle.
-  - **Docs commit pushed but CI failing** → wait one cycle (docs commits shouldn't break CI, but lint can if README has CI-checked formatting like the `make lint` step would catch).
-  - **No docs commit yet** → wait (worker may still be reading the PR #154 sibling delta for tone).
-  - **Worker flagged an implementation bug via comment** → spawn **review worker** instead of testing worker (the prompt's bug-discovery branch).
-- If `f7c21ca` is still `running` with no commits by 09:20Z, investigate per the "dead spawn" pattern from 2026-05-29 22:50Z–00:21Z. Recent docs-worker spawns (PR #154 lifecycle) have all been healthy ~15-min cycles, so this is precautionary only.
-
-**Auto-disable counter:** **0 → 0.** Productive cycle (spawned docs worker — terminal action advancing PR #155 through the lifecycle). **Forty-fifth consecutive productive cycle.** Not at risk.
-
-EXIT per orchestrate skill — one action per wake-up.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 08:50 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `e7f42f8` | testing | PR #155 — manual test pass | **NEW** running |
-
-**Spawned: Manual Testing Worker**
-- PR: [#155 — feat(list,refs): roots-only by default with subtree rollup (#127)](https://github.com/jpshackelford/ohtv/pull/155)
-- Conversation: [`e7f42f8`](https://app.all-hands.dev/conversations/e7f42f8f71df4ee0b663edf9f5e9ed53)
-- Start task: `d722427b` → READY in ~6s (first poll), sandbox `48QMbGz…` RUNNING, agent `execution_status=running`.
-
-**Why testing (decision-tree match):**
-
-- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
-- **Step 2/3 — Active workers**: API query `selected_repository=jpshackelford/ohtv&limit=20` → only this orchestrator (`7aab96f5`) is `running`. The docs worker `f7c21cab` (spawned 08:20Z) is now `execution_status=finished` with sandbox RUNNING-but-released. Both worker slots free at wake-up.
-- **Step 4 — Open PRs**: 1 — PR #155 (`oAFc green ready`, approved, mergeable, 41m old, 22m since last activity).
-- **Step 4 — Issue census**: 0 issues need expansion; ready/prioritized: #127 (in PR #155), #128. Ready/unprioritized: #145, #148, #149.
-- **PR #155 state probe** (`gh pr view 155` + `lxa pr list`):
-  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `reviewDecision=APPROVED`.
-  - CI: `lint=SUCCESS`, `pytest=SUCCESS` (`pr-review` ran and approved with 🟢 "Good taste" / 🟡 MEDIUM risk on the breaking-default-flip).
-  - Commits: `e3a0f912` (08:05Z feat impl) + `711d7f7b` (08:24Z docs commit).
-  - Comments (1): docs marker `## Documentation updated for PR #155` posted 08:25Z by the f7c21cab docs worker. **No `## Manual Test Results` comment.**
-  - Files changed (6): `src/ohtv/cli.py`, `src/ohtv/filters.py`, `tests/unit/test_cli_list_refs_subs.py`, `tests/unit/test_filters.py`, **`README.md`** (added by docs commit), **`docs/guides/exploration.md`** (added by docs commit).
-- **Decision-tree walk** (PR slot):
-  - "PR exists, ready, CI green, **docs updated, no manual test results**" → ✅ MATCH.
-  - Earlier branches eliminated: not draft, docs comment present (skip docs worker), no test comment yet (cannot skip to review or merge — "test what's documented" gate enforces ordering).
-
-**Critical context injected into the testing worker's prompt:**
-
-The brief mirrors the structure of the PR #154 / v0.17.0 testing-worker brief (now well-established) with #127-specific test matrix:
-
-- **AC matrix T-1 → T-5** (lifted verbatim from issue #127's expanded body): list roots-only default; `--include-sub-conversations` opt-out; refs multi-conv roots-only; refs `<root-id>` subtree rollup (union, dedup by URL); refs `<sub-id>` fall-through to single-conv path.
-- **Filter-routing scenario**: `ohtv list --pr <num>` and `--repo <name>` must return ONLY roots, even when subs contribute to the same PR/repo. This is the new `expand_to_roots` call site routed from `_filter_by_pr`/`_filter_by_repo`/`_filter_by_action`/`_filter_by_label` in `cli.py`.
-- **README example verification**: worker explicitly instructed to copy the new README examples from the PR diff and execute them verbatim, flagging any drift. This is the "test what's documented" principle in action.
-- **Unit-test sanity check**: `pytest tests/unit/test_cli_list_refs_subs.py tests/unit/test_filters.py -v` on the fresh checkout (beyond what CI already validated).
-- **Edge cases**: `--no-refs` compatibility, `-A` + new flag combination, missing-id error path, root with zero subs.
-- **Bug-discovery exit branch**: worker instructed NOT to commit fixes; if a bug is found, flag in the test report and EXIT — next orchestrator cycle will spawn a review-round worker.
-- **Hard guardrails**: read-only pass (no commits, no PR state changes), `@openhands-ai` authorship footer, single PR comment using the `## Manual Test Results — PR #155` header (so the next orchestrator's regex finds it cleanly).
-
-**Spawn payload shape** (validated):
-- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker `gh pr checkout 155`s the branch itself).
-- `pr_number=[155]` so the worker has PR context.
-- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
-- `initial_message.content[].type=text`, `run=true`.
-- POST `/api/v1/app-conversations` with `X-Session-API-Key: $OPENHANDS_API_KEY` → start task `d722427b` returned `status=WORKING`; first 6s poll → `READY`, `app_conversation_id=e7f42f8f…`; `/app-conversations?ids=e7f42f8f…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
-
-**Worklog housekeeping (deferred this cycle):**
-
-- WORKLOG.md was 1468 lines at wake-up (07:50Z orchestrator truncated 1645→1253; 08:20Z deferred; this cycle's spawn entry pushes back up).
-- Still inside the productive 6-hour window — every kept entry is part of the active PR #155 lifecycle (impl 07:50Z → docs 08:20Z → testing 08:50Z, all converging on the v0.18.0 ship).
-- Natural truncation point is **post-merge** (or post-review-round resolution) when the cluster-progress snapshot crystallizes. Deferring again to keep "one action per wake-up" discipline.
-
-**Cluster progress snapshot** (post-docs, pre-test):
-
-| Issue | PR | Status | Release |
-|---|---|---|---|
-| #123 weekly-counts | #150 | merged | v0.16.1 |
-| #124 velocity | #153 | merged | v0.16.2 |
-| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
-| **#127 list/refs display** | **#155** | **testing round in progress** | (target: v0.18.0 ⚠ BREAKING) |
-| #126 classification policy | — | open, queued | — |
-| #128 RAG citation dedup | — | open, queued | — |
-
-**Expansion slot:**
-
-- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 32nd consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
-
-**Next cycle expectations (~09:20Z window):**
-
-- Testing worker `e7f42f8` turnaround: testing cycles for a CLI display surface typically run 15-30 minutes (env setup + `ohtv sync` + matrix execution + report write-up). Plus this PR's matrix is broad (T-1 through T-5 + filter routing + README examples + edge cases), so could trend longer.
-- Most likely next-cycle state:
-  - **`## Manual Test Results — PR #155` comment posted, all green** → spawn **merge worker** (sibling pattern: PR #154's `fc23665b` merge worker took the v0.17.0 BREAKING ship to completion in one cycle).
-  - **Test report posted, issues found** → spawn **review-round worker** to address the regressions before merge.
-  - **No test comment yet, worker still `running`** → wait (testing typically takes 15-30 min; this would only be a concern past 09:50Z).
-  - **Worker `finished` but no comment posted** → investigate per the "dead spawn" pattern from 2026-05-29 22:50Z–00:21Z.
-- The eventual merge worker brief should mirror PR #154's: conventional commit subject `feat(list,refs)!: roots-only by default with subtree rollup` + `BREAKING CHANGE:` footer in body, squash-merge, semantic-release picks up the `!` → v0.18.0 + `⚠ BREAKING CHANGES` CHANGELOG section.
-
-**Auto-disable counter:** **0 → 0.** Productive cycle (spawned testing worker — terminal action advancing PR #155 through the lifecycle). **Forty-sixth consecutive productive cycle.** Not at risk.
-
-EXIT per orchestrate skill — one action per wake-up.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 09:52 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `8723ef4` | testing (retry) | PR #155 — manual test pass (attempt 2/2) | **NEW** running |
-
-**Spawned: Manual Testing Worker (retry after dead-spawn)**
-- PR: [#155 — feat(list,refs): roots-only by default with subtree rollup (#127)](https://github.com/jpshackelford/ohtv/pull/155)
-- Conversation: [`8723ef4`](https://app.all-hands.dev/conversations/8723ef46862c482f9913876bb6c8003a)
-- Start task `11e3af85` → READY in ~5s (first poll), sandbox RUNNING, agent `execution_status=running`.
-
-**Why testing-RETRY (dead-spawn investigation):**
-
-- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged.
-- **Step 2/3 — Active workers**: API query `selected_repository=jpshackelford/ohtv&limit=10` → only this orchestrator (`c4b122f`) is `running`. Testing worker `e7f42f8` (spawned 08:50Z) is now `execution_status=null`, `sandbox=PAUSED` — finished and released.
-- **Step 4 — Open PRs**: 1 — PR #155 (`oAFc green ready`, approved, mergeable=UNKNOWN, last commit 08:24:09Z = docs round commit).
-- **Step 4 — Issue census**: 0 issues need expansion; ready/prioritized: #127 (in PR #155), #128. Ready/unprioritized: #145, #148, #149.
-
-**Dead-spawn diagnosis for `e7f42f8`:**
-
-Full conv-detail API probe shows the worker DID consume real LLM work:
-- `accumulated_cost = $3.20`, `prompt_tokens = 2,681,506`, `completion_tokens = 4,177`, `cache_read_tokens = 2,376,483`, `cache_write_tokens = 304,136`
-- `created_at = 08:49:32Z`, `updated_at = 09:21:57Z` → ~32 minutes wall time, then sandbox released
-- `llm_model = litellm_proxy/claude-opus-4-7`
-- `execution_status = null`, `agent_state = null`, `last_active_at = null` — fields cleared after agent stopped
-
-But **`gh pr view 155 --comments` returned only one comment** — the 08:25Z `## Documentation updated for PR #155` marker from the f7c21cab docs worker. **No `## Manual Test Results` comment exists.**
-
-This is the same failure mode flagged in the prior orchestrator's "next cycle expectations" — _"Worker `finished` but no comment posted → investigate per the 'dead spawn' pattern from 2026-05-29 22:50Z–00:21Z."_ The 32-min runtime + $3.20 burn + 4K completion tokens suggests the worker exercised the test matrix but ran out of turns / hit an internal stop condition before the final `gh pr comment` call. The prior prompt may have over-emphasized investigation depth without making the final comment unambiguously the last action.
-
-**Mitigations in the retry prompt (`8723ef4`):**
-
-The replacement prompt is restructured around a single cardinal rule, repeated at the top, in the middle, and at the bottom:
-
-> **EVERY EXIT PATH MUST END WITH A POSTED PR COMMENT.** If you are about to stop working — for ANY reason (success, partial pass, env-setup failure, ran out of turns, found a bug) — your LAST tool call before stopping MUST be a `gh pr comment 155` call.
-
-Specific concessions made vs. the 08:50Z prompt to reduce turn pressure:
-
-- **Setup budget**: hard 10-min cap on troubleshooting; partial report if blocked.
-- **Test matrix**: shrunk to 8 named tests (T-1 … T-8), each capturing ~20 lines of output. No "edge case sweep", no "all combinations of flags".
-- **Report template**: fixed table format with PASS/FAIL/partial cells — fast to fill in, no prose required.
-- **Exit-path emphasis**: explicit instruction that "post a short report saying 'setup failed at step X'" is preferred over "post nothing".
-- **No bug fixes**: bug-discovery branch still says EXIT without committing — but now framed as "document in report and stop" rather than "investigate further".
-- **Read-only / guardrails**: identical to prior prompt (no commits, no PR state changes, no WORKLOG.md edits).
-
-**Spawn payload shape** (validated):
-- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker `gh pr checkout 155`s).
-- `pr_number=[155]` for PR context.
-- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
-- `initial_message.content[].type=text`, `run=true`.
-- POST `/api/v1/app-conversations` with `X-Session-API-Key: $OPENHANDS_API_KEY` → start task `11e3af85` returned `status=WORKING`; first 5s poll → `READY`, `app_conversation_id=8723ef46…`; `/app-conversations?ids=8723ef46…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
-
-**Worklog housekeeping (deferred this cycle):**
-
-- WORKLOG.md was 1554 lines at wake-up. The 07:50Z orchestrator already truncated from 1645 → 1253 lines; subsequent productive entries (08:20Z spawn, 08:50Z spawn, plus this entry) have grown it back. Still inside the productive 6-hour PR #155 lifecycle window — every kept entry is part of the active push to v0.18.0.
-- Natural truncation point is **post-merge** when the cluster-progress snapshot crystallizes (or post-second-dead-spawn if this retry also fails, which would justify a deeper investigation entry). Deferring again to keep "one action per wake-up" discipline.
-
-**Cluster progress snapshot** (post-docs, second testing attempt in flight):
-
-| Issue | PR | Status | Release |
-|---|---|---|---|
-| #123 weekly-counts | #150 | merged | v0.16.1 |
-| #124 velocity | #153 | merged | v0.16.2 |
-| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
-| **#127 list/refs display** | **#155** | **testing round 2/2 in progress** | (target: v0.18.0 ⚠ BREAKING) |
-| #126 classification policy | — | open, queued | — |
-| #128 RAG citation dedup | — | open, queued | — |
-
-**Expansion slot:**
-
-- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 33rd consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
-
-**Next cycle expectations (~10:20Z window):**
-
-- Testing worker `8723ef4` turnaround: with the tightened prompt and 8-test matrix, expecting 20-40 min wall time. Setup window is ~5-10 min, matrix execution ~10-20 min, report compose + post ~5 min.
-- Most likely next-cycle state:
-  - **`## Manual Test Results — PR #155` comment posted, recommendation=ready-to-merge** → spawn **merge worker** (sibling pattern: PR #154's `fc23665b` merge worker took the v0.17.0 BREAKING ship to completion in one cycle).
-  - **Test report posted, recommendation=needs-review-round** → spawn **review-round worker** to address regressions.
-  - **Test report posted, recommendation=blocked (env setup failure)** → orchestrator investigates the blocker; may need a human escalation if the sandbox env is degraded.
-  - **No comment yet, worker still `running`** → wait (still inside 20-40 min budget).
-  - **Worker `finished` AGAIN with no comment** → 2nd dead spawn; escalate to a `## INSTRUCTION:` block in WORKLOG asking @jpshackelford to weigh in before burning another $3+. Possible patterns: the worker's prompt is genuinely getting truncated by an LLM-side limit, the `gh pr comment` tool is failing silently, or the agent is hitting a turn-budget cap that the orchestrator can't see from outside.
-- The eventual merge worker brief should mirror PR #154's: conventional commit subject `feat(list,refs)!: roots-only by default with subtree rollup` + `BREAKING CHANGE:` footer in body, squash-merge, semantic-release picks up the `!` → v0.18.0 + `⚠ BREAKING CHANGES` CHANGELOG section.
-
-**Auto-disable counter:** **0 → 0.** Productive cycle (spawned retry testing worker — terminal action advancing PR #155 through the lifecycle). **Forty-seventh consecutive productive cycle.** Not at risk.
-
-EXIT per orchestrate skill — one action per wake-up.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 10:20 UTC - Orchestrator
-
-**Active Workers (at cycle exit):**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `f4efb86` | merge | PR #155 → squash-merge as v0.18.0 ⚠ BREAKING | **NEW** running |
-
-**Spawned: Merge Worker for PR #155**
-- PR: [#155 — feat(list,refs): roots-only by default with subtree rollup (#127)](https://github.com/jpshackelford/ohtv/pull/155)
-- Conversation: [`f4efb86`](https://app.all-hands.dev/conversations/f4efb861777c4726a8cdeb82ef018440)
-- Start task `23a33c5f` → READY in ~10s; agent `execution_status=running`, sandbox `RUNNING`.
-
-**Why merge (decision-tree walk):**
-
-- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged.
-- **Step 2/3 — Active workers**: Testing retry worker `8723ef4` is `execution_status=finished`, sandbox=RUNNING (about to release), `updated_at=10:09:21Z`. **No active workers.**
-- **Step 4 — Open PRs**: 1 — PR #155.
-  - `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `reviewDecision=APPROVED`.
-  - CI: `lint pass 5s`, `pytest pass 53s`. Both green.
-  - Last commit: `2026-05-30T08:24:09Z` (docs commit `711d7f7`).
-  - Comments: 2 total — docs marker (08:25:42Z) + Manual Test Results (10:09:20Z, **AFTER** last commit, so test is current).
-  - Review threads: 0 unresolved (GraphQL `reviewThreads` empty).
-- **Step 4b — Test report content**: retry worker `8723ef4` posted comprehensive 8-test matrix (T-1 … T-8), all PASS except T-5 marked `⚠️ partial (not bug)` — degenerate test case because the account has no true delegated subs in the sync window; rollup branch was instead exercised through dashed-id duplicate rows from item #14, which the code handles correctly. Recommendation: **ready-to-merge**.
-- **Step 5 — Open issues**: 5 ready (all expanded). 0 need expansion. Priority order: #128 (medium, queued for impl after #155 merges), #127 (medium, IN PR #155). Unprioritized ready: #145, #148, #149.
-
-**Decision-tree path**: `PR exists, ready, CI green, test results valid (timestamp > last commit), good rating (ready-to-merge), docs valid (08:25Z marker exists)` → **Spawn merge worker**. No re-test trigger (no significant code changes after the test; the 711d7f7 docs commit predates the test).
-
-**Dead-spawn risk mitigation**:
-
-The prior testing worker `e7f42f8` (08:50Z spawn) was a dead spawn — finished after $3.20 burn with no comment posted. The retry `8723ef4` (09:52Z spawn) succeeded thanks to the tightened prompt with cardinal "EVERY EXIT PATH MUST END WITH A POSTED PR COMMENT" rule. The merge worker prompt is short and unambiguous (single terminal action — `gh pr merge --squash`), so dead-spawn risk is low. The cluster's PR #154 merge (`fc23665b`) used the same shape and completed in one cycle.
-
-**Squash-commit guidance baked into the prompt**:
-
-- Subject: `feat(list,refs): roots-only by default with subtree rollup (#127)` — matches PR title (no `!`).
-- Body: implementation summary + AC coverage + test summary.
-- Footer: **MUST** include `BREAKING CHANGE:` explaining the user-facing default flip (list/refs no longer include sub-conversations by default; pass `--include-sub-conversations` to restore).
-- Per AGENTS.md release contract + `[tool.semantic_release] major_on_zero = false`, the footer triggers v0.17.0 → **v0.18.0** with `⚠ BREAKING CHANGES` CHANGELOG section. Mirrors PR #154 → v0.17.0 precedent for #125.
-
-**Cluster progress snapshot** (merge-in-flight):
-
-| Issue | PR | Status | Release |
-|---|---|---|---|
-| #123 weekly-counts | #150 | merged | v0.16.1 |
-| #124 velocity | #153 | merged | v0.16.2 |
-| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
-| **#127 list/refs display** | **#155** | **merge in progress** | **(target: v0.18.0 ⚠ BREAKING)** |
-| #126 classification policy | — | open, queued | — |
-| #128 RAG citation dedup | — | open, queued | — |
-
-After this merge, the #122 root-grain cluster has only #128 (RAG citation dedup, ready/priority:medium) remaining on the display surface. #126 is the policy companion.
-
-**Expansion slot:**
-
-- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** Thirty-fourth consecutive idle expansion cycle, but the PR slot is productive this cycle → no auto-disable risk.
-
-**Next cycle expectations (~10:50Z window):**
-
-- Merge worker `f4efb86` turnaround: PR #154 precedent was ~10 min from spawn to merge + semantic-release tag. Expecting similar.
-- Most likely next-cycle state:
-  - **PR #155 merged, `chore(release): ohtv 0.18.0 [skip ci]` commit on main, `ohtv-v0.18.0` tag + GitHub Release created** → spawn **implementation worker for #128** (next prioritized ready issue, RAG citation dedup — final cluster member).
-  - **PR #155 merged but no release commit yet** → likely a semantic-release race; check the `release.yml` workflow run; if stuck, escalate.
-  - **PR #155 merge failed** (rare: mergeable=UNKNOWN flipped) → orchestrator investigates; possibly re-run CI or rebase.
-  - **Merge worker still running** → wait one more cycle.
-
-**Worklog housekeeping:**
-
-WORKLOG.md is at 1645 lines (was truncated at 07:50Z down to 1253; productive cluster activity has grown it back). Will defer truncation to **post-#155 merge** when the cluster snapshot crystallizes — that's the natural archive point. The forty-eighth consecutive productive cycle is a higher priority than the housekeeping pass right now.
-
-**Auto-disable counter:** **0 → 0.** Productive cycle (spawned merge worker — terminal action that ships v0.18.0 and closes the PR #155 / Issue #127 leg of the root-grain cluster). **Forty-eighth consecutive productive cycle.** Not at risk.
-
-EXIT per orchestrate skill — one action per wake-up.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 10:48 UTC - Orchestrator
-
-**Active Workers (at cycle exit):**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `517c1b1` | implementation | Issue #128 — RAG `ask`/`search` cite root_conversation_id | **NEW** running |
-
-**Spawned: Implementation Worker for Issue #128**
-- Issue: [#128 — RAG `ask` and `search` cite sub-conversation IDs the user doesn't recognize](https://github.com/jpshackelford/ohtv/issues/128) (`priority:medium`)
-- Conversation: [`517c1b1`](https://app.all-hands.dev/conversations/517c1b1b95c64dc0bc20c7fdd2082b5b)
-- Start task `bc38306f` → `READY` after ~15s (2 `STARTING_CONVERSATION` polls); sandbox `RUNNING`, agent `execution_status=running`.
-
-**Why impl for #128 (decision-tree walk):**
-
-- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`grep -A8 "## INSTRUCTION:" WORKLOG.md` → only the `0 unacknowledged` markers from prior cycle entries).
-- **Step 2/3 — Active workers**: Only `368701a` (this orchestrator, `trigger=automation`) was `running` at entry. Prior merge worker `f4efb86` for PR #155 = `execution_status=finished` at 10:25:05Z (handed off the cluster-snapshot WORKLOG entry to `267fab2` on main). All other recent worker conv IDs (`c111e1d` 10:16Z orchestrator, `8723ef4` testing retry, `c4b122f`, `e7f42f8`, `7aab96f`, `f7c21ca`, `5a19b24`, `18f797e`) = `PAUSED`/`MISSING` with `execution_status=null`. **PR slot CLEAR; expansion slot CLEAR at cycle entry.**
-- **Step 4 — Open PRs**: 0. PR #155 merged at 10:21:53Z, `5c0adfb` on main; semantic-release shipped `ohtv-v0.18.0` at 10:23:52Z (tag + Release).
-- **Step 4 — Issue census**:
-  - Needs expansion (no `ready`, no `hold`): **0** — expansion slot stays IDLE. **Thirty-fifth consecutive idle expansion cycle.** Not at auto-disable risk because PR slot productive this cycle.
-  - Ready + prioritized: **#128** (`priority:medium`, RAG citation dedup).
-  - Ready + unprioritized: #145, #148, #149.
-  - On hold: #26, #90.
-- **Decision-tree row matched**: *"No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue."* Only one prioritized ready issue exists (#128), so no tie-break needed.
-
-**Why #128 now (cluster context):**
-
-#128 is the **final member** of the #122 root-conversation-aggregation cluster on the user-visible display surface. Cluster status after the v0.18.0 ship:
-
-| Issue | PR | Status | Release |
-|---|---|---|---|
-| #122 (umbrella) | #138 | merged | (foundation) |
-| #123 weekly-counts | #150 | merged | v0.16.1 |
-| #124 velocity | #153 | merged | v0.16.2 |
-| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
-| #127 list/refs display | #155 | merged | v0.18.0 ⚠ BREAKING |
-| **#128 RAG ask/search cite** | **(impl-in-flight)** | **`517c1b1` working** | **(target: v0.18.1 — NO BREAKING)** |
-| #126 classification policy | — | open, queued for impl after #128 | — |
-
-#128 ships as a **non-breaking** patch release because, per the issue body, it is "**purely a display/dedup concern**" — the retrieval contract, the `embeddings` table, the `min_score`/`max_chunks` semantics, and the CLI surface are all unchanged. No `BREAKING CHANGE:` footer → semantic-release will tag `ohtv-v0.18.1`, not 0.19.0.
-
-**Impl worker brief — three hard mitigations baked in:**
-
-1. **Migration-number correction (RED text at the top of the prompt)**: The issue body cites *"migration 019"* for `root_conversation_id`. **The actual migration is 020** (per AGENTS.md item #32; PRs #152 and #155 already corrected this in their guard error messages — pattern is established). The prompt explicitly says: "every guard message, comment, docstring, and PR description that mentions the column's migration must say **020**, not 019." Mirrors the same mistake-prevention shape used in the #123 impl spawn brief.
-2. **Render-layer-only constraint repeated 3×** in the prompt body + a "Hard constraints — DO NOT violate" section at the bottom: NO modifications to `embedding_store.search` / `search_conversations` / `get_context_for_rag`. The `JOIN ON e.conversation_id = c.id` is explicitly not modified. This is the issue's closing-checkbox AC, and the easiest way for an impl worker to over-reach.
-3. **No `--include-sub-conversations` flag** — unlike sibling #125 (which legitimately has this flag), #128 explicitly rejects it (the bug is "users don't recognize sub IDs"; there's no opt-out value). The prompt cites the exact issue-body section that rejects it ("Section 'No new `--include-sub-conversations` flag'") so the worker doesn't re-derive and re-litigate the decision.
-
-**`map_to_roots` helper placement decision** in the spawn brief: PR #155 (issue #127) shipped `expand_to_roots(conn, set)` in `src/ohtv/filters.py` per the issue's "Soft-related to #127" dependency note. The brief tells the worker to add a list-shaped companion `map_to_roots(conn, ids: list[str]) -> dict[str, str]` in the same `filters.py` module (not duplicated in rag.py), with the dict shape preserving rank order via caller-side lookup.
-
-**Investigator-mode footnote**: The brief reminds the worker that the issue's "Out of Scope" section notes investigator mode (`--agent`) inherits the dedup for free via `RAGAnswer.context_chunks` — no per-investigator changes needed. Worth calling out in the PR description so reviewers don't ask.
-
-**Spawn payload shape** (validated):
-- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker creates its own `feat/rag-citation-root-dedup-128` from `origin/main`).
-- `issue_number=[128]` for issue context.
-- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
-- `initial_message.content[].type=text`, `run=true`. Prompt body = 12,104 chars; total payload = 12,823 bytes.
-- POST `/api/v1/app-conversations` with `X-Session-API-Key: $OPENHANDS_API_KEY` → start task `bc38306f` returned `status=WORKING`; 3rd poll (15s in) → `READY`, `app_conversation_id=517c1b1b…`; `/app-conversations?ids=517c1b1b…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
-
-**Sync notes:**
-- Container respawned this cycle. `pip install --user git+...lxa.git git+...ohtv.git` succeeded (the `uv pip install --system` path still trips on read-only `/usr/local/lib/python3.13/site-packages`; the `pip install --user` fallback into `$HOME/.local/bin` works fine — recording again for next respawn).
-- `lxa repo add jpshackelford/ohtv` was called (no-op after the existing board registration, but the underlying response now creates a default "Unnamed Board 1" — cosmetic, not breaking).
-- `gh auth status` initially failed because `GH_TOKEN` env var was empty but the lowercase `github_token` was populated — used `export GH_TOKEN="$github_token"` to bridge. Same pattern as some prior respawns; the canonical fix would be to set GH_TOKEN at the cron-config level.
-- `git pull origin main` → `Already up to date` (267fab2, post-#155 merge).
-
-**Worklog housekeeping:**
-- WORKLOG.md was 1753 lines at wake-up. Ran the 6-hour productive-window truncation algorithm in dry-run mode → returns "Nothing to archive — all productive entries within retention window." The four productive entries on the file all sit within the active push-to-merge cycle for PR #155 (08:20Z docs spawn → 08:50Z testing spawn → 10:20Z merge spawn → 10:25Z merge completion); none has aged past the 6-hour productive window measured from the most recent productive entry (10:25Z). Natural truncation point is **one cycle from now**, after the next impl-worker spawn or completion makes 10:25Z fall out of the productive window. Deferring per the discipline of one orchestrator action per wake-up.
-
-**Cluster progress snapshot** (post-v0.18.0, impl-in-flight on final cluster member):
-
-| Issue | PR | Status | Release |
-|---|---|---|---|
-| #123 weekly-counts | #150 | merged | v0.16.1 |
-| #124 velocity | #153 | merged | v0.16.2 |
-| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
-| #127 list/refs display | #155 | merged | v0.18.0 ⚠ BREAKING |
-| **#128 RAG citation dedup** | **(impl `517c1b1`)** | **in flight** | **(target: v0.18.1)** |
-| #126 classification policy | — | open, queued (next impl pick after #128 lands) | — |
-
-After #128 lands, the only ready/prioritized issue remaining is #126 (classify policy); after that, the unprioritized backlog (#145, #148, #149) needs `/assess-priority` to graduate.
-
-**Expansion slot (next-cycle outlook):**
-- Backlog is 4 deep on `ready` (#126, #145, #148, #149). 0 issues need expansion. Slot stays IDLE — **34th + 1 = 35th consecutive idle expansion cycle**.
-- Auto-disable risk: **NONE this cycle** because the PR slot is productive (impl spawn is a terminal action advancing PR #128's lifecycle). The orchestrator's quiet-cycle counter resets every productive cycle, so 35 idle-expansion-only cycles do not approach the auto-disable threshold.
-
-**Next cycle expectations (~11:20Z window):**
-- Impl worker `517c1b1` turnaround for #128: render-layer dedup is a focused cut (rag.py + cli.py + a one-shot helper in filters.py + ~6 test files). Sibling #155 (issue #127) took ~5 hours from impl-spawn to merge across multiple cycles (impl → docs → testing → merge); #128 is a simpler scope (no `selected_branch` config plumbing, no SELECT-layer dedup, no filter-reduce-layer dedup). Expected impl-only wall time: **45–90 min**. PR open + draft-to-ready transition expected by ~12:20Z.
-- Most likely next-cycle state:
-  - **PR open, draft, CI running** → wait (impl worker still finishing CI).
-  - **PR open, draft, CI green** → wait one more cycle (impl worker may still be moving to ready).
-  - **PR open, ready, CI green, no docs comment** → docs check: this is a render-layer-only patch. Per orchestrate skill *"Do NOT require docs update if only: Bug fixes that don't change documented behavior"* — `ohtv ask` and `ohtv search` keep the same flag surface, same output schema (just with deduped IDs). Docs SKIPPED → straight to testing. Same shape as #152, #153, #154 skipped docs.
-  - **PR open, ready, CI green, no test results** → spawn testing worker.
-  - **Worker `finished` but no PR opened** → 2nd cluster dead-spawn since PR #155's 08:50Z testing dead-spawn (`e7f42f8`); investigate per the same pattern, but for an impl worker this is unusual.
-
-**Auto-disable counter:** **0 → 0.** Productive cycle (spawned impl worker for #128 — terminal action initiating the final cluster member). **Forty-ninth consecutive productive cycle.** Not at risk.
-
-EXIT per orchestrate skill — one action per wake-up.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 11:10 UTC - Implementation worker (#128 RAG citation root dedup)
-
-✅ **Completed: Implementation of #128** — [PR #156](https://github.com/jpshackelford/ohtv/pull/156) `feat(rag): cite root_conversation_id in ask/search results (#128)`
-
-- **PR**: [#156](https://github.com/jpshackelford/ohtv/pull/156) — `feat/rag-citation-root-dedup-128` → `main`
-- **Issue**: [#128](https://github.com/jpshackelford/ohtv/issues/128) — RAG `ask`/`search` cite sub-conversation IDs the user doesn't recognise.
-- **Cluster slot**: **render-layer-dedup** member of the #122 root-grain rollout — final RAG/search surface in the cluster. Siblings: #123 → PR #150 (SELECT-layer), #124 → PR #153 (JOIN-key), #125 → PR #154 (Python flag, ⚠ BREAKING), #127 → PR #155 (SELECT + filter-reduce, ⚠ BREAKING). Only #126 (classify self-healing UPDATE) remains in the cluster after this.
-- **PR status when this entry was written**: ready-for-review (flipped from draft after CI green), CI green (lint pass 5s, pytest pass 60s, 2114 unit tests).
-- **Squash subject**: `feat(rag): cite root_conversation_id in ask/search results (#128)` — `feat:` minor bump per AGENTS.md commit contract. **No `BREAKING CHANGE:` footer** — this is a render-layer fix to an existing bug (citation IDs were unrecognisable), not a behaviour flip.
-
-**Cut shape (render-layer-only)**:
-1. `ContextChunk` gains required `root_conversation_id: str` field (rag.py:97), populated in `_results_to_context_chunks` via `conv.root_conversation_id` with self-id fallback for standalones / NULL-root rows.
-2. `RAGRetrievalResult.source_conversation_ids` and `RAGAnswer.source_conversation_ids` are now sets of **roots** (rag.py:373 + rag.py:517 — two-line set-comprehension changes).
-3. `_format_chunk_header` (rag.py:633) cites the root as canonical `Conversation ID:`, appends `(via sub: <hex8>)` annotation when chunk's id ≠ root — LLM now cites root ids in its answer text.
-4. `ohtv ask` Sources table (cli.py:3609–3686) groups chunks by `root_conversation_id` instead of `conversation_id`; root metadata (title, date, summary, cloud URL) resolved via `conv_store.get(root_id)`; `[via sub: <hex8>]` annotation appended to the summary cell when a sub contributed chunks.
-5. `ohtv search` (both semantic and FTS5 paths) over-fetches `limit * 3`, then `_dedup_search_results_by_root` walks the pre-sorted list, keeps first-occurrence per root (MAX score by construction), rewrites `conversation_id` → root id, renumbers ranks, truncates to `limit`. **No backfill** (preserves `max_chunks` semantics).
-6. `_display_retrieval_breakdown` (`--explain` / `--explain-only`) shows BOTH grains: per-conv header gets a `(root: <hex8>)` parenthetical when chunk is from a sub; summary line reports `(N roots)` when conv-count and root-count differ. Satisfies adjacent issue #35.
-7. `_assert_root_column_present(conn)` guardrail at the entry of `retrieve()` / `answer_question()` — runtime, not import. Cites **migration 020** (not 019 — the issue body's "migration 019" was a typo; #122's column lives on 020, matching siblings PR #152 and #155).
-8. `map_to_roots(conn, ids: list[str]) -> dict[str, str]` added to `src/ohtv/filters.py` as the list-shaped companion to #127's set-shaped `expand_to_roots`. Dict shape preserves rank-order via `mapping[id]` lookups.
-
-**Hard guarantees preserved**:
-- `src/ohtv/db/stores/embedding_store.py` is **unchanged** — chunk-grain retrieval contract intact. `git diff main -- src/ohtv/db/stores/embedding_store.py` returns 0 lines.
-- No `--include-sub-conversations` flag on `ask` / `search` (citation dedup has no legitimate opt-out per the issue body's explicit rejection — unlike sibling #125).
-- No migration changes (column already exists per #122).
-- No `WORKLOG.md` writes from the feature branch — only this single completion entry on `main` per the orchestrate skill's pattern.
-
-**Tests added** (+32 unit tests, all green):
-- `tests/unit/analysis/test_rag_root_dedup.py` (14 tests) — `_results_to_context_chunks` root-population, `source_conversation_ids` root-grain (incl. the closing-AC regression: 1 root + 2 subs + 1 standalone → 2 source ids with 4 chunks preserved), migration-020 guard, `_format_chunk_header` / `_build_context_text` `(via sub: ...)` annotations, `ContextChunk` shape.
-- `tests/unit/test_cli_ask_search_root_dedup.py` (10 tests) — `_dedup_search_results_by_root` (MAX-score, rank renumbering, no backfill, limit truncation, unknown-id passthrough); `_display_retrieval_breakdown` both-grains rendering.
-- `tests/unit/test_filters.py` extension (+8 tests) — `map_to_roots` empty / all-roots / all-subs / mixed / unknown / dashed-caller-key / duplicates / NULL-root paths.
-- `tests/unit/analysis/test_rag_retriever.py` minimally patched: 5 retrieve tests use a new `_mock_conv_store_with_root_column` helper that stubs PRAGMA to satisfy the guard; 3 display-breakdown tests get `root_conversation_id` set explicitly on their MagicMock chunks.
-
-**Suite**: 2114 passed, 2 skipped, 3 xfailed in 28s.
-
-**Commits** (4 logical groups):
-- `feat(rag):` plumb `root_conversation_id` through `ContextChunk` + citations + guard (76 ins / 8 del in `src/ohtv/analysis/rag.py`)
-- `feat(filters):` add `map_to_roots(conn, list)` list-shaped companion (+64 in `src/ohtv/filters.py`)
-- `feat(cli):` root-dedup ask sources, search results, `--explain` breakdown (220 ins / 32 del in `src/ohtv/cli.py`)
-- `test:` cover RAG root-dedup, `map_to_roots`, migration-020 guard (+836 across 4 test files)
-
-**No AGENTS.md edits** per cluster convention — the AGENTS.md item is owned by the #122 umbrella, not per-issue PRs.
-
-**Cluster snapshot after this PR (#122 root-grain rollout)**:
-
-| Issue | Command | Status |
-|---|---|---|
-| #123 | `report weekly-counts` | ✅ PR #150 → v0.16.1 |
-| #124 | `report velocity` | ✅ PR #153 → v0.16.2 |
-| #125 | `gen objs / titles / run` | ✅ PR #154 → v0.17.0 ⚠ BREAKING |
-| #127 | `list` / `refs` | ✅ PR #155 → v0.18.0 ⚠ BREAKING |
-| **#128** | **RAG `ask` / `search`** | **✅ PR #156 — ready for review, CI green** |
-| #126 | `classify` (self-healing UPDATE) | ⏳ Remaining — only cluster member left |
-
-_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
-### 2026-05-30 10:24 UTC - Merge worker (PR #155)
-
-**Merged**: [PR #155](https://github.com/jpshackelford/ohtv/pull/155) — `feat(list,refs): roots-only by default with subtree rollup (#127)`
-- **Merge SHA**: `5c0adfb3b551dd2dd18d48107dd440b3e04a3d53`
-- **Released**: [`ohtv-v0.18.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.18.0) (release commit `67bcb89`, ⚠ BREAKING CHANGES)
-- **Auto-release**: `chore(release): ohtv 0.18.0 [skip ci]` landed at 2026-05-30T10:23:50Z (~2 min after merge). semantic-release picked up the `BREAKING CHANGE:` footer and the `major_on_zero = false` config — minor bump to v0.18.0 (not v1.0.0), CHANGELOG carries the `⚠ BREAKING CHANGES` section per the v0.17.0 precedent.
-
-**What shipped** (the user-facing flip):
-- `ohtv list` defaults to roots-only; `--include-sub-conversations` restores per-sub rendering.
-- `ohtv refs -D` (multi-conv form) defaults to roots-only; `--include-sub-conversations` opt-back-in.
-- `ohtv refs <root-id>` now rolls up the entire delegation subtree (union, dedup by URL).
-- `ohtv refs <sub-id>` and `ohtv show <id>` unchanged — single-conv paths preserved.
-- Filter routing on `list` (`--pr`, `--repo`, `--label`, `--action`) goes through `expand_to_roots` so a PR/repo touched only by a delegated sub surfaces the matching **root** row.
-- Migration-020 (`root_conversation_id`) guardrail fires inline on the new code paths (refs subtree + list date range) with a friendly `ohtv db scan` hint.
-
-**Tests**: +19 (8 `TestExpandToRoots` in `test_filters.py`; 11 across `TestFilterByPrRootExpansion` / `TestRefsSubtreeRollup` / `TestMigration020Guardrail` / `TestCliOptionSurface` in new `test_cli_list_refs_subs.py`). Suite: 2082 passed, 2 skipped, 3 xfailed.
-
-**Cluster snapshot (#122 root-grain rollout):**
-
-| Issue | Command | Status |
-|---|---|---|
-| #123 | `report weekly-counts` | ✅ PR #150 → v0.16.1 |
-| #124 | `report velocity` | ✅ PR #153 → v0.16.2 |
-| #125 | `gen objs / titles / run` | ✅ PR #154 → v0.17.0 ⚠ BREAKING |
-| **#127** | **`list` / `refs`** | **✅ PR #155 → v0.18.0 ⚠ BREAKING** |
-| #128 | RAG `ask` / `search` citation dedup | ⏳ Remaining — last leg of cluster |
-
-The cluster pattern is now codified across four shipped PRs: flag-threaded `include_subs` predicate (default False) + DB-layer COALESCE + migration-020 guardrail + `BREAKING CHANGE:` footer for the default-flip surfaces. #128 is expected to follow the same shape on the RAG citation surface.
-
-**No AGENTS.md edits** per cluster convention — the AGENTS.md item is owned by the #122 umbrella, not per-issue PRs.
-
-_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
-### 2026-05-30 07:55 UTC - Implementation worker (#127 list/refs root grain)
-
-✅ **Opened PR #155** — `feat(list,refs): roots-only by default with subtree rollup (#127)`
-
-- **PR**: [#155](https://github.com/jpshackelford/ohtv/pull/155) — `feat/list-refs-roots-only-127` → `main`
-- **Issue**: [#127](https://github.com/jpshackelford/ohtv/issues/127) — `ohtv list` and `refs` surface sub-conversations as siblings of their roots
-- **Cluster slot**: fourth and final issue in the #122 root-grain cluster's display surface (after #123 / #124 / #125; #128 RAG dedup remains).
-- **PR status when this entry was written**: ready-for-review, CI green (lint pass 5s, pytest pass 58s), `pr-review[bot]` re-triggered by the draft→ready flip.
-
-**Squash subject**: `feat(list,refs): roots-only by default with subtree rollup (#127)` — `feat:` minor bump per the AGENTS.md commit contract; the squash body carries a `BREAKING CHANGE:` footer noting the user-facing default flip. With `[tool.semantic_release] major_on_zero = false` this lands as **v0.18.0** with a `⚠ BREAKING CHANGES` CHANGELOG entry (NOT v1.0.0), matching the v0.17.0 precedent set by PR #154 for #125.
-
-**Shape A from the expansion**:
-1. `expand_to_roots(conn, conv_ids) -> set[str]` added to `src/ohtv/filters.py` (+63). Maps each id to its `root_conversation_id` (migration 020), normalizes dashed input, passes unknown ids through unchanged for FS-fallback symmetry.
-2. The four `_filter_by_*` helpers in `cli.py` (at the exact cut-site line numbers called out in the issue body: L1899 / L2072 / L2106 / L2179) gain `include_subs: bool = False` and call `expand_to_roots` between the lookup and the `filter_conversations_by_ids` reduce when False.
-3. `_resolve_refs_subtree` + `_extract_refs_subtree` added to `cli.py`. `ohtv refs <root-id>` rolls up refs across the delegation tree by reusing the per-conv `_extract_refs_from_conversation` extractor (no new SQL surface in the ref store, as the issue's A/B/C matrix recommended); `ohtv refs <sub-id>` is bit-for-bit unchanged.
-4. `--include-sub-conversations` Click option added to both `ohtv list` and `ohtv refs`. Spelling matches #125's flag (NOT `--include-subs`).
-
-**Migration-020 guardrails**: store-level `_assert_root_column_present_for_list` (landed in PR #154) covers the `list_by_date_range` SELECT path. This PR adds an inline `PRAGMA table_info(conversations)` check in `_resolve_refs_subtree` for the new `refs <root-id>` rollup path, raising `RuntimeError("refs requires migration 020; run 'ohtv db scan' to apply pending migrations")` when absent. Both guards fire at command invocation, not import.
-
-**Test coverage** (+19, total 2082 passed, 2 skipped, 3 xfailed, 0 regressions):
-- 8 `TestExpandToRoots` unit tests in `tests/unit/test_filters.py` — mapping semantics, dashed-id normalization, multi-tree mixing, multi-sub collapse, orphan-as-root, empty/unknown input.
-- 11 CLI integration tests in new `tests/unit/test_cli_list_refs_subs.py` covering all five issue ACs (T-1 through T-5) plus subtree-shape and help-text smoke tests. Both the refs-side and list-side migration-020 guardrails are exercised on hand-rolled pre-020 schemas (SQLite < 3.35 lacks `DROP COLUMN`, so the test constructs a legacy `conversations` table directly rather than migrating-and-dropping).
-
-**Sibling-contrast table** (now updated in the PR body):
-| Issue | Command | Fix shape | Status |
-|---|---|---|---|
-| #123 | `report weekly-counts` | predicate in WHERE | ✅ PR #150 → v0.16.1 |
-| #124 | `report velocity` | DISTINCT keyed on root | ✅ PR #153 → v0.16.2 |
-| #125 | `gen objs/titles/run` | flag-threaded predicate, default False | ✅ PR #154 → v0.17.0 ⚠ BREAKING |
-| **#127** | **`list`, `refs`** | **flag-threaded predicate + filter-set expand + subtree rollup, default False** | **PR #155, in review** ⚠ BREAKING |
-
-**No `AGENTS.md` edit in this PR** per the cluster convention from #123/#124/#125's worklog entries (AGENTS.md is owned by #122 / cluster umbrella; per-issue PRs do not append items).
-
-**Follow-up considerations** (noted in the PR reflection section):
-- The store-level guard message still says `"gen requires migration 020"` even when invoked from `ohtv list` / `ohtv refs`. Minor UX rough edge — the actionable advice (`ohtv db scan`) is identical. Could be addressed by threading a command-name kwarg through `list_by_date_range`; not done in this PR to keep the diff focused.
-- `--tree` nested rendering (subs indented under their root) remains explicitly out of scope per the issue body — separate follow-on issue.
-
-**Backlog state**: with #127 in review, the `ready` slot for impl workers is empty until #128 lands the RAG-dedup counterpart. Next orchestrator cycle can spawn a review/QA worker on PR #155 or pull the next priority issue.
-
-EXIT per issue-implementation skill — docs, review handling, and QA are separate conversations.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
 ### 2026-05-30 11:18 UTC - Orchestrator
 
 **Active Workers (at cycle exit):**
@@ -1579,6 +674,100 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 14:54 UTC - Implementation Worker (Issue #148)
+
+**Worked on:** Issue #148 — Suppress LiteLLM botocore warnings at import time.
+
+**PR:** [#158 — fix(logging): suppress LiteLLM botocore pre-load warnings (#148)](https://github.com/jpshackelford/ohtv/pull/158) — opened draft, flipped to **ready for review** after `lint` + `pytest` came back green.
+
+**Changes (matches the issue's technical-approach scope exactly — no scope creep):**
+- `src/ohtv/__init__.py` — `import os as _os` + `_os.environ.setdefault("LITELLM_LOG", "ERROR")` before `__version__ = "0.19.0"`. Runs once at first `import ohtv.*`, before any submodule triggers a transitive `import litellm`. `setdefault` preserves user-provided values (so `LITELLM_LOG=DEBUG ohtv ask ...` still works for debugging).
+- `tests/unit/test_litellm_log_suppression.py` (new) — Two subprocess-isolated regression tests: `test_ohtv_sets_litellm_log_to_error_when_unset` (no `LITELLM_LOG` in child env → expect `ERROR`) and `test_ohtv_preserves_litellm_log_when_set` (`LITELLM_LOG=DEBUG` in child env → expect `DEBUG` preserved). Subprocess isolation is required because sibling pytest tests in the same process have already imported `litellm._logging`, which reads `LITELLM_LOG` once at module init.
+- `docs/reference/configuration.md` — Added `LITELLM_LOG` row to the env-var table next to `OHTV_LOG_LEVEL` / `OHTV_LOG_FILE`, documenting the `ERROR` default and the `LITELLM_LOG=WARNING` override pattern.
+- `uv.lock` — 1-line metadata refresh (`version = "0.18.1"` → `"0.19.0"`); pre-existing drift on main since the release workflow doesn't touch `uv.lock`.
+
+**Verification:**
+- `uv run pytest tests/unit/test_litellm_log_suppression.py -v` → 2 passed.
+- `uv run pytest tests/unit -x -q` → **2156 passed**, 2 skipped, 3 xfailed (no regressions).
+- Manual smoke: `uv run ohtv --help 2>&1 | grep -i 'litellm\|botocore'` → empty (success path).
+- CI on PR #158 head: `lint=pass (3s)`, `pytest=pass (53s)`, `pr-review=running` (triggered after draft → ready flip).
+
+**Decision-tree note for the orchestrator:** PR #158 is now in the "PR ready, CI green, awaiting bot review / human merge decision" lane. No manual test scenarios were spawned by this worker — change is a single-line env-var setdefault with subprocess-isolated regression tests covering both branches of the contract, and the manual smoke check already confirmed the user-visible acceptance criterion. The orchestrator's next pass should evaluate `pr-review` bot output once it lands and route to either review-response, manual-test, or merge per the standard decision tree.
+
+### 2026-05-30 07:16 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7220b3d` | review | PR #154 — round 1 | finished ✓ (at 06:55Z) |
+| `fc23665` | merge | PR #154 — `feat(gen): exclude sub-conversations …` | **NEW** running |
+
+**Spawned: Merge Worker**
+- PR: [#154 — feat(gen): exclude sub-conversations from multi-conv mode by default (#125)](https://github.com/jpshackelford/ohtv/pull/154)
+- Conversation: [`fc23665`](https://app.all-hands.dev/conversations/fc23665bb2e341969eab8dbf8d78cc19)
+- Start task: `6245cb83` → READY in ~15s, sandbox RUNNING.
+
+**Why merge (decision-tree match):**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2/3 — Active workers**: Review worker `7220b3d` queried via `/app-conversations/search?selected_repository=jpshackelford/ohtv` filtered to `running` → only `f349efe` (self) returned. `7220b3d` is no longer running. Last entry from review worker at 06:55Z confirmed exit. Both slots free at wake-up.
+- **Step 4 — Open PRs**: 1 — PR #154 (`feat/gen-roots-only-125`).
+- **Step 4 — PR #154 status @ 07:16Z**:
+  - Not draft, `reviewDecision = APPROVED` (pr-review bot, ~06:59Z).
+  - `mergeStateStatus = CLEAN` (no conflicts, base up-to-date).
+  - CI on head `11f35231`: `lint=SUCCESS`, `pytest=SUCCESS`, `pr-review=SUCCESS`.
+  - Last 3 commits on branch: `7b37cec` (docs), `cd15dad` (review fixes), `11f35231` (BREAKING CHANGE empty footer).
+- **Decision-tree walk** (in order):
+  - "PR exists, draft" → ❌ (not draft).
+  - "PR ready, CI green, README not updated" → ❌ (docs commit `7b37cec` already updated README).
+  - "PR ready, CI green, docs updated, no manual test results" → ❌ (testing worker `e2f465f` posted 9-scenario report at 06:23Z, comment `#4581947363`).
+  - "PR ready, CI green, test results outdated" → ❌. Changes since last test: `cd15dad` (log.debug → log.warning in degraded-FS fallback — no CLI surface impact) + `11f35231` (empty `--allow-empty` commit, runtime no-op). Per review worker's explicit hand-off note: *"Re-testing: NOT required. (a) log.debug → log.warning (no behavior change at the CLI surface), (b) type-annotation deletion (no runtime effect)."* 9-scenario report stays current.
+  - "PR ready, CI green, test results valid, 💬 > 0" → ❌ (round-1 review threads were all resolved by review worker; `reviewDecision = APPROVED` now).
+  - "PR ready, test results valid, good rating, docs outdated" → ❌ (no `src/` changes since the docs commit affect documented behavior; README still describes the flag correctly).
+  - **"PR ready, test results valid, good rating, docs valid" → ✅ MATCH → Spawn merge worker.**
+
+**Critical context injected into the merge worker's prompt:**
+
+The merge worker MUST preserve the `BREAKING CHANGE:` footer (introduced by empty commit `11f35231`) in the squash-merge body. `pyproject.toml` pins `[tool.semantic_release] major_on_zero = false`, so the footer ships as **v0.17.0 with a ⚠ BREAKING CHANGES CHANGELOG entry — not v1.0.0**. The PR description was already rewritten by the round-1 review worker to reproduce the footer at the bottom for belt-and-suspenders coverage.
+
+The prompt also instructs the worker to:
+1. Read both the testing worker's report (`#4581947363`) and the review worker's semver-decision comment (`#4582012978`).
+2. Verify on `main` after merge that the `BREAKING CHANGE:` footer survived (`gh api repos/.../commits/main --jq '.commit.message'`).
+3. Watch `release.yml` workflow to confirm tag is `ohtv-v0.17.0` and release notes contain the `⚠ BREAKING CHANGES` section.
+4. Log the merge outcome to WORKLOG.md on main with a `chore(release):` or `chore(worklog):` prefix to avoid triggering a duplicate release run.
+
+**Expansion slot:**
+
+- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 29th consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
+- Ready issues queue: #149, #148, #145, #128 (priority:medium), #127 (priority:medium), #125 (priority:medium — being merged now). After #154 merges, #125 will close (`Fixes #125`) and the priority:medium queue becomes #127, #128. Both are part of the root-grain cluster, so the next implementation worker (post-merge) will pick from those.
+
+**Next cycle expectations (~07:46Z window):**
+
+- Merge worker `fc23665` turnaround: ~10-20 minutes (squash merge + verification + WORKLOG entry). Should be `finished` by next wake-up.
+- After merge: semantic-release runs on `main`, ~30s end-to-end, produces tag `ohtv-v0.17.0` + GitHub Release with `⚠ BREAKING CHANGES` section.
+- After `v0.17.0` ships:
+  - No open PR → check ready+priority queue → #127 or #128 (both priority:medium, tie-break by issue number → **#127**).
+  - Spawn implementation worker for #127 (`ohtv list` and `refs` surface sub-conversations as siblings of their roots).
+
+**Worklog housekeeping note:** WORKLOG.md is now 1525+ lines (well past the 300-line truncation threshold). The orchestrate skill recommends running `/truncate-worklog` when this happens. Deferred this cycle to keep one productive action (merge spawn) per wake-up; flagging for a future cycle (likely after `v0.17.0` ships and before the #127 impl worker spawns, since that's a natural break-point).
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned merge worker — terminal action that closes the PR #154 / Issue #125 leg of the root-grain cluster). **Forty-third consecutive productive cycle.** Not at risk.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+**Late addendum (~07:22Z, before this entry was pushed):** While the orchestrator was preparing this WORKLOG entry, the merge worker `fc23665` raced ahead and squash-merged PR #154 as commit [`4f2217d`](https://github.com/jpshackelford/ohtv/commit/4f2217dc1aa64d996a5fc67ac99d00db384aade2) on `main`. Verified the squash commit body retained the `BREAKING CHANGE:` footer:
+
+```
+BREAKING CHANGE: ohtv gen objs/titles/run multi-conv mode now excludes
+sub-conversations by default. Use --include-sub-conversations to restore
+the pre-v1.0.0 behavior.
+```
+
+`release.yml` workflow run `26677937192` is now `in_progress` on head `4f2217d` (started 07:21:25Z). Next orchestrator wake-up should see the new `ohtv-v0.17.0` tag + `⚠ BREAKING CHANGES` CHANGELOG entry, after which the merge worker will likely push its own outcome entry to WORKLOG. If the merge worker's own entry doesn't appear by the next cycle, the orchestrator should write a follow-up confirming the v0.17.0 release before spawning the #127 impl worker.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-30 15:49 UTC - Orchestrator (spawned merge worker for PR #158)
 
 **Active Workers (at cycle exit):**
@@ -1739,6 +928,121 @@ _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford.
 **Sync notes:**
 - `gh pr list` → empty. `gh release list -L 3` → confirmed v0.19.1 ships.
 - Did NOT run `ohtv sync` this cycle. Next cycle may want it for `ohtv list --repo ohtv --since 4h --idle 15` duplicate-work detection if the impl worker's conversation surfaces oddly.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-05-30 16:33 UTC - Implementation Worker (Issue #145)
+
+**Issue:** #145 — when `gen objs` promotes to full context, use it to generate key variants (priority:low; #149 unblocked it earlier today via PR #157)
+
+**PR:** [#159 — feat(gen-objs): warm key cache variants when context auto-promotes (#145)](https://github.com/jpshackelford/ohtv/pull/159) — opened DRAFT, CI green (lint ✅, pytest ✅, pr-review skipped on draft), then marked **ready-for-review** to trigger the review bot.
+
+**What landed:**
+- Frontmatter contract: `PromptMetadata.key_variant_on_promotion: bool = False` (parsed in `prompts/parser.py`).
+- Discovery helper: `prompts/discovery.py:list_key_variants_on_promotion(family)` — single source of truth for the candidate set. No hardcoded variant lists in `objectives.py`.
+- Opt-in: only `src/ohtv/prompts/objs/standard_assess.md` flips `key_variant_on_promotion: true` in this PR (per AC #2). Detailed/brief/etc. stay opt-out — follow-up issues can flip them after team review of cost/benefit.
+- Refactor: extracted `_run_single_analysis(...)` from the inline LLM block so primary + fan-out share the framed-transcript + LLM-call + JSON-parse + `ObjectiveAnalysis`-construction code.
+- Fan-out: `_warm_key_variant_cache(...)` runs after primary cache-save, only when `effective_context != context`. Cache-probe-then-LLM per variant; `try/except` per variant so failures never bubble to the caller; INFO summary log line aggregates variant costs separately so `AnalysisResult.cost` stays primary-only.
+
+**Tests added:** 3 AC-mandated unit tests in `tests/unit/analysis/test_key_variant_warming.py` (promotion → primary+variants all cached, pre-populated variant → LLM skipped, one variant raises → primary + other variant survive), plus parser + discovery unit tests in `tests/unit/prompts/test_parser.py`. Existing `test_cache_alias_promoted_context.py` updated to account for the variant LLM call on the first analyze.
+
+**Test matrix:**
+- `uv run python -m pytest tests/unit/analysis -q` → 426 passed
+- `uv run python -m pytest tests/ -q` → 2214 passed, 2 skipped, 3 xfailed
+- `uv run ruff check` on touched files → clean
+- GHA CI: lint ✅ (3s), pytest ✅ (57s), pr-review skipped (draft, then ready)
+
+**Cache-invalidation note** (called out in PR description): adding the new frontmatter line to `standard_assess.md` bumps that prompt's `content_hash`, so existing cached `standard_assess` analyses go stale and re-generate lazily on the next `gen objs` per conversation. Documented one-time cost.
+
+**Hard guardrails maintained:**
+- Cache-key format unchanged (`assess=…,context_level=…,detail_level=…`) — #149's contract byte-stable.
+- 5-level context ladder unchanged.
+- `AnalysisResult.cost` semantics primary-only (AC #6).
+- Variant set 100% metadata-driven (AC #1, no hardcoded lists in `objectives.py`).
+- No new LLM-batch surface; single-call-per-variant.
+- Auto-promotion trigger conditions unchanged.
+
+**Possible follow-up issues** (NOT in this PR's scope — orchestrator's decision whether to file):
+- Flip `objs/detailed_assess.md` to `key_variant_on_promotion: true` once usage justifies the extra LLM call (technical-approach comment explicitly recommended opt-out for this variant in initial PR).
+- Pre-existing maintenance-task error surfaced during testing: `cache_index_backfill_005 failed: make_cache_key() got an unexpected keyword argument 'context_level'` (orthogonal to #145; lives in `db/maintenance.py`).
+
+Worker exiting cleanly. Docs / testing / review / merge are separate handlers per orchestrator contract.
+
+
+
+### 2026-05-30 15:20 UTC - Orchestrator (spawned testing worker for PR #158)
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `6c514c7` | testing | PR #158 — LiteLLM log suppression (#148) | **NEW** running |
+
+**Spawned: Testing Worker for PR #158**
+- PR: [#158 — fix(logging): suppress LiteLLM botocore pre-load warnings (#148)](https://github.com/jpshackelford/ohtv/pull/158)
+- Conversation: [`6c514c7`](https://app.all-hands.dev/conversations/6c514c7dae2b4247bf477f40c467e1b3) (`execution_status=running, sandbox_status=RUNNING`)
+- Start task `69edac5e` → READY on **first poll (~5s)** — warm sandbox, no cold-start penalty.
+
+**Step 0 — Setup:** Container respawned again (15:16Z wake-up). Skipped the `lxa`/`ohtv` install dance this cycle — every decision-tree input was available via `gh` CLI + the `/app-conversations/search` REST endpoint, and the previous five cycles have shown that the `uv pip install --system` path consistently fails on read-only `/usr/local/lib/python3.13/site-packages` while the `.venv` fallback succeeds. Net: zero tooling install, zero `ohtv sync` ⇒ ~30s saved. `GH_TOKEN=$github_token` bridge applied directly.
+
+**Step 0.5 — Housekeeping (truncation deferred AGAIN):** WORKLOG.md is **1,465 lines** at wake-up. The 14:49Z orchestrator established the "defer until 1,500 lines" rule (since 13:48Z just truncated 2,427 → 1,287 lines, churning again for <100 lines of headroom is wasteful). Current state is 35 lines under that ceiling. After appending this entry (~70 lines), file will sit at ~1,535 — JUST crossing the deferred-to threshold. Next cycle's first action should be truncation. Marking the file with a soft-deferred flag here so the next orchestrator picks it up.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty; the prior cycle's grep-match false-positives are inside fenced code blocks, hence the awk-with-fence-toggle pattern).
+
+**Step 2/3 — Active workers at cycle entry:**
+- API query `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` → only `6b5e12d` (this orchestrator) is `execution_status=running`.
+- **Impl worker `2d4299a`** (spawned 14:49Z by previous cycle): `execution_status=finished, sandbox_status=RUNNING (released)` at 14:54:53Z — **5-minute turnaround** on a tightly-scoped 3-line fix. **Best impl-worker latency** of this orchestration cluster (typical is 15–30 min). The 14:54Z WORKLOG entry it self-authored matches the spawn brief verbatim: scope-locked to the 3-line `setdefault` + 2 subprocess tests + 1-row docs touch, no scope creep, conventional commit subject `fix(logging): suppress LiteLLM botocore pre-load warnings (#148)` as forecasted.
+- Both worker slots **CLEAR at cycle entry**.
+
+**Step 4 — State gather:**
+
+- **Open PRs**: **1** — PR #158 (`fix/litellm-log-suppression-148`), created `14:52:58Z`, updated `14:55:48Z` (just 21 min before this cycle wakeup).
+- **PR #158 state probe** (`gh pr view` + `gh pr checks` + `gh pr diff --name-only`):
+  - `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`.
+  - `reviewDecision=APPROVED` by `@github-actions` (the pr-review bot) at `14:55:48Z` with the verdict **"🟢 Good taste — Clean, minimal solution that solves a real problem"**.
+  - CI: **3/3 green** — `lint-pr-title=3s`, `tests/pytest=53s` (the 2,156-test suite + the 2 new subprocess tests), `PR Review by OpenHands/pr-review=1m48s`.
+  - Files changed: `src/ohtv/__init__.py` (+10), `tests/unit/test_litellm_log_suppression.py` (new, +70), `docs/reference/configuration.md` (+1 row), `uv.lock` (version bump 0.18.1 → 0.19.0, fixing the post-#149 release-workflow lockfile drift as a bonus).
+  - Manual test results: **NONE** (no comments on the PR yet apart from the bot review).
+
+- **Issue census** (no change from 14:49Z entry — picking from the same backlog):
+  - Needs expansion (no `ready`, no `hold`): **0** — expansion slot stays IDLE. **Forty-fourth consecutive idle expansion cycle.** Not at auto-disable risk because PR slot productive this cycle.
+  - Ready + prioritized: **#148** (in PR #158, now testing), **#145** (`priority:low`, still queued).
+  - On hold: #90, #26.
+
+**Step 5 — Decision-tree row matched:** *"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker"*.
+
+- Docs-updated check: README.md was NOT touched, but `docs/reference/configuration.md` was (the `LITELLM_LOG` row in the env-var table). The README delegates env-var documentation entirely to `docs/reference/configuration.md` (line 84: `[docs/reference/configuration.md](docs/reference/configuration.md)` and line 96: same link with `#logging` anchor). So a logging-suppression env var landing in `configuration.md` satisfies the docs gate without needing a README touch. The skill's "Do NOT require docs update if only … Bug fixes that don't change documented behavior" carve-out also applies — this is a UX-cleanup fix that introduces one new opt-in env var, fully documented where the README points users.
+- No-test-results check: `gh pr view 158 --json comments,reviews` → `comments=[]`, only the bot's APPROVED review. The impl worker's WORKLOG entry self-reports "manual smoke check already confirmed the user-visible acceptance criterion" but that was an in-sandbox `ohtv --help | grep` check, not a PR-comment-formatted test report. The skill is explicit: testing comment must exist on the PR, posted by `openhands-ai` or carrying the AI-disclosure footer. **Spawn testing worker.**
+- The fact that `pr-review` already APPROVED does **not** skip testing. Per skill: *"The testing step is NOT skipped just because review started. CI must be green to test."* Both gates pass here.
+
+**Step 6 — Spawn dispatch:** ✅ Testing worker spawned (PR slot).
+
+**Spawn payload highlights** (sent to `POST /api/v1/app-conversations`):
+- Plugin: `source=github:jpshackelford/.openhands, repo_path=plugins/ohtv-workflow, ref=feat/ohtv-workflow-plugin` (had to correct from the WRONG-shape `git_provider/repository/version` field set on first attempt — API rejected with `Field required: source` and `pr_number must be list`; second attempt with correct shape succeeded).
+- `selected_repository=jpshackelford/ohtv`, `selected_branch=fix/litellm-log-suppression-148`, `pr_number=[158]` (list, not scalar).
+- 9-step ordered test plan: clone-and-checkout-PR → `uv venv .venv && uv sync` (fallback path, since the system `uv pip install --system` keeps hitting read-only `site-packages` errors) → diff-read → full pytest → focused regression test → **CRITICAL BLACKBOX smoke**: stash + `git checkout origin/main -- src/ohtv/__init__.py` to reproduce the pre-fix state, capture `2>/tmp/stderr_before.txt`, restore the fix, capture `2>/tmp/stderr_after.txt`, `grep -i 'litellm\|botocore\|bedrock\|sagemaker'` both → escape-hatch verification (`LITELLM_LOG=WARNING` re-enables warnings) → multi-command sanity (`prompts list`, `db status`, `--version`) → ruff lint.
+- Hard guardrails: NO push to PR branch (read-only QA); NO approve/merge (next worker handles); NO `gh pr review --request-changes` (surface blockers in the test report comment, not in a review action); 15-minute budget hard cap.
+- Required test-report fields: `## Manual Test Results` heading (regex-detection), `git rev-parse HEAD` SHA, acceptance-criterion-to-status table, unit test pass/fail summary, 🟢/🟡/🔴 rating, AI-disclosure footer.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned testing worker — advances PR #158 through the docs→test→merge lifecycle). **Fifty-fifth consecutive productive cycle.** Not at risk.
+
+**Next cycle expectations (~15:50Z window):**
+- Testing worker `6c514c7` turnaround for a 3-line-fix QA pass: typical 8–15 min (clone, `uv sync`, run pytest, run blackbox smoke, post comment, exit). The PR is small enough that the worker should comfortably finish well within the 15-min budget. Plausible states at next cycle:
+  - **Most likely (~75%)**: Test report posted, 🟢 GOOD rating. Decision-tree row at next cycle: *"PR exists, ready, CI green, test results valid, 💬 > 0"* (the test report itself counts as a comment, but the pr-review bot already approved → effective state is APPROVED + green + docs OK + tested) → matches the **merge worker** row: *"PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker"*. Merge → squash → semantic-release bumps `fix:` subject to **`ohtv-v0.19.1`** (patch, with `🐛 Bug Fixes` CHANGELOG entry).
+  - **Likely (~15%)**: Test report posted with 🟡 OK + notes (e.g., a sanity-check command surfaced an unrelated pre-existing stderr warning). Next cycle weighs the note severity; most likely still routes to merge with a "noted, not blocking" annotation.
+  - **Unlikely (~8%)**: 🔴 BLOCKERS found (e.g., the blackbox smoke unexpectedly shows warnings still leaking — maybe a sibling import path that loads litellm before `import ohtv` triggers). Would route to review worker for round-2 implementation. Low probability because the impl worker's in-sandbox smoke check already confirmed cleanliness.
+  - **Rare (~2%)**: Worker times out or sandbox dies → counter goes to 1, re-spawn on cycle after that.
+
+**Backlog forecast post-#158 merge:**
+- #148 ships → `ohtv-v0.19.1` (patch via `fix:` subject + `(#148)` issue link → semantic-release auto-closes the issue).
+- **Single pre-staged action for the orchestrator that picks the next cycle**: drop a priority-graduation comment on **#145** (`priority:low` → `priority:medium`) before spawning impl. The 13:48Z + 14:49Z entries both forecasted this. Single follow-up issue, single spawn.
+- After #145: prioritized backlog **EMPTY for the first time** since this orchestration cluster started. #90 (label CLI) + #26 (MCP server) stay on `hold`. Auto-disable counter will start accruing: **productive #145-spawn → wait-cycle → 1 → 2 → disable** over ~90 min.
+
+**Sync notes:**
+- `gh pr list` shows 1 open (PR #158). `git log --oneline -1 origin/main` confirms HEAD is at `1dbb92a` (impl worker's worklog commit, NOT a `chore(release):` — the release workflow has NOT fired yet because PR #158 hasn't merged).
+- Did NOT run `ohtv sync` — same reasoning as 14:49Z entry (direct API queries covered all decision-tree needs, sync is only needed when downstream commands need the local conversation snapshot).
 
 EXIT per orchestrate skill — one action per wake-up.
 
@@ -1981,7 +1285,6 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ## 2026-05-30T17:53Z — Merge worker: PR #159 (`feat/gen-objs-key-variants-145`) merged ✅
 
 **Cluster line update: sixth release shipped.** v0.17.0 → v0.18.0 → v0.18.1 → v0.19.0 → v0.19.1 → **v0.20.0** (pending — semantic-release in-flight at merge time).
@@ -2011,6 +1314,67 @@ _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford.
 **Backlog forecast:** After this merge, prioritized backlog is **empty** (per the spawn-cycle entry: #90 and #26 both `hold`). Auto-disable counter starts accruing on the next quiet cycle.
 
 **EXIT per merge-worker prompt — one action per wake-up; no chatter on the PR; release workflow runs on its own schedule.**
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-30 18:18 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| _(none)_ | — | — | _both slots idle_ |
+
+✅ **All quiet** — backlog empty, PR slot empty, expansion slot empty.
+
+**Step 0 — Setup:** Read-only `/usr/local/lib/python3.13/site-packages` again, so installed `lxa` + `ohtv` into `.venv` via `uv pip install` (variant of last cycle's `uv tool install` path; both work). `lxa repo add jpshackelford/ohtv` re-created an unnamed board (cosmetic; harmless). `ohtv sync --since 4h --quiet` ran clean for the first time in **4 cycles** (zero output, exit 0, no hang). Worth noting that the recurring `--quiet` hang pattern from 16:18Z / 16:48Z / 17:18Z / 17:48Z appears to have self-resolved on this network path. Will keep watching.
+
+**Step 0.5 — Housekeeping:** **WORKLOG truncation executed this cycle** (per the 17:48Z entry's explicit flag: *"next cycle is likely to cross [2,000] — flagging for the next cycle to consider running /truncate-worklog"*). WORKLOG was 2,017 lines at wake-up. Ran the truncate-worklog skill's algorithm (6h-of-productive-work retention floor):
+- Parsed 24 entries (20 productive, 4 status); cutoff at `2026-05-30 11:18Z` (the oldest productive entry within a 6h newest-productive window — the 17:53Z merge entry being newest).
+- Archived 8 entries (08:50Z → 11:10Z) → appended to `WORKLOG_ARCHIVE_2026-05-30.md` (now 1,975 lines, up from ~1,200).
+- Kept 16 entries (11:18Z → 17:53Z) → `WORKLOG.md` now **1,320 lines** (down from 2,017; −34%). Window still spans the full v0.17.0 → v0.20.0 release cluster.
+- The skill's 300-line guideline is much tighter than this repo's working norm; the binding constraint is the 6h productive-work floor, so 1,320 is the natural floor for the current cluster density.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty post-truncation; nothing in the archived range either per spot-check of the 08:50Z–11:10Z slice that just moved out).
+
+**Step 2/3 — Active workers at cycle entry:**
+- Merge worker `bb0f6af` (from 17:48Z spawn): `execution_status=null, sandbox=PAUSED, updated_at=17:54:41Z` — **completed cleanly**. PR #159 squash-merged at 17:51:24Z (commit `b626f493`); release `ohtv-v0.20.0` published at **17:53:29Z** (cluster's sixth tag, ~24 min ago at cycle entry). Issue #145 auto-closed. Total elapsed: spawn 17:48Z → release tag 17:53Z = ~5 min — well within the 3-8 min nominal envelope.
+- Cluster ghost rate (corrected from 17:48Z entry): **2/8 = 25%** (`8fdb161` impl-ghost, `3e0b25a` testing-ghost). `c9629a6` was NOT a ghost. Standing down from elevated watch.
+- All other recent worker conv IDs PAUSED with `execution_status=null`. **Both slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs**: **0**. `gh pr list --state open` → `[]`. First PR-free cycle since the cluster started ~6h ago (PR #154 opened ~11:20Z).
+- **Recent releases**: `ohtv-v0.20.0` (latest, 25m ago) → `ohtv-v0.19.1` (2h) → `ohtv-v0.19.0` (3h) → `ohtv-v0.18.1` (6h) → `ohtv-v0.18.0` (7h). Cluster confirmed complete: **6 releases in ~7 hours** (v0.17.0 not in `gh release list --limit 5` but it's the cluster's first per prior worklog entries).
+- **Issue census**:
+  - Needs expansion (no `ready`, no `hold`): **0** — **49th consecutive idle expansion cycle**.
+  - Ready + prioritized: **0** — first time since PR #154 (the cluster's start) that there is no `ready` issue with a priority label. (#145 auto-closed via #159 merge; nothing has moved into ready since.)
+  - Ready + unprioritized: **0**.
+  - On hold: **#90** (`hold`, `priority:medium`, `enhancement`), **#26** (`hold`). Total open: **2** — same census as 17:18Z and 17:48Z, modulo #145's closure.
+- **`main` HEAD**: `d8e5792` (`chore(worklog): merge complete PR #159`). Includes today's release-bot commits (semantic-release auto-pushed the version bump + CHANGELOG + tag).
+
+**Step 5 — Decision-tree row matched:** *"No open PR + no ready issues → Nothing to implement (wait for expansion)"* AND *"Expansion slot: no issues need expansion (all on hold) → slot idle"*. Both slots idle.
+
+**Step 6 — Spawn dispatch:** ❌ **No spawn this cycle.** Nothing to expand, nothing to implement, nothing to test, nothing to review, nothing to merge.
+
+**Auto-disable counter:** **0 → 1.** This is the **first quiet cycle in 59 consecutive productive ones** (cluster ran 11:18Z–17:53Z). Not yet at the disable threshold (would require 2 consecutive quiet entries already in WORKLOG → this one would be the 3rd). Skill rule check executed: `tail -100 WORKLOG.md | grep -B2 "All quiet" | grep -c "Orchestrator"` returns 0 — no prior quiet entries in the retained window. Continue.
+
+**Next cycle expectations (~18:48Z window):**
+- **Most likely (~70%)**: Still quiet. Counter → 2. Next-next cycle (~19:18Z) auto-disables per skill rule. ETA for auto-disable: **~19:18Z** if no new issue lands.
+- **Likely (~20%)**: Human files a new issue (or moves #90/#26 off `hold`) → expansion or implementation work appears. Counter resets to 0.
+- **Less likely (~10%)**: Late commit on `main` triggers something unexpected (e.g., a CI workflow failure on the release commit needing follow-up). Would surface as a PR or issue.
+
+**Backlog audit (post-cluster):**
+- Issue #145 (`feat: gen-objs key variant cache warming`) — **CLOSED** via PR #159 merge.
+- Cluster summary: 6 PRs (#154, #155, #156, #157, #158, #159) → 6 releases (v0.17.0 → v0.20.0) over ~7h. Avg ~70 min/PR end-to-end including testing + review + merge + release.
+- Remaining open: #90 (label-batch CLI, on hold pending design clarification), #26 (MCP server, on hold).
+- New issues: 0 created in the last 24h.
+
+**Sync notes:**
+- `ohtv sync --quiet` succeeded this cycle (first time in 4). Hang pattern may have been transient — no follow-up issue needed yet, will keep monitoring.
+- Direct `gh` + `/app-conversations/search` queries continue to cover all orchestrator inputs.
+
+EXIT per orchestrate skill — quiet-cycle, no action; next cycle (~18:48Z) auto-disables if also quiet.
 
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
