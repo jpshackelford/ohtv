@@ -2,6 +2,26 @@
 
 ## Log
 
+### 2026-05-30 14:54 UTC - Implementation Worker (Issue #148)
+
+**Worked on:** Issue #148 — Suppress LiteLLM botocore warnings at import time.
+
+**PR:** [#158 — fix(logging): suppress LiteLLM botocore pre-load warnings (#148)](https://github.com/jpshackelford/ohtv/pull/158) — opened draft, flipped to **ready for review** after `lint` + `pytest` came back green.
+
+**Changes (matches the issue's technical-approach scope exactly — no scope creep):**
+- `src/ohtv/__init__.py` — `import os as _os` + `_os.environ.setdefault("LITELLM_LOG", "ERROR")` before `__version__ = "0.19.0"`. Runs once at first `import ohtv.*`, before any submodule triggers a transitive `import litellm`. `setdefault` preserves user-provided values (so `LITELLM_LOG=DEBUG ohtv ask ...` still works for debugging).
+- `tests/unit/test_litellm_log_suppression.py` (new) — Two subprocess-isolated regression tests: `test_ohtv_sets_litellm_log_to_error_when_unset` (no `LITELLM_LOG` in child env → expect `ERROR`) and `test_ohtv_preserves_litellm_log_when_set` (`LITELLM_LOG=DEBUG` in child env → expect `DEBUG` preserved). Subprocess isolation is required because sibling pytest tests in the same process have already imported `litellm._logging`, which reads `LITELLM_LOG` once at module init.
+- `docs/reference/configuration.md` — Added `LITELLM_LOG` row to the env-var table next to `OHTV_LOG_LEVEL` / `OHTV_LOG_FILE`, documenting the `ERROR` default and the `LITELLM_LOG=WARNING` override pattern.
+- `uv.lock` — 1-line metadata refresh (`version = "0.18.1"` → `"0.19.0"`); pre-existing drift on main since the release workflow doesn't touch `uv.lock`.
+
+**Verification:**
+- `uv run pytest tests/unit/test_litellm_log_suppression.py -v` → 2 passed.
+- `uv run pytest tests/unit -x -q` → **2156 passed**, 2 skipped, 3 xfailed (no regressions).
+- Manual smoke: `uv run ohtv --help 2>&1 | grep -i 'litellm\|botocore'` → empty (success path).
+- CI on PR #158 head: `lint=pass (3s)`, `pytest=pass (53s)`, `pr-review=running` (triggered after draft → ready flip).
+
+**Decision-tree note for the orchestrator:** PR #158 is now in the "PR ready, CI green, awaiting bot review / human merge decision" lane. No manual test scenarios were spawned by this worker — change is a single-line env-var setdefault with subprocess-isolated regression tests covering both branches of the contract, and the manual smoke check already confirmed the user-visible acceptance criterion. The orchestrator's next pass should evaluate `pr-review` bot output once it lands and route to either review-response, manual-test, or merge per the standard decision tree.
+
 ### 2026-05-30 07:16 UTC - Orchestrator
 
 **Active Workers:**
