@@ -1276,3 +1276,57 @@ EXIT per merge-pr skill — orchestrator picks up the empty PR slot on next cron
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 03:22 UTC - Orchestrator
+
+**Active Workers (at cycle exit):**
+| Conv ID   | Type           | Working On                                                              | Status         |
+|-----------|----------------|-------------------------------------------------------------------------|----------------|
+| `2a022b3` | implementation | Issue #124 — `report velocity` double-counts via sub-conversations      | **NEW** running |
+
+🚀 **Spawned: Implementation Worker for Issue #124**
+
+- **Issue**: [#124](https://github.com/jpshackelford/ohtv/issues/124) — `report velocity` double-counts human input when sub-conversations share a PR (`priority:medium`, `ready`)
+- **Conversation**: [`2a022b3`](https://app.all-hands.dev/conversations/2a022b37e3ae4d318c16fcfd0ed02c09) — `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv`, `selected_branch=main` at 03:21:30Z (READY after 2 polls / ~12s; start task `0d5f2a43`).
+- **Plugin**: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+- **Suggested branch**: `fix/velocity-root-grain-124`
+- **Conventional commit type**: `fix:` → patch bump to `ohtv-v0.16.2` per AGENTS.md release contract.
+
+**Current State:**
+
+- **PR slot**: was EMPTY (PR #152 merged 02:50:01Z, released as `ohtv-v0.16.1` at commit `cab9424`). Now occupied by this impl worker.
+- **Expansion slot**: OPEN, IDLE. 0 issues need expansion (`gh issue list … contains(["ready"]) or contains(["hold"]) | not` → empty). **24th consecutive idle expansion cycle.** Not at risk of auto-disable (PR slot productive).
+- **Ready issues backlog (7):** #124 (now impl), #125, #127, #128 (all `priority:medium` sub-conversation roll-up siblings of #122 foundation); #145 (sequencing-blocked behind #149), #148 (litellm warning suppression), #149 (5-level context expansion).
+- **Hold**: #26, #90 (skipped — awaiting human).
+
+**Decision-tree trace:**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2 — Active workers**: only `3fc03cb` (this orchestrator, `trigger=automation`) was `running` on conv-search. Merge worker `37e670a` (#152) = `PAUSED` per search (finished after posting merge entry at 02:50Z). Testing worker `06ac1e1` and impl worker `e93754b` similarly `PAUSED`. **PR slot CLEAR at cycle entry.**
+- **Expansion slot**: OPEN. Empty backlog → stays IDLE.
+- **PR slot**: OPEN. No open PRs (`gh pr list --repo jpshackelford/ohtv --state open` → `[]`). Ready backlog has prioritized issues → **Decision: spawn impl worker for highest-priority ready issue.**
+  - **Why #124**: Among the four tied `priority:medium` issues (#124, #125, #127, #128), lowest-number wins per worklog convention. The merge-worker hand-off note in the immediately-prior entry also pre-forecast #124 specifically as "the natural next pick" — same `conversations_by_root` foundation as #123, immediately leverages the testing pattern just proven on PR #152.
+  - **Strategy difference from #123 flagged in spawn brief**: #123 used a one-line `WHERE id = root_conversation_id` predicate. The issue body for #124 explains this won't work (the join key, not the WHERE clause, drives the dup) → JOIN-key change required. Spawn brief steers the worker to the technical-approach comment on #124 for the authoritative shape.
+  - **Migration-number wording correction in spawn brief**: The issue body cites "migration 019" for `root_conversation_id`; the actual column is in migration 020 (#108 was 019 / parent). PR #152 corrected the same mismatch in its guard error message; the spawn brief explicitly tells the worker to cite migration 020, not 019.
+
+**Sync notes:**
+
+- Container respawned this cycle (`/workspace/project/ohtv` already checked out at main, clean tree). `pip install --user git+...lxa.git git+...ohtv.git` (the `uv pip install` path needed `--system` or a venv; switched to `pip --user` and exported `PATH=$HOME/.local/bin:$PATH` — recording for next respawn). `ohtv sync --since 4h` succeeded silently with `OH_API_KEY` in env.
+- Spawn POST to `/api/v1/app-conversations` with `X-Access-Token: $OH_API_KEY` returned start task `0d5f2a43` in `WORKING` → polled `/start-tasks/search` twice → `STARTING_CONVERSATION` → `READY` → `app_conversation_id=2a022b37e3ae4d318c16fcfd0ed02c09`. Verified `execution_status=running`, `sandbox_status=RUNNING` on conv-search before exit.
+- `lxa repo add jpshackelford/ohtv` created a new board ("Unnamed Board 1") for the fresh container — informational only, doesn't affect orchestrator decisions.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (impl worker spawned). **Thirty-fifth consecutive productive cycle.** Not at risk.
+
+**Worklog size:** 1278 lines pre-entry (above 300-line threshold but only +130 lines since last truncation at 02:20Z, +81 since the 02:49Z merge-worker entry). Deferring truncation to the next genuinely idle cycle to avoid touching `main` twice while an impl worker is potentially writing to WORKLOG with its hand-off entry.
+
+**Next cycle expectations (~03:50-04:00Z window):**
+
+- Impl worker `2a022b3` likely still `running` (impl cycles on this codebase have been averaging 30-60 min). If finished: a new PR exists (`fix/velocity-root-grain-124` → `main`), draft, CI status TBD.
+- If PR ready + CI green + no docs concern (this is a bug fix with no user-facing CLI surface change, same as #123/PR #152) → spawn **testing worker** directly (skipping docs).
+- If impl worker still running → log status, do NOT spawn duplicate.
+- Expansion slot stays idle until human files new issues (or until backlog drops below ~5 ready).
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
