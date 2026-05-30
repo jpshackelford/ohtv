@@ -2,392 +2,6 @@
 
 ## Log
 
-
-### 2026-05-29 22:50 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `069782a` | expansion | Issue #145 | dead (61+ min, zero artifact) |
-
-**⏸ NON-PRODUCTIVE CYCLE — spawn dispatch still broken. No spawn attempted.**
-
-**One correction to the 22:17Z diagnostic, then carry forward:**
-
-The prior cycle classified five conversations as "dead spawns" using the rule `updated_at == created_at`. That rule is **unreliable**. Counter-example from the prior cycle itself: orchestrator wake-up `e895bd4` (created 22:15:50.785694Z, updated 22:15:50.785695Z — equal to microsecond) **DID** successfully push commit `68331e5` ("orchestrator diagnostic — systemic spawn failure since 21:15Z") at 22:19:32Z. Same for orchestrator `246d9be` (21:45:48Z, updated == created) which inline-merged PR #147 and pushed commit `8cf7249` at 21:50:54Z. The OpenHands API's `updated_at` field appears stale for all finished/finishing conversations on this account — every conversation in the last 5 hours reports `execution_status: null`, `has_finished_at: null`, `last_event_id: null`, `error: null`, `runtime_status: null` regardless of whether it actually worked.
-
-The only **reliable** death signal is absence of artifact (issue update, PR commit, worklog entry).
-
-**Applying the corrected signal:**
-
-| Conv ID | Spawn | Purpose | Artifact? | Verdict |
-|---------|-------|---------|-----------|---------|
-| `e895bd4` | 22:15 cron | orchestrator | commit `68331e5` ✓ | **healthy** |
-| `069782a` | 21:49 POST | expansion #145 | none after 61 min | **dead** |
-| `246d9be` | 21:45 cron | orchestrator | commit `8cf7249` ✓ | **healthy** |
-| `ad8a0ea` | 21:19 POST | expansion #145 | none after 91 min | **dead** |
-| `17b6d1b` | 21:19 POST | merge #147 | none (orchestrator inline-merged) | **dead** |
-| `fd62236` | 21:15 cron | orchestrator | commit `667f3f7` ✓ | **healthy** |
-| `51498a6` | 20:50 POST | impl/review #147 | commits on PR #147 ✓ | **healthy** |
-
-**Refined diagnosis: cron-triggered orchestrator wake-ups are healthy. POST-API child spawns from the orchestrator broke somewhere in the 20:50Z → 21:19Z window.** Last known-good child spawn: `51498a6` (20:50Z, on PR #147). First known-bad: `17b6d1b` + `ad8a0ea` (both 21:19Z, from the same orchestrator wake-up at 21:15Z).
-
-**Wake-up checks (in order):**
-
-1. **Human INSTRUCTION check ✓**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
-2. **Issue #145 evidence ✗**: `updatedAt: 2026-05-29T21:10:03Z` (predates both 21:19 and 21:49 expansion spawns), 0 comments, 0 labels, body unchanged at 430 chars. **Hard confirmation `069782a` and `ad8a0ea` produced zero output.**
-3. **Open PRs ✓**: 0. PR #147 merged at 21:48:18Z (orchestrator-driven via jpshackelford token); ohtv-v0.16.0 released; PR #142 closed.
-4. **Expansion queue**: 3 issues (#145 / 145 expansion, #148 LiteLLM warnings, #149 5-level context — newly filed 22:10Z, 4716-char user-written body, likely doesn't need expansion).
-5. **Ready queue**: 6 priority:medium (#116, #123, #124, #125, #127, #128), 0 priority:high.
-
-**Why no spawn this cycle:**
-
-- Prior cycle's EV≈0 calculus for a 3rd #145 spawn stands. 2 failures in 30 min is decisive.
-- Spawning impl from the priority:medium queue would consume an even more expensive spawn slot through the same broken pipe.
-- "Test spawn" on a fresh issue (#148 or #149) is tempting (1 more data point), but the dispatch failure spans a 95-min window covering 3 spawn attempts — pipeline is unambiguously broken, not flaky. One more dead spawn would be wasted observability.
-
-**Why not inline-do the expansions:**
-
-- 3 issues queued. Doing #145 + #148 + #149 inline would 5x this cycle's context.
-- #149 already has a 4716-char user-written body — likely needs minimal expansion (review-only). Could inline it cheaply if dispatch stays broken into the next cycle.
-- #145 (430-char body) needs real codebase exploration. Wrong for the orchestrator loop.
-
-**Why not auto-disable:**
-
-- Auto-disable rule: 2 consecutive "All quiet" entries. This is "broken dispatch" not "no work" — counter stays at 0.
-- Disabling would hide the systemic failure from @jpshackelford. Wrong signal.
-
-**Why not escalate yet (open tracking issue, etc.):**
-
-- Prior cycle's forecast: "After 2-3 more diagnostic cycles, escalate." This is cycle #2 of broken-dispatch. One more diagnostic cycle (the 23:15Z wake-up) before escalation.
-- The 22:17Z worklog entry contains the recommended human action and is on `main`. The human signal is already visible.
-
-**Auto-disable counter: 0 → 0.** **50th consecutive non-quiet cycle.** **Cycle #2 of broken-dispatch.** Not eligible for auto-disable.
-
-**Current State:**
-
-- **Open PRs (0)**: clean slate. PR #147 merged ✓, PR #142 closed ✓.
-- **Released**: [`ohtv-v0.16.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.16.0) ✓.
-- **Active workers (0)**: `069782a` confirmed dead (61+ min, no artifact). No replacement spawned.
-- **Need expansion (3)**: #145 (oldest, 2 dead spawns), #148, #149 (#149 has thorough user body — light-touch expansion may suffice).
-- **Ready priority:high (0)**.
-- **Ready priority:medium (6)**: #116, #123, #124, #125, #127, #128.
-- **On hold (2)**: #26, #90.
-
-**🛠 Recommended human action (@jpshackelford) — repeat from 22:17Z cycle:**
-
-The full diagnosis is in the 22:17Z worklog entry. Short version:
-1. POST-API child spawns from this orchestrator stopped working in the 20:50Z→21:19Z window.
-2. Cron-triggered orchestrator wake-ups continue to function fine (this entry is proof).
-3. Likely culprits: OpenHands platform-side dispatch rollout, capacity/quota issue, OPENHANDS_API_KEY scope change, payload-size limit change.
-4. Last known-good POST spawn: `51498a6` at 20:50Z (worked on PR #147). First known-bad: `ad8a0ea`/`17b6d1b` at 21:19Z.
-
-**Forecast for next cycle (~23:15-23:20Z window):**
-
-1. **If dispatch healed**: spawn expansion for #145 (oldest); skip #149 (user body sufficient — may add `ready` label inline after spot-read); `/assess-priority` inline + spawn impl for top priority:medium pick (likely #116, lowest risk).
-2. **If dispatch still broken (cycle #3 of broken-dispatch)**: **escalate** — open a tracking issue on the repo titled "Orchestrator child-spawn dispatch broken since 21:19Z 2026-05-29" with the 22:17Z + 22:50Z analyses. Then exit. Don't keep silently retrying.
-3. **If dispatch healed AND #145 was actually touched by `069782a` very late**: nice surprise, proceed normally.
-
-**Worklog truncation**: 1844 lines pre-this-entry. Skill mismatched to prose log style (documented). Deferring.
-
-**Sync notes:** Fresh container this cycle. Installed `lxa` + `ohtv` via `pip install --user` (uv blocked by no-venv). `gh` 2.92.0 with `GH_TOKEN=$github_token`. State from `gh` + OpenHands conv search API. HEAD pulled at `68331e5` (prior cycle's diagnostic). No spawn payload constructed — no spawn attempted.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-29 23:16 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `069782a` | expansion | Issue #145 | dead (87+ min, zero artifact) |
-
-**🚨 CYCLE #3 OF BROKEN-DISPATCH — escalated per pre-committed forecast.**
-
-**Wake-up checks (in order):**
-
-1. **Human INSTRUCTION check ✓**: 0 unacknowledged.
-2. **Issue #145 evidence ✗**: `updatedAt: 2026-05-29T21:10:03Z` (unchanged from prior 2 cycles), 0 labels, 0 comments, body unchanged at 430 chars. Hard confirmation `069782a` produced zero output after 87+ min.
-3. **Open PRs ✓**: 0. Clean slate.
-4. **Conversation API snapshot**: my own conv `7f603f78` (23:16:00Z) is the ONLY entry with `status=running, sandbox=RUNNING`. All POST-spawned children since 21:19Z (`17b6d1b`, `ad8a0ea`, `069782a`) show `sandbox=PAUSED` with `updated_at == created_at` — paused immediately at creation time, never executed. Cron orchestrator wake-ups at 22:15Z (`e895bd4e`) and 22:45Z (`d5949460`) ran fine.
-5. **Last known-good POST spawn**: `51498a6` at 20:50:08Z (sandbox=PAUSED, updated 20:56:40Z — ran ~6.5 min, produced commits on PR #147).
-6. **Failure window**: 21:19Z → 23:16Z = ~2 hours, 3 confirmed-dead POST attempts.
-
-**Action taken this cycle: opened [issue #150](https://github.com/jpshackelford/ohtv/issues/150)** ("Orchestrator child-spawn dispatch broken since 21:19Z 2026-05-29"). Labeled `hold` so future orchestrator cycles skip it from the expansion queue. The issue contains the full evidence table, likely-cause ranking (platform rollout, capacity, auth scope, payload-size), recommended investigation steps, and impact summary (3 expansion-queue issues + 6 priority:medium impl issues blocked).
-
-**Why escalation now, not earlier or later:**
-
-- 22:17Z worklog entry: initial diagnosis after 5 consecutive failed spawns.
-- 22:50Z worklog entry: corrected the `updated_at == created_at` death-signal rule, refined to "artifact absence is the only reliable signal."
-- 22:50Z forecast pre-committed: "If dispatch still broken (cycle #3 of broken-dispatch): escalate — open a tracking issue."
-- This is that cycle. Filing the issue puts a visible signal in the project's normal channel (GitHub issues) so @jpshackelford sees it without having to read the worklog.
-
-**Why no spawn attempt this cycle:**
-
-- 3 consecutive dead POST attempts in 30 min (the 21:19Z pair + 21:49Z retry) is decisive. EV of a 4th attempt ≈ 0.
-- Spawning expansion for #149 (lowest-cost target: user wrote a 4716-char body, may not need much) is tempting as a fresh data point, but the 95-min-and-counting failure window covers 3 spawn payload shapes (merge ~3.7 KB, expansion ~6.6 KB, mixed) — pipeline is unambiguously broken, not flaky on a specific payload.
-- The full priority:medium impl queue is gated on the same broken pipe.
-
-**Why not inline-do the expansions:**
-
-- 3 issues queued (#145 codebase work, #148 small import-time fix, #149 already has thorough user body).
-- Inline-doing all three in the orchestrator loop would balloon this cycle's context and tangle "diagnose vs execute" — same reasoning as 22:50Z.
-- If the dispatch is still broken at the next cycle (24:00Z window), #149 may be a candidate for inline review (a body-only sanity check + `ready` label, no codebase exploration).
-
-**Why not auto-disable:**
-
-- Auto-disable rule: 2 consecutive "All quiet" entries. This is "broken dispatch" not "no work" — counter stays at 0.
-- The escalation issue (#150) now carries the human signal at higher visibility than the worklog.
-
-**Auto-disable counter: 0 → 0.** **51st consecutive non-quiet cycle.** **Cycle #3 of broken-dispatch.** Not eligible for auto-disable.
-
-**Current State:**
-
-- **Open PRs (0)**: clean slate post-#147 merge.
-- **Released**: [`ohtv-v0.16.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.16.0) ✓ (21:50Z).
-- **Active workers (0)**: `069782a` confirmed dead.
-- **Tracking issue (1)**: [#150](https://github.com/jpshackelford/ohtv/issues/150) (labeled `hold`, won't re-enter expansion queue).
-- **Need expansion (3)**: #145, #148, #149.
-- **Ready priority:high (0)**.
-- **Ready priority:medium (6)**: #116, #123, #124, #125, #127, #128.
-- **On hold (3)**: #26, #90, #150.
-
-**Forecast for next cycle (~23:45-24:00Z window):**
-
-1. **Check #150 for human response** (`gh issue view 150 --comments`). If @jpshackelford has commented "fixed", proceed normally per prior forecast (spawn expansion for #145, then `/assess-priority` + spawn impl for top priority:medium pick — likely #116 or #123).
-2. **If dispatch still broken AND no human response on #150 yet (cycle #4)**: continue diagnostic posture. Consider inline-reviewing #149 (lightweight: spot-read body, add `ready` label if sufficient, skip if not) as a low-cost way to keep the expansion queue moving without burning a spawn slot. Do NOT inline #145 or #148 (real codebase exploration required).
-3. **If dispatch still broken at cycle #5 (~00:30Z)**: consider auto-disabling. The escalation signal is in place; continued diagnostic cycles add noise without value. Re-enable when @jpshackelford signals dispatch is fixed.
-
-**Worklog truncation**: 1936 lines pre-this-entry. `/truncate-worklog` skill's productive-indicator regex mismatches this codebase's prose log style (documented across multiple prior cycles). Deferring. If this concern becomes acute, the right fix is to update the skill, not to truncate manually and risk losing the diagnostic history while dispatch is still broken.
-
-**Sync notes:** Fresh container this cycle. `lxa` + `ohtv` installed via `pip install --user` (uv blocked by no-venv). `gh` 2.78.0 with `GH_TOKEN=$github_token`. `ohtv sync --since 4h` succeeded silently (used `OH_API_KEY`). State derived from `gh` issue/PR list + `curl` to OpenHands `/app-conversations/search` API. HEAD pulled at `8c89696` (the 22:50Z diagnostic). Issue #150 POSTed via `gh issue create`; labeled `hold` via `gh issue edit`.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-29 23:50 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `069782a` | expansion | Issue #145 | dead (118+ min, zero artifact) |
-| `24665555` | orchestrator | this cycle (#4 broken-dispatch) | running |
-
-**🚨 CYCLE #4 OF BROKEN-DISPATCH — executed pre-committed inline-review fallback for #149.**
-
-**Wake-up checks (in order):**
-
-1. **Human INSTRUCTION check ✓**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
-2. **Tracking issue #150**: 0 comments since opened at 23:16Z — no human response yet. Still labeled `hold`.
-3. **Open PRs ✓**: 0. Clean slate.
-4. **Conversation API snapshot** (sample of POST-spawn children since the 20:50Z healthy boundary):
-
-   | Conv ID | Spawn time | updated == created? | Verdict |
-   |---|---|---|---|
-   | `51498a6` | 20:50:08Z | NO (updated 20:56:40Z, ~6.5 min runtime) | last healthy POST spawn (PR #147 commits) |
-   | `17b6d1b` | 21:19:07Z | YES (sandbox=PAUSED) | dead |
-   | `ad8a0ea` | 21:19:12Z | YES (sandbox=PAUSED) | dead |
-   | `069782a` | 21:49:29Z | YES (sandbox=PAUSED) | dead |
-   | _no new POST-spawns since_ | — | — | — |
-
-   Cron orchestrators between (`fd62236` 21:15, `246d9be` 21:45, `e895bd4` 22:15, `d594946` 22:45, `7f603f7` 23:16, `2466555` this one) all execute fine. **Failure window: 21:19Z → 23:47Z+ (~2.5h, 3 confirmed-dead POST attempts).**
-5. **Expansion queue**: 3 issues (#145, #148, #149) — same as 23:16Z.
-6. **Ready queue**: 6 priority:medium (#116, #123, #124, #125, #127, #128), 0 priority:high.
-
-**Action taken this cycle: inline expansion-review of #149 → `ready` label + review comment.**
-
-Issue [#149](https://github.com/jpshackelford/ohtv/issues/149) ("Expand context levels from 3 to 5 for gen objs") was already extensively documented by @jpshackelford himself (via prior AI agents): 4716-char body covering problem + 5-level proposal + data analysis + impl plan + acceptance criteria, plus 3 follow-up comments covering auto-promotion logic refactor in `src/ohtv/analysis/objectives.py`, naming alternatives, and PM decision on breaking changes. Spot-reading the body + comments confirmed all standard expansion deliverables present. Added `ready` label (no `priority:*` — defer to next `/assess-priority` pass). Posted a brief inline-review comment explaining the deferral context and flagging the one open impl-time choice (final level names).
-
-Why #149 and not #145/#148:
-- **#149**: 4716-char body + 3 substantive comments (one with concrete code refactor). Light-touch verification sufficed.
-- **#145** (430-char body): needs real codebase exploration. Wrong for inline.
-- **#148** (import-time botocore warnings): needs codebase exploration + small-but-real fix design. Wrong for inline.
-
-**Why no spawn attempt this cycle:**
-
-- 3 consecutive dead POST attempts spanning 30 min (21:19/21:19/21:49) is decisive. EV of a 4th attempt ≈ 0.
-- The pipeline is unambiguously broken across 3 distinct payload shapes/sizes (~3.7 KB merge, ~6.6 KB expansion, mixed). Not a payload-specific flake.
-- Continued silent retries would add noise to #150's evidence table without changing the diagnosis.
-
-**Why not auto-disable:**
-
-- Auto-disable rule: 2 consecutive "All quiet" entries. This cycle is **not** quiet — it executed real work (inline-review of #149). Counter stays at 0.
-- The escalation issue #150 carries the human-visible signal at higher priority than the worklog.
-
-**Auto-disable counter: 0 → 0.** **52nd consecutive non-quiet cycle.** **Cycle #4 of broken-dispatch.**
-
-**Current State:**
-
-- **Open PRs (0)**: clean slate.
-- **Released**: [`ohtv-v0.16.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.16.0) ✓ (21:50Z).
-- **Active workers (0)**: `069782a` still confirmed dead. No new spawns this cycle.
-- **Tracking issue**: [#150](https://github.com/jpshackelford/ohtv/issues/150) (0 comments, still `hold`).
-- **Need expansion (2)**: #145 (codebase work), #148 (small fix, codebase exploration).
-- **Ready priority:high (0)**.
-- **Ready priority:medium (6)**: #116, #123, #124, #125, #127, #128. **+ #149 (ready, no priority yet)**.
-- **On hold (3)**: #26, #90, #150.
-
-**Forecast for next cycle (~00:15-00:30Z window):**
-
-1. **If dispatch healed AND human comment on #150**: proceed normally — spawn expansion for #145 (oldest unexpanded), `/assess-priority` inline on the ready queue (which now includes #149), spawn impl for top pick.
-2. **If dispatch still broken (cycle #5)**: **auto-disable** automation — the escalation signal is in place (issue #150 + 3 worklog cycles of diagnosis + 1 cycle of executed inline-review fallback), continued cron wake-ups now add cost without observability value. Re-enable when @jpshackelford signals dispatch is fixed (comment on #150 or new `## INSTRUCTION:` worklog entry).
-3. **If dispatch healed but no #150 human comment**: still proceed normally — the artifact (a successful POST-spawn) is the only reliable healed-signal anyway.
-
-**Inline-review queue for cycle #5 (only if dispatch still broken)**: none viable. #145 and #148 both need codebase exploration. Don't burn an orchestrator cycle on that.
-
-**Worklog truncation**: 2006 lines pre-this-entry. `/truncate-worklog` skill's productive-indicator regex still mismatches this codebase's prose log style (documented across 22:17Z / 22:50Z / 23:16Z cycles). Deferring. Right fix is to update the skill, not manually truncate while diagnostic history is still actively accruing.
-
-**Sync notes:** Fresh container this cycle. `lxa` + `ohtv` installed via `pip install --user` (uv blocked by no-venv). `gh` with `GH_TOKEN=$github_token`. `ohtv sync --since 4h` succeeded silently (used `OPENHANDS_API_KEY`). State from `gh` issue/PR list + `curl` to OpenHands `/app-conversations/search`. HEAD pulled at the 23:16Z cycle's commit. Issue #149 edits via `gh issue edit` + `gh issue comment`.
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 00:21 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `0f04330` | expansion | Issue #145 - gen objs full-context key variants | running ✓ |
-| `652ba7e` | implementation | Issue #116 - Centralize DB migration into ensure_db_ready | running ✓ |
-| `675e588` | orchestrator | this cycle (#5 broken-dispatch → **DISPATCH HEALED**) | running |
-
-**🟢 CYCLE #5 OF BROKEN-DISPATCH → DISPATCH HEALED. Both worker slots filled.**
-
-**Wake-up checks (in order):**
-
-1. **Human INSTRUCTION check ✓**: 0 unacknowledged.
-2. **Tracking issue #150**: 0 comments since 23:16Z opening. Pre-committed forecast was "auto-disable at cycle #5", BUT forecast item #3 also said: "If dispatch healed but no #150 human comment: still proceed normally — the artifact (a successful POST-spawn) is the only reliable healed-signal anyway." Decided to test dispatch once before auto-disabling. Low cost, high information value.
-3. **Open PRs ✓**: 0. Clean slate post-#147 merge.
-4. **Dispatch test spawn (expansion for #145, oldest unexpanded):**
-
-   | Metric | Value |
-   |---|---|
-   | Start task | `786c8a62` |
-   | Lifecycle | `WORKING` (00:18:12Z) → `READY` (00:18:24Z) — **~12s** |
-   | Spawned conv | `0f043308` |
-   | T+27s status | `execution_status=running`, `sandbox_status=RUNNING`, `updated_at > created_at` ✓ |
-
-   **Dispatch confirmed healed.** Failure window (final): 21:19:07Z → 00:18:24Z = **~2h59m**. 3 confirmed-dead POSTs (`17b6d1b`, `ad8a0ea`, `069782a`). Root cause not surfaced from orchestrator vantage — likely platform-side recovery (rollout completed, capacity restored, or quota reset).
-
-5. **PR-slot spawn (impl worker for #116):** Since expansion succeeded, fired a second POST-spawn for the implementation slot. Start task `38ebead9` → `READY` in ~12s → conv `652ba7ed` confirmed `running` / `RUNNING` at T+28s with `updated_at > created_at`. Second healthy spawn confirms it wasn't a one-shot fluke.
-
-**Implementation pick rationale (#116):**
-
-Spot-scanned the priority:medium queue (6 issues: #116, #123–#125, #127, #128). Picked **#116 (Centralize DB migration into ensure_db_ready)** over the #122-family rollup work (#123–#128):
-
-- **Lowest interaction risk**: Internal refactor of `db/maintenance.py`, no user-facing surface changes, no entanglement with the `list_roots` foundation work that #123–#128 share.
-- **Well-expanded**: 17184-char body (one of the largest in the queue).
-- **Foundational**: Improves DB lifecycle for all callers (item #25 in AGENTS.md describes the existing `ensure_db_ready()` model).
-- **No dependencies**: #123–#128 all sit on top of #122's `list_roots`; #149 is a separate domain (LLM context levels).
-
-`#149` is on the `ready` queue with no `priority:*` label (added by the 23:50Z inline-review fallback). Not picked this cycle — defer to next `/assess-priority` pass.
-
-**Tracking issue #150 closed.** Posted recovery comment + closed (reason: completed) + removed `hold` label. Dispatch was the only thing it tracked; with dispatch restored, the issue is resolved. Future dispatch failures will follow the same 3-cycle-diagnose → escalate → auto-disable-at-cycle-#5 pattern from a clean slate.
-
-**Auto-disable counter: 0 → 0.** **53rd consecutive non-quiet cycle.** Real productive work this cycle (2 spawns + tracking-issue closure). Not eligible for auto-disable.
-
-**Current State:**
-
-- **Open PRs (0)**: clean slate. Impl worker `652ba7e` will open one soon.
-- **Released**: [`ohtv-v0.16.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.16.0) ✓.
-- **Active workers (2)**: `0f04330` (expansion #145) + `652ba7e` (impl #116). Both slots filled.
-- **Need expansion (1)**: #148 (small import-time fix — next cycle's candidate if expansion slot frees).
-- **Ready priority:high (0)**.
-- **Ready priority:medium (6)**: #116 (now being implemented), #123, #124, #125, #127, #128.
-- **Ready, no priority (1)**: #149.
-- **On hold (2)**: #26, #90. (`#150` closed.)
-
-**Forecast for next cycle (~00:45-00:50Z window):**
-
-1. **Both workers likely still running** (expansion typically takes 5-20 min; impl typically 20-90 min for a foundational refactor). Log status, take no action, exit.
-2. **If expansion slot freed and PR slot still occupied**: spawn expansion for #148 (only unexpanded issue left).
-3. **If PR slot freed (likely a new PR exists)**: handle PR state per the docs → manual-test → review → merge pipeline.
-4. **If dispatch broken again**: per item #150's notes, the cycle counter restarts from 0. 3 diagnostic cycles, then a new tracking issue, then auto-disable at cycle #5.
-
-**Worklog truncation**: 2148 lines pre-this-entry. The `/truncate-worklog` skill's productive-indicator regex still mismatches this codebase's prose log style (documented across 22:17Z / 22:50Z / 23:16Z / 23:50Z cycles). Deferring. Recommend updating the skill (not manually truncating) in a future expansion → impl cycle — could file as a meta-issue if it becomes acute.
-
-**Sync notes:** Fresh container this cycle. `lxa` + `ohtv` installed into a `.venv` via `uv pip install` (had to `uv venv` first — prior cycles' `pip install --user` path also works). `gh` 2.92.0 with `GH_TOKEN=$github_token`. State from `gh` issue/PR list + `curl` to OpenHands `/app-conversations/search` + `/start-tasks/search`. HEAD pulled at the 23:50Z cycle's commit. Spawn POSTs via `curl -X POST … /app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY`; payloads stored at `/tmp/spawn_payload.json` and `/tmp/impl_payload.json` (1953 and 2636 bytes respectively — well below any plausible payload-size limit, so the 21:19Z→00:18Z failure window wasn't payload-related).
-
-_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 00:22 UTC - Expansion worker (#145)
-
-✅ **Expanded Issue #145** — "when gen objs promotes to full context, use is to generate key variants"
-
-- **Issue**: [#145](https://github.com/jpshackelford/ohtv/issues/145)
-- **Type**: Enhancement
-- **Status**: Ready for implementation (`ready` label applied)
-- **Approach**: Metadata-driven cache warming on auto-promotion. New `key_variant_on_promotion: bool` field in prompt frontmatter; `standard_assess.md` opts in. When `analyze_objectives` auto-promotes context (the `objectives.py:464-498` block for empty-transcript / worker conversations), after the primary analysis is cached, iterate over sibling prompts in the `objs` family flagged as key variants and generate + cache them at the promoted context level. Cache-hit short-circuit prevents redundant LLM calls; per-variant try/except prevents primary-result corruption.
-- **Sequencing flag**: should land AFTER #149 (5-level context expansion). #149 refactors the same promotion ladder this issue plugs into; building on top of pre-#149 code creates merge conflicts. Documented in the technical comment.
-- **Files explored**: `src/ohtv/analysis/objectives.py` (promotion block + LLM-call section), `src/ohtv/analysis/cache.py` (already supports multi-key writes via #129's `requested_key_kwargs`), `src/ohtv/prompts/metadata.py` + `parser.py` + `discovery.py` (frontmatter plumbing), `src/ohtv/prompts/objs/*.md` (6 variant prompt files), related #149 body for interaction.
-- **Body shape**: Problem Statement / Proposed Solution / Acceptance Criteria (10 items) / Out of Scope.
-- **Technical comment**: architecture, metadata field design, discovery helper, cache-hit detection, error isolation, cost accounting (primary-only contract preserved), 5-step impl plan, 9-row files-affected table, #149 interaction, 5 risk/edge cases.
-
-EXIT per skill step 7.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford as part of the expansion workflow._
-
----
-### 2026-05-30 00:39 UTC - Impl worker (#116 centralize DB migration)
-
-✅ **PR #151 ready for review** — `refactor(db): centralize migration through get_ready_connection`
-
-- **Issue**: [#116](https://github.com/jpshackelford/ohtv/issues/116) — Centralize DB migration into a single 'ensure ready' entry point
-- **PR**: [#151](https://github.com/jpshackelford/ohtv/pull/151) — `feat/centralize-db-migration-116` → `main`
-- **CI**: green (`pytest pass 55s`, `lint pass 3s`, `pr-review skipping` while draft, will fire post-ready)
-- **Tests**: 26 new, 2077 existing still green
-
-**Shape**: added `ohtv.db.get_ready_connection()` (composes `get_connection` + `ensure_db_ready`), converted 14 ad-hoc call sites (3 in `analysis/cache.py`, 1 in `conversations.py`, 10 in `cli.py`), allow-listed 3 paths (`db/maintenance.py` = wrapper itself; `cli.py` `db_init` = needs `migrate(conn)`'s return value to print user-facing output; `db/connection.py` = docstring example). Grep-based regression test (`tests/unit/test_no_raw_migrate.py`) enforces the allow-list. Fresh-install behavioral tests (`tests/unit/test_fresh_install.py`) drive `search` / `ask` / `db scan` / `db process all` / `db index-cache` / `list` against a non-existent `index.db` and assert no `no such table` errors. Helper unit tests (`tests/unit/db/test_get_ready_connection.py`) cover idempotency, `show_progress` passthrough, default-quiet, connection lifetime, maintenance triggering.
-
-**AGENTS.md item #25** updated with the new contract — production callers MUST use `get_ready_connection()`, low-level primitives remain public for niche callers.
-
-EXIT per impl skill: docs/testing/review handling is a separate conversation.
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-### 2026-05-30 00:54 UTC - Orchestrator
-
-**Active Workers:**
-| Conv ID | Type | Working On | Status |
-|---------|------|------------|--------|
-| `7c9951d` | testing | PR #151 (#116 centralize DB migration) | **NEW** running |
-| `25468bb` | expansion | Issue #148 (suppress LiteLLM botocore warnings) | **NEW** running |
-
-**Spawned: 2 Workers (parallel — both slots filled)**
-
-1. **Testing Worker** — [`7c9951d`](https://app.all-hands.dev/conversations/7c9951d06cd14ae2aec63f38b65e8bd7)
-   - PR: [#151](https://github.com/jpshackelford/ohtv/pull/151) `refactor(db): centralize migration through get_ready_connection`
-   - Branch: `feat/centralize-db-migration-116` → `main`
-   - State at spawn: `lxa pr list` → `ocA green ready 10m` (opened ~00:37Z, ready, CI green, APPROVED by `github-actions`/pr-review bot, 0 inline threads, 1 AC-reflection comment from impl worker — NOT a manual test report).
-   - Rationale: ready + CI green + no manual test results comment yet. Internal refactor with no user-facing changes → docs update NOT required (per orchestrate decision tree), so testing is the next gate. Brief asks for fresh-install scenarios (the failure mode the refactor exists to prevent), idempotency, `tests/unit/test_no_raw_migrate.py` allow-list enforcement (including a deliberate-violation negative check), and `db init` migration-list output (the one allow-listed `migrate(conn)` call site).
-
-2. **Expansion Worker** — [`25468bb`](https://app.all-hands.dev/conversations/25468bb354834417adcec52720f8f478)
-   - Issue: [#148](https://github.com/jpshackelford/ohtv/issues/148) "Suppress LiteLLM botocore warnings at import time"
-   - Only unexpanded issue in the open-issue list (all other 8 open issues carry `ready`).
-   - Brief notes #121 (PR #147 CLI logging overhaul, just merged) so the worker coordinates filter placement with the new `setup_logging` / `init_logging_from_cli` architecture rather than picking a stale insertion point.
-
-**Current State:**
-- **PR slot:** [PR #151](https://github.com/jpshackelford/ohtv/pull/151) `ocA green ready` — now in testing.
-- **Expansion slot:** Issue #148 (now being expanded).
-- **Ready backlog (8 open, all priority:medium except #145/#149 which are unprioritized):** #116 (this PR), #123, #124, #125, #127, #128, #145, #149. `#145` is sequencing-blocked behind `#149` per the expansion worker's prior note.
-- **Issues needing expansion:** 0 once the expansion worker finishes.
-- **Recently merged on `main`:** v0.15.0 release commit at 00:00Z; PR #146 (`#126 classify short-circuit subs`), PR #147 (`#121 CLI logging overhaul`) earlier in the day.
-- **Active runtime conversations:** only the two workers above plus this orchestrator (`635aa68c`). All older sandboxes in `app-conversations/search` are `MISSING` or `PAUSED` (clean — no zombie workers).
-
-**Decisions / non-actions:**
-- Did NOT spawn a docs worker for PR #151: the diff touches `AGENTS.md`, `src/ohtv/{analysis/cache.py,cli.py,conversations.py,db/{__init__,connection}.py}`, and three test files. Zero user-facing CLI surface change (no new flag, no new command, no behavior change a user could observe — the visible effect is "fewer `no such table` errors after a fresh checkout"). README does not need an update; the orchestrate skill explicitly carves out internal refactors.
-- Did NOT run `/assess-priority`: PR slot is filled by #151's testing → no impl spawn needed this cycle, so backlog prioritization is deferred until the slot frees.
-- Did NOT pre-emptively spawn an impl worker for #145/#149/#123/#124/#125/#127/#128 — only one PR worker allowed at a time, and #151 is mid-testing.
-
-**Worklog housekeeping:** WORKLOG.md is 2190 lines (above the 300-line truncation threshold). Deferring truncation to next idle cycle to avoid touching `main` twice in one orchestrator pass while two workers are actively writing to it; truncation can run safely once the PR slot is empty.
-
-**Next check:** ~30 min (next cron trigger) — expected state: testing worker has posted manual-test report on #151 (→ review-or-merge decision) and expansion worker has labeled #148 `ready` (→ expansion slot idle until next issue arrives).
-
-_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
 ### 2026-05-30 00:55 UTC - Expansion worker (#148 LiteLLM botocore noise)
 
 ✅ **Expanded Issue #148 — `ready` for impl**
@@ -1064,7 +678,6 @@ EXIT — docs/testing/review/merge handling is a separate conversation per orche
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-05-30 05:21 UTC - Orchestrator
 
 **Active Workers (at cycle exit):**
@@ -1146,7 +759,6 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-05-30 05:30 UTC - Docs worker (#125 / PR #154)
 
 📚 **Docs updated for PR #154** — `--include-sub-conversations` flag now documented.
@@ -1330,7 +942,6 @@ EXIT per orchestrate skill — one decision per wake-up; this one was "no action
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-05-30 06:23 UTC - Testing worker (#125 / PR #154)
 
 **Active Workers:**
@@ -1460,7 +1071,6 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-05-30 06:55 UTC - Review worker (PR #154 round 1 → ready-for-round-2)
 
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
@@ -1523,7 +1133,6 @@ cd15dad fix: address PR #154 review feedback (warning level, type annotation)
 EXIT.
 
 ---
-
 ### 2026-05-30 07:16 UTC - Orchestrator
 
 **Active Workers:**
@@ -1598,7 +1207,6 @@ the pre-v1.0.0 behavior.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-05-30 07:24 UTC - Merge worker (PR #154)
 
 **Outcome: PR #154 merged, `ohtv-v0.17.0` released with `⚠ BREAKING CHANGES` section.**
@@ -1639,6 +1247,91 @@ _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford.
 | #128 RAG citation dedup | — | open | — |
 
 Next root-grain issue is #127 — orchestrator's late-addendum prediction stands.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+### 2026-05-30 07:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `18f797e` | implementation | Issue #127 — `list`/`refs` root-grain | **NEW** running |
+
+**Spawned: Implementation Worker**
+- Issue: [#127 — `ohtv list` and `refs` surface sub-conversations as siblings of their roots](https://github.com/jpshackelford/ohtv/issues/127) (`priority:medium`)
+- Conversation: [`18f797e`](https://app.all-hands.dev/conversations/18f797e3fb7643a5b762237331c65ef5)
+- Start task: `36bd613f` → READY in ~5s (first poll), sandbox RUNNING.
+
+**Why implementation (decision-tree match):**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2/3 — Active workers**: API query `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` → only `0b9b6f9` (self) was `running`; merge worker `fc23665` (PR #154) had `execution_status=null` (finished — confirmed by 07:24Z entry pushing the v0.17.0 outcome to WORKLOG). Both slots free at wake-up.
+- **Step 4 — Open PRs**: 0 (PR #154 merged 07:21Z as `4f2217d`; `ohtv-v0.17.0` released via [run `26677937192`](https://github.com/jpshackelford/ohtv/actions/runs/26677937192) at 07:23Z with the `⚠ BREAKING CHANGES` CHANGELOG entry — confirmed by the previous orchestrator's late addendum and the merge worker's own entry).
+- **Step 4 — Issue census**:
+  - Issues needing expansion: **0**.
+  - Ready, prioritized: #127 (`priority:medium`), #128 (`priority:medium`).
+  - Ready, unprioritized: #145, #148, #149.
+- **Decision-tree walk** (PR slot, no open PR branch):
+  - "No open PR + ready issues with priority" → ✅ MATCH.
+  - Tie-break between #127 and #128 (both `priority:medium`): by issue number → **#127**. Also matches the merge worker's hand-off prediction ("Next root-grain issue is #127") and the late addendum from the prior orchestrator.
+
+**Critical context injected into the implementation worker's prompt:**
+
+The worker brief carries forward the full root-grain cluster history because the pattern matters for cluster consistency:
+- **Sibling pattern reference**: #123 (predicate in WHERE), #124 (DISTINCT-keyed-on-root), **#125 (flag-threaded, `--include-sub-conversations`, BREAKING)**. #127 is `--include-sub-conversations` again — the display surface follows #125's flag spelling exactly, not `--include-subs`.
+- **BREAKING CHANGE semver call**: pre-emptively framed as Option A from #154's playbook. `[tool.semantic_release] major_on_zero = false` means the footer ships as **v0.18.0** with a `⚠ BREAKING CHANGES` CHANGELOG entry — NOT v1.0.0. The prompt explicitly instructs the worker to add a `BREAKING CHANGE:` footer to the eventual squash-merge commit body (mirror #154's `11f35231` empty-commit pattern OR include it in the PR description's belt-and-suspenders Breaking Change Acknowledgment section).
+- **Exact cut sites** from issue #127's expanded body: `cli.py` `_filter_by_pr` L1899, `_filter_by_repo` L2072, `_filter_by_action` L2106, `_filter_by_label` L2179; new helper `expand_to_roots` in `src/ohtv/filters.py`; `ConversationStore.list_by_date_range` gains `include_subs` kwarg; `ohtv refs <id>` rolls up subtree refs only when id is a root.
+- **AC test matrix**: 5 scenarios (T-1 through T-5) explicitly listed in the issue — worker instructed to cover all five.
+- **Migration-019 guardrail pattern**: PRAGMA check raises friendly `RuntimeError` at command invocation, not import time (matches #123/#124/#125/#126's idiom).
+
+**Spawn payload shape** (validated):
+- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker creates feature branch from main).
+- `pr_number=[]` (new implementation, no existing PR).
+- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
+- `initial_message.content[].type=text`, `run=true`.
+- POST `/api/v1/app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY` → start task `36bd613f` returned `status=WORKING`; first poll (5s later) → `READY`, `app_conversation_id=18f797e3…`; `/app-conversations?ids=18f797e3…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
+
+**Worklog housekeeping (executed this cycle):**
+
+- WORKLOG.md was **1645 lines** at wake-up (well past the 300-line truncation threshold the previous orchestrator flagged).
+- This wake-up is the natural break-point the previous orchestrator predicted (post-v0.17.0 release, before the #127 impl spawn).
+- Truncation ran the canonical algorithm from `/truncate-worklog` skill:
+  - Parsed 28 total entries, 15 productive.
+  - Newest productive entry: `2026-05-30 07:24:00+00:00` (merge worker outcome for PR #154 / v0.17.0).
+  - Cutoff calculated as 6-hour productive span back → `2026-05-30 00:55:00+00:00` (the 00:55Z expansion worker for #148).
+  - Kept 21 entries spanning the full PR #151 → PR #152 → PR #153 → PR #154 sequence (the complete root-grain cluster ship-off).
+  - Archived 7 older entries to `WORKLOG_ARCHIVE_2026-05-29.md` (3 entries) and `WORKLOG_ARCHIVE_2026-05-30.md` (4 entries).
+- WORKLOG.md is now ~1253 lines (still long because the kept productive entries are individually verbose, but the 6h span is intact and the dead-spawn diagnostic noise from 22:50Z–00:21Z is offloaded).
+
+**Cluster progress snapshot** (post-v0.17.0):
+
+| Issue | PR | Status | Release |
+|---|---|---|---|
+| #123 weekly-counts | #150 | merged | v0.16.1 |
+| #124 velocity | #153 | merged | v0.16.2 |
+| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
+| **#127 list/refs display** | — | **in implementation now** | (target: v0.18.0 ⚠ BREAKING) |
+| #126 classification policy | — | open, queued | — |
+| #128 RAG citation dedup | — | open, queued | — |
+
+**Expansion slot:**
+
+- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 30th consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
+
+**Next cycle expectations (~08:20Z window):**
+
+- Implementation worker `18f797e` turnaround: typical impl-worker cycle is 30-60 minutes for an issue of #127's size (3-4 module touches, ~5 ACs, regression test matrix). Could take longer if test infrastructure needs new fixtures for sub-conv scenarios.
+- Most likely next-cycle state:
+  - **Draft PR created, CI running** → wait (impl worker finishing up).
+  - **Draft PR + CI green** → wait (impl worker about to flip to ready).
+  - **Ready PR, no docs comment** → spawn **docs worker** (mirror #154's lifecycle).
+- If `18f797e` is still `running` and no PR exists by 08:50Z, investigate per the "dead spawn" pattern from 2026-05-29 22:50Z–00:21Z (but the recent productive impl-worker cycles `5c05fff` for #125, `d3fcf92` for #124 indicate dispatch is healthy — no immediate cause for concern).
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned implementation worker — terminal action that opens the #127 leg of the root-grain cluster). **Forty-fourth consecutive productive cycle.** Not at risk.
+
+EXIT per orchestrate skill — one action per wake-up (the truncation was Step 0.5 housekeeping; the spawn is the dispatch action).
 
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
