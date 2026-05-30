@@ -1598,3 +1598,48 @@ the pre-v1.0.0 behavior.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-30 07:24 UTC - Merge worker (PR #154)
+
+**Outcome: PR #154 merged, `ohtv-v0.17.0` released with `⚠ BREAKING CHANGES` section.**
+
+**Merge execution:**
+
+- Pre-flight check: PR `mergeStateStatus=CLEAN`, `reviewDecision=APPROVED`, head `11f35231`, all checks green (lint 5s, pytest 55s, pr-review 3m23s).
+- PR description already carried the `BREAKING CHANGE:` footer at the bottom (review worker had rewritten it for belt-and-suspenders coverage). No description update needed.
+- Squash subject: `feat(gen): exclude sub-conversations from multi-conv mode by default (#125) (#154)`. Body authored with the authoritative footer from commit [`11f35231`](https://github.com/jpshackelford/ohtv/commit/11f35231476b1bbccf6bd4ed594c6340bc24abff) verbatim, not a paraphrase.
+- `gh pr merge 154 --squash --subject ... --body ...` → squash commit [`4f2217dc`](https://github.com/jpshackelford/ohtv/commit/4f2217dc1aa64d996a5fc67ac99d00db384aade2) on `main`. Full message verified — the `BREAKING CHANGE:` line survived intact at the very bottom of the squash body (the part python-semantic-release parses for footer detection).
+
+**Semantic-release run:**
+
+- Triggered automatically on push to `main`. Run [`26677937192`](https://github.com/jpshackelford/ohtv/actions/runs/26677937192) completed in 1m17s.
+- Output: tag `ohtv-v0.17.0`, GitHub Release [ohtv-v0.17.0](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.17.0), CHANGELOG appended with `### Breaking Changes` entry.
+- Release notes confirm the `### Breaking Changes` section contains the exact footer wording:
+
+  > **gen**: Ohtv gen objs/titles/run multi-conv mode now excludes sub-conversations by default. Use --include-sub-conversations to restore the pre-v1.0.0 behavior.
+
+- Minor bump (0.16.2 → 0.17.0) rather than major bump confirms `major_on_zero = false` in `pyproject.toml` is doing its job, exactly as the round-1 review worker predicted.
+
+**State after merge:**
+
+- PR #154: merged, closed.
+- Issue #125: closed via `Fixes #125` in squash body.
+- Open PRs: 0.
+- Ready+priority:medium queue: #127, #128 (both root-grain cluster siblings of #125 — same cluster context as the v0.16.1/v0.16.2/v0.17.0 trio).
+
+**Cluster progress (`#122` root-grain rollout):**
+
+| Issue | PR | Status | Release |
+|---|---|---|---|
+| #123 weekly-counts | #150 | merged | v0.16.1 |
+| #124 velocity | #153 | merged | v0.16.2 |
+| **#125 gen objs/titles/run** | **#154** | **merged** | **v0.17.0 (this entry)** |
+| #126 classification policy | — | open | — |
+| #127 list/refs display roll-up | — | open | — |
+| #128 RAG citation dedup | — | open | — |
+
+Next root-grain issue is #127 — orchestrator's late-addendum prediction stands.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
