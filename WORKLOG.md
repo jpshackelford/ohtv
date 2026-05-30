@@ -1523,3 +1523,78 @@ cd15dad fix: address PR #154 review feedback (warning level, type annotation)
 EXIT.
 
 ---
+
+### 2026-05-30 07:16 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7220b3d` | review | PR #154 — round 1 | finished ✓ (at 06:55Z) |
+| `fc23665` | merge | PR #154 — `feat(gen): exclude sub-conversations …` | **NEW** running |
+
+**Spawned: Merge Worker**
+- PR: [#154 — feat(gen): exclude sub-conversations from multi-conv mode by default (#125)](https://github.com/jpshackelford/ohtv/pull/154)
+- Conversation: [`fc23665`](https://app.all-hands.dev/conversations/fc23665bb2e341969eab8dbf8d78cc19)
+- Start task: `6245cb83` → READY in ~15s, sandbox RUNNING.
+
+**Why merge (decision-tree match):**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2/3 — Active workers**: Review worker `7220b3d` queried via `/app-conversations/search?selected_repository=jpshackelford/ohtv` filtered to `running` → only `f349efe` (self) returned. `7220b3d` is no longer running. Last entry from review worker at 06:55Z confirmed exit. Both slots free at wake-up.
+- **Step 4 — Open PRs**: 1 — PR #154 (`feat/gen-roots-only-125`).
+- **Step 4 — PR #154 status @ 07:16Z**:
+  - Not draft, `reviewDecision = APPROVED` (pr-review bot, ~06:59Z).
+  - `mergeStateStatus = CLEAN` (no conflicts, base up-to-date).
+  - CI on head `11f35231`: `lint=SUCCESS`, `pytest=SUCCESS`, `pr-review=SUCCESS`.
+  - Last 3 commits on branch: `7b37cec` (docs), `cd15dad` (review fixes), `11f35231` (BREAKING CHANGE empty footer).
+- **Decision-tree walk** (in order):
+  - "PR exists, draft" → ❌ (not draft).
+  - "PR ready, CI green, README not updated" → ❌ (docs commit `7b37cec` already updated README).
+  - "PR ready, CI green, docs updated, no manual test results" → ❌ (testing worker `e2f465f` posted 9-scenario report at 06:23Z, comment `#4581947363`).
+  - "PR ready, CI green, test results outdated" → ❌. Changes since last test: `cd15dad` (log.debug → log.warning in degraded-FS fallback — no CLI surface impact) + `11f35231` (empty `--allow-empty` commit, runtime no-op). Per review worker's explicit hand-off note: *"Re-testing: NOT required. (a) log.debug → log.warning (no behavior change at the CLI surface), (b) type-annotation deletion (no runtime effect)."* 9-scenario report stays current.
+  - "PR ready, CI green, test results valid, 💬 > 0" → ❌ (round-1 review threads were all resolved by review worker; `reviewDecision = APPROVED` now).
+  - "PR ready, test results valid, good rating, docs outdated" → ❌ (no `src/` changes since the docs commit affect documented behavior; README still describes the flag correctly).
+  - **"PR ready, test results valid, good rating, docs valid" → ✅ MATCH → Spawn merge worker.**
+
+**Critical context injected into the merge worker's prompt:**
+
+The merge worker MUST preserve the `BREAKING CHANGE:` footer (introduced by empty commit `11f35231`) in the squash-merge body. `pyproject.toml` pins `[tool.semantic_release] major_on_zero = false`, so the footer ships as **v0.17.0 with a ⚠ BREAKING CHANGES CHANGELOG entry — not v1.0.0**. The PR description was already rewritten by the round-1 review worker to reproduce the footer at the bottom for belt-and-suspenders coverage.
+
+The prompt also instructs the worker to:
+1. Read both the testing worker's report (`#4581947363`) and the review worker's semver-decision comment (`#4582012978`).
+2. Verify on `main` after merge that the `BREAKING CHANGE:` footer survived (`gh api repos/.../commits/main --jq '.commit.message'`).
+3. Watch `release.yml` workflow to confirm tag is `ohtv-v0.17.0` and release notes contain the `⚠ BREAKING CHANGES` section.
+4. Log the merge outcome to WORKLOG.md on main with a `chore(release):` or `chore(worklog):` prefix to avoid triggering a duplicate release run.
+
+**Expansion slot:**
+
+- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 29th consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
+- Ready issues queue: #149, #148, #145, #128 (priority:medium), #127 (priority:medium), #125 (priority:medium — being merged now). After #154 merges, #125 will close (`Fixes #125`) and the priority:medium queue becomes #127, #128. Both are part of the root-grain cluster, so the next implementation worker (post-merge) will pick from those.
+
+**Next cycle expectations (~07:46Z window):**
+
+- Merge worker `fc23665` turnaround: ~10-20 minutes (squash merge + verification + WORKLOG entry). Should be `finished` by next wake-up.
+- After merge: semantic-release runs on `main`, ~30s end-to-end, produces tag `ohtv-v0.17.0` + GitHub Release with `⚠ BREAKING CHANGES` section.
+- After `v0.17.0` ships:
+  - No open PR → check ready+priority queue → #127 or #128 (both priority:medium, tie-break by issue number → **#127**).
+  - Spawn implementation worker for #127 (`ohtv list` and `refs` surface sub-conversations as siblings of their roots).
+
+**Worklog housekeeping note:** WORKLOG.md is now 1525+ lines (well past the 300-line truncation threshold). The orchestrate skill recommends running `/truncate-worklog` when this happens. Deferred this cycle to keep one productive action (merge spawn) per wake-up; flagging for a future cycle (likely after `v0.17.0` ships and before the #127 impl worker spawns, since that's a natural break-point).
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned merge worker — terminal action that closes the PR #154 / Issue #125 leg of the root-grain cluster). **Forty-third consecutive productive cycle.** Not at risk.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+**Late addendum (~07:22Z, before this entry was pushed):** While the orchestrator was preparing this WORKLOG entry, the merge worker `fc23665` raced ahead and squash-merged PR #154 as commit [`4f2217d`](https://github.com/jpshackelford/ohtv/commit/4f2217dc1aa64d996a5fc67ac99d00db384aade2) on `main`. Verified the squash commit body retained the `BREAKING CHANGE:` footer:
+
+```
+BREAKING CHANGE: ohtv gen objs/titles/run multi-conv mode now excludes
+sub-conversations by default. Use --include-sub-conversations to restore
+the pre-v1.0.0 behavior.
+```
+
+`release.yml` workflow run `26677937192` is now `in_progress` on head `4f2217d` (started 07:21:25Z). Next orchestrator wake-up should see the new `ohtv-v0.17.0` tag + `⚠ BREAKING CHANGES` CHANGELOG entry, after which the merge worker will likely push its own outcome entry to WORKLOG. If the merge worker's own entry doesn't appear by the next cycle, the orchestrator should write a follow-up confirming the v0.17.0 release before spawning the #127 impl worker.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
