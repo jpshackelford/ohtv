@@ -1466,3 +1466,89 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-30 08:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e7f42f8` | testing | PR #155 — manual test pass | **NEW** running |
+
+**Spawned: Manual Testing Worker**
+- PR: [#155 — feat(list,refs): roots-only by default with subtree rollup (#127)](https://github.com/jpshackelford/ohtv/pull/155)
+- Conversation: [`e7f42f8`](https://app.all-hands.dev/conversations/e7f42f8f71df4ee0b663edf9f5e9ed53)
+- Start task: `d722427b` → READY in ~6s (first poll), sandbox `48QMbGz…` RUNNING, agent `execution_status=running`.
+
+**Why testing (decision-tree match):**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2/3 — Active workers**: API query `selected_repository=jpshackelford/ohtv&limit=20` → only this orchestrator (`7aab96f5`) is `running`. The docs worker `f7c21cab` (spawned 08:20Z) is now `execution_status=finished` with sandbox RUNNING-but-released. Both worker slots free at wake-up.
+- **Step 4 — Open PRs**: 1 — PR #155 (`oAFc green ready`, approved, mergeable, 41m old, 22m since last activity).
+- **Step 4 — Issue census**: 0 issues need expansion; ready/prioritized: #127 (in PR #155), #128. Ready/unprioritized: #145, #148, #149.
+- **PR #155 state probe** (`gh pr view 155` + `lxa pr list`):
+  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `reviewDecision=APPROVED`.
+  - CI: `lint=SUCCESS`, `pytest=SUCCESS` (`pr-review` ran and approved with 🟢 "Good taste" / 🟡 MEDIUM risk on the breaking-default-flip).
+  - Commits: `e3a0f912` (08:05Z feat impl) + `711d7f7b` (08:24Z docs commit).
+  - Comments (1): docs marker `## Documentation updated for PR #155` posted 08:25Z by the f7c21cab docs worker. **No `## Manual Test Results` comment.**
+  - Files changed (6): `src/ohtv/cli.py`, `src/ohtv/filters.py`, `tests/unit/test_cli_list_refs_subs.py`, `tests/unit/test_filters.py`, **`README.md`** (added by docs commit), **`docs/guides/exploration.md`** (added by docs commit).
+- **Decision-tree walk** (PR slot):
+  - "PR exists, ready, CI green, **docs updated, no manual test results**" → ✅ MATCH.
+  - Earlier branches eliminated: not draft, docs comment present (skip docs worker), no test comment yet (cannot skip to review or merge — "test what's documented" gate enforces ordering).
+
+**Critical context injected into the testing worker's prompt:**
+
+The brief mirrors the structure of the PR #154 / v0.17.0 testing-worker brief (now well-established) with #127-specific test matrix:
+
+- **AC matrix T-1 → T-5** (lifted verbatim from issue #127's expanded body): list roots-only default; `--include-sub-conversations` opt-out; refs multi-conv roots-only; refs `<root-id>` subtree rollup (union, dedup by URL); refs `<sub-id>` fall-through to single-conv path.
+- **Filter-routing scenario**: `ohtv list --pr <num>` and `--repo <name>` must return ONLY roots, even when subs contribute to the same PR/repo. This is the new `expand_to_roots` call site routed from `_filter_by_pr`/`_filter_by_repo`/`_filter_by_action`/`_filter_by_label` in `cli.py`.
+- **README example verification**: worker explicitly instructed to copy the new README examples from the PR diff and execute them verbatim, flagging any drift. This is the "test what's documented" principle in action.
+- **Unit-test sanity check**: `pytest tests/unit/test_cli_list_refs_subs.py tests/unit/test_filters.py -v` on the fresh checkout (beyond what CI already validated).
+- **Edge cases**: `--no-refs` compatibility, `-A` + new flag combination, missing-id error path, root with zero subs.
+- **Bug-discovery exit branch**: worker instructed NOT to commit fixes; if a bug is found, flag in the test report and EXIT — next orchestrator cycle will spawn a review-round worker.
+- **Hard guardrails**: read-only pass (no commits, no PR state changes), `@openhands-ai` authorship footer, single PR comment using the `## Manual Test Results — PR #155` header (so the next orchestrator's regex finds it cleanly).
+
+**Spawn payload shape** (validated):
+- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker `gh pr checkout 155`s the branch itself).
+- `pr_number=[155]` so the worker has PR context.
+- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
+- `initial_message.content[].type=text`, `run=true`.
+- POST `/api/v1/app-conversations` with `X-Session-API-Key: $OPENHANDS_API_KEY` → start task `d722427b` returned `status=WORKING`; first 6s poll → `READY`, `app_conversation_id=e7f42f8f…`; `/app-conversations?ids=e7f42f8f…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
+
+**Worklog housekeeping (deferred this cycle):**
+
+- WORKLOG.md was 1468 lines at wake-up (07:50Z orchestrator truncated 1645→1253; 08:20Z deferred; this cycle's spawn entry pushes back up).
+- Still inside the productive 6-hour window — every kept entry is part of the active PR #155 lifecycle (impl 07:50Z → docs 08:20Z → testing 08:50Z, all converging on the v0.18.0 ship).
+- Natural truncation point is **post-merge** (or post-review-round resolution) when the cluster-progress snapshot crystallizes. Deferring again to keep "one action per wake-up" discipline.
+
+**Cluster progress snapshot** (post-docs, pre-test):
+
+| Issue | PR | Status | Release |
+|---|---|---|---|
+| #123 weekly-counts | #150 | merged | v0.16.1 |
+| #124 velocity | #153 | merged | v0.16.2 |
+| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
+| **#127 list/refs display** | **#155** | **testing round in progress** | (target: v0.18.0 ⚠ BREAKING) |
+| #126 classification policy | — | open, queued | — |
+| #128 RAG citation dedup | — | open, queued | — |
+
+**Expansion slot:**
+
+- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 32nd consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
+
+**Next cycle expectations (~09:20Z window):**
+
+- Testing worker `e7f42f8` turnaround: testing cycles for a CLI display surface typically run 15-30 minutes (env setup + `ohtv sync` + matrix execution + report write-up). Plus this PR's matrix is broad (T-1 through T-5 + filter routing + README examples + edge cases), so could trend longer.
+- Most likely next-cycle state:
+  - **`## Manual Test Results — PR #155` comment posted, all green** → spawn **merge worker** (sibling pattern: PR #154's `fc23665b` merge worker took the v0.17.0 BREAKING ship to completion in one cycle).
+  - **Test report posted, issues found** → spawn **review-round worker** to address the regressions before merge.
+  - **No test comment yet, worker still `running`** → wait (testing typically takes 15-30 min; this would only be a concern past 09:50Z).
+  - **Worker `finished` but no comment posted** → investigate per the "dead spawn" pattern from 2026-05-29 22:50Z–00:21Z.
+- The eventual merge worker brief should mirror PR #154's: conventional commit subject `feat(list,refs)!: roots-only by default with subtree rollup` + `BREAKING CHANGE:` footer in body, squash-merge, semantic-release picks up the `!` → v0.18.0 + `⚠ BREAKING CHANGES` CHANGELOG section.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned testing worker — terminal action advancing PR #155 through the lifecycle). **Forty-sixth consecutive productive cycle.** Not at risk.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
