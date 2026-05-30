@@ -1188,3 +1188,89 @@ EXIT per docs-worker pattern — testing worker handles the next step.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 05:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e2f465f` | testing | PR #154 — `--include-sub-conversations` (#125) | **NEW** running |
+
+**Spawned: Testing Worker**
+- PR: [#154 — feat(gen): exclude sub-conversations from multi-conv mode by default (#125)](https://github.com/jpshackelford/ohtv/pull/154)
+- Branch: `feat/gen-roots-only-125`
+- Conversation: [`e2f465f`](https://app.all-hands.dev/conversations/e2f465f)
+- Start task id: `3a6e225b68964f059daba95d399e9dcf` → `WORKING` → conversation observed `running` within 30s
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+
+**State at wake-up:**
+
+- **Step 0/0.5 — Setup + housekeeping**: `gh` available via `GH_TOKEN=$github_token` shim (the spawn-skill examples assume `$OH_API_KEY` and bare `gh`; this conversation has `OPENHANDS_API_KEY` for spawn + `github_token` for gh — matches the prior cycle's working pattern). `lxa`/`ohtv` not installed this cycle — not needed (GH is the source of truth per skill, and the prior orchestrator's note flagged that local `ohtv` board is non-persistent across cron wake-ups). WORKLOG.md is at **1190 lines** — over the 300-line truncation threshold, but the **prior orchestrator (05:14Z entry) explicitly took the truncation pass this cycle** (`1723 → 1066`) and we're only `+124` lines on top. Deferring next truncation per the "first productive cycle after #153 merges, force-truncate regardless" trigger which already fired. **Next truncation candidate**: cycle after PR #154 merges, same trigger.
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2/3 — Active workers**: prior docs worker `eec0de5` queried → `finished` at 05:26Z. No other running conversations (the only `running` row in `/app-conversations/search` filtered to this repo was `9f42bd0` = self). Both slots free at wake-up.
+- **Step 4 — Open PRs**: 1 — PR #154 (`feat/gen-roots-only-125`).
+- **Step 4 — PR #154 status**:
+  - Not draft, `reviewDecision = CHANGES_REQUESTED` (pr-review bot, breaking-change concern from 05:15Z).
+  - CI: `lint=SUCCESS` (3s), `pytest=SUCCESS` — both passed on the latest `7b37cec` push (the docs commit).
+  - Head SHA `7b37cec`, last commit at 05:24:44Z.
+  - PR comments: 1 (the docs-update notification from `7b37cec`).
+  - PR reviews: 1 (the github-actions CHANGES_REQUESTED).
+  - **No manual test report yet** (searched comments for "Manual Test Results" — none).
+- **Step 4 — Issue census**:
+  - Issues needing expansion (no `ready`, no `hold`): **0**.
+  - Ready, prioritized: #125 (priority:medium, PR #154 in flight), #127 (priority:medium), #128 (priority:medium).
+  - Ready, unprioritized: #145, #148, #149 (the prior cycles flagged #148 as the candidate; #145/#149 are new-prompt-pipeline work that's queued behind the root-grain cluster).
+
+**Decision tree path:**
+
+- Expansion slot: 0 issues need expansion → **slot idle**, nothing to spawn.
+- PR slot: PR #154 → ready, CI green, **docs updated** (`7b37cec` + the docs-update comment from worker `eec0de5`), **no manual test results** → ***"Spawn testing worker"***. ✓ matched.
+- Decision-tree note: even though `reviewDecision = CHANGES_REQUESTED`, the skill explicitly states *"Even if this PR already has review comments, testing is still required. Testing gates the review process — reviewers need to see what was tested before approving."* — so testing comes before re-review.
+
+**Testing worker brief (key elements)**:
+
+The prompt cites the docs worker's 5-item verification checklist verbatim (WORKLOG entry 2026-05-30 05:30 UTC):
+1. `ohtv gen objs --week` (no flag) → excludes subs (matches `> Roots-only default` callout in `docs/guides/analysis.md`).
+2. `--include-sub-conversations` → includes subs (legacy / pre-#125 behavior).
+3. Same default / opt-in for `gen titles --week` + `gen run reports.weekly --last 4`.
+4. Single-conv `ohtv gen objs <id>` is **unaffected** (per README + analysis.md callout).
+5. `--help` for all 3 commands emits the verbatim help line `"Include sub-conversations created by agent delegation (default: roots only)"`.
+
+Also flagged as best-effort: migration-020 guard sanity (DB at < 020 should refuse `gen objs --week`; DB at ≥ 020 should not).
+
+Explicit non-goals for the worker:
+- **Not** addressing the breaking-change review thread (semver A vs B carry-forward from prior cycles is the review worker's call, see WORKLOG entries 03:32Z / 05:14Z).
+- **Not** running the review pass — testing only.
+
+**Spawn payload shape** (re-used from validated prior cycle):
+- `initial_message.content[].type=text`, `run=true`.
+- `selected_repository=jpshackelford/ohtv`, `selected_branch=feat/gen-roots-only-125`, `git_provider=github`.
+- `pr_number=[154]`.
+- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
+- POST returned `status=WORKING`, polled `/app-conversations/search?selected_repository=jpshackelford/ohtv` after 30s → `e2f465f execution_status=running` confirmed.
+
+**Sibling-contrast tracker** (unchanged from prior cycle):
+
+| # | Surface | Fix style | Status |
+|---|---|---|---|
+| #123 | `report weekly-counts` | predicate in `WHERE` | shipped `v0.16.1` |
+| #124 | `report velocity` | DISTINCT-keyed-on-root | shipped `v0.16.2` |
+| **#125** | `gen objs/titles/run` | flag-threaded predicate | **PR #154 in testing leg** |
+| #126 | `classify` policy | sub→`automation` short-circuit | (separate cluster) |
+| #127 | `list`/`refs` display | (roll-up UX) | not started |
+| #128 | RAG `ask`/`search` dedup | (`EmbeddingStore.search_conversations`) | not started |
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned testing worker, terminal action on PR #154). **Fortieth consecutive productive cycle.** Not at risk.
+
+**Next cycle expectations (~06:20-06:30Z window):**
+
+- Testing worker `e2f465f` typical turnaround for a testing leg with `uv sync` + checklist + pytest: **15-30 min**. Likely `finished` by next cycle (target ~06:05-06:20Z).
+- After test report comment posts, decision-tree row matched next cycle: ***"PR exists, ready, CI green, test results valid, 💬 > 0 → review worker"***. Review worker will face the **semver-classification choice (option A: bump to v1.0.0 as breaking; option B: opt-in flag rollout with `--exclude-sub-conversations` deprecation)** as carried forward from the pr-review bot's first review.
+- If testing surfaces a behavior gap that contradicts the docs (e.g., a `--help` text mismatch, or migration-020 guard not firing) → expect testing worker to post `❌` items in the report and the next orchestrator wake-up will need to dispatch an impl-fix worker before review. Per the docs worker's hand-off, the highest-risk item is the migration-020 guard (worker may have to skip if test harness can't reach a DB with both subs + at-migration-020 state).
+- **Expected release on merge**: per the prior orchestrator's note, the semver decision rides on the review worker's verdict — **v0.17.0** (option B) or **v1.0.0** (option A). `python-semantic-release` will execute that bump within ~30s of the squash-merge.
+- If testing worker's report is **all ✓** with no fix-required items → review worker becomes the immediate next dispatch, and the option A/B decision is the only blocker between here and merge.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
