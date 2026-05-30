@@ -656,3 +656,333 @@ def test_aggregate_velocity_report_metadata(conn: sqlite3.Connection) -> None:
     assert report.metadata["raw_row_count"] == 1
     assert report.metadata["bucket_count"] == 1
     assert report.metadata["missing_loc_total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Issue #124 — root-grain dedup regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_root_plus_sub_same_pr_excludes_sub_words(conn: sqlite3.Connection) -> None:
+    """T-B — root + sub both contribute to same merged PR in the same week.
+
+    Pre-#124 the DISTINCT sub-select keyed on conversation grain, so the
+    outer ``GROUP BY cr.id`` summed both the root's and the sub's
+    ``conversation_human_input`` rows. The sub's
+    ``initial_prompt_words=80`` was masked by the ``'automation'`` CASE
+    branch, but ``followup_word_count=200`` and
+    ``followup_message_count=4`` slipped through, inflating ``Words``
+    to 250 and ``Msgs`` to 5. Post-#124 the DISTINCT sub-select keys on
+    root grain so only the root's ``chi`` row is joined, giving the
+    expected ``Words=50`` / ``Msgs=1``.
+    """
+    repo_id = seed_repo(conn, canonical_url="https://github.com/x/y")
+    seed_conversation(conn, "root1")
+    seed_conversation(
+        conn,
+        "sub1",
+        parent_conversation_id="root1",
+        root_conversation_id="root1",
+    )
+    pr_id = seed_pr(
+        conn,
+        repo_id=repo_id,
+        pr_number=1,
+        merged_at="2024-03-05T12:00:00Z",
+        lines_added=100,
+        lines_removed=20,
+    )
+    seed_contribution(conn, conversation_id="root1", change_ref_id=pr_id)
+    seed_contribution(conn, conversation_id="sub1", change_ref_id=pr_id)
+    seed_human_input(
+        conn,
+        conversation_id="root1",
+        initial_prompt_words=50,
+        initial_prompt_source="human",
+    )
+    seed_human_input(
+        conn,
+        conversation_id="sub1",
+        initial_prompt_words=80,
+        initial_prompt_source="automation",
+        followup_word_count=200,
+        followup_message_count=4,
+    )
+
+    report = aggregate_velocity(conn=conn)
+
+    assert len(report.rows) == 1
+    row = report.rows[0]
+    # Words = root's only (50), NOT root + sub.followup_word_count (250).
+    assert row.human_words == 50
+    # Msgs = root's only (1), NOT root + sub.followup_message_count (5).
+    assert row.human_messages == 1
+    # LOC accounting is unchanged — the dedup is purely on the
+    # human-input join path.
+    assert row.lines_added == 100
+    assert row.lines_removed == 20
+    assert row.total_loc == 120
+    assert row.partial_loc is False
+    assert row.missing_loc_count == 0
+
+
+def test_root_plus_sub_cross_week_bucketed_by_merge(conn: sqlite3.Connection) -> None:
+    """T-C — root in week N, sub in week N+1, PR merged in week N+1.
+
+    Velocity buckets by ``merged_at`` (NOT by conversation
+    ``created_at``), so a sub created in a later week than the
+    root must NOT add a phantom second bucket. The single bucket
+    at week N+1 must hold the root's words exactly once.
+    """
+    repo_id = seed_repo(conn, canonical_url="https://github.com/x/y")
+    seed_conversation(conn, "root1")
+    seed_conversation(
+        conn,
+        "sub1",
+        parent_conversation_id="root1",
+        root_conversation_id="root1",
+    )
+    # Merged in 2024-W11 (the sub's "week"); root's words count once.
+    pr_id = seed_pr(
+        conn,
+        repo_id=repo_id,
+        pr_number=1,
+        merged_at="2024-03-12T12:00:00Z",  # ISO week 11 of 2024
+        lines_added=50,
+        lines_removed=10,
+    )
+    seed_contribution(conn, conversation_id="root1", change_ref_id=pr_id)
+    seed_contribution(conn, conversation_id="sub1", change_ref_id=pr_id)
+    seed_human_input(
+        conn,
+        conversation_id="root1",
+        initial_prompt_words=42,
+        initial_prompt_source="human",
+        followup_word_count=8,
+        followup_message_count=2,
+    )
+    seed_human_input(
+        conn,
+        conversation_id="sub1",
+        initial_prompt_words=300,
+        initial_prompt_source="automation",
+        followup_word_count=500,
+        followup_message_count=10,
+    )
+
+    report = aggregate_velocity(conn=conn)
+    assert [r.week for r in report.rows] == ["2024-W11"]
+    row = report.rows[0]
+    # Root only: 42 (initial) + 8 (followup).
+    assert row.human_words == 50
+    # Root only: 1 (initial) + 2 (followup).
+    assert row.human_messages == 3
+    # LOC unchanged.
+    assert row.lines_added == 50
+    assert row.lines_removed == 10
+
+
+def test_root_plus_sub_loc_accounting_unchanged(conn: sqlite3.Connection) -> None:
+    """T-D — LOC accounting (+Lines / -Lines / Total / partial_loc) is
+    unaffected by the root-grain dedup on the human-input join.
+
+    The fix is purely on the ``conversation_contributions`` ×
+    ``conversation_human_input`` join path. LOC is keyed off
+    ``change_refs`` and never touched the duplicated join, so we
+    explicitly assert it didn't move.
+    """
+    repo_id = seed_repo(conn, canonical_url="https://github.com/x/y")
+    seed_conversation(conn, "root1")
+    seed_conversation(
+        conn,
+        "sub1",
+        parent_conversation_id="root1",
+        root_conversation_id="root1",
+    )
+    # Two merged PRs in the same week: one with LOC populated, one
+    # with LOC NULL → partial_loc must be True regardless of the
+    # human-input join shape.
+    pr1 = seed_pr(
+        conn,
+        repo_id=repo_id,
+        pr_number=1,
+        merged_at="2024-03-05T12:00:00Z",
+        lines_added=150,
+        lines_removed=30,
+    )
+    pr2 = seed_pr(
+        conn,
+        repo_id=repo_id,
+        pr_number=2,
+        merged_at="2024-03-05T13:00:00Z",
+        lines_added=None,
+        lines_removed=None,
+    )
+    seed_contribution(conn, conversation_id="root1", change_ref_id=pr1)
+    seed_contribution(conn, conversation_id="sub1", change_ref_id=pr1)
+    seed_contribution(conn, conversation_id="root1", change_ref_id=pr2)
+    seed_human_input(
+        conn,
+        conversation_id="root1",
+        initial_prompt_words=10,
+        initial_prompt_source="human",
+    )
+    seed_human_input(
+        conn,
+        conversation_id="sub1",
+        initial_prompt_words=99,
+        initial_prompt_source="automation",
+        followup_word_count=99,
+        followup_message_count=9,
+    )
+
+    report = aggregate_velocity(conn=conn)
+    assert len(report.rows) == 1
+    row = report.rows[0]
+    # 2 merged PRs, only pr1 has LOC populated → partial_loc=True,
+    # missing_loc_count=1.
+    assert row.prs_merged == 2
+    assert row.lines_added == 150
+    assert row.lines_removed == 30
+    assert row.total_loc == 180
+    assert row.partial_loc is True
+    assert row.missing_loc_count == 1
+    # Sanity-check the words side too: root's input × 2 PRs (once
+    # per change_ref), sub excluded.
+    assert row.human_words == 20  # root counted on pr1 and pr2
+    assert row.human_messages == 2
+
+
+def test_two_deep_chain_excludes_both_subs(conn: sqlite3.Connection) -> None:
+    """T-E — root → sub1 → sub2 all contribute to same PR → root's words only.
+
+    Verifies N-level chains roll up correctly. Depth handling lives
+    entirely in #122's ``root_conversation_id`` denormalisation; the
+    velocity SQL just consumes the column.
+    """
+    repo_id = seed_repo(conn, canonical_url="https://github.com/x/y")
+    seed_conversation(conn, "root1")
+    seed_conversation(
+        conn,
+        "sub1",
+        parent_conversation_id="root1",
+        root_conversation_id="root1",
+    )
+    seed_conversation(
+        conn,
+        "sub2",
+        parent_conversation_id="sub1",
+        root_conversation_id="root1",
+    )
+    pr_id = seed_pr(
+        conn,
+        repo_id=repo_id,
+        pr_number=1,
+        merged_at="2024-03-05T12:00:00Z",
+        lines_added=200,
+        lines_removed=40,
+    )
+    seed_contribution(conn, conversation_id="root1", change_ref_id=pr_id)
+    seed_contribution(conn, conversation_id="sub1", change_ref_id=pr_id)
+    seed_contribution(conn, conversation_id="sub2", change_ref_id=pr_id)
+    seed_human_input(
+        conn,
+        conversation_id="root1",
+        initial_prompt_words=25,
+        initial_prompt_source="human",
+        followup_word_count=5,
+        followup_message_count=1,
+    )
+    seed_human_input(
+        conn,
+        conversation_id="sub1",
+        initial_prompt_words=100,
+        initial_prompt_source="automation",
+        followup_word_count=200,
+        followup_message_count=3,
+    )
+    seed_human_input(
+        conn,
+        conversation_id="sub2",
+        initial_prompt_words=100,
+        initial_prompt_source="automation",
+        followup_word_count=400,
+        followup_message_count=7,
+    )
+
+    report = aggregate_velocity(conn=conn)
+    row = report.rows[0]
+    # Root only: 25 + 5 = 30 words, 1 + 1 = 2 msgs.
+    assert row.human_words == 30
+    assert row.human_messages == 2
+    assert row.prs_merged == 1
+    assert row.lines_added == 200
+
+
+def test_sub_only_contribution_attributes_to_root(conn: sqlite3.Connection) -> None:
+    """Sub-only contribution path: only the sub appears in
+    ``conversation_contributions`` (the parent triggered the sub but
+    never pushed itself). Verify the root's words still attach to the
+    change_ref via the substituted join key.
+    """
+    repo_id = seed_repo(conn, canonical_url="https://github.com/x/y")
+    seed_conversation(conn, "root1")
+    seed_conversation(
+        conn,
+        "sub1",
+        parent_conversation_id="root1",
+        root_conversation_id="root1",
+    )
+    pr_id = seed_pr(
+        conn,
+        repo_id=repo_id,
+        pr_number=1,
+        merged_at="2024-03-05T12:00:00Z",
+        lines_added=80,
+        lines_removed=10,
+    )
+    # Only the sub contributes (e.g., the sub did the git push).
+    seed_contribution(conn, conversation_id="sub1", change_ref_id=pr_id)
+    seed_human_input(
+        conn,
+        conversation_id="root1",
+        initial_prompt_words=42,
+        initial_prompt_source="human",
+    )
+    seed_human_input(
+        conn,
+        conversation_id="sub1",
+        initial_prompt_words=999,
+        initial_prompt_source="automation",
+        followup_word_count=999,
+        followup_message_count=99,
+    )
+
+    report = aggregate_velocity(conn=conn)
+    row = report.rows[0]
+    # Sub's contribution gets mapped to the root, so the root's
+    # ``chi`` row is what the outer join picks up.
+    assert row.human_words == 42
+    assert row.human_messages == 1
+
+
+def test_missing_root_column_raises_clear_error() -> None:
+    """T-F — a schema without ``root_conversation_id`` is a hard error.
+
+    Silently falling back to the legacy conversation-grain SQL would
+    just reintroduce the over-count bug this issue fixes, so
+    :func:`fetch_raw_rows` explicitly checks for the column and
+    raises ``RuntimeError`` with an actionable message.
+    """
+    bare = sqlite3.connect(":memory:")
+    bare.row_factory = sqlite3.Row
+    # Minimal conversations table without ``root_conversation_id``.
+    bare.execute(
+        "CREATE TABLE conversations "
+        "(id TEXT PRIMARY KEY, created_at TEXT, source TEXT)"
+    )
+    try:
+        with pytest.raises(RuntimeError, match="migration 020"):
+            fetch_raw_rows(bare)
+    finally:
+        bare.close()
