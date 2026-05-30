@@ -1,6 +1,71 @@
 # CHANGELOG
 
 
+## v0.18.1 (2026-05-30)
+
+### Bug Fixes
+
+- **rag**: Cite root_conversation_id in ask/search results
+  ([#128](https://github.com/jpshackelford/ohtv/pull/128),
+  [`48e6f2a`](https://github.com/jpshackelford/ohtv/commit/48e6f2a12fb6985b21aa5c2fa432edba4242c942))
+
+Render-layer-only dedup of `ohtv ask` / `ohtv search` citations: the retrieval pipeline still
+  indexes at chunk grain (sub-conversation content is often the highest-signal evidence), but the
+  citation list shown to the user collapses sub-sourced chunks to their root via the migration-020
+  `root_conversation_id` column.
+
+- `ContextChunk` carries `root_conversation_id`; standalone convs use their own id as the root -
+  `RAGRetrievalResult.source_conversation_ids` and `RAGAnswer.source_conversation_ids` are sets of
+  root ids - `ohtv ask` Sources table renders root id/title with a `[via sub: <hex8>]` annotation
+  when the max-scoring chunk came from a sub - `ohtv search` table dedupes to one row per root with
+  MAX-score aggregation; rank/score/snippet reflect the max-scoring chunk - `--explain` /
+  `--explain-only` retrieval breakdowns show both grains (per-chunk conversation_id + rolled-up
+  root_conversation_id) - Runtime guardrail (`_assert_root_column_present`) at the entry of
+  `RAGRetriever.retrieve` / `RAGAnswerer.answer_question`; the error message cites migration 020
+  explicitly - `embedding_store.search` / `search_conversations` / `get_context_for_rag` are
+  intentionally unchanged — no rollup writes, the `embeddings` table is left alone (per the #122
+  cluster contract)
+
+Helper added: `map_to_roots(conn, ids: list[str]) -> dict[str, str]` in `src/ohtv/filters.py`
+  (list-shaped companion to #127's set-shaped `expand_to_roots`).
+
+No new flags. No new migration. `--include-sub-conversations` was intentionally rejected during
+  issue expansion — chunk-grain visibility stays available via `--show-context` and `--explain` /
+  `--explain-only`.
+
+Closes the #122 root-conversation-aggregation cluster: - #123 weekly-counts → PR #152 → v0.16.1 -
+  #124 velocity → PR #153 → v0.16.2 - #125 gen objs/titles/run → PR #154 → v0.17.0 (BREAKING) - #127
+  list/refs display → PR #155 → v0.18.0 (BREAKING) - #128 RAG ask/search dedup → PR #156 → v0.18.1
+  (this PR) - #126 classify policy (queued for next impl pick)
+
+Tests: 2163 passed, 2 skipped, 3 xfailed (113 new tests this PR).
+
+Fixes #128. PR: #156
+
+### Chores
+
+- **worklog**: Impl worker completed #128 (PR #156 ready for review)
+  ([`de0d74e`](https://github.com/jpshackelford/ohtv/commit/de0d74ed7b3c9c5dcf26a9999db749a77b5d005f))
+
+- **worklog**: Merge worker — PR #155 merged → ohtv-v0.18.0
+  ([`267fab2`](https://github.com/jpshackelford/ohtv/commit/267fab29ce8d327c7fe6d79540c5fbc3ce6394e2))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-05-30T10:48:00Z — spawned impl worker for #128
+  ([`0c0dc86`](https://github.com/jpshackelford/ohtv/commit/0c0dc86d75c9bd2e32bd750aadf323cbccb55c83))
+
+- **worklog**: Orchestrator 2026-05-30T11:18Z — spawn testing worker for PR #156
+  ([`ee8c436`](https://github.com/jpshackelford/ohtv/commit/ee8c436547d776b0086080f242ae5eb8f94cda71))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator cycle - spawn merge worker for PR #156
+  ([`e3123a3`](https://github.com/jpshackelford/ohtv/commit/e3123a374e9ecd24507b4697dd93347d486280af))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+
 ## v0.18.0 (2026-05-30)
 
 ### Chores
