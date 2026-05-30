@@ -1906,3 +1906,105 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 11:18 UTC - Orchestrator
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `398a8a5` | testing | PR #156 — RAG ask/search cite root_conversation_id (#128) | **NEW** running |
+
+**Spawned: Testing Worker for PR #156**
+- PR: [#156 — feat(rag): cite root_conversation_id in ask/search results (#128)](https://github.com/jpshackelford/ohtv/pull/156)
+- Issue: [#128](https://github.com/jpshackelford/ohtv/issues/128) (`priority:medium`)
+- Conversation: [`398a8a5`](https://app.all-hands.dev/conversations/398a8a5c3bab45cca866527d84ddb502)
+- Start task `8c94e262` → `READY` after ~15s (3 polls: `SETTING_UP_SKILLS` → `STARTING_CONVERSATION` → `READY`); sandbox `RUNNING`, agent `execution_status=running`.
+
+**Why testing for PR #156 (decision-tree walk):**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2/3 — Active workers**: Prior impl worker `517c1b1` for PR #156 = `execution_status=finished`, `sandbox_status=RUNNING` (terminal — opened PR #156 at 11:08:35Z, draft→ready transition, sandbox not yet reaped but conv done). All other recent worker conv IDs (`368701a`, `267fab2`, `f4efb86`, `c111e1d`, `8723ef4`, `c4b122f`, `e7f42f8`, `7aab96f`, `f7c21ca`, `5a19b24`, `18f797e`) = `PAUSED`/`MISSING` with `execution_status=null`. **PR slot CLEAR at cycle entry.**
+- **Step 4 — Open PRs**: PR #156 — `oA` history, CI green (lint pass / pytest pass / pr-review APPROVED 🟢 Good taste), 0 review threads (`💬 --`), no comments. Age 8m, last activity 2m ago.
+  - **Docs check**: diff is 7 files — `src/ohtv/analysis/rag.py`, `src/ohtv/cli.py`, `src/ohtv/filters.py` + 4 test files (~1900 net additions). **NO user-facing CLI surface change** — same `ohtv ask` / `ohtv search` commands, same flag surface (no `--include-sub-conversations` — explicitly rejected in PR body), same output schema (CSV/table) just with deduped IDs. Per orchestrate skill *"Do NOT require docs update if only: Bug fixes that don't change documented behavior"* — this fix makes citations match what users see in `ohtv list` and the cloud UI, no documented behavior changes. Docs update SKIPPED → straight to testing. **Same precedent as #152, #153, #154, #155** (all render-layer-only fixes that skipped docs).
+  - Decision-tree row matched: *"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker"*.
+- **Step 4 — Issue census**:
+  - Needs expansion (no `ready`, no `hold`): **0** — expansion slot stays IDLE. **Thirty-sixth consecutive idle expansion cycle.** Not at auto-disable risk because PR slot productive this cycle.
+  - Ready + prioritized: **#128** (in flight as PR #156).
+  - Ready + unprioritized: #145, #148, #149.
+  - On hold: (none queried — backlog has no `hold` labels among open issues this cycle).
+
+**Why testing now (cluster context — final cluster member in motion):**
+
+PR #156 is the **closing PR of the #122 root-conversation-aggregation cluster**. Per the PR body, this is a **non-breaking patch release** (target: `ohtv-v0.18.1`) because the retrieval contract, `embeddings` table, `min_score`/`max_chunks` semantics, and CLI surface are all unchanged. Cluster status:
+
+| Issue | PR | Status | Release |
+|---|---|---|---|
+| #122 (umbrella) | #138 | merged | (foundation) |
+| #123 weekly-counts | #150 | merged | v0.16.1 |
+| #124 velocity | #153 | merged | v0.16.2 |
+| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
+| #127 list/refs display | #155 | merged | v0.18.0 ⚠ BREAKING |
+| **#128 RAG citation dedup** | **#156 (testing in flight)** | **`398a8a5` testing** | **(target: v0.18.1 — NO BREAKING)** |
+| #126 classification policy | — | open, queued for impl after #156 lands | — |
+
+**Testing worker brief — seven scenarios baked in:**
+
+The spawn payload defines scenarios **A–G** mirroring the PR body's AC checklist (per `/manual-test` skill format):
+- **A.** Full unit-test suite (`uv run python -m pytest -q`) — baseline ~2050 tests from PR #155, expect green.
+- **B.** New-tests subset — every AC test class by name (`TestResultsToContextChunksRootPopulation`, `TestSourceConversationIdsAreRoots`, `TestDedupSearchResultsByRoot`, `TestFormatChunkHeader`, `TestDisplayRetrievalBreakdownBothGrains`, `TestAssertRootColumnPresent`).
+- **C.** `--help` smoke — verify NO new `--include-sub-conversations` flag on `ohtv ask`/`ohtv search` (this is an explicit non-AC; legitimate over-reach risk).
+- **D.** Runtime guardrail — drop `root_conversation_id` from a `:memory:` DB and confirm `_assert_root_column_present` raises `RuntimeError` with **migration 020** in the message (NOT 019 — the issue body originally cited 019, which is wrong; the impl had to correct it).
+- **E.** End-to-end with populated DB if available, else inline fixture from the test helpers — exercise `ohtv search`/`ohtv ask` with `--show-context`, `--explain`, `--explain-only`.
+- **F.** Closing AC verification — `git diff origin/main..HEAD -- src/ohtv/db/stores/embedding_store.py` must be **empty** (no retrieval-layer changes).
+- **G.** Score aggregation policy (MAX) code-level read — verify dedup walks pre-sorted score-desc input and keeps first-occurrence per root.
+
+Brief explicitly tells worker to use the `/manual-test` skill format and EXIT after posting the comment — no review/merge from the testing slot.
+
+**Spawn payload shape** (validated):
+- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker checks out PR #156 via `gh pr checkout 156`).
+- `pr_number=[156]` for PR context.
+- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
+- `initial_message.content[].type=text`, `run=true`. Prompt body = 7,879 chars; total payload = 9,095 bytes.
+- POST `/api/v1/app-conversations` with `X-Session-API-Key: $OPENHANDS_API_KEY` → start task `8c94e262` returned `status=WORKING`; 3rd poll (15s in) → `READY`, `app_conversation_id=398a8a5c…`; `/app-conversations?ids=398a8a5c…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
+
+**Sync notes:**
+- Container respawned this cycle. `uv pip install --system` failed with the read-only `/usr/local/lib/python3.13/site-packages` error (same as prior cycles — `frozenlist-1.8.0` couldn't install). Fallback to `uv venv .venv && uv pip install …` succeeded. Both `lxa` and `ohtv` resolved at `/workspace/project/ohtv/.venv/bin/`.
+- `lxa repo add jpshackelford/ohtv` was called (created "Unnamed Board 1" cosmetic side-effect, then "Added jpshackelford/ohtv" succeeded).
+- `gh auth status` required `export GH_TOKEN="$github_token"` bridge (same pattern as every container respawn — the cron-config-level fix is still pending).
+- `git pull origin main` → `Already up to date` (post-cluster-snapshot from cycle 10:48Z).
+- `ohtv sync --since …` skipped this cycle (not needed for the testing-spawn decision path; PR state was sourced via `gh pr list` + `lxa pr list` + `gh pr view`).
+
+**Worklog housekeeping:**
+- WORKLOG.md was 1908 lines at wake-up. The 6-hour productive-window truncation algorithm: all productive entries on the file (08:20Z docs spawn for #155, 08:50Z testing spawn, 10:20Z merge spawn, 10:25Z merge completion, 10:48Z impl spawn for #128) sit within the active push-to-merge cycle for the cluster; the oldest (08:20Z, ~3h ago) is not yet outside the 6-hour productive window measured from the most recent productive entry (11:18Z this cycle). Truncation deferred per the same one-cycle-per-action discipline used last cycle. Natural truncation point is **one cycle from now** if 11:18Z becomes the new most-recent productive entry and 08:20Z ages past 6h. If the testing worker completes and a merge worker spawns this same cycle window, the productive-entry density compresses further and truncation defers another cycle. **Recording for next cycle's housekeeping pass.**
+
+**Cluster progress snapshot** (post-impl, testing-in-flight on final cluster member):
+
+| Issue | PR | Status | Release |
+|---|---|---|---|
+| #123 weekly-counts | #150 | merged | v0.16.1 |
+| #124 velocity | #153 | merged | v0.16.2 |
+| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
+| #127 list/refs display | #155 | merged | v0.18.0 ⚠ BREAKING |
+| **#128 RAG citation dedup** | **#156 (testing `398a8a5`)** | **in flight** | **(target: v0.18.1)** |
+| #126 classification policy | — | open, queued (next impl pick after #156 lands) | — |
+
+After #156 lands, the only ready/prioritized issue remaining is #126 (classify policy); after that, the unprioritized backlog (#145, #148, #149) needs `/assess-priority` to graduate.
+
+**Expansion slot (next-cycle outlook):**
+- Backlog is 4 deep on `ready` (#126, #145, #148, #149). 0 issues need expansion. Slot stays IDLE — **36th + 1 = 37th consecutive idle expansion cycle** if next cycle still finds nothing to expand.
+- Auto-disable risk: **NONE this cycle** because the PR slot is productive (testing spawn is a terminal action advancing PR #156's lifecycle). The orchestrator's quiet-cycle counter resets every productive cycle.
+
+**Next cycle expectations (~11:48Z window):**
+- Testing worker `398a8a5` turnaround: ~12 min (per PR #152 precedent of 7 blackbox scenarios + ~2050-test unit suite + comment posting). Expected to be `finished` by next cycle entry.
+- Most likely next-cycle state:
+  - **PR #156 ready, CI green, manual test report posted (PASS), 0 threads** → spawn merge worker (the cluster's final merge — ships `ohtv-v0.18.1` as a non-breaking patch).
+  - **PR #156 ready, manual test report posted with ❌ on any scenario** → spawn review/fix worker (the manual-test failure becomes a review-feedback item; impl worker comes back to address).
+  - **Testing worker `finished` but no comment posted** → 2nd cluster dead-spawn after PR #155's 08:50Z testing dead-spawn (`e7f42f8`); investigate per same pattern.
+  - **Testing worker still running** → wait one more cycle.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned testing worker for PR #156 — terminal action advancing the final cluster member's lifecycle). **Fiftieth consecutive productive cycle.** Not at risk.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
