@@ -2,6 +2,25 @@
 
 ## Log
 
+### 2026-05-30 00:22 UTC - Expansion worker (#145)
+
+✅ **Expanded Issue #145** — "when gen objs promotes to full context, use is to generate key variants"
+
+- **Issue**: [#145](https://github.com/jpshackelford/ohtv/issues/145)
+- **Type**: Enhancement
+- **Status**: Ready for implementation (`ready` label applied)
+- **Approach**: Metadata-driven cache warming on auto-promotion. New `key_variant_on_promotion: bool` field in prompt frontmatter; `standard_assess.md` opts in. When `analyze_objectives` auto-promotes context (the `objectives.py:464-498` block for empty-transcript / worker conversations), after the primary analysis is cached, iterate over sibling prompts in the `objs` family flagged as key variants and generate + cache them at the promoted context level. Cache-hit short-circuit prevents redundant LLM calls; per-variant try/except prevents primary-result corruption.
+- **Sequencing flag**: should land AFTER #149 (5-level context expansion). #149 refactors the same promotion ladder this issue plugs into; building on top of pre-#149 code creates merge conflicts. Documented in the technical comment.
+- **Files explored**: `src/ohtv/analysis/objectives.py` (promotion block + LLM-call section), `src/ohtv/analysis/cache.py` (already supports multi-key writes via #129's `requested_key_kwargs`), `src/ohtv/prompts/metadata.py` + `parser.py` + `discovery.py` (frontmatter plumbing), `src/ohtv/prompts/objs/*.md` (6 variant prompt files), related #149 body for interaction.
+- **Body shape**: Problem Statement / Proposed Solution / Acceptance Criteria (10 items) / Out of Scope.
+- **Technical comment**: architecture, metadata field design, discovery helper, cache-hit detection, error isolation, cost accounting (primary-only contract preserved), 5-step impl plan, 9-row files-affected table, #149 interaction, 5 risk/edge cases.
+
+EXIT per skill step 7.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford as part of the expansion workflow._
+
+---
+
 ### 2026-05-29 20:10 UTC - Impl worker (#121 CLI logging overhaul)
 
 **Conv:** impl worker spawned after the v0.15.0 release at 19:38Z; priority bumped to `priority:high` by @jpshackelford at 19:46Z.
