@@ -1195,3 +1195,59 @@ _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford.
 EXIT per orchestrate skill — one action per wake-up.
 
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+### 2026-05-30 02:49 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID   | Type  | Working On                                                  | Status         |
+|-----------|-------|-------------------------------------------------------------|----------------|
+| `37e670a` | merge | PR #152 — weekly-counts root grain (#123)                   | **NEW** running |
+
+🚀 **Spawned: Merge Worker for PR #152**
+
+- **PR**: [#152](https://github.com/jpshackelford/ohtv/pull/152) — `fix(reports): aggregate weekly-counts at root grain (#123)`
+- **Conversation**: [`37e670a`](https://app.all-hands.dev/conversations/37e670a4c0bf495fae619a363e96922d) — `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 02:48:55Z (READY after ~10s; one-poll start task `88cc3806`).
+- **Plugin**: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+
+**Current State:**
+
+- [PR #152](https://github.com/jpshackelford/ohtv/pull/152): `oAc green ready` (lxa), 💬 0 review threads, age 53m
+  - **CI**: lint=SUCCESS, pytest=SUCCESS, pr-review=SUCCESS — all checks green at last commit `6828803` (01:55:41Z)
+  - **Review**: APPROVED by `github-actions` `pr-review` bot at 02:00:20Z
+  - **Mergeable**: `MERGEABLE` / `CLEAN`
+  - **Manual test results**: posted at 02:33:10Z by testing worker `06ac1e1` — **PASS** all 7 scenarios (A: subless baseline ✅, B: same-week root+2subs collapses to 1 ✅, C: cross-week sub + `--include-empty` ✅, D: 3-level chain ✅, E: real synced DB sanity ✅, F: pre-migration-020 RuntimeError ✅, G: CSV format stability ✅) + unit suite `2033 passed, 2 skipped, 3 xfailed`. Reviewer verdict: "Cleared to merge."
+  - **No commits after the test report** → not outdated; merge gate cleared.
+- **Issues**: 8 `ready` (#123 now PR #152, #124, #125, #127, #128, #145, #148, #149), 0 need expansion, 2 on `hold` (#26, #90).
+
+**Decision-tree trace:**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2 — Active workers**: testing worker `06ac1e1` for PR #152 = `finished` at 02:33:18Z (~12 min runtime — typical for 7 blackbox scenarios + 2050-test unit suite + comment posting). All other recent worker conv IDs (`e93754b`, `25468bb`, `7c9951d`) = `PAUSED` with `execution_status=null` — finished and reaped. **PR slot CLEAR at entry.**
+- **Expansion slot**: OPEN. `gh issue list … contains(["ready"]) or contains(["hold"]) | not` → empty. Slot stays **IDLE** — backlog is 8 deep on ready, nothing to expand. **24th consecutive idle expansion cycle** (matches recent pattern; not at risk of auto-disable because PR slot is productive).
+- **PR slot**: OPEN. PR #152 ready, CI green, manual tests PASS, 0 review threads, APPROVED.
+  - Decision-tree row matched: *"PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker"*.
+  - **Docs spot-check skipped**: zero commits between docs/testing landing and now (single-commit PR), and the diff has no user-facing CLI surface change (same command name, same flags, same CSV schema — verified in test G). The orchestrate skill: *"PR exists, ready, test results valid, good rating, docs outdated → docs spot-check"* — docs are NOT outdated because nothing relevant exists to update. Straight to merge.
+- **Re-test skipped**: last commit (01:55Z) predates last test (02:33Z) by 38 min. No commits since the test. Trivially current.
+
+**Merge worker brief** explicitly:
+- Uses conventional commit type `fix:` (patch bump per AGENTS.md release contract; will trigger `ohtv-vX.Y.(Z+1)` from current `ohtv-v0.16.0`).
+- References `Closes #123` in the squash body so GitHub auto-closes the issue on merge.
+- Watches the auto-release workflow + verifies the `chore(release): ohtv X.Y.Z [skip ci]` commit and new tag land within ~30-60s.
+- Updates WORKLOG.md with merge SHA + release tag.
+- Hard rule: DO NOT push to `main` directly (squash-merge is `gh pr merge`'s job); only the WORKLOG.md entry goes directly to `main`.
+
+**Worklog housekeeping**: WORKLOG.md was 1197 lines at cycle entry (above the 300-line threshold). NOT truncating this cycle — last truncation was 26 min ago (cycle at 02:20Z reduced 2342→1148; only +49 lines growth since). Will revisit on next idle cycle to avoid touching `main` twice in the same orchestrator cadence while a merge worker is actively writing to it.
+
+**Auto-disable counter**: **0 → 0.** Productive cycle (merge worker spawned). **Thirty-fourth consecutive productive cycle.** No risk.
+
+**Next cycle expectations** (~03:15-03:20Z window):
+- Merge worker `37e670a` likely `finished` with PR #152 merged at `ohtv-v0.16.1` (or higher if the release workflow batched). PR slot empty. Expansion slot still idle.
+- Decision tree → "No open PR + ready issues, no [high] priority → Run `/assess-priority` inline, then spawn impl worker." Candidates: #124, #125, #127, #128 (all `priority:medium` sub-conversation roll-up siblings of the just-merged #123). Tie-break: lowest issue number → #124 (`report velocity` double-counts human input when subs share a PR) is the natural next pick because it's the closest analogue to #123 (same `conversations_by_root` foundation, same per-week bucket grain, immediately leverages the testing-pattern just proven on #152).
+- If merge worker is still running, log "All quiet — merge in progress."
+- If something has gone wrong with the release workflow, diagnosis is in the merge worker's WORKLOG entry, not the next orchestrator pass.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
