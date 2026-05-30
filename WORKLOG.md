@@ -1658,3 +1658,66 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-30 05:12 UTC - Impl worker (#125 gen objs/titles/run root grain)
+
+🚧 **Opened PR #154** — `feat(gen): exclude sub-conversations from multi-conv mode by default (#125)`
+
+- **PR**: [#154](https://github.com/jpshackelford/ohtv/pull/154) — `feat/gen-roots-only-125` → `main`
+- **Issue**: [#125](https://github.com/jpshackelford/ohtv/issues/125) — `gen objs/titles/run` multi-conv mode treats sub-conversations as independent units of human intent
+- **CI status at hand-off**: ✅ lint=SUCCESS (3s), ✅ pytest=SUCCESS (53s), pr-review skipping while draft → will run on ready transition
+- **State**: marked **ready for review** at 05:12Z
+
+**Shape**: 7 files, +990 / -47. Threaded `include_sub_conversations: bool` (default `False`) through the existing pipeline rather than adding a mirror method — `ConversationStore.list_by_date_range(include_subs=False)` → `ohtv.conversations.get_conversations(include_subs=False)` → `cli._load_all_conversations(include_subs=False)` → `cli._apply_conversation_filters(include_sub_conversations=False)` → all three `gen` subcommands take a `--include-sub-conversations` Click flag. Docstrings updated. `list` and `refs` pass `include_sub_conversations=True` explicitly to preserve pre-#127 display behavior.
+
+**Implementation contract followed**: Option B from the expansion comment (flag-threaded), per gating-question answers. The DB predicate is `id = root_conversation_id` — the same shape #124 (velocity) uses, NOT a join through the `conversations_by_root` view (the gen pipeline doesn't need subtree quantitative roll-ups, only row selection). The migration-020 presence guard mirrors #123/#124's `RuntimeError("<command> requires migration 020; run 'ohtv db scan' to apply pending migrations")` template, fires only when `include_subs=False` is requested — so legacy `list`/`refs` callers passing `include_subs=True` bypass the guard cleanly.
+
+**Test coverage**: +24 new tests, 0 regressions. Full unit suite: **2063 passed, 2 skipped, 3 xfailed** (baseline @ `541b8d6` was 2039 + 24 = 2063).
+
+| Test file | Class | Tests |
+|---|---|---|
+| `tests/unit/db/stores/test_conversation_store.py` | `TestListByDateRangeIncludeSubs` | 8 |
+| `tests/unit/test_cli_gen.py` | `TestBatchModeSubConversations` | 6 |
+| `tests/unit/test_cli_gen_titles.py` | `TestGenTitlesSubConversations` | 5 |
+| `tests/unit/test_cli_gen_run.py` | `TestGenRunSubConversations` | 5 |
+
+**AC verification table:**
+
+| AC | Status | Notes |
+|---|---|---|
+| `gen objs/titles/run` default to roots only | ✅ | DB predicate + flag default |
+| `--include-sub-conversations` opts back in | ✅ | All 3 commands, identical help text |
+| Single-conv `gen objs <id>` unchanged | ✅ | Bypass at lines 8281–8292 untouched |
+| Filter pipeline threads flag end-to-end | ✅ | DB tests + CLI tests both verify |
+| Filesystem fallback honours flag | ✅ | `_get_conversations_from_db` + FS path symmetric |
+| Migration-020 guard mirrors #123/#124 | ✅ | `_assert_root_column_present_for_list("gen")` |
+| `list` / `refs` preserve pre-#127 behavior | ✅ | Explicit `include_sub_conversations=True` |
+| Cache keys unchanged | ✅ | Per gating-question #5 |
+| Help text advertises flag + default | ✅ | Tested on all 3 subcommands |
+| No `BREAKING CHANGE:` footer | ✅ | Default-correctness fix per cluster contract |
+
+**Cluster context for next orchestrator**:
+
+| PR | Issue | Status | Release |
+|---|---|---|---|
+| #150 | #123 weekly-counts | merged | v0.16.1 |
+| #153 | #124 velocity | merged | v0.16.2 |
+| **#154** | **#125 gen objs/titles/run** | **draft → ready 05:12Z** | **→ v0.17.0 (next minor, `feat:`)** |
+| TBD | #126 classification policy | PR #146 (separate cluster) | — |
+| TBD | #127 list/refs display roll-up | open | — |
+| TBD | #128 RAG citation dedup | open | — |
+
+**What the next orchestrator should look for**:
+
+1. **CI on the ready transition**: lint + pytest should re-run cleanly (passed once already on the draft). `pr-review` should now run.
+2. **Likely `pr-review` outcome**: this PR is shape-similar to #150 (which got `🟢 Good taste`) and #153 (which merged cleanly) — same cluster pattern (predicate guard + flag threading + ~25 tests). High confidence in a clean approval.
+3. **No human input needed**: no `needs-info` label set, no `## INSTRUCTION:` posted.
+4. **Test/merge flow**: standard `qa → review → merge` chain per the orchestrate decision tree. Once merged, semantic-release will bump to `ohtv-v0.17.0` (first `feat:` since v0.16.x's `fix:` series).
+5. **Docs**: this PR introduces a NEW CLI flag → matches the docs-worker trigger. README likely needs a `gen objs/titles/run` example update for the new flag. The expansion brief notes this. Plan: docs worker after `pr-review` approves.
+6. **Follow-on `_seed_two_weeks` caveat from PR #152's worklog**: this PR's tests already use `root_conversation_id = id` correctly (the `TestListByDateRangeIncludeSubs` fixtures upsert through `ConversationStore`, which resolves roots), so no migration-of-test-helpers debt is being created for #127/#128.
+
+EXIT — docs/testing/review/merge handling is a separate conversation per orchestrate skill.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
