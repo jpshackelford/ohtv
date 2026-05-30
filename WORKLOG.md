@@ -1838,3 +1838,76 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 17:18 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c9629a6` | testing (re-spawn) | PR #159 - gen objs key variant warming | **NEW** |
+
+**Spawned: Testing Worker (RE-SPAWN — prior worker ghosted)**
+- PR: [#159 — feat(gen-objs): warm key cache variants when context auto-promotes (#145)](https://github.com/jpshackelford/ohtv/pull/159)
+- Branch: `feat/gen-objs-key-variants-145`
+- Conversation: [`c9629a6`](https://app.all-hands.dev/conversations/c9629a6cc9364b20b5a604e36b084b7b) (`execution_status=running, sandbox=RUNNING` verified at spawn+8s)
+- Start task `dfbafa19` → READY in <5s (warm sandbox, no cold-start; fastest READY transition of the cluster — the polling loop caught it on the first 5-second tick).
+
+**Step 0 — Setup:** `/usr/local/lib/python3.13/site-packages` read-only — same pattern as the last several cycles. Used `uv tool install` (not `uv pip install --system`) to put `lxa` and `ohtv` in `~/.local/bin`. Both installed cleanly on first try. `lxa repo add jpshackelford/ohtv` created a fresh unnamed board (cosmetic). Skipped `ohtv sync` — same hanging-on-`--quiet` pattern as the 16:18Z and 16:48Z cycles; direct `gh` + `/app-conversations/search` queries covered all inputs.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md was 1,840 lines at wake-up. Growth since 13:48Z truncation: 1,287 → 1,840 = +553 over ~3.5h / 7 cycles (~79 lines/cycle, holding steady at the previously-forecast rate). Still below the ~2,000-line truncation target. Last archive `WORKLOG_ARCHIVE_2026-05-30.md` untouched.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`grep -c "^## INSTRUCTION:" WORKLOG.md` → 0).
+
+**Step 2/3 — Active workers at cycle entry:**
+- `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=8` snapshot:
+  - **The 16:48Z testing worker `37e6b4a2ca50468b8f79642ac45bffef` GHOSTED.** `execution_status=null, sandbox=PAUSED, last_updated_at=16:50:05.148Z`. Spawn was at ~16:48:30Z, so the worker lived **~95 seconds** before pausing. Last cycle's expectation envelope assumed a 15-30 min testing run; this is ~10× faster than the floor, with **zero** PR comments posted and **zero** test report. Confirmed via `gh pr view 159 --json comments,reviews` — `comments: []`, the only review is the auto-`pr-review` APPROVE from before the spawn.
+  - **Diagnosis:** Standard ghost-spawn pattern — sandbox started, plugin loaded, initial message delivered, but the agent never engaged with the prompt and got idled out. Cluster ghost rate has crept up: 2/6 cluster cycles → now 3/7. Worth flagging but not yet at the threshold for human escalation (we're not yet seeing back-to-back ghosts of the same PR).
+  - Impl worker `c1d4764` (from 16:18Z spawn): `execution_status=null, sandbox=PAUSED, updated_at=16:35:07Z` — **completed cleanly** (PR #159 opened, CI green, ready, approved). Total elapsed: spawn 16:18Z → finish 16:35Z = ~17 min. Confirms last cycle's "fastest of the cluster" note.
+  - Both worker slots **CLEAR at cycle entry**.
+
+**Step 4 — State gather:**
+
+- **Open PRs**: **1** (`#159`). `lxa pr list "jpshackelford/ohtv#159"` → `oA  green  ready  --  46m  41m ago`. Unchanged from 16:48Z snapshot. `gh pr view 159 --json`: `reviewDecision=APPROVED, mergeable=MERGEABLE, mergeStateStatus=CLEAN, isDraft=false`. PR comment count: **0**. Review count: 1 (the auto-APPROVE from `pr-review`).
+- **Issue census** (unchanged from 16:48Z): needs-expansion **0** (47th idle cycle); ready+prioritized **#145 only** (`priority:low`); on hold #90, #26. Total open: 3.
+
+**Step 5 — Decision-tree row matched:** *"PR exists, ready, CI green, docs updated [N/A — short-circuit applies per 16:48Z], no manual test results → Spawn testing worker"*.
+
+- Same decision as 16:48Z — the previous spawn ghosted, the gating condition is unchanged. **Re-spawn.**
+- Docs short-circuit re-confirmed: 8 files in the PR diff, **0 user-facing surfaces** (no CLI flag, no env-var, no output-format change, no new command, no changed default; `key_variants` is an internal opt-in prompt frontmatter field that's backward-compatible — prompts without it still load). Falls under the orchestrate skill's "performance / cache warming" exemption (item 4 in the docs-not-required list). README update not required.
+
+**Step 6 — Spawn dispatch:** ✅ Testing worker spawned (PR slot).
+
+**Spawn payload differences vs. the 16:48Z attempt:**
+- **Same** 8-step structure (clone → diff → ACs → unit tests → 6 blackbox A–F → targeted re-run → structured comment → exit).
+- **Same** docs/AC mapping: A=frontmatter compat, B=opportunistic warming on promotion, C=cache-hit skip ($0 evidence), D=per-variant failure isolation (AC #7, skippable), E=primary-only cost (AC #6), F=no-promotion regression guard.
+- **Same** hard rules: read-only QA, no draft-state flips, no `gh pr merge`, partial report if setup blocks.
+- **NEW guardrail** vs. last spawn: explicit anti-ghost instruction in the prompt body — "If you find yourself near 2-3 min mark with nothing posted, post a status comment to PR #159 noting the issue before exiting." This gives us at least a paper trail if the agent ghosts again, instead of a silent disappearance.
+- **NEW context** in the prompt: explicit note that `37e6b4a` ghosted and that the agent should start from clone (don't assume any prior work).
+
+**Start task progression:** Spawn `dfbafa19` → READY on the **first** 5-second poll tick (i.e., somewhere in [0, 5]s — faster than any prior cluster spawn) → `app_conversation_id=c9629a6cc9364b20b5a604e36b084b7b`. Verified at spawn+8s: `execution_status=running, sandbox_status=RUNNING`. Worker is engaged.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned testing worker — required gate before merge). **Fifty-eighth consecutive productive cycle.** Not at risk.
+
+**Next cycle expectations (~17:48Z window):**
+- Testing worker `c9629a6` turnaround: nominal 15-30 min (matches the schema). Anti-ghost guardrail means a fast exit ≤3 min should still leave a PR comment to investigate. Plausible states at next cycle:
+  - **Most likely (~50%)**: Worker finished, structured `## Manual Test Results — PR #159` posted, ratings green. Decision-tree row: *"test results valid, good rating, docs valid → Spawn merge worker"* — straight to merge.
+  - **Likely (~25%)**: Worker still in flight at 17:48Z (especially if blackbox B/D pulls them into a deeper warming-cache investigation; the cache directory under `~/.ohtv/cache/analysis/` is the empirical-evidence surface, requires running an actual `gen objs` against a real conversation). Wait cycle, counter stays at 0.
+  - **Less likely (~15%)**: Second ghost. Anti-ghost guardrail might surface a status comment; if not, the cluster ghost rate hits 4/8 and we should consider posting a human-escalation note next cycle.
+  - **Edge (~10%)**: Blackbox tests surface a real bug → spawn review worker (PR back to draft).
+
+**Cluster ghost-rate watch:**
+- Cluster cycles (last 8): impl/merge/test/test workers spawned. Ghosts: `8fdb161`, `3e0b25a`, `37e6b4a`. Rate: **3/8 = 37.5%**. Trend slightly worsening (was 2/6 last cycle). Not yet at human-escalation threshold (would be ≥50% over a fresh 4-cycle window).
+- All three ghosts share a pattern: <2 min lifetime, `execution_status=null, sandbox=PAUSED`, no PR/issue side-effects. Consistent with sandbox-side init failure or initial-message delivery hiccup; the START_TASK reaches READY fine, but the agent loop never starts.
+
+**Backlog forecast post-#159 merge** (unchanged from 16:48Z):
+- #159 ships → semantic-release picks `feat(gen-objs):` → **minor bump → `ohtv-v0.20.0`** (sixth release in the cluster).
+- After #145/#159 ships: prioritized backlog **EMPTY**. Auto-disable counter starts accruing on the next quiet cycle.
+
+**Sync notes:**
+- `gh pr list` clean except for #159. `gh issue list` shows only #145 ready/prioritized.
+- Did NOT run `ohtv sync` this cycle. Same hanging-on-`--quiet` pattern; direct API queries sufficed.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
