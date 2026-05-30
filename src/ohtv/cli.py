@@ -2918,16 +2918,19 @@ def search(
         start_time = time.perf_counter()
         
         if exact:
-            # FTS5 keyword search
-            raw_results = embed_store.search_fts(query, limit=limit)
-            # Convert to have consistent interface
+            # FTS5 keyword search.
+            # Issue #128: over-fetch so the root-dedup below has
+            # headroom (same rationale as the semantic path).
+            raw_results = embed_store.search_fts(query, limit=limit * 3)
+            # Convert to a mutable-attr surface so the dedup helper
+            # can rewrite ``conversation_id`` and ``rank`` in place.
             results = [
-                type("Result", (), {
-                    "conversation_id": r.conversation_id,
-                    "score": r.score,
-                    "rank": r.rank,
-                    "best_match_type": "keyword",
-                })()
+                _SearchResultRow(
+                    conversation_id=r.conversation_id,
+                    score=r.score,
+                    rank=r.rank,
+                    best_match_type="keyword",
+                )
                 for r in raw_results
             ]
             search_type = "keyword"
@@ -2942,16 +2945,19 @@ def search(
                 console.print("[dim]Make sure LLM_API_KEY is set.[/dim]")
                 raise SystemExit(1)
             
-            # Use aggregated search (best match per conversation)
+            # Use aggregated search (best match per conversation).
+            # Issue #128: over-fetch so the post-aggregation root-dedup
+            # below has headroom to collapse subtree siblings while
+            # still hitting the requested ``limit`` after dedup.
             results = embed_store.search_conversations(
                 query_embedding,
-                limit=limit,
+                limit=limit * 3,
                 min_score=min_score,
             )
             search_type = "semantic"
-        
+
         search_time = time.perf_counter() - start_time
-        
+
         # Filter by date if specified
         if since_date:
             since = _parse_date_option(since_date)
@@ -2962,8 +2968,19 @@ def search(
                     if conv and conv.created_at and conv.created_at >= since:
                         filtered_results.append(r)
                 results = filtered_results
-        
-        # Load conversation metadata for display
+
+        # Issue #128: dedup the ranked result list by root_conversation_id
+        # so users see one row per user-intent unit, not per
+        # delegated sub. Score / source-text are the MAX-scoring
+        # chunk's (preserved by walking the pre-sorted list and
+        # keeping first occurrence per root). Displayed ID + title are
+        # rewritten to the root's via ``conv_store.get(root_id)``.
+        results = _dedup_search_results_by_root(results, conv_store, limit)
+
+        # Load conversation metadata for display.
+        # After dedup, results' ``conversation_id`` is already the root id
+        # (rewritten by ``_dedup_search_results_by_root``), so this lookup
+        # surfaces the root's title and date.
         conv_metadata = {}
         for r in results:
             conv = conv_store.get(r.conversation_id)
@@ -2974,6 +2991,71 @@ def search(
             _print_search_json(results, conv_metadata, search_time, search_type)
         else:
             _print_search_results(results, conv_metadata, search_time, search_type, query)
+
+
+@dataclass
+class _SearchResultRow:
+    """Mutable surface for a single ``ohtv search`` row.
+
+    Issue #128: the FTS5 path previously produced anonymous ``type(...)``
+    instances; the new root-dedup helper needs to rewrite
+    ``conversation_id`` (sub → root) and ``rank`` (after collapse), so
+    we use a proper dataclass for both paths.
+    """
+    conversation_id: str
+    score: float
+    rank: int
+    best_match_type: str
+    best_match_chunk: int = 0
+    source_text: str | None = None
+
+
+def _dedup_search_results_by_root(
+    results: list,
+    conv_store,
+    limit: int,
+) -> list:
+    """Collapse a ranked search-result list to one entry per root.
+
+    Issue #128: the embeddings table is keyed by ``conversation_id``,
+    so ``search_conversations`` / ``search_fts`` return rows that may
+    point at delegated sub-conversations the user doesn't recognize.
+    This helper walks the **pre-sorted** input (score desc), keeps the
+    first occurrence per root (which is the max-scoring chunk in that
+    subtree, by the input ordering — the explicit MAX-aggregation
+    policy from the issue body), rewrites the displayed ``conversation_id``
+    to the root id, re-numbers ``rank`` from 1, and truncates to
+    ``limit``.
+
+    Standalone conversations pass through unchanged (their root_id ==
+    their id). Unknown IDs (FS-only fallback) pass through too.
+
+    The mutation strategy avoids requiring a specific result type —
+    duck typing on ``.conversation_id`` / ``.rank`` is enough.
+    """
+    if not results:
+        return results
+    from ohtv.filters import map_to_roots
+    ids = [r.conversation_id for r in results]
+    root_map = map_to_roots(conv_store.conn, ids)
+    deduped = []
+    seen_roots: set[str] = set()
+    for r in results:
+        root_id = root_map.get(r.conversation_id, r.conversation_id)
+        if root_id in seen_roots:
+            continue
+        seen_roots.add(root_id)
+        # Rewrite the displayed id to the root so downstream rendering
+        # surfaces a familiar id. The snippet / score / best_match_type
+        # stay at the max-scoring chunk's values (MAX policy).
+        r.conversation_id = root_id
+        deduped.append(r)
+        if len(deduped) >= limit:
+            break
+    # Re-number ranks 1..N after collapse.
+    for i, r in enumerate(deduped, 1):
+        r.rank = i
+    return deduped
 
 
 def _format_time_ago(dt: datetime) -> str:
@@ -3101,11 +3183,27 @@ def _display_retrieval_breakdown(
         else:
             return f"[dim]📅 {label}: until {end.strftime('%Y-%m-%d')}[/dim]"
 
-    # Count unique conversations
+    # Issue #128: report both grains side-by-side. ``len(conv_ids)`` is
+    # the chunk-grain unique-conversation count (matches the breakdown
+    # rows below); ``len(root_ids)`` is the rolled-up citation count
+    # the user actually sees in ``ohtv ask``'s Sources table.
     conv_ids = {c.conversation_id for c in chunks}
+    root_ids = {
+        getattr(c, "root_conversation_id", c.conversation_id) for c in chunks
+    }
 
     console.print(f"\n[bold]Query:[/bold] {question}")
-    console.print(f"[dim]Retrieved {len(chunks)} chunks from {len(conv_ids)} conversations[/dim]")
+    if len(root_ids) != len(conv_ids):
+        # At least one chunk came from a delegated sub — surface both
+        # grains so the rolled-up citation count is auditable.
+        console.print(
+            f"[dim]Retrieved {len(chunks)} chunks from {len(conv_ids)} conversations "
+            f"({len(root_ids)} roots)[/dim]"
+        )
+    else:
+        console.print(
+            f"[dim]Retrieved {len(chunks)} chunks from {len(conv_ids)} conversations[/dim]"
+        )
 
     # Show temporal filter info
     if temporal_applied and date_range:
@@ -3119,7 +3217,12 @@ def _display_retrieval_breakdown(
 
     console.print()
 
-    # Group chunks by conversation_id, then by embed_type
+    # Group chunks by conversation_id, then by embed_type.
+    # Issue #128: grouping STAYS at chunk grain (conversation_id, not
+    # root_conversation_id) — that's the whole point of ``--explain``:
+    # show chunk-level truth for debugging. The root annotation is
+    # added per-conv header below when a chunk's root differs from
+    # its own id.
     conv_chunks: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
     conv_metadata: dict[str, dict] = {}
 
@@ -3133,6 +3236,7 @@ def _display_retrieval_breakdown(
                 "title": chunk.title,
                 "created_at": chunk.created_at,
                 "summary": chunk.summary,
+                "root_id": getattr(chunk, "root_conversation_id", conv_id),
             }
 
     # Sort conversations by max score (highest first)
@@ -3161,7 +3265,22 @@ def _display_retrieval_breakdown(
         if len(title) > max_title_len:
             title = title[:max_title_len-3] + "..."
 
-        console.print(f"[cyan]{conv_id_short}[/cyan] ({date_str}) [dim]\"{title}\"[/dim]")
+        # Issue #128: when the chunk came from a delegated sub, surface
+        # both grains — the chunk-level ``conversation_id`` (for
+        # debugging) AND the rolled-up ``root_conversation_id`` (the
+        # citation target the user will see in ``ohtv ask``).
+        root_id = metadata.get("root_id") or conv_id
+        if root_id != conv_id:
+            root_id_short = root_id.replace("-", "")[:8]
+            console.print(
+                f"[cyan]{conv_id_short}[/cyan] "
+                f"(root: [cyan]{root_id_short}[/cyan]) "
+                f"({date_str}) [dim]\"{title}\"[/dim]"
+            )
+        else:
+            console.print(
+                f"[cyan]{conv_id_short}[/cyan] ({date_str}) [dim]\"{title}\"[/dim]"
+            )
 
         # Show breakdown by embed type
         types_by_conv = conv_chunks[conv_id]
@@ -3487,28 +3606,83 @@ def ask(
         console.print(f"\n[dim]─────────────────────────────────────────────────[/dim]")
         console.print(f"[bold]Sources ({len(result.source_conversation_ids)} conversations):[/bold]")
         
-        # Group chunks by conversation and count them
+        # Issue #128: group chunks by **root** id so the Sources table
+        # shows one citation per user-intent unit. Chunks from delegated
+        # sub-conversations roll up to their root; the displayed ID,
+        # title, date, and cloud URL come from the root via
+        # ``conv_store.get(root_id)``. A ``[via sub: <hex8>]`` annotation
+        # is appended below when at least one chunk in the group came
+        # from a sub, preserving chunk-grain visibility.
         conv_chunks: dict[str, list] = {}
         for chunk in result.context_chunks:
-            if chunk.conversation_id not in conv_chunks:
-                conv_chunks[chunk.conversation_id] = []
-            conv_chunks[chunk.conversation_id].append(chunk)
-        
+            root_id = chunk.root_conversation_id
+            if root_id not in conv_chunks:
+                conv_chunks[root_id] = []
+            conv_chunks[root_id].append(chunk)
+
         # Build source info list and sort by date (newest first)
         source_infos = []
-        for conv_id, chunks in conv_chunks.items():
-            first_chunk = chunks[0]
+        for root_id, chunks in conv_chunks.items():
             scores = [c.score for c in chunks]
+            # Resolve display metadata from the **root** (not the
+            # first chunk's sub conv) so users see a familiar title
+            # and the cloud URL points at the root they'd find in
+            # ``ohtv list`` / the cloud UI.
+            root_conv = conv_store.get(root_id)
+            if root_conv:
+                created_at = root_conv.created_at
+                summary = root_conv.summary
+                conv_source = root_conv.source or "local"
+            else:
+                # Fall back to the first chunk's metadata if the root
+                # row is missing (shouldn't happen post-migration 020,
+                # but be defensive).
+                first_chunk = chunks[0]
+                created_at = first_chunk.created_at
+                summary = first_chunk.summary
+                conv_source = first_chunk.conv_source
+
+            # The cloud URL is per-conv; build it for the root so the
+            # citation points at the user-facing unit (sub URLs are not
+            # what the user copy-pastes from ``ohtv list``).
+            from ohtv.analysis.rag import _get_cloud_url
+            cloud_url = _get_cloud_url(cloud_base_url, root_id)
+            # Re-evaluate cloud-URL validity at the root grain using
+            # the existing 14-day retention check on
+            # ``ConversationSource``.
+            display_url = None
+            if conv_source == "cloud" and created_at:
+                from ohtv.analysis.rag import ConversationSource
+                root_source = ConversationSource(
+                    conversation_id=root_id,
+                    title=root_conv.title if root_conv else "",
+                    source="cloud",
+                    cloud_url=cloud_url,
+                    created_at=created_at,
+                )
+                if root_source.is_cloud_url_valid():
+                    display_url = cloud_url
+
+            # Issue #128: collect the sub-id 8-char prefixes that
+            # contributed to this root. Only annotate when at least one
+            # chunk was from a sub (root_id != chunk.conversation_id).
+            via_sub_ids = sorted({
+                c.conversation_id[:8]
+                for c in chunks
+                if c.conversation_id != root_id
+            })
+
             source_infos.append({
-                "conv_id": conv_id,
-                "created_at": first_chunk.created_at,
-                "summary": first_chunk.summary,
-                "cloud_url": first_chunk.cloud_url if first_chunk.conv_source == "cloud" else None,
-                "display_url": first_chunk.display_url,
-                "conv_source": first_chunk.conv_source,
+                "conv_id": root_id,
+                "created_at": created_at,
+                "summary": summary,
+                "cloud_url": cloud_url if conv_source == "cloud" else None,
+                "display_url": display_url,
+                "conv_source": conv_source,
                 "chunk_count": len(chunks),
                 "score_min": min(scores),
                 "score_max": max(scores),
+                "via_sub_ids": via_sub_ids,
             })
         
         # Sort by date descending (newest first), None dates at the end
@@ -3552,6 +3726,20 @@ def ask(
                 summary_parts.append(info["summary"])
             else:
                 summary_parts.append("[dim]—[/dim]")
+            # Issue #128: when delegated sub-conversations contributed
+            # chunks to this root, annotate so the user knows the
+            # citation rolled up agent-delegated work.
+            via_sub_ids = info.get("via_sub_ids", [])
+            if via_sub_ids:
+                if len(via_sub_ids) == 1:
+                    summary_parts.append(
+                        f"[dim][via sub: {via_sub_ids[0]}][/dim]"
+                    )
+                else:
+                    summary_parts.append(
+                        f"[dim][via {len(via_sub_ids)} subs: "
+                        f"{', '.join(via_sub_ids)}][/dim]"
+                    )
             if info["display_url"]:
                 # No styling on URL - keeps Terminal.app auto-detection working
                 # OSC 8 link markup for modern terminals (iTerm2, Windows Terminal, etc)
