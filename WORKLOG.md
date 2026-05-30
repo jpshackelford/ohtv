@@ -1251,3 +1251,28 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 02:50 UTC - Merge worker (#152 weekly-counts root grain)
+
+✅ **Merged PR #152** — `fix(reports): aggregate weekly-counts at root grain (#123)`
+
+- **PR**: [#152](https://github.com/jpshackelford/ohtv/pull/152) — squash-merged into `main` as [`75eb2cb7`](https://github.com/jpshackelford/ohtv/commit/75eb2cb75031c2a165122ea4cd8a7b57e4c02f04)
+- **Issue closed**: [#123](https://github.com/jpshackelford/ohtv/issues/123) — `report weekly-counts` over-counts when sub-conversations exist (auto-closed via `Closes #123` in squash body at 02:50:02Z)
+- **Branch**: `fix/weekly-counts-root-grain-123` → `main`
+- **Merged at**: 2026-05-30T02:50:01Z
+- **Release tag**: [`ohtv-v0.16.1`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.16.1) at commit [`cab9424`](https://github.com/jpshackelford/ohtv/commit/cab9424) (`chore(release): ohtv 0.16.1 [skip ci]`). Patch bump from `ohtv-v0.16.0` — exactly what `fix:` should yield per AGENTS.md release contract.
+
+**Merge gates verified before squash**: CI green (lint, pytest, pr-review all SUCCESS), APPROVED by `github-actions[bot]`/pr-review, `MERGEABLE` / `CLEAN` per GraphQL, 0 review threads, manual test report at 02:33:10Z covering 7 scenarios A–G all PASS ("Cleared to merge"), single commit on branch at 01:55:41Z predating the test by 38 min, no rework after testing. Docs spot-check skipped — single-commit PR with no user-facing CLI surface change (same command, same flags, same `week,cloud,cli,total` CSV header; the only observable behavior delta is "cloud column now counts roots not roots+subs", which is the bug fix itself).
+
+**Conventional commit type `fix:`** — intentional and aligned with the PR title / issue type. Per AGENTS.md release contract (`fix:` → patch bump, surfaces in CHANGELOG under "Bug Fixes"), python-semantic-release parsed the squash subject and cut `ohtv-v0.16.1` automatically. Release workflow ran cleanly: `gh run list --workflow release.yml` shows ✓ SUCCESS in 2m14s, no concurrency-group conflicts (the preceding `chore(worklog):` push from the orchestrator finished 1m12s earlier so the runs serialized cleanly). `[skip ci]` marker on the auto-release commit preserved — won't re-trigger the workflow.
+
+**Diff shape**: 3 files, +234 / -11. Production code: `src/ohtv/reports/weekly_counts.py` (+32, no deletions — adds the `AND id = root_conversation_id` SQL predicate to `_WEEKLY_COUNTS_SQL` plus an `_assert_root_column_present(conn)` guard at `fetch_rows` entry that raises a clear `RuntimeError("report weekly-counts requires migration 020; run 'ohtv db scan' to apply pending migrations")` when migration 020 hasn't been applied). Tests: `tests/unit/reports/test_weekly_counts.py` (+187 / -4 — `_insert_conv` extended with `parent_conversation_id` / `root_conversation_id` kwargs defaulting to self-root so existing tests stay unchanged, plus 5 new tests T-A through T-E), `tests/unit/reports/test_cli_weekly_counts.py` (+15 / -7 — the CLI snapshot helper's raw-SQL inserts now set `root_conversation_id = id` matching what `ConversationStore.upsert` does in production). Full unit suite at merge: 2033 passed / 2 skipped / 3 xfailed.
+
+**Design contract preserved**: per the issue's technical-approach comment, this PR used the direct SQL predicate (`id = root_conversation_id`) rather than the `conversations_by_root` view. The view's value-add is roll-up of quantitative subtree fields (`SUM(event_count)`, `MIN/MAX` timestamps); this report only needs `created_at` + `source`, and the root's own `created_at` already equals `MIN(created_at)` across its subtree by construction (a sub cannot exist before its parent). The view remains the correct surface for #124 (velocity), which DOES roll up subtree sums. AGENTS.md item #32 already documents this as the first consumer of the COALESCE-protected `root_conversation_id` column from #122 / migration 020 — no AGENTS.md edit needed.
+
+**PR slot now empty**. Expansion slot also empty. Backlog at 7 `ready` issues post-#123 close: #124, #125, #127, #128 (all `priority:medium` sub-conversation roll-up siblings), #145 (sequencing-blocked behind #149), #148 (litellm warning suppression), #149 (5-level context expansion). Per the orchestrator's forecast in the immediately-prior entry, #124 (`report velocity` double-counts human input when subs share a PR) is the natural next pick — same `conversations_by_root` foundation, same per-week grain, immediately leverages the testing pattern just proven on #152.
+
+EXIT per merge-pr skill — orchestrator picks up the empty PR slot on next cron trigger.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
