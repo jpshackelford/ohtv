@@ -1,6 +1,78 @@
 # CHANGELOG
 
 
+## v0.16.2 (2026-05-30)
+
+### Bug Fixes
+
+- **reports**: Aggregate velocity at root grain
+  ([#124](https://github.com/jpshackelford/ohtv/pull/124),
+  [`c79ffde`](https://github.com/jpshackelford/ohtv/commit/c79ffde8674d3dd309357a05c1e2953125068ebc))
+
+`ohtv report velocity` double-counted human input when an agent-delegated sub-conversation
+  contributed to the same merged PR as its parent. After sub-conversation sync (#108) + migration
+  020 (#122) landed, the root and the sub each carried their own `conversation_human_input` row
+  through the outer join. The sub's `initial_prompt_words` was masked by the `'automation'` CASE
+  branch, but `followup_word_count` and `followup_message_count` slipped through, inflating `Words`
+  and `Msgs` by the sub's contribution. LOC accounting was not affected.
+
+The pre-#124 `_VELOCITY_SQL` DISTINCT sub-select keyed on `(change_ref_id, conversation_id)`. A
+  `WHERE` predicate cannot fix this — the duplication is in the join cardinality, not in the row
+  set. The minimal fix substitutes the DISTINCT key from conversation grain to root grain by INNER
+  JOIN-ing `conversations` into the sub-select and projecting `c.root_conversation_id` as the join
+  key, so the outer LEFT JOIN to `conversation_human_input` only ever sees the root's row. Orphan
+  contributions (a `conversation_contributions` row whose `conversation_id` is not in
+  `conversations`) are dropped by the new INNER JOIN, matching the pre-#124 behaviour of the outer
+  LEFT JOIN returning NULL → 0 words for them.
+
+Adds a `_assert_root_column_present` guard at `fetch_raw_rows` entry that raises
+  `RuntimeError("report velocity requires migration 020; run 'ohtv db scan' to apply pending
+  migrations")` if migration 020 has not been applied. Mirrors the guard #123 landed for
+  `weekly_counts` — silently falling back to the legacy conversation-grain SQL would just
+  reintroduce the bug.
+
+Test coverage: - 6 new regression tests in `tests/unit/reports/test_velocity.py` covering root+sub
+  same-PR same-week, cross-week bucketing by `merged_at`, LOC accounting invariance, 2-deep chain
+  (root → sub1 → sub2), sub-only contribution attributing to root's `chi` row, and the migration-020
+  guard error. - Extends `seed_conversation` helper in `tests/unit/reports/conftest.py` with
+  `parent_conversation_id` / `root_conversation_id` kwargs defaulting to self-root (mirrors #123's
+  shape). - Existing 27 velocity tests pass unchanged; full reports suite (81 tests) green. - Manual
+  QA: 8/8 scenarios passed (subless baseline, root+sub same week, cross-week sub-only, 2-deep chain,
+  LOC accounting unchanged, migration-020 guard, chart stability, CLI surface unchanged).
+
+Fixes #124 Closes #124
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Chores
+
+- **worklog**: Impl worker #124 opened PR #153 (velocity root grain)
+  ([`c479ca5`](https://github.com/jpshackelford/ohtv/commit/c479ca510002eafea18a9052e7abe500c960936d))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Merge worker shipped #123 as PR #152 (ohtv-v0.16.1)
+  ([`ec658d5`](https://github.com/jpshackelford/ohtv/commit/ec658d52938f78102cea65f214d55a37d9b18717))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Merge worker shipped #153 as ohtv-v0.16.2
+  ([`1f7b946`](https://github.com/jpshackelford/ohtv/commit/1f7b9462db38cfae3545bd303a5ed9dc5f6e9ccd))
+
+- **worklog**: Orchestrator 2026-05-30T04:21:10Z — spawn merge worker for PR #153
+  ([`480df84`](https://github.com/jpshackelford/ohtv/commit/480df840cad44144bbd8288834fa9975fe6fa88f))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawn impl worker for #124 (2026-05-30T03:22:21Z)
+  ([`774fac0`](https://github.com/jpshackelford/ohtv/commit/774fac075861828a57ed45b8d25beed3a6056076))
+
+- **worklog**: Orchestrator spawned testing worker for PR #153 (velocity root grain)
+  ([`0ff33a2`](https://github.com/jpshackelford/ohtv/commit/0ff33a2ee99cae52d077047aee82319ffb946efe))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+
 ## v0.16.1 (2026-05-30)
 
 ### Bug Fixes
