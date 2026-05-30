@@ -1478,3 +1478,69 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 04:20 UTC - Orchestrator
+
+**Active Workers (at cycle exit):**
+| Conv ID   | Type    | Working On                                                          | Status          |
+|-----------|---------|---------------------------------------------------------------------|-----------------|
+| `e6546ca` | merge   | PR #153 — `fix(reports): aggregate velocity at root grain (#124)`   | **NEW** running |
+
+🚀 **Spawned: Merge Worker for PR #153**
+
+- **PR**: [#153](https://github.com/jpshackelford/ohtv/pull/153) — `fix(reports): aggregate velocity at root grain (#124)`
+- **Issue**: [#124](https://github.com/jpshackelford/ohtv/issues/124)
+- **Branch**: `fix/velocity-root-grain-124`
+- **Conversation**: [`e6546ca`](https://app.all-hands.dev/conversations/e6546ca198a648d1961f82b4b3d9b9e9) — `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 04:20Z (READY after 1 poll / ~5s; start task `e724357a`).
+- **Expected**: `fix:`-prefixed squash-merge → semantic-release patch bump → `ohtv-v0.16.2` tag + GitHub Release within ~30-60s of merge.
+
+**Current State:**
+
+- [PR #153](https://github.com/jpshackelford/ohtv/pull/153): `oA green ready tested` — **all merge gates met**
+  - **CI**: lint=SUCCESS, pytest=SUCCESS, pr-review=SUCCESS at HEAD `66ea5cd` (03:26:57Z)
+  - **Review**: APPROVED by `github-actions` `pr-review` bot at 03:31:16Z (🟢 LOW risk)
+  - **Manual Tests**: posted by `366ad04` at 04:05:20Z — **8/8 scenarios PASS** (subless baseline, root+sub same week, cross-week sub-only, 2-deep chain, LOC accounting unchanged, migration-020 guard, chart stability, CLI surface unchanged)
+  - **Review threads**: 0 unresolved
+  - **Mergeable**: `MERGEABLE` / `CLEAN`
+  - **No commits since testing** (last commit 03:26:57Z, test results 04:05:20Z — testing was against final HEAD)
+- **Issues**: 7 `ready` (#124 = PR #153 about to merge; #125, #127, #128 all `priority:medium`; #145, #148, #149 no priority), 0 need expansion, 2 on `hold` (#26, #90).
+
+**Decision-tree trace:**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged.
+- **Step 2 — Active workers**: prior testing worker `366ad04` = `execution_status=finished` (sandbox still `RUNNING` but conv done — posted its hand-off test report at 04:05:20Z and exited). All prior workers (`2a022b3`, `37e670a`, `06ac1e1`, `e93754b`, `1c2eba0`, `cc8ff6a`, `25468bb`, `7c9951d`, `652ba7e`, `0f04330`) = PAUSED or finished. **PR slot CLEAR at cycle entry.**
+- **Expansion slot**: OPEN. `gh issue list … contains(["ready"]) or contains(["hold"]) | not` → empty (7-deep ready backlog covers everything). Slot stays **IDLE**. **26th consecutive idle expansion cycle.** Not at risk of auto-disable because PR slot remains productive.
+- **PR slot**: OPEN at entry. PR #153 ready, CI green, APPROVED, 0 review threads, **manual test results posted (8/8 PASS), no commits since**.
+  - Decision-tree row matched: *"PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker"*.
+  - **Docs spot-check skipped per skill rule**: this PR introduces zero user-facing changes (same `report velocity` command, same flags, same `--chart` / `--csv` outputs, same `VelocityRow` dataclass shape). Skill's "Do NOT require docs update if only: bug fixes that don't change documented behavior" applies. No review-driven changes occurred (single commit `66ea5cd`, no rework). Same precedent as #152.
+
+**Merge worker brief** covers:
+- Conventional commit prefix `fix:` → patch bump → `ohtv-v0.16.2` (per AGENTS.md release contract).
+- Squash commit summary line matching PR title.
+- Body to call out: bug = double-count from outer LEFT JOIN to `conversation_human_input` when subs share a PR; fix = INNER JOIN to `conversations` + DISTINCT keyed on `root_conversation_id`; coverage = 6 new regression tests + 27 existing pass; migration-020 guard wording verified.
+- Include `Fixes #124` / `Closes #124` footers (auto-close).
+- Post-merge: verify `state=MERGED`, pull main, confirm release.yml workflow started, append completion entry to WORKLOG.md on main.
+
+**Sync notes:**
+
+- First spawn attempt used wrong payload shape (`initial_user_msg` + `repository`; should be `initial_message: {content: [{type, text}]}` + `selected_repository`). Two stray idle conversations (`75ea76ee`, `d3fcf921`) created with no repo/title applied and no `initial_message`. Attempted to pause via `/sandboxes/{id}/pause` but got `Method Not Allowed` — abandoning, they'll be reaped. **Recording correct payload shape for next respawn:** field names are `initial_message` (object with `content` array of `{type, text}` items), `selected_repository`, `selected_branch`, `title`, `git_provider`.
+- After fixing payload, single-poll READY (~5s) → conv `e6546ca198a648d1961f82b4b3d9b9e9`, `execution_status=running`, `sandbox_status=RUNNING`, repo correctly attached.
+- `gh` CLI required `GH_TOKEN="$github_token"` (lowercase secret name). Pattern: `export GH_TOKEN="$github_token"` once per shell.
+- `ohtv sync` not run this cycle — GH state is the orchestrator's source of truth; saved a couple of minutes.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (merge worker spawned, terminal action on PR #153). **Thirty-seventh consecutive productive cycle.** Not at risk.
+
+**Worklog size:** 1480 lines pre-entry — still well above 300-line threshold. **Deferring truncation again** to a future genuinely idle cycle. Once PR #153 merges and the merge worker appends its completion entry (likely 04:30-04:40Z window), if the next cycle has nothing to do (PR slot empty + no expansion work + no impl pick ready — the 6 remaining ready issues are all sub-conversation-roll-up siblings or smaller chores, and impl will pick #125 next), that's the moment to truncate. Setting a soft target: truncate on the first post-#153-merge idle cycle, regardless of which slot is empty.
+
+**Next cycle expectations (~04:45-04:55Z window):**
+
+- Merge worker `e6546ca` likely `finished` with PR #153 merged via squash. Expected merge SHA on main. CHANGELOG.md updated by `chore(release): ohtv 0.16.2 [skip ci]` commit. Tag `ohtv-v0.16.2` pushed. GitHub Release `ohtv-v0.16.2` published.
+- PR slot becomes OPEN. No open PRs. Decision-tree row: *"No open PR + ready issues with priority"* → 4 candidates (#124 will be closed by then; remaining priority:medium are #125, #127, #128). All 3 are sub-conversation roll-up siblings to the just-merged #124. Tie-break = lowest number → **#125** (`gen objs/titles/run` multi-conv mode treats sub-conversations as independent units of human intent).
+- Expansion slot stays idle (no issues need expansion).
+- Predicted action: **spawn implementation worker for #125**.
+- If merge worker hits a snag (e.g., release.yml race, mergeability flip) → spawn merge-retry or iteration worker as appropriate.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
