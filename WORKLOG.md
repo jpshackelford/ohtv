@@ -2,6 +2,25 @@
 
 ## Log
 
+### 2026-05-30 00:39 UTC - Impl worker (#116 centralize DB migration)
+
+✅ **PR #151 ready for review** — `refactor(db): centralize migration through get_ready_connection`
+
+- **Issue**: [#116](https://github.com/jpshackelford/ohtv/issues/116) — Centralize DB migration into a single 'ensure ready' entry point
+- **PR**: [#151](https://github.com/jpshackelford/ohtv/pull/151) — `feat/centralize-db-migration-116` → `main`
+- **CI**: green (`pytest pass 55s`, `lint pass 3s`, `pr-review skipping` while draft, will fire post-ready)
+- **Tests**: 26 new, 2077 existing still green
+
+**Shape**: added `ohtv.db.get_ready_connection()` (composes `get_connection` + `ensure_db_ready`), converted 14 ad-hoc call sites (3 in `analysis/cache.py`, 1 in `conversations.py`, 10 in `cli.py`), allow-listed 3 paths (`db/maintenance.py` = wrapper itself; `cli.py` `db_init` = needs `migrate(conn)`'s return value to print user-facing output; `db/connection.py` = docstring example). Grep-based regression test (`tests/unit/test_no_raw_migrate.py`) enforces the allow-list. Fresh-install behavioral tests (`tests/unit/test_fresh_install.py`) drive `search` / `ask` / `db scan` / `db process all` / `db index-cache` / `list` against a non-existent `index.db` and assert no `no such table` errors. Helper unit tests (`tests/unit/db/test_get_ready_connection.py`) cover idempotency, `show_progress` passthrough, default-quiet, connection lifetime, maintenance triggering.
+
+**AGENTS.md item #25** updated with the new contract — production callers MUST use `get_ready_connection()`, low-level primitives remain public for niche callers.
+
+EXIT per impl skill: docs/testing/review handling is a separate conversation.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-30 00:22 UTC - Expansion worker (#145)
 
 ✅ **Expanded Issue #145** — "when gen objs promotes to full context, use is to generate key variants"
