@@ -16,6 +16,7 @@ Environment variables, data directories, and logging.
 | `OHTV_EXTRA_CONVERSATION_PATHS` | Additional conversation directories (colon-separated paths) | None |
 | `OHTV_LOG_LEVEL` | Default log level (`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`, case-insensitive). Overridden by `--log-level`. | `INFO` |
 | `OHTV_LOG_FILE` | Default log destination. Overridden by `--log-file`. Special values: `-` writes to stderr only; `/dev/null` (or `nul` on Windows) silences file logging. | `~/.ohtv/logs/ohtv.log` |
+| `LITELLM_LOG` | Log level for the upstream `LiteLLM` logger (set via `os.environ.setdefault` at `import ohtv` time, so it silences LiteLLM's eager Bedrock/SageMaker `botocore` pre-load warnings on every CLI invocation). Export `LITELLM_LOG=WARNING` (or `DEBUG`) to see them again when debugging LiteLLM behaviour. | `ERROR` |
 | `LLM_API_KEY` | API key for LLM provider | Required for `gen`, `search`, `ask` |
 | `LLM_MODEL` | Default LLM model for `ask` | `openai/gpt-4o-mini` |
 | `LLM_BASE_URL` | Custom LLM base URL | Provider default |
