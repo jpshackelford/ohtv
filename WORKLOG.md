@@ -2,6 +2,41 @@
 
 ## Log
 
+### 2026-05-30 12:35 UTC - Implementation worker (#149 5 context levels) — **PR #157 OPEN (ready)**
+
+**Worker conv**: `50edf47` (spawned at 12:18Z by orchestrator `dac424c7`).
+
+**PR**: [#157](https://github.com/jpshackelford/ohtv/pull/157) — `feat(gen-objs): expand context levels from 3 to 5 (#149)` — branch `feat/gen-objs-5-context-levels-149` → `main`. **Draft → ready** (lint+pytest green, pr-review skipping as expected for the draft phase). Commit `b8a74a8`.
+
+**Implementation summary**:
+- Final level vocabulary: **`minimal` / `outcome` / `dialogue` / `actions` / `observations`** (5 levels, additive). Chose the content-describing names from the 2026-05-29 22:11Z follow-up comment over the body's `minimal/default/dialogue/full/complete` proposal — every level name now describes the events it adds (outcome=finish action, dialogue=agent messages, actions=action summaries, observations=tool outputs), which is what users actually have to predict when picking against their token budget.
+- **Breaking change applied as approved.** Retired names `default` and `full` are NOT aliased — passing them raises `click.BadParameter` with a migration hint pointing at the closest new level (`default → outcome`, `full → observations`). Bad/retired values fail BEFORE the conversation filter runs (early validation in `gen_objs_cmd`) so users don't see a misleading "No conversations matched" message masking the typo.
+- **Auto-promotion ladder refactored** per the 22:10Z technical comment — extracted `promote_context_level(current: str) -> str | None` helper in `analysis/objectives.py`, plus the `CONTEXT_LEVEL_ORDER: tuple[str, ...]` constant as the single source of truth. The analyzer loops on `promote_context_level` until transcript is non-empty or we hit `observations`. **This is the clean function boundary #145 plugs into next.**
+- **No cache/embedding migration written** — per the PM decision, pre-#149 `analysis_cache` entries and embeddings keyed under old level names become orphaned and are regenerated lazily on the next `ohtv gen objs` / `ohtv db embed` invocation per conversation. `ohtv db status` already surfaces them as "missing embeddings"; documented one-time cost in PR body.
+- All 6 `src/ohtv/prompts/objs/*.md` files updated with the 5-level `context:` frontmatter. Per-variant defaults: `brief=1`, `standard / brief_assess / standard_assess = 2`, `detailed / detailed_assess = 4`. `docs/guides/analysis.md` gained a Context levels section + flag-table refresh. `AGENTS.md` item 6 updated.
+
+**Tests**: **2203 unit + integration tests pass.** New file `tests/unit/analysis/test_objectives_promotion.py` (**34 tests** — covers single-step ladder, every adjacent-pair promotion, empty-content-with-actions ladders to first level where content appears, content at level N stops promotion at N, etc.). Existing tests updated for new vocabulary in `test_cli_helpers.py`, `test_cli_gen.py`, `test_objectives.py`, `test_cache_context_level.py`, `test_analysis_cache_store.py`. **`ruff check` baseline unchanged** (79 pre-existing errors all in `cli.py`, zero new from this PR).
+
+**CI** (verified before draft-flip):
+- ✅ `lint` pass (5s)
+- ✅ `pytest` pass (56s)
+- ⏭️ `pr-review` skipping (expected — was draft at trigger time; will re-run on ready-flip)
+
+**Merge-worker guidance** (audit trail, per task brief):
+- Squash subject: `feat(gen-objs): expand context levels from 3 to 5 (#149)` (matches PR title)
+- Commit body carries `BREAKING CHANGE:` footer → semantic-release picks up + `major_on_zero=false` → next **minor** bump.
+- Target tag: **`ohtv-v0.19.0`** (next after the just-shipped `v0.18.1`).
+- `⚠ BREAKING CHANGES` section will appear in `CHANGELOG.md` automatically.
+
+**Unblocks**: **#145** (now ready for re-prioritization next cycle — was `priority:low` waiting on this exact promotion-ladder seam).
+**Next PR-slot pick** (per the assess-priority pass in the 12:18Z entry): **#148** (LiteLLM noise quick-win, `priority:medium`) — 2-line `_os.environ.setdefault("LITELLM_LOG", "ERROR")` in `__init__.py` + 3 subprocess tests.
+
+EXIT per task brief — docs / testing / review / merge are separate conversations driven by the orchestrator.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-30 12:18 UTC - Orchestrator (impl-worker spawn for #149)
 
 **Active Workers:**
