@@ -2,6 +2,29 @@
 
 ## Log
 
+### 2026-05-30 01:24 UTC - Merge worker (#151 centralize DB migration)
+
+✅ **Merged PR #151** — `refactor(db): centralize migration through get_ready_connection`
+
+- **PR**: [#151](https://github.com/jpshackelford/ohtv/pull/151) — squash-merged into `main` as [`b93c2477`](https://github.com/jpshackelford/ohtv/commit/b93c24773e7cfd1a80020d49192f3b4aa92f8f07)
+- **Issue closed**: [#116](https://github.com/jpshackelford/ohtv/issues/116) — Centralize DB migration into a single 'ensure ready' entry point
+- **Branch**: `feat/centralize-db-migration-116` → `main`
+- **Merged at**: 2026-05-30T01:24:00Z
+
+**Merge gates verified before squash**: CI green (lint, pytest, pr-review), approved by `github-actions[bot]`/pr-review, `MERGEABLE` / `CLEAN` per GraphQL, 0 review threads, manual test report at 00:56:46Z covering 15 scenarios all PASS (last commit at 00:36:47Z predates the test). Docs update not required — internal refactor only; zero user-facing CLI surface change.
+
+**Conventional commit type `refactor:`** — intentional. Per AGENTS.md release contract, `refactor:` is in the "no version bump, hidden from CHANGELOG" tier. python-semantic-release will NOT cut a release for this commit, which is the correct outcome for a behavior-preserving internal restructuring. No `feat:` / `fix:` rewrite — the PR adds zero new user-observable capability and fixes no reported bug; the visible effect is "fewer `no such table` errors after a fresh checkout", which is a refactor outcome, not a fix of a tracked issue.
+
+**Diff shape**: 9 files, +650 / -58. Production code: `db/connection.py` (+48 — the new helper), `db/__init__.py` (+2 / -1 — re-export), `analysis/cache.py` (+6 / -9), `cli.py` (+21 / -32), `conversations.py` (+8 / -16). Tests: 3 new files totalling +564 (helper contract, fresh-install CLI integration, allow-list regression). Docs: `AGENTS.md` +1 (item #25 bullet).
+
+**PR slot now empty**. Expansion slot also empty (PR #148 expanded and `ready` per prior orchestrator entry). Backlog at 8 `ready` issues: #123, #124, #125, #127, #128, #145, #148, #149. `#145` still sequencing-blocked behind `#149` per prior note. Next orchestrator pass can freely spawn one impl worker on the highest-priority `ready` issue.
+
+EXIT per merge-pr skill — orchestrator picks up the empty PR slot on next cron trigger.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-30 00:55 UTC - Expansion worker (#148 LiteLLM botocore noise)
 
 ✅ **Expanded Issue #148 — `ready` for impl**
