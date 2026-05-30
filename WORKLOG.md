@@ -1552,3 +1552,94 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 09:52 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `8723ef4` | testing (retry) | PR #155 — manual test pass (attempt 2/2) | **NEW** running |
+
+**Spawned: Manual Testing Worker (retry after dead-spawn)**
+- PR: [#155 — feat(list,refs): roots-only by default with subtree rollup (#127)](https://github.com/jpshackelford/ohtv/pull/155)
+- Conversation: [`8723ef4`](https://app.all-hands.dev/conversations/8723ef46862c482f9913876bb6c8003a)
+- Start task `11e3af85` → READY in ~5s (first poll), sandbox RUNNING, agent `execution_status=running`.
+
+**Why testing-RETRY (dead-spawn investigation):**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged.
+- **Step 2/3 — Active workers**: API query `selected_repository=jpshackelford/ohtv&limit=10` → only this orchestrator (`c4b122f`) is `running`. Testing worker `e7f42f8` (spawned 08:50Z) is now `execution_status=null`, `sandbox=PAUSED` — finished and released.
+- **Step 4 — Open PRs**: 1 — PR #155 (`oAFc green ready`, approved, mergeable=UNKNOWN, last commit 08:24:09Z = docs round commit).
+- **Step 4 — Issue census**: 0 issues need expansion; ready/prioritized: #127 (in PR #155), #128. Ready/unprioritized: #145, #148, #149.
+
+**Dead-spawn diagnosis for `e7f42f8`:**
+
+Full conv-detail API probe shows the worker DID consume real LLM work:
+- `accumulated_cost = $3.20`, `prompt_tokens = 2,681,506`, `completion_tokens = 4,177`, `cache_read_tokens = 2,376,483`, `cache_write_tokens = 304,136`
+- `created_at = 08:49:32Z`, `updated_at = 09:21:57Z` → ~32 minutes wall time, then sandbox released
+- `llm_model = litellm_proxy/claude-opus-4-7`
+- `execution_status = null`, `agent_state = null`, `last_active_at = null` — fields cleared after agent stopped
+
+But **`gh pr view 155 --comments` returned only one comment** — the 08:25Z `## Documentation updated for PR #155` marker from the f7c21cab docs worker. **No `## Manual Test Results` comment exists.**
+
+This is the same failure mode flagged in the prior orchestrator's "next cycle expectations" — _"Worker `finished` but no comment posted → investigate per the 'dead spawn' pattern from 2026-05-29 22:50Z–00:21Z."_ The 32-min runtime + $3.20 burn + 4K completion tokens suggests the worker exercised the test matrix but ran out of turns / hit an internal stop condition before the final `gh pr comment` call. The prior prompt may have over-emphasized investigation depth without making the final comment unambiguously the last action.
+
+**Mitigations in the retry prompt (`8723ef4`):**
+
+The replacement prompt is restructured around a single cardinal rule, repeated at the top, in the middle, and at the bottom:
+
+> **EVERY EXIT PATH MUST END WITH A POSTED PR COMMENT.** If you are about to stop working — for ANY reason (success, partial pass, env-setup failure, ran out of turns, found a bug) — your LAST tool call before stopping MUST be a `gh pr comment 155` call.
+
+Specific concessions made vs. the 08:50Z prompt to reduce turn pressure:
+
+- **Setup budget**: hard 10-min cap on troubleshooting; partial report if blocked.
+- **Test matrix**: shrunk to 8 named tests (T-1 … T-8), each capturing ~20 lines of output. No "edge case sweep", no "all combinations of flags".
+- **Report template**: fixed table format with PASS/FAIL/partial cells — fast to fill in, no prose required.
+- **Exit-path emphasis**: explicit instruction that "post a short report saying 'setup failed at step X'" is preferred over "post nothing".
+- **No bug fixes**: bug-discovery branch still says EXIT without committing — but now framed as "document in report and stop" rather than "investigate further".
+- **Read-only / guardrails**: identical to prior prompt (no commits, no PR state changes, no WORKLOG.md edits).
+
+**Spawn payload shape** (validated):
+- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker `gh pr checkout 155`s).
+- `pr_number=[155]` for PR context.
+- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
+- `initial_message.content[].type=text`, `run=true`.
+- POST `/api/v1/app-conversations` with `X-Session-API-Key: $OPENHANDS_API_KEY` → start task `11e3af85` returned `status=WORKING`; first 5s poll → `READY`, `app_conversation_id=8723ef46…`; `/app-conversations?ids=8723ef46…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
+
+**Worklog housekeeping (deferred this cycle):**
+
+- WORKLOG.md was 1554 lines at wake-up. The 07:50Z orchestrator already truncated from 1645 → 1253 lines; subsequent productive entries (08:20Z spawn, 08:50Z spawn, plus this entry) have grown it back. Still inside the productive 6-hour PR #155 lifecycle window — every kept entry is part of the active push to v0.18.0.
+- Natural truncation point is **post-merge** when the cluster-progress snapshot crystallizes (or post-second-dead-spawn if this retry also fails, which would justify a deeper investigation entry). Deferring again to keep "one action per wake-up" discipline.
+
+**Cluster progress snapshot** (post-docs, second testing attempt in flight):
+
+| Issue | PR | Status | Release |
+|---|---|---|---|
+| #123 weekly-counts | #150 | merged | v0.16.1 |
+| #124 velocity | #153 | merged | v0.16.2 |
+| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
+| **#127 list/refs display** | **#155** | **testing round 2/2 in progress** | (target: v0.18.0 ⚠ BREAKING) |
+| #126 classification policy | — | open, queued | — |
+| #128 RAG citation dedup | — | open, queued | — |
+
+**Expansion slot:**
+
+- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 33rd consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
+
+**Next cycle expectations (~10:20Z window):**
+
+- Testing worker `8723ef4` turnaround: with the tightened prompt and 8-test matrix, expecting 20-40 min wall time. Setup window is ~5-10 min, matrix execution ~10-20 min, report compose + post ~5 min.
+- Most likely next-cycle state:
+  - **`## Manual Test Results — PR #155` comment posted, recommendation=ready-to-merge** → spawn **merge worker** (sibling pattern: PR #154's `fc23665b` merge worker took the v0.17.0 BREAKING ship to completion in one cycle).
+  - **Test report posted, recommendation=needs-review-round** → spawn **review-round worker** to address regressions.
+  - **Test report posted, recommendation=blocked (env setup failure)** → orchestrator investigates the blocker; may need a human escalation if the sandbox env is degraded.
+  - **No comment yet, worker still `running`** → wait (still inside 20-40 min budget).
+  - **Worker `finished` AGAIN with no comment** → 2nd dead spawn; escalate to a `## INSTRUCTION:` block in WORKLOG asking @jpshackelford to weigh in before burning another $3+. Possible patterns: the worker's prompt is genuinely getting truncated by an LLM-side limit, the `gh pr comment` tool is failing silently, or the agent is hitting a turn-budget cap that the orchestrator can't see from outside.
+- The eventual merge worker brief should mirror PR #154's: conventional commit subject `feat(list,refs)!: roots-only by default with subtree rollup` + `BREAKING CHANGE:` footer in body, squash-merge, semantic-release picks up the `!` → v0.18.0 + `⚠ BREAKING CHANGES` CHANGELOG section.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned retry testing worker — terminal action advancing PR #155 through the lifecycle). **Forty-seventh consecutive productive cycle.** Not at risk.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
