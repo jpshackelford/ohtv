@@ -216,10 +216,11 @@ def make_cache_key(context: str, detail: str, assess: bool) -> str:
     those used internally by AnalysisCacheManager.
     
     Args:
-        context: Context level (minimal, default, full)
+        context: Context level (one of minimal, outcome, dialogue, actions,
+            observations - see ``ohtv.analysis.objectives.CONTEXT_LEVEL_ORDER``)
         detail: Detail level (brief, standard, detailed)
         assess: Whether assessment is enabled
-    
+
     Returns:
         A cache key string
     """
@@ -373,9 +374,10 @@ class AnalysisCacheManager:
         # Detect alias hits (issue #129): the stored analysis carries its true
         # effective ``context_level`` (the level the LLM actually saw). When
         # that differs from the requested level encoded in the cache_key, we
-        # are reading the analysis through its alias entry — the caller asked
-        # for ``minimal`` but the writer auto-promoted to ``default``/``full``
-        # and stored a key alias pointing at the promoted content.
+        # are reading the analysis through its alias entry - the caller asked
+        # for ``minimal`` but the writer auto-promoted to a higher level (see
+        # the 5-level ladder in ``ohtv.analysis.objectives``) and stored a key
+        # alias pointing at the promoted content.
         requested_context = validation_kwargs.get("context_level")
         is_alias_hit = (
             requested_context is not None
@@ -410,8 +412,8 @@ class AnalysisCacheManager:
         # The cache_key already encodes context_level (it's a kwarg in
         # ``_make_cache_key``), so a key match is sufficient. We need the
         # tolerance for "alias" entries written by ``save(requested_key_kwargs=...)``
-        # — when ``analyze_objectives`` auto-promotes a worker conversation
-        # from ``minimal`` to ``default``/``full``, the LLM result is stored
+        # - when ``analyze_objectives`` auto-promotes a worker conversation
+        # one step at a time up the 5-level ladder, the LLM result is stored
         # under BOTH cache keys (effective and requested) but the analysis
         # content retains its true ``context_level`` (the level the LLM saw).
         # Re-validating equality on context_level would reject the alias hit
@@ -627,13 +629,15 @@ class AnalysisCacheManager:
 
         Checks the new location first, then falls back to legacy location.
         
-        Context-aware: A skip at 'minimal' allows retry at 'full' because
-        full context includes more content that might make analysis possible.
+        Context-aware: A skip at ``minimal`` allows retry at higher levels
+        because they include more content that might make analysis possible
+        (see the 5-level ladder in ``ohtv.analysis.objectives``, Issue #149).
 
         Args:
             conv_dir: Conversation directory
             event_count: Current event count (for invalidation check)
-            context_level: Requested context level (minimal, default, full)
+            context_level: Requested context level (one of minimal, outcome,
+                dialogue, actions, observations)
 
         Returns:
             Skip reason if skipped and still valid, None otherwise.

@@ -3,23 +3,25 @@ id: objs.detailed
 description: Extract hierarchical objectives with subordinate goals
 
 context:
-  default: 3
+  default: 4
   levels:
     1:
       name: minimal
       include:
         - source: user
           kind: MessageEvent
+      truncate: 500
     2:
-      name: default
+      name: outcome
       include:
         - source: user
           kind: MessageEvent
         - source: agent
           kind: ActionEvent
           tool: finish
+      truncate: 1000
     3:
-      name: full
+      name: dialogue
       include:
         - source: user
           kind: MessageEvent
@@ -27,7 +29,29 @@ context:
           kind: MessageEvent
         - source: agent
           kind: ActionEvent
+          tool: finish
       truncate: 1000
+    4:
+      name: actions
+      include:
+        - source: user
+          kind: MessageEvent
+        - source: agent
+          kind: MessageEvent
+        - source: agent
+          kind: ActionEvent
+      truncate: 2000
+    5:
+      name: observations
+      include:
+        - source: user
+          kind: MessageEvent
+        - source: agent
+          kind: MessageEvent
+        - source: agent
+          kind: ActionEvent
+        - kind: ObservationEvent
+      truncate: 800
 
 output:
   schema:

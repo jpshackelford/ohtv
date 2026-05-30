@@ -335,8 +335,8 @@ class TestContextAwareSkipCache:
         assert status.needs_analysis is False
         # Context-aware method allows retry at higher level
         assert status.needs_analysis_for_context("minimal") is False
-        assert status.needs_analysis_for_context("default") is True
-        assert status.needs_analysis_for_context("full") is True
+        assert status.needs_analysis_for_context("outcome") is True
+        assert status.needs_analysis_for_context("observations") is True
 
     def test_skip_at_default_allows_retry_at_full(self):
         """Skip at 'default' context should allow retry at 'full' only."""
@@ -345,11 +345,11 @@ class TestContextAwareSkipCache:
             current_event_count=10,
             is_skipped=True,
             skip_event_count=10,
-            skip_context_level="default",
+            skip_context_level="outcome",
         )
         assert status.needs_analysis_for_context("minimal") is False
-        assert status.needs_analysis_for_context("default") is False
-        assert status.needs_analysis_for_context("full") is True
+        assert status.needs_analysis_for_context("outcome") is False
+        assert status.needs_analysis_for_context("observations") is True
 
     def test_skip_at_full_blocks_all_contexts(self):
         """Skip at 'full' context should block all context levels."""
@@ -358,11 +358,11 @@ class TestContextAwareSkipCache:
             current_event_count=10,
             is_skipped=True,
             skip_event_count=10,
-            skip_context_level="full",
+            skip_context_level="observations",
         )
         assert status.needs_analysis_for_context("minimal") is False
-        assert status.needs_analysis_for_context("default") is False
-        assert status.needs_analysis_for_context("full") is False
+        assert status.needs_analysis_for_context("outcome") is False
+        assert status.needs_analysis_for_context("observations") is False
 
     def test_legacy_skip_treated_as_minimal(self):
         """Skip without context_level should be treated as 'minimal'."""
@@ -375,8 +375,8 @@ class TestContextAwareSkipCache:
         )
         # Should allow retry at higher levels
         assert status.needs_analysis_for_context("minimal") is False
-        assert status.needs_analysis_for_context("default") is True
-        assert status.needs_analysis_for_context("full") is True
+        assert status.needs_analysis_for_context("outcome") is True
+        assert status.needs_analysis_for_context("observations") is True
 
     def test_skip_still_invalidated_when_event_count_changes(self):
         """Skip should be invalidated if event count changed, regardless of context."""
@@ -385,11 +385,11 @@ class TestContextAwareSkipCache:
             current_event_count=15,  # Conversation grew
             is_skipped=True,
             skip_event_count=10,  # Old skip
-            skip_context_level="full",
+            skip_context_level="observations",
         )
         # Even at 'full', needs retry because event count changed
         assert status.needs_analysis_for_context("minimal") is True
-        assert status.needs_analysis_for_context("full") is True
+        assert status.needs_analysis_for_context("observations") is True
 
     def test_cached_analysis_still_valid(self):
         """Cached analysis should still block even with context-aware checks."""
@@ -400,7 +400,7 @@ class TestContextAwareSkipCache:
             is_skipped=False,
         )
         assert status.needs_analysis_for_context("minimal") is False
-        assert status.needs_analysis_for_context("full") is False
+        assert status.needs_analysis_for_context("observations") is False
 
 
 class TestUpsertSkipWithContextLevel:
@@ -412,7 +412,7 @@ class TestUpsertSkipWithContextLevel:
             event_count=42,
             reason="no_events",
             skipped_at=datetime.now(timezone.utc),
-            context_level="default",
+            context_level="outcome",
         )
         analysis_cache_store.upsert_skip(entry)
         db_conn.commit()
@@ -423,7 +423,7 @@ class TestUpsertSkipWithContextLevel:
             ("abc123",),
         )
         row = cursor.fetchone()
-        assert row[0] == "default"
+        assert row[0] == "outcome"
 
     def test_does_not_downgrade_context_level(self, analysis_cache_store, sample_conversation, db_conn):
         """Skip at higher context should not be overwritten by lower context skip."""
@@ -433,7 +433,7 @@ class TestUpsertSkipWithContextLevel:
             event_count=42,
             reason="no_content",
             skipped_at=datetime.now(timezone.utc),
-            context_level="full",
+            context_level="observations",
         )
         analysis_cache_store.upsert_skip(entry1)
         db_conn.commit()
@@ -455,7 +455,7 @@ class TestUpsertSkipWithContextLevel:
             ("abc123",),
         )
         row = cursor.fetchone()
-        assert row[0] == "full"
+        assert row[0] == "observations"
         assert row[1] == "no_content"
 
     def test_upgrades_context_level(self, analysis_cache_store, sample_conversation, db_conn):
@@ -477,7 +477,7 @@ class TestUpsertSkipWithContextLevel:
             event_count=42,
             reason="no_content",
             skipped_at=datetime.now(timezone.utc),
-            context_level="full",
+            context_level="observations",
         )
         analysis_cache_store.upsert_skip(entry2)
         db_conn.commit()
@@ -488,7 +488,7 @@ class TestUpsertSkipWithContextLevel:
             ("abc123",),
         )
         row = cursor.fetchone()
-        assert row[0] == "full"
+        assert row[0] == "observations"
         assert row[1] == "no_content"
 
     def test_event_count_updated_despite_higher_context_skip(
@@ -508,7 +508,7 @@ class TestUpsertSkipWithContextLevel:
             event_count=10,
             reason="no_content",
             skipped_at=datetime.now(timezone.utc),
-            context_level="full",
+            context_level="observations",
         )
         analysis_cache_store.upsert_skip(entry1)
         db_conn.commit()
@@ -531,7 +531,7 @@ class TestUpsertSkipWithContextLevel:
         )
         row = cursor.fetchone()
         assert row[0] == 20, "event_count should be updated to prevent retry loops"
-        assert row[1] == "full", "context_level should remain at 'full'"
+        assert row[1] == "observations", "context_level should remain at observations"
         # Reason should be preserved from the higher-context skip
         assert row[2] == "no_content"
 
@@ -545,7 +545,7 @@ class TestGetCacheStatusBatchWithContextLevel:
             event_count=42,
             reason="no_events",
             skipped_at=datetime.now(timezone.utc),
-            context_level="default",
+            context_level="outcome",
         )
         analysis_cache_store.upsert_skip(entry)
         db_conn.commit()
@@ -555,7 +555,7 @@ class TestGetCacheStatusBatchWithContextLevel:
         assert "abc123" in status_map
         status = status_map["abc123"]
         assert status.is_skipped is True
-        assert status.skip_context_level == "default"
+        assert status.skip_context_level == "outcome"
 
     def test_legacy_skip_returns_minimal(self, analysis_cache_store, sample_conversation, db_conn):
         """Skip without explicit context_level should return default 'minimal'."""

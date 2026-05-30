@@ -1,20 +1,32 @@
 """Objective extraction and analysis from conversations.
 
-Context Levels (experimentally validated):
-- minimal: User messages only (lowest tokens, may lack outcome info)
-- default: User messages + finish action (best balance of tokens vs accuracy)
-- full: User + agent messages + action summaries (most context, highest tokens)
+Context Levels (5 levels, Issue #149):
 
-The 'default' level was determined through experiments comparing different
-approaches across short (23 events), medium (60 events), and long (300+ events)
+Each level is *additive* with the previous; numeric and name forms are
+interchangeable on the CLI.
+
+- ``minimal`` (1): User messages only
+- ``outcome`` (2): + finish action
+- ``dialogue`` (3): + agent messages
+- ``actions`` (4): + non-finish action summaries with commands
+- ``observations`` (5): + truncated tool observations
+
+The ``outcome`` default for ``*_assess`` prompts was determined through
+experiments comparing different approaches across short, medium, and long
 conversations. See experiments/objective_extraction_comparison.py for details.
+
+The previous 3-level system (``minimal``/``default``/``full``) was retired in
+Issue #149. The old level 2 (``default``) maps to the new ``outcome``, and the
+old level 3 (``full``) corresponds most closely to the new ``actions`` level
+(it had user + agent messages + action summaries). Existing cache entries
+keyed against the old names fall stale and are re-analysed lazily on the next
+``gen objs`` invocation per conversation.
 """
 
 import json
 import logging
 import time
 from contextlib import contextmanager
-import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -32,6 +44,7 @@ from ohtv.analysis.cache import (
 from ohtv.analysis.transcript import (
     build_transcript_from_context as _build_from_context,
     extract_action_summary,
+    extract_observation_content,
 )
 from ohtv.prompts.metadata import ContextLevel as ContextLevelMetadata
 
@@ -47,8 +60,51 @@ def _timer(label: str):
     log.debug("TIMING %s: %.1fms", label, elapsed_ms)
 
 
-# Context level type
-LegacyContextLevel = Literal["minimal", "default", "full"]
+# Context level type (5 levels, Issue #149).
+StringContextLevel = Literal[
+    "minimal", "outcome", "dialogue", "actions", "observations"
+]
+
+# Backwards alias retained so external callers that imported the old name keep
+# typing cleanly. New code should use ``StringContextLevel``.
+LegacyContextLevel = StringContextLevel
+
+# Authoritative ordering for the 5 levels - used by ``promote_context_level``
+# and ``context_level_index`` in the DB cache store. Adding a new level means
+# appending it here (and updating prompt frontmatter slicers).
+CONTEXT_LEVEL_ORDER: tuple[str, ...] = (
+    "minimal",
+    "outcome",
+    "dialogue",
+    "actions",
+    "observations",
+)
+
+
+def promote_context_level(current: str) -> str | None:
+    """Return the next higher context level, or ``None`` if already at the top.
+
+    Issue #149 replaced the previous two-step jump (minimal -> default -> full)
+    with single-step promotion through the 5-level ladder. Used by
+    ``analyze_objectives`` to widen context when a lower level produces an
+    empty transcript despite the conversation having content (e.g. worker
+    conversations with no user messages but real ActionEvents).
+
+    Args:
+        current: Current context level name. Unknown levels are treated as
+            ``minimal`` so callers get monotonic, predictable promotion.
+
+    Returns:
+        The next level name, or ``None`` if ``current`` is already the highest
+        level (``observations``).
+    """
+    try:
+        idx = CONTEXT_LEVEL_ORDER.index(current)
+    except ValueError:
+        idx = 0
+    if idx >= len(CONTEXT_LEVEL_ORDER) - 1:
+        return None
+    return CONTEXT_LEVEL_ORDER[idx + 1]
 
 
 class ObjectiveStatus(str, Enum):
@@ -188,91 +244,109 @@ def _has_action_events(events: list[dict]) -> bool:
 
 
 def build_transcript(
-    events: list[dict], context: LegacyContextLevel | ContextLevelMetadata = "default"
+    events: list[dict], context: StringContextLevel | ContextLevelMetadata = "minimal"
 ) -> list[dict]:
     """Build a transcript based on the context level.
 
-    Supports both legacy string context levels and new metadata-driven ContextLevel objects.
+    Supports both string-keyed context levels (the path used by
+    ``analyze_objectives``) and metadata-driven ``ContextLevel`` objects
+    parsed from prompt frontmatter.
 
     Args:
         events: List of conversation events
-        context: Either a string ("minimal", "default", "full") for legacy mode,
-                or a ContextLevel object for metadata-driven mode
+        context: Either a string level name (see ``CONTEXT_LEVEL_ORDER``) or a
+            ``ContextLevel`` from prompt metadata.
 
     Returns:
-        List of transcript items with role and text
+        List of transcript items with role and text.
 
-    Context levels (legacy string mode):
-    - minimal: User messages only
-    - default: User messages + finish action
-    - full: User + agent messages + action summaries
+    String-mode levels (each additive with the previous):
+    - ``minimal``      - User messages only
+    - ``outcome``      - + finish action
+    - ``dialogue``     - + agent messages
+    - ``actions``      - + non-finish action summaries with commands
+    - ``observations`` - + truncated tool observations
     """
     if isinstance(context, ContextLevelMetadata):
-        # New metadata-driven mode
+        # Metadata-driven mode (frontmatter include/exclude filters).
         return _build_from_context(events, context)
-    else:
-        # Legacy string mode
-        return _legacy_build_transcript(events, context)
+    return _string_build_transcript(events, context)
 
 
-def _legacy_build_transcript(
-    events: list[dict], context: LegacyContextLevel
+def _level_at_least(context: str, target: str) -> bool:
+    """Return ``True`` if ``context`` is at or above ``target`` in the ladder."""
+    try:
+        cur = CONTEXT_LEVEL_ORDER.index(context)
+    except ValueError:
+        cur = 0  # Unknown level treated as minimal
+    return cur >= CONTEXT_LEVEL_ORDER.index(target)
+
+
+def _string_build_transcript(
+    events: list[dict], context: StringContextLevel
 ) -> list[dict]:
-    """Build transcript using legacy hardcoded context levels.
+    """Build transcript using the string-keyed 5-level ladder.
 
-    DEPRECATED: Use build_transcript() with a ContextLevel object for metadata-driven mode.
-
-    Args:
-        events: List of conversation events
-        context: String context level ("minimal", "default", "full")
-
-    Returns:
-        List of transcript items with role and text
+    Each level is additive with the previous level (see ``CONTEXT_LEVEL_ORDER``).
+    This is the active path used by :func:`analyze_objectives`; the
+    metadata-driven path (:func:`build_transcript_from_context` in
+    ``transcript.py``) is the preferred alternative when callers have prompt
+    frontmatter handy.
     """
-    warnings.warn(
-        "String-based context levels are deprecated. "
-        "Use ContextLevel objects from ohtv.prompts.metadata instead.",
-        DeprecationWarning,
-        stacklevel=3,
-    )
-    items = []
+    items: list[dict] = []
+
+    include_finish = _level_at_least(context, "outcome")
+    include_agent_msgs = _level_at_least(context, "dialogue")
+    include_other_actions = _level_at_least(context, "actions")
+    include_observations = _level_at_least(context, "observations")
+    # ``actions`` is the first level that wants the full command in the action
+    # summary; ``outcome`` only renders the finish message.
+    include_cmd = include_other_actions
 
     for event in events:
         source = event.get("source", "")
         kind = event.get("kind", "")
 
-        # User messages - always included
+        # User messages - always included (level >= minimal).
         if source == "user" and kind == "MessageEvent":
             content = extract_message_content(event)
             if content:
                 items.append({"role": "user", "text": content})
+            continue
 
-        # Agent messages - only in full context
-        elif source == "agent" and kind == "MessageEvent" and context == "full":
+        # Agent messages - level >= dialogue.
+        if source == "agent" and kind == "MessageEvent" and include_agent_msgs:
             content = extract_message_content(event)
             if content:
-                # Truncate long agent messages
+                # Truncate long agent messages (mirrors metadata-driven default).
                 if len(content) > 1000:
                     content = content[:1000] + "... [truncated]"
                 items.append({"role": "assistant", "text": content})
+            continue
 
-        # Action events
-        elif source == "agent" and kind == "ActionEvent":
+        # Action events.
+        if source == "agent" and kind == "ActionEvent":
             tool_name = event.get("tool_name", "")
-            # Include full command when using full context level
-            include_cmd = context == "full"
 
-            # Finish action - included in default and full
-            if tool_name == "finish" and context in ("default", "full"):
+            if tool_name == "finish" and include_finish:
                 summary = extract_action_summary(event, include_command=include_cmd)
                 items.append({"role": "action", "text": summary})
-
-            # Other actions - only in full context
-            elif context == "full" and tool_name != "finish":
+            elif tool_name != "finish" and include_other_actions:
                 summary = extract_action_summary(event, include_command=include_cmd)
                 items.append({"role": "action", "text": summary})
+            continue
+
+        # Observation events - level >= observations.
+        if kind == "ObservationEvent" and include_observations:
+            content = extract_observation_content(event)
+            if content:
+                items.append({"role": "observation", "text": content})
 
     return items
+
+
+# Retained for callers (mostly tests) that still import the old private name.
+_legacy_build_transcript = _string_build_transcript
 
 
 def format_transcript(items: list[dict]) -> str:
@@ -297,7 +371,7 @@ class _PreparedData:
     content_hash: str
 
 
-def _prepare_data(conv_dir: Path, context: LegacyContextLevel) -> _PreparedData:
+def _prepare_data(conv_dir: Path, context: StringContextLevel) -> _PreparedData:
     """Load events and build transcript (reusable across cache check and analysis)."""
     with _timer("load_events"):
         events = load_events(conv_dir)
@@ -310,7 +384,7 @@ def _prepare_data(conv_dir: Path, context: LegacyContextLevel) -> _PreparedData:
 
 def get_cached_analysis(
     conv_dir: Path,
-    context: LegacyContextLevel = "default",
+    context: StringContextLevel = "outcome",
     detail: DetailLevel = "brief",
     assess: bool = False,
 ) -> ObjectiveAnalysis | None:
@@ -343,7 +417,7 @@ def get_cached_analysis(
 
 def _check_cache_with_data(
     conv_dir: Path,
-    context: LegacyContextLevel,
+    context: StringContextLevel,
     detail: DetailLevel,
     assess: bool,
     prompt_hash: str,
@@ -387,7 +461,7 @@ def _parse_llm_response(response_text: str) -> dict:
 def analyze_objectives(
     conv_dir: Path,
     model: str | None = None,
-    context: LegacyContextLevel = "default",
+    context: StringContextLevel = "outcome",
     detail: DetailLevel = "brief",
     assess: bool = False,
     force_refresh: bool = False,
@@ -397,16 +471,18 @@ def analyze_objectives(
     Args:
         conv_dir: Path to the conversation directory
         model: LLM model to use (defaults to LLM_MODEL env var)
-        context: Context level for transcript building:
-            - "minimal": User messages only (lowest tokens)
-            - "default": User messages + finish action (recommended)
-            - "full": User + agent messages + action summaries (most tokens)
+        context: Context level for transcript building (5 levels, Issue #149):
+            - ``minimal``: User messages only (lowest tokens)
+            - ``outcome``: + finish action (recommended for assess variants)
+            - ``dialogue``: + agent messages
+            - ``actions``: + non-finish action summaries with commands
+            - ``observations``: + truncated tool observations (highest tokens)
         detail: Detail level for output:
             - "brief": Just the goal (1-2 sentences)
             - "standard": Goal + primary/secondary outcomes
             - "detailed": Full hierarchical objectives with subordinates
         assess: If True, include status assessment (achieved/not_achieved/in_progress)
-            for each objective. Requires at least "default" context (finish action).
+            for each objective. Requires at least ``outcome`` context (finish action).
         force_refresh: If True, ignore cached analysis
 
     Returns:
@@ -418,12 +494,13 @@ def analyze_objectives(
     """
     total_start = time.perf_counter()
 
-    # For assessment, we need at least the finish action
-    # Upgrade context if needed
+    # For assessment, we need at least the finish action - upgrade if needed.
     effective_context = context
     if assess and context == "minimal":
-        effective_context = "default"
-        log.debug("Upgrading context to 'default' for assessment (need finish action)")
+        effective_context = "outcome"
+        log.debug(
+            "Upgrading context to 'outcome' for assessment (need finish action)"
+        )
 
     # Get prompt hash early for cache validation
     from ohtv.prompts import get_prompt_hash
@@ -461,23 +538,24 @@ def analyze_objectives(
         )
         raise ValueError(f"No events found in conversation: {conv_id}")
 
-    # Auto-promote context level if transcript is empty but events exist
-    # This handles worker conversations (orchestrator-spawned) that have no user
-    # messages but do have meaningful actions
-    if not data.items and data.events:
-        has_actions = _has_action_events(data.events)
-
-        # Try progressively higher context levels
-        if effective_context == "minimal" and has_actions:
+    # Auto-promote context level if transcript is empty but events exist.
+    # Issue #149 replaced the 2-step jump (minimal -> default -> full) with
+    # single-step promotion through the 5-level ladder so we add the minimum
+    # context needed to surface content. Worker conversations
+    # (orchestrator-spawned) typically lack user messages but have meaningful
+    # ActionEvents - this loop walks up until content materialises (or we hit
+    # the top of the ladder).
+    if not data.items and data.events and _has_action_events(data.events):
+        while not data.items:
+            next_level = promote_context_level(effective_context)
+            if next_level is None:
+                break
             log.debug(
-                "Promoting context from 'minimal' to 'default' (no user messages)"
+                "Promoting context from %r to %r (no content)",
+                effective_context,
+                next_level,
             )
-            effective_context = "default"
-            data = _prepare_data(conv_dir, effective_context)
-
-        if not data.items and effective_context == "default" and has_actions:
-            log.debug("Promoting context from 'default' to 'full' (no finish action)")
-            effective_context = "full"
+            effective_context = next_level
             data = _prepare_data(conv_dir, effective_context)
 
     # Now check for empty content after promotion attempts

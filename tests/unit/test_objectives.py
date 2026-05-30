@@ -78,7 +78,7 @@ class TestBuildTranscript:
             }
         ]
         # Should not raise AttributeError
-        result = build_transcript(events, context="full")
+        result = build_transcript(events, context="actions")
         assert len(result) == 1
         assert result[0]["role"] == "action"
 
@@ -103,8 +103,8 @@ class TestBuildTranscript:
         assert result[0]["role"] == "user"
         assert result[0]["text"] == "Hello"
 
-    def test_full_context_includes_actions(self):
-        """Full context includes all actions."""
+    def test_actions_context_includes_actions(self):
+        """``actions`` context includes non-finish action summaries."""
         events = [
             {
                 "source": "user",
@@ -118,18 +118,21 @@ class TestBuildTranscript:
                 "action": {"command": "ls"},
             },
         ]
-        result = build_transcript(events, context="full")
+        result = build_transcript(events, context="actions")
         assert len(result) == 2
         assert result[0]["role"] == "user"
         assert result[1]["role"] == "action"
 
     def test_numeric_context_string_not_recognized(self):
-        """Regression test: numeric string "3" was not recognized as "full".
-        
-        This documents the bug where -c 3 was passed through as "3" instead
-        of being converted to "full", causing actions to be silently dropped.
-        The fix is in _normalize_context_level() in cli.py.
-        
+        """Regression test: numeric string "3" must not bypass normalization.
+
+        This documents the bug where ``-c 3`` was passed through as ``"3"``
+        instead of being normalized to the canonical name, causing actions to
+        be silently dropped. The fix lives in ``_normalize_context_level()``
+        in cli.py. Under the new 5-level ladder (Issue #149), the numeric
+        string ``"3"`` would otherwise be treated as ``minimal`` (unknown
+        level fallback) by ``_string_build_transcript``, hiding actions.
+
         See: https://github.com/jpshackelford/ohtv/issues/61
         """
         events = [
@@ -145,16 +148,15 @@ class TestBuildTranscript:
                 "action": {"command": "ls"},
             },
         ]
-        # Bug behavior: "3" is NOT recognized, falls through to minimal-like behavior
         result_numeric = build_transcript(events, context="3")
-        # Expected behavior with "full": actions are captured
-        result_full = build_transcript(events, context="full")
-        
-        # With the bug, "3" would return 0-1 items (only user message)
-        # but "full" correctly returns 2 items (user message + action)
-        assert len(result_numeric) < len(result_full), (
-            "Regression: numeric string '3' should not be recognized by "
-            "_legacy_build_transcript - CLI must normalize before calling"
+        result_actions = build_transcript(events, context="actions")
+
+        # With normalization, "3" maps to "dialogue" (no non-finish actions).
+        # Without normalization, "3" falls back to minimal-like behaviour
+        # which drops actions. Either way, fewer items than "actions".
+        assert len(result_numeric) < len(result_actions), (
+            "Regression: numeric string '3' must not be recognised by the "
+            "string slicer - CLI must normalize before calling"
         )
 
 
@@ -215,53 +217,59 @@ class TestContextAutoPromotion:
             {"source": "agent", "kind": "ActionEvent", "tool_name": "file_editor", "action": {"command": "view", "path": "/test.py"}},
             {"source": "agent", "kind": "ActionEvent", "tool_name": "finish", "action": {"message": "Done"}},
         ]
-        # Minimal context only extracts user messages
+        # ``minimal`` only extracts user messages.
         result_minimal = build_transcript(events, context="minimal")
-        assert len(result_minimal) == 0, "Minimal context should yield 0 items for worker conversations"
-        
-        # Default context extracts finish action
-        result_default = build_transcript(events, context="default")
-        assert len(result_default) == 1, "Default context should yield 1 item (finish action)"
-        
-        # Full context extracts all actions
-        result_full = build_transcript(events, context="full")
-        assert len(result_full) == 3, "Full context should yield 3 items (all actions)"
+        assert len(result_minimal) == 0, "minimal should yield 0 items for worker conversations"
 
-    def test_default_yields_finish_only_for_worker(self):
-        """Default context extracts only finish action for worker conversations."""
+        # ``outcome`` extracts the finish action.
+        result_outcome = build_transcript(events, context="outcome")
+        assert len(result_outcome) == 1, "outcome should yield 1 item (finish action)"
+
+        # ``dialogue`` adds agent messages but NOT non-finish actions.
+        result_dialogue = build_transcript(events, context="dialogue")
+        assert len(result_dialogue) == 1, "dialogue should still be just finish (no agent msgs)"
+
+        # ``actions`` extracts all action summaries.
+        result_actions = build_transcript(events, context="actions")
+        assert len(result_actions) == 3, "actions should yield 3 items (all actions)"
+
+    def test_outcome_yields_finish_only_for_worker(self):
+        """``outcome`` context extracts only finish action for worker conversations."""
         events = [
             {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal", "action": {"command": "ls"}},
             {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal", "action": {"command": "pwd"}},
             {"source": "agent", "kind": "ActionEvent", "tool_name": "finish", "action": {"message": "Complete"}},
         ]
-        result = build_transcript(events, context="default")
+        result = build_transcript(events, context="outcome")
         assert len(result) == 1
         assert result[0]["role"] == "action"
         assert "Complete" in result[0]["text"]
 
-    def test_full_context_captures_all_actions(self):
-        """Full context captures all action summaries."""
+    def test_actions_context_captures_all_actions(self):
+        """``actions`` context captures all action summaries."""
         events = [
             {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal", "action": {"command": "git status"}},
             {"source": "agent", "kind": "ActionEvent", "tool_name": "file_editor", "action": {"command": "view", "path": "/test.py"}},
             {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal", "action": {"command": "python test.py"}},
         ]
-        result = build_transcript(events, context="full")
+        result = build_transcript(events, context="actions")
         assert len(result) == 3
-        
-    def test_worker_without_finish_needs_full_context(self):
-        """Worker conversations without finish action need full context."""
+
+    def test_worker_without_finish_needs_actions_context(self):
+        """Worker conversations without finish action need ``actions`` context."""
         # Some worker conversations may not complete with a finish action
         events = [
             {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal", "action": {"command": "git push"}},
             {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal", "action": {"command": "echo done"}},
         ]
-        # Minimal: empty
+        # minimal: empty
         assert len(build_transcript(events, context="minimal")) == 0
-        # Default: empty (no finish)
-        assert len(build_transcript(events, context="default")) == 0
-        # Full: captures all
-        assert len(build_transcript(events, context="full")) == 2
+        # outcome: empty (no finish)
+        assert len(build_transcript(events, context="outcome")) == 0
+        # dialogue: empty (no agent msgs, no non-finish actions)
+        assert len(build_transcript(events, context="dialogue")) == 0
+        # actions: captures all
+        assert len(build_transcript(events, context="actions")) == 2
 
 
 class TestAnalyzeObjectivesAutoPromotion:
@@ -277,7 +285,7 @@ class TestAnalyzeObjectivesAutoPromotion:
 
     def test_promotion_should_trigger_when_minimal_empty_with_actions(self):
         """Verify conditions that trigger auto-promotion.
-        
+
         When context=minimal produces empty transcript AND actions exist,
         the auto-promotion logic should kick in.
         """
@@ -286,48 +294,52 @@ class TestAnalyzeObjectivesAutoPromotion:
             {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal", "action": {"command": "git status"}},
             {"source": "agent", "kind": "ActionEvent", "tool_name": "finish", "action": {"message": "Done"}},
         ]
-        
+
         # Minimal context produces empty transcript
         minimal_transcript = build_transcript(worker_events, context="minimal")
         assert len(minimal_transcript) == 0, "Minimal should be empty for worker conv"
-        
+
         # But actions exist
         assert _has_action_events(worker_events), "Should detect agent actions"
-        
+
         # Therefore auto-promotion should trigger (tested via integration tests)
 
-    def test_promotion_stops_at_default_when_finish_exists(self):
-        """Verify that default context captures finish action.
-        
-        If default context produces content (finish action), promotion can stop there.
+    def test_promotion_stops_at_outcome_when_finish_exists(self):
+        """Verify that ``outcome`` context captures finish action.
+
+        If ``outcome`` context produces content (finish action), promotion
+        can stop there - no need to climb higher up the ladder.
         """
         worker_events = [
             {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal", "action": {"command": "git status"}},
             {"source": "agent", "kind": "ActionEvent", "tool_name": "finish", "action": {"message": "Done"}},
         ]
-        
-        # Default context captures finish
-        default_transcript = build_transcript(worker_events, context="default")
-        assert len(default_transcript) == 1, "Default should capture finish action"
-        assert "Done" in default_transcript[0]["text"]
 
-    def test_promotion_to_full_when_no_finish(self):
-        """Verify that full context is needed when no finish action.
-        
-        Some worker conversations don't complete with finish - they need full context.
+        # ``outcome`` captures finish
+        outcome_transcript = build_transcript(worker_events, context="outcome")
+        assert len(outcome_transcript) == 1, "outcome should capture finish action"
+        assert "Done" in outcome_transcript[0]["text"]
+
+    def test_promotion_to_actions_when_no_finish(self):
+        """Verify that ``actions`` context is needed when no finish action.
+
+        Some worker conversations don't complete with finish - they need
+        promotion to climb past ``dialogue`` (which only adds agent msgs)
+        all the way to ``actions``.
         """
         worker_events = [
             {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal", "action": {"command": "git push"}},
             {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal", "action": {"command": "echo done"}},
         ]
-        
-        # Both minimal and default are empty
+
+        # The first three levels are empty
         assert len(build_transcript(worker_events, context="minimal")) == 0
-        assert len(build_transcript(worker_events, context="default")) == 0
-        
-        # Only full captures content
-        full_transcript = build_transcript(worker_events, context="full")
-        assert len(full_transcript) == 2, "Full should capture all actions"
+        assert len(build_transcript(worker_events, context="outcome")) == 0
+        assert len(build_transcript(worker_events, context="dialogue")) == 0
+
+        # Only ``actions`` captures content
+        actions_transcript = build_transcript(worker_events, context="actions")
+        assert len(actions_transcript) == 2, "actions should capture all non-finish actions"
 
     def test_no_promotion_when_user_messages_exist(self):
         """Normal conversations with user messages don't need promotion.
