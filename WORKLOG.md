@@ -2,6 +2,61 @@
 
 ## Log
 
+### 2026-05-30 11:10 UTC - Implementation worker (#128 RAG citation root dedup)
+
+✅ **Completed: Implementation of #128** — [PR #156](https://github.com/jpshackelford/ohtv/pull/156) `feat(rag): cite root_conversation_id in ask/search results (#128)`
+
+- **PR**: [#156](https://github.com/jpshackelford/ohtv/pull/156) — `feat/rag-citation-root-dedup-128` → `main`
+- **Issue**: [#128](https://github.com/jpshackelford/ohtv/issues/128) — RAG `ask`/`search` cite sub-conversation IDs the user doesn't recognise.
+- **Cluster slot**: **render-layer-dedup** member of the #122 root-grain rollout — final RAG/search surface in the cluster. Siblings: #123 → PR #150 (SELECT-layer), #124 → PR #153 (JOIN-key), #125 → PR #154 (Python flag, ⚠ BREAKING), #127 → PR #155 (SELECT + filter-reduce, ⚠ BREAKING). Only #126 (classify self-healing UPDATE) remains in the cluster after this.
+- **PR status when this entry was written**: ready-for-review (flipped from draft after CI green), CI green (lint pass 5s, pytest pass 60s, 2114 unit tests).
+- **Squash subject**: `feat(rag): cite root_conversation_id in ask/search results (#128)` — `feat:` minor bump per AGENTS.md commit contract. **No `BREAKING CHANGE:` footer** — this is a render-layer fix to an existing bug (citation IDs were unrecognisable), not a behaviour flip.
+
+**Cut shape (render-layer-only)**:
+1. `ContextChunk` gains required `root_conversation_id: str` field (rag.py:97), populated in `_results_to_context_chunks` via `conv.root_conversation_id` with self-id fallback for standalones / NULL-root rows.
+2. `RAGRetrievalResult.source_conversation_ids` and `RAGAnswer.source_conversation_ids` are now sets of **roots** (rag.py:373 + rag.py:517 — two-line set-comprehension changes).
+3. `_format_chunk_header` (rag.py:633) cites the root as canonical `Conversation ID:`, appends `(via sub: <hex8>)` annotation when chunk's id ≠ root — LLM now cites root ids in its answer text.
+4. `ohtv ask` Sources table (cli.py:3609–3686) groups chunks by `root_conversation_id` instead of `conversation_id`; root metadata (title, date, summary, cloud URL) resolved via `conv_store.get(root_id)`; `[via sub: <hex8>]` annotation appended to the summary cell when a sub contributed chunks.
+5. `ohtv search` (both semantic and FTS5 paths) over-fetches `limit * 3`, then `_dedup_search_results_by_root` walks the pre-sorted list, keeps first-occurrence per root (MAX score by construction), rewrites `conversation_id` → root id, renumbers ranks, truncates to `limit`. **No backfill** (preserves `max_chunks` semantics).
+6. `_display_retrieval_breakdown` (`--explain` / `--explain-only`) shows BOTH grains: per-conv header gets a `(root: <hex8>)` parenthetical when chunk is from a sub; summary line reports `(N roots)` when conv-count and root-count differ. Satisfies adjacent issue #35.
+7. `_assert_root_column_present(conn)` guardrail at the entry of `retrieve()` / `answer_question()` — runtime, not import. Cites **migration 020** (not 019 — the issue body's "migration 019" was a typo; #122's column lives on 020, matching siblings PR #152 and #155).
+8. `map_to_roots(conn, ids: list[str]) -> dict[str, str]` added to `src/ohtv/filters.py` as the list-shaped companion to #127's set-shaped `expand_to_roots`. Dict shape preserves rank-order via `mapping[id]` lookups.
+
+**Hard guarantees preserved**:
+- `src/ohtv/db/stores/embedding_store.py` is **unchanged** — chunk-grain retrieval contract intact. `git diff main -- src/ohtv/db/stores/embedding_store.py` returns 0 lines.
+- No `--include-sub-conversations` flag on `ask` / `search` (citation dedup has no legitimate opt-out per the issue body's explicit rejection — unlike sibling #125).
+- No migration changes (column already exists per #122).
+- No `WORKLOG.md` writes from the feature branch — only this single completion entry on `main` per the orchestrate skill's pattern.
+
+**Tests added** (+32 unit tests, all green):
+- `tests/unit/analysis/test_rag_root_dedup.py` (14 tests) — `_results_to_context_chunks` root-population, `source_conversation_ids` root-grain (incl. the closing-AC regression: 1 root + 2 subs + 1 standalone → 2 source ids with 4 chunks preserved), migration-020 guard, `_format_chunk_header` / `_build_context_text` `(via sub: ...)` annotations, `ContextChunk` shape.
+- `tests/unit/test_cli_ask_search_root_dedup.py` (10 tests) — `_dedup_search_results_by_root` (MAX-score, rank renumbering, no backfill, limit truncation, unknown-id passthrough); `_display_retrieval_breakdown` both-grains rendering.
+- `tests/unit/test_filters.py` extension (+8 tests) — `map_to_roots` empty / all-roots / all-subs / mixed / unknown / dashed-caller-key / duplicates / NULL-root paths.
+- `tests/unit/analysis/test_rag_retriever.py` minimally patched: 5 retrieve tests use a new `_mock_conv_store_with_root_column` helper that stubs PRAGMA to satisfy the guard; 3 display-breakdown tests get `root_conversation_id` set explicitly on their MagicMock chunks.
+
+**Suite**: 2114 passed, 2 skipped, 3 xfailed in 28s.
+
+**Commits** (4 logical groups):
+- `feat(rag):` plumb `root_conversation_id` through `ContextChunk` + citations + guard (76 ins / 8 del in `src/ohtv/analysis/rag.py`)
+- `feat(filters):` add `map_to_roots(conn, list)` list-shaped companion (+64 in `src/ohtv/filters.py`)
+- `feat(cli):` root-dedup ask sources, search results, `--explain` breakdown (220 ins / 32 del in `src/ohtv/cli.py`)
+- `test:` cover RAG root-dedup, `map_to_roots`, migration-020 guard (+836 across 4 test files)
+
+**No AGENTS.md edits** per cluster convention — the AGENTS.md item is owned by the #122 umbrella, not per-issue PRs.
+
+**Cluster snapshot after this PR (#122 root-grain rollout)**:
+
+| Issue | Command | Status |
+|---|---|---|
+| #123 | `report weekly-counts` | ✅ PR #150 → v0.16.1 |
+| #124 | `report velocity` | ✅ PR #153 → v0.16.2 |
+| #125 | `gen objs / titles / run` | ✅ PR #154 → v0.17.0 ⚠ BREAKING |
+| #127 | `list` / `refs` | ✅ PR #155 → v0.18.0 ⚠ BREAKING |
+| **#128** | **RAG `ask` / `search`** | **✅ PR #156 — ready for review, CI green** |
+| #126 | `classify` (self-healing UPDATE) | ⏳ Remaining — only cluster member left |
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
 ### 2026-05-30 10:24 UTC - Merge worker (PR #155)
 
 **Merged**: [PR #155](https://github.com/jpshackelford/ohtv/pull/155) — `feat(list,refs): roots-only by default with subtree rollup (#127)`
