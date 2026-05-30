@@ -2,6 +2,30 @@
 
 ## Log
 
+### 2026-05-30 00:55 UTC - Expansion worker (#148 LiteLLM botocore noise)
+
+✅ **Expanded Issue #148 — `ready` for impl**
+
+- Issue: [#148](https://github.com/jpshackelford/ohtv/issues/148) — Suppress LiteLLM botocore warnings at import time
+- Type: Enhancement (polish)
+- Status: Ready for implementation
+
+**Reproduction**: current pinned `litellm==1.80.10` does NOT fire the exact warnings — line numbers in the reporter's traceback (`common_utils.py:979`) don't exist in that file (963 lines total). Reporter's environment is on a newer LiteLLM where the Bedrock/SageMaker provider modules added an eager `try: from botocore.parsers import EventStreamJSONParser / except ImportError: verbose_logger.warning(...)` at import time. Confirmed via grep across `.venv/lib/python3.13/site-packages/litellm/`.
+
+**Key finding**: the warnings are `logging.getLogger("LiteLLM")` records, NOT Python `warnings.warn` records. The orchestrator's `warnings.filterwarnings("ignore", module="botocore.*")` suggestion would silently no-op. Documented this in the technical comment so the impl worker doesn't burn time on the wrong shape.
+
+**Chosen approach**: `os.environ.setdefault("LITELLM_LOG", "ERROR")` in `src/ohtv/__init__.py`. Wins the race against `openhands-sdk`'s post-import `disable_logger("LiteLLM", logging.ERROR)` call because LiteLLM reads `LITELLM_LOG` in `litellm/_logging.py` at module init (`log_level = os.getenv("LITELLM_LOG", "DEBUG")`). `setdefault` preserves user overrides (`LITELLM_LOG=DEBUG ohtv ask ...`) — no separate escape-hatch env var needed.
+
+**Placement rationale** (confirmed via `python -X importtime -c "from ohtv import cli"`): `litellm` is pulled in transitively through `ohtv.db.stages → ohtv.analysis.embeddings → ohtv.analysis.embeddings.client`, which runs BEFORE any Click callback. Therefore `setup_logging` / `init_logging_from_cli` (PR #147, Issue #121) is too late — must be in `ohtv/__init__.py` so it runs on first `import ohtv.*`.
+
+**Labels applied**: `ready`, `enhancement`. Issue body rewritten to Problem Statement / Proposed Solution / Acceptance Criteria / Out of Scope. Technical comment posted with full reproduction notes, chosen approach, placement rationale, files-to-modify table, three-test regression plan (must subprocess for clean module state), and risks/non-risks.
+
+EXIT per expand-issue skill — implementation is a separate conversation.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-30 00:39 UTC - Impl worker (#116 centralize DB migration)
 
 ✅ **PR #151 ready for review** — `refactor(db): centralize migration through get_ready_connection`
