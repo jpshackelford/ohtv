@@ -25,40 +25,62 @@ def get_conversations(
     until: datetime | None = None,
     source: str | None = None,
     use_db: bool = True,
+    include_subs: bool = False,
 ) -> list[ConversationInfo]:
     """Get conversations with optional filtering.
-    
+
     Uses database when available for fast metadata access.
     Falls back to filesystem scanning when database is unavailable.
-    
+
     Args:
         config: Application configuration
         since: Include conversations created on or after this time
         until: Include conversations created before this time
         source: Filter by source ('local', 'cloud', or None for all)
         use_db: If True (default), try database first. If False, always use filesystem.
-    
+        include_subs: When False (default, Issue #125), exclude
+            agent-delegated sub-conversations from the result. On the
+            DB path this is enforced via a SQL predicate against the
+            ``root_conversation_id`` column (migration 020). On the
+            filesystem fallback, sub/root identity is not recoverable
+            from ``ConversationInfo`` alone, so the flag is logged and
+            the FS path returns its rows unchanged — documented as
+            "skip the FS roots filter cleanly" in the issue brief.
+
     Returns:
         List of ConversationInfo objects, sorted by created_at descending
     """
     if use_db:
         try:
-            conversations = _get_conversations_from_db(config, since, until, source)
+            conversations = _get_conversations_from_db(
+                config, since, until, source, include_subs
+            )
             if conversations is not None:
                 log.debug("Listed %d conversations from database", len(conversations))
                 return conversations
         except Exception as e:
             log.debug("Database listing failed, falling back to filesystem: %s", e)
-    
+
     # Fallback to filesystem
     conversations = _get_conversations_from_filesystem(config, source)
-    
+
+    if not include_subs:
+        # FS path has no parent/root metadata — the DB-first design
+        # means this branch only runs when the DB is unavailable
+        # (fresh checkout, or DB read failed above). Log so the user
+        # can see why subs may appear in a pre-DB result set.
+        log.debug(
+            "Filesystem fallback cannot distinguish root vs sub conversations; "
+            "include_subs=False is a no-op here. Run 'ohtv db scan' for the "
+            "DB-side roots-only filter (Issue #125)."
+        )
+
     # Apply date filters manually
     if since:
         conversations = [c for c in conversations if c.created_at and c.created_at >= since]
     if until:
         conversations = [c for c in conversations if c.created_at and c.created_at < until]
-    
+
     log.debug("Listed %d conversations from filesystem", len(conversations))
     return conversations
 
@@ -68,33 +90,42 @@ def _get_conversations_from_db(
     since: datetime | None,
     until: datetime | None,
     source: str | None,
+    include_subs: bool = False,
 ) -> list[ConversationInfo] | None:
     """Get conversations from database.
-    
+
     Returns None if database is unavailable or empty.
     Automatically runs migrations and maintenance tasks if needed.
+
+    ``include_subs`` is plumbed through to
+    :meth:`ConversationStore.list_by_date_range` — see Issue #125.
     """
     from ohtv.db import get_connection, get_db_path, ensure_db_ready
     from ohtv.db.stores import ConversationStore
-    
+
     db_path = get_db_path()
     if not db_path.exists():
         return None
-    
+
     with get_connection() as conn:
         # Run migrations and any pending maintenance (like metadata backfill)
         ensure_db_ready(conn, show_progress=True)
-        
+
         store = ConversationStore(conn)
-        
+
         # Check if database has metadata populated
         if store.count_with_metadata() == 0:
             log.debug("Database has no metadata, falling back to filesystem")
             return None
-        
+
         # Query with filters
-        db_conversations = store.list_by_date_range(since=since, until=until, source=source)
-        
+        db_conversations = store.list_by_date_range(
+            since=since,
+            until=until,
+            source=source,
+            include_subs=include_subs,
+        )
+
         # Convert to ConversationInfo
         return [_db_conv_to_info(c) for c in db_conversations]
 

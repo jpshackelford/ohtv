@@ -746,3 +746,180 @@ class TestBatchModeHelpText:
         result = runner.invoke(main, ["gen", "objs", "--help"])
         
         assert "minimal" in result.output or "context" in result.output.lower()
+
+
+# =============================================================================
+# Issue #125 — sub-conversation default exclusion regression tests
+# =============================================================================
+
+
+class TestBatchModeSubConversations:
+    """Regression tests for Issue #125.
+
+    The ``gen objs`` multi-conversation pipeline must default to root
+    conversations only; agent-delegated sub-conversations were being
+    analyzed as independent units of human intent and burning LLM cost.
+    """
+
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    @pytest.fixture
+    def root_and_subs(self):
+        """1 root + 2 subs, all dashless per AGENTS.md item #14."""
+        return [
+            create_mock_conversation_info(
+                "r00000000000000000000000000000001", "Root", source="cloud"
+            ),
+            create_mock_conversation_info(
+                "s00000000000000000000000000000002", "Sub 1", source="cloud"
+            ),
+            create_mock_conversation_info(
+                "s00000000000000000000000000000003", "Sub 2", source="cloud"
+            ),
+        ]
+
+    def _run_with_filter_mock(
+        self,
+        runner,
+        *,
+        cli_args: list[str],
+        returned_conversations: list,
+    ):
+        """Helper: invoke ``ohtv gen objs <args>`` with the filter call
+        mocked to return ``returned_conversations`` and the LLM mocked.
+
+        Returns ``(cli_result, mock_filters, mock_analyze)`` so the
+        caller can assert on call counts and on the kwargs the filter
+        was invoked with.
+        """
+        with patch("ohtv.cli.Config") as mock_config, \
+             patch("ohtv.cli._apply_conversation_filters") as mock_filters, \
+             patch("ohtv.analysis.analyze_objectives") as mock_analyze, \
+             patch("ohtv.cli._find_conversation_dir") as mock_find, \
+             patch("ohtv.cli._count_uncached_conversations_fast") as mock_count:
+
+            mock_config.from_env.return_value = MagicMock()
+
+            filter_result = MagicMock()
+            filter_result.conversations = returned_conversations
+            filter_result.show_all = True  # large set: force --all path
+            mock_filters.return_value = filter_result
+
+            mock_analyze.return_value = create_mock_analysis_result()
+            mock_find.return_value = (Path("/tmp/conv"), None)
+            mock_count.return_value = 0  # All cached → exercise full result path
+
+            result = runner.invoke(main, ["gen", "objs", *cli_args])
+
+            return result, mock_filters, mock_analyze
+
+    def test_default_passes_include_sub_conversations_false_to_filter(
+        self, runner, root_and_subs
+    ):
+        """No flag → ``_apply_conversation_filters`` receives
+        ``include_sub_conversations=False``. This is the DB-side
+        predicate's entry point — the filter mock can't reproduce the
+        SQL behaviour, but if the orchestration layer forgets to pass
+        the flag through, the SQL never gets a chance to filter."""
+        result, mock_filters, _ = self._run_with_filter_mock(
+            runner,
+            cli_args=["--all", "-q", "-y"],
+            returned_conversations=[root_and_subs[0]],
+        )
+        # CLI ran successfully
+        assert result.exit_code == 0, result.output
+
+        # Inspect the kwargs the filter was called with.
+        assert mock_filters.call_count == 1
+        call_kwargs = mock_filters.call_args.kwargs
+        assert call_kwargs.get("include_sub_conversations") is False, (
+            "gen objs default must pass include_sub_conversations=False "
+            "to _apply_conversation_filters; got "
+            f"{call_kwargs.get('include_sub_conversations')!r}"
+        )
+
+    def test_flag_passes_include_sub_conversations_true_to_filter(
+        self, runner, root_and_subs
+    ):
+        """``--include-sub-conversations`` → filter gets ``True``."""
+        result, mock_filters, _ = self._run_with_filter_mock(
+            runner,
+            cli_args=[
+                "--all",
+                "-q",
+                "-y",
+                "--include-sub-conversations",
+            ],
+            returned_conversations=root_and_subs,
+        )
+        assert result.exit_code == 0, result.output
+
+        assert mock_filters.call_count == 1
+        call_kwargs = mock_filters.call_args.kwargs
+        assert call_kwargs.get("include_sub_conversations") is True, (
+            "--include-sub-conversations must propagate as True; got "
+            f"{call_kwargs.get('include_sub_conversations')!r}"
+        )
+
+    def test_default_analyzes_only_root_when_db_returns_root_only(
+        self, runner, root_and_subs
+    ):
+        """End-to-end: default = filter returns only the root → LLM
+        called exactly once. Mirrors the AC: 1 root + 2 subs fixture,
+        1 ``analyze_objectives`` invocation."""
+        # With include_subs=False, the DB returns only the root row.
+        # We simulate that here by returning only the root.
+        result, _, mock_analyze = self._run_with_filter_mock(
+            runner,
+            cli_args=["--all", "-q", "-y"],
+            returned_conversations=[root_and_subs[0]],
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_analyze.call_count == 1, (
+            "Default (roots only) over 1 root + 2 subs must invoke "
+            f"analyze_objectives exactly once; got {mock_analyze.call_count}"
+        )
+
+    def test_flag_analyzes_all_three_when_db_returns_root_and_subs(
+        self, runner, root_and_subs
+    ):
+        """End-to-end: flag set = filter returns all three rows → LLM
+        called three times."""
+        result, _, mock_analyze = self._run_with_filter_mock(
+            runner,
+            cli_args=[
+                "--all",
+                "-q",
+                "-y",
+                "--include-sub-conversations",
+            ],
+            returned_conversations=root_and_subs,
+        )
+        assert result.exit_code == 0, result.output
+        assert mock_analyze.call_count == 3, (
+            "--include-sub-conversations over 1 root + 2 subs must invoke "
+            f"analyze_objectives three times; got {mock_analyze.call_count}"
+        )
+
+    def test_help_advertises_flag(self, runner):
+        """The ``--help`` output names the flag and the default
+        verbatim — matches AC#4."""
+        result = runner.invoke(main, ["gen", "objs", "--help"])
+        assert result.exit_code == 0
+        assert "--include-sub-conversations" in result.output
+        # The help= kwarg is the canonical advertised text.
+        assert (
+            "agent delegation" in result.output
+            or "roots only" in result.output
+        ), result.output
+
+    def test_help_docstring_mentions_default_roots_only(self, runner):
+        """The docstring sentence Click renders into help must say
+        the default excludes subs."""
+        result = runner.invoke(main, ["gen", "objs", "--help"])
+        assert result.exit_code == 0
+        # Click wraps lines, so look for the key phrase.
+        assert "root conversations only" in result.output
+        assert "include them" in result.output
