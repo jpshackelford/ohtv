@@ -12,6 +12,8 @@ import io
 import sqlite3
 from datetime import date, datetime, timezone
 
+import pytest
+
 from ohtv.reports.weekly_counts import (
     CSV_HEADER,
     WeeklyCountsReport,
@@ -33,12 +35,32 @@ def _insert_conv(
     *,
     created_at: str | None,
     source: str = "cloud",
+    parent_conversation_id: str | None = None,
+    root_conversation_id: str | None = None,
 ) -> None:
-    """Minimal conversations insert covering the columns this report touches."""
+    """Minimal conversations insert covering the columns this report touches.
+
+    Issue #123: ``parent_conversation_id`` / ``root_conversation_id``
+    let tests seed sub-conversation trees. When ``root_conversation_id``
+    is not passed, it defaults to ``conv_id`` (i.e., this row is its own
+    root), which preserves the pre-#123 behaviour of every existing
+    test seeding only roots.
+    """
+    if root_conversation_id is None:
+        root_conversation_id = conv_id
     conn.execute(
-        "INSERT INTO conversations (id, location, created_at, source) "
-        "VALUES (?, ?, ?, ?)",
-        (conv_id, f"/tmp/{conv_id}", created_at, source),
+        "INSERT INTO conversations "
+        "(id, location, created_at, source, "
+        " parent_conversation_id, root_conversation_id) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            conv_id,
+            f"/tmp/{conv_id}",
+            created_at,
+            source,
+            parent_conversation_id,
+            root_conversation_id,
+        ),
     )
     conn.commit()
 
@@ -328,3 +350,164 @@ def test_format_csv_empty_rows_emits_header_only() -> None:
     buf = io.StringIO()
     format_csv([], buf)
     assert buf.getvalue().splitlines() == ["week,cloud,cli,total"]
+
+
+# ---------------------------------------------------------------------------
+# T-A — issue #123 — root + 2 subs in same week count as 1
+# ---------------------------------------------------------------------------
+
+
+def test_root_with_two_subs_same_week_counts_one(conn: sqlite3.Connection) -> None:
+    """A root plus two agent-delegated subs in the same week → cloud=1.
+
+    Pre-#123, the query counted every row in ``conversations``, so a
+    root with two subs produced ``cloud=3``. With the root-grain
+    predicate the subs are filtered out at the SQL layer.
+    """
+    _insert_conv(conn, "root1", created_at="2024-03-05T10:00:00Z", source="cloud")
+    _insert_conv(
+        conn,
+        "sub1",
+        created_at="2024-03-05T11:00:00Z",
+        source="cloud",
+        parent_conversation_id="root1",
+        root_conversation_id="root1",
+    )
+    _insert_conv(
+        conn,
+        "sub2",
+        created_at="2024-03-05T12:00:00Z",
+        source="cloud",
+        parent_conversation_id="root1",
+        root_conversation_id="root1",
+    )
+    report = _aggregate(conn)
+    assert len(report.rows) == 1
+    row = _row(report, "2024-W10")
+    assert row.cloud == 1
+    assert row.cli == 0
+    assert row.total == 1
+
+
+# ---------------------------------------------------------------------------
+# T-B — issue #123 — sub in a later week than its root does not appear
+# ---------------------------------------------------------------------------
+
+
+def test_sub_in_later_week_does_not_count(conn: sqlite3.Connection) -> None:
+    """Root in week N, sub in week N+1 → week N+1 has cloud=0.
+
+    The sub's later ``created_at`` would have created a phantom
+    second week before #123. With the predicate, only the root's
+    own week shows up in sparse output; ``include_empty`` exposes
+    week N+1 as a zero-row.
+    """
+    _insert_conv(conn, "root1", created_at="2024-03-05T10:00:00Z", source="cloud")
+    _insert_conv(
+        conn,
+        "sub1",
+        created_at="2024-03-12T10:00:00Z",
+        source="cloud",
+        parent_conversation_id="root1",
+        root_conversation_id="root1",
+    )
+    report = _aggregate(conn)
+    # Sparse output → only the root's week.
+    assert [r.week_iso for r in report.rows] == ["2024-W10"]
+    assert _row(report, "2024-W10").cloud == 1
+    # With include_empty + an explicit ``until`` anchoring the
+    # zero-fill range, week N+1 shows up as a zero-row. The sub is
+    # filtered out at the SQL layer, so its ``created_at`` cannot
+    # drive the zero-fill range on its own — the caller's
+    # ``until`` is what makes the empty week visible.
+    rows = fetch_rows(conn)
+    report_full = aggregate_weekly_counts(
+        rows,
+        include_empty=True,
+        until=datetime(2024, 3, 13, tzinfo=timezone.utc),
+    )
+    weeks = [r.week_iso for r in report_full.rows]
+    assert "2024-W11" in weeks
+    assert _row(report_full, "2024-W11").cloud == 0
+    assert _row(report_full, "2024-W11").cli == 0
+    assert _row(report_full, "2024-W11").total == 0
+
+
+# ---------------------------------------------------------------------------
+# T-C — issue #123 — 2-deep chain (grand-child) still counts one root
+# ---------------------------------------------------------------------------
+
+
+def test_two_deep_chain_counts_one_root(conn: sqlite3.Connection) -> None:
+    """root → sub → grand-sub all in the same week → cloud=1.
+
+    Verifies N-level chains roll up correctly: depth handling lives
+    entirely in #122's ``root_conversation_id`` column. The report
+    just consumes the denormalized value.
+    """
+    _insert_conv(conn, "root1", created_at="2024-03-05T10:00:00Z", source="cloud")
+    _insert_conv(
+        conn,
+        "sub1",
+        created_at="2024-03-05T11:00:00Z",
+        source="cloud",
+        parent_conversation_id="root1",
+        root_conversation_id="root1",
+    )
+    _insert_conv(
+        conn,
+        "grand1",
+        created_at="2024-03-05T12:00:00Z",
+        source="cloud",
+        parent_conversation_id="sub1",
+        root_conversation_id="root1",
+    )
+    report = _aggregate(conn)
+    assert len(report.rows) == 1
+    assert _row(report, "2024-W10").cloud == 1
+    assert _row(report, "2024-W10").total == 1
+
+
+# ---------------------------------------------------------------------------
+# T-D — issue #123 — missing ``root_conversation_id`` column raises
+# ---------------------------------------------------------------------------
+
+
+def test_missing_root_column_raises_clear_error() -> None:
+    """A schema without ``root_conversation_id`` is a hard error.
+
+    Silently falling back to the legacy SQL would just reintroduce
+    the over-count bug this issue fixes, so :func:`fetch_rows`
+    explicitly checks for the column and raises ``RuntimeError``
+    with an actionable message.
+    """
+    bare = sqlite3.connect(":memory:")
+    bare.row_factory = sqlite3.Row
+    bare.execute(
+        "CREATE TABLE conversations "
+        "(id TEXT PRIMARY KEY, created_at TEXT, source TEXT)"
+    )
+    try:
+        with pytest.raises(RuntimeError, match="migration 020"):
+            fetch_rows(bare)
+    finally:
+        bare.close()
+
+
+# ---------------------------------------------------------------------------
+# T-E — issue #123 — single conversation (no subs) is unchanged
+# ---------------------------------------------------------------------------
+
+
+def test_single_root_no_subs_legacy_path_unchanged(conn: sqlite3.Connection) -> None:
+    """A single root with no subs counts as 1 — no behaviour change.
+
+    Belt-and-braces regression on the legacy path: the addition of
+    the root-grain predicate must not alter the count when there
+    are no sub-conversations to filter out.
+    """
+    _insert_conv(conn, "root1", created_at="2024-03-05T10:00:00Z", source="cloud")
+    report = _aggregate(conn)
+    assert len(report.rows) == 1
+    assert _row(report, "2024-W10").cloud == 1
+    assert _row(report, "2024-W10").total == 1
