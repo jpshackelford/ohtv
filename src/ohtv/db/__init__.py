@@ -13,7 +13,7 @@ filesystem. The DB only tracks:
 - Processing stage completion for incremental ingestion
 """
 
-from ohtv.db.connection import get_connection, get_db_path
+from ohtv.db.connection import get_connection, get_db_path, get_ready_connection
 from ohtv.db.maintenance import ensure_db_ready, run_maintenance
 from ohtv.db.migrations import migrate
 from ohtv.db.models import (
@@ -37,6 +37,7 @@ __all__ = [
     # Connection
     "get_connection",
     "get_db_path",
+    "get_ready_connection",
     "migrate",
     "ensure_db_ready",
     "run_maintenance",

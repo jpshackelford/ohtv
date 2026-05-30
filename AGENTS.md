@@ -185,6 +185,7 @@ These decisions explain WHY the code is structured as it is. See [`docs/guides/`
     - **One-time tasks**: Metadata backfill and cache indexing run automatically after their migrations
     - **Progress display**: Long-running tasks show progress bars
     - **Implementation**: `ensure_db_ready()` in `db/maintenance.py` handles all maintenance
+    - **Single entry point (#116)**: Production callers MUST use `ohtv.db.get_ready_connection()` instead of the lower-level `get_connection()` + `migrate(conn)` pattern. The helper composes `get_connection()` and `ensure_db_ready()` so every command — fresh-install or otherwise — opens a DB that has the current schema **and** has had all pending maintenance tasks evaluated. The two low-level primitives (`get_connection`, `migrate`, `ensure_db_ready`) remain public for niche callers (e.g. the `db init` command, which needs the list of newly-applied migration names that `migrate(conn)` returns). The regression test `tests/unit/test_no_raw_migrate.py` enforces this with a grep-based allow-list; the allow-listed sites are `db/maintenance.py` (canonical wrapper), `db/connection.py` (docstring example), and `cli.py` (`db init` only).
 
 26. **Customizable prompts**: LLM analysis prompts are stored as markdown files for user customization:
     - **Default prompts**: `src/ohtv/prompts/*.md` - 6 prompt variants (brief, standard, detailed × assess/no-assess)

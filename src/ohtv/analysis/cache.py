@@ -527,12 +527,11 @@ class AnalysisCacheManager:
         The file-based cache is the source of truth.
         """
         try:
-            from ohtv.db import get_connection, migrate
+            from ohtv.db import get_ready_connection
             from ohtv.db.stores import AnalysisCacheStore, ConversationStore
             from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry
             
-            with get_connection() as conn:
-                migrate(conn)
+            with get_ready_connection() as conn:
                 cache_store = AnalysisCacheStore(conn)
                 entry = AnalysisCacheEntry(
                     conversation_id=conversation_id,
@@ -571,7 +570,7 @@ class AnalysisCacheManager:
                 'assess=False,context_level=minimal,detail_level=brief'.
         """
         try:
-            from ohtv.db import get_connection, migrate
+            from ohtv.db import get_ready_connection
             from ohtv.db.stores import EmbeddingStore
             from ohtv.analysis.embeddings import (
                 build_analysis_text, get_embedding, get_embedding_model
@@ -596,8 +595,7 @@ class AnalysisCacheManager:
             result = get_embedding(analysis_text, model=model)
             
             # Save to database
-            with get_connection() as conn:
-                migrate(conn)
+            with get_ready_connection() as conn:
                 store = EmbeddingStore(conn)
                 store.upsert(
                     conversation_id=conv_dir.name,
@@ -753,12 +751,11 @@ class AnalysisCacheManager:
         The file-based cache is the source of truth.
         """
         try:
-            from ohtv.db import get_connection, migrate
+            from ohtv.db import get_ready_connection
             from ohtv.db.stores import AnalysisCacheStore
             from ohtv.db.stores.analysis_cache_store import AnalysisSkipEntry
             
-            with get_connection() as conn:
-                migrate(conn)
+            with get_ready_connection() as conn:
                 store = AnalysisCacheStore(conn)
                 entry = AnalysisSkipEntry(
                     conversation_id=conversation_id,
