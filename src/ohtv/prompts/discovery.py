@@ -156,6 +156,30 @@ def resolve_prompt(family: str, variant: str | None = None) -> PromptMetadata:
     return family_prompts[variant]
 
 
+def list_key_variants_on_promotion(family: str) -> list[PromptMetadata]:
+    """Return prompts in ``family`` flagged for opportunistic generation on promotion.
+
+    Used by ``analyze_objectives`` after auto-promotion (Issue #145): once we've
+    paid for the full-context transcript, fan out and warm the cache for every
+    sibling prompt whose frontmatter declares ``key_variant_on_promotion: true``.
+
+    Args:
+        family: Prompt family name (e.g., ``"objs"``).
+
+    Returns:
+        List of ``PromptMetadata`` for variants with the flag set. Returns an
+        empty list when the family does not exist (the fan-out is purely an
+        optimization — a missing family is a no-op, not an error).
+    """
+    prompts = discover_prompts()
+    family_prompts = prompts.get(family, {})
+    return [
+        meta
+        for meta in family_prompts.values()
+        if meta.key_variant_on_promotion
+    ]
+
+
 def resolve_context(prompt: PromptMetadata, context: int | str | None = None) -> ContextLevel:
     """Resolve a context level for a prompt.
     

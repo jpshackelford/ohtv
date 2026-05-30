@@ -1,6 +1,7 @@
 ---
 id: objs.standard_assess
 description: Extract primary and secondary outcomes and assess completion
+key_variant_on_promotion: true
 
 context:
   default: 2
