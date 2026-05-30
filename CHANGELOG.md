@@ -1,6 +1,117 @@
 # CHANGELOG
 
 
+## v0.20.0 (2026-05-30)
+
+### Chores
+
+- **worklog**: Impl worker logged PR #159 (issue #145)
+  ([`a8d9df6`](https://github.com/jpshackelford/ohtv/commit/a8d9df688a2b6830832a8c462be5c046531f10af))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-05-30T15:52:00Z - spawned merge worker for PR #158
+  ([`951071d`](https://github.com/jpshackelford/ohtv/commit/951071d7a152f869343cd4e209bbd8c1c797f7d9))
+
+- **worklog**: Orchestrator 2026-05-30T16:18Z - spawn impl worker for #145
+  ([`6bf75c0`](https://github.com/jpshackelford/ohtv/commit/6bf75c02579761546b36a601bd77db18dc2d8ccb))
+
+Spawned implementation worker conversation c1d4764b for Issue #145 (gen objs key variants on context
+  promotion).
+
+PR #158 merged, ohtv-v0.19.1 released. Both worker slots clear at cycle entry. #145 is the only
+  ready+prioritized issue remaining; impl worker dispatched with full implementation guidance and AC
+  mapping.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator re-spawned testing worker for PR #159 after ghost
+  ([`82c3c52`](https://github.com/jpshackelford/ohtv/commit/82c3c529d4d3cf34a3cdce02f11cb7825dd61548))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned merge worker for PR #159
+  ([`29fbf8b`](https://github.com/jpshackelford/ohtv/commit/29fbf8b6ababa6b525dcf3736980d11cd3ef6a88))
+
+Sixth and final merge in the cluster pending. Corrects prior cycle's ghost misclassification of
+  c9629a6 (it posted the full test report).
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned testing worker for PR #159
+  ([`48c4cdb`](https://github.com/jpshackelford/ohtv/commit/48c4cdb68cfbda0275434e485ab084edda4b1c55))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- **gen-objs**: Warm key cache variants when context auto-promotes
+  ([#145](https://github.com/jpshackelford/ohtv/pull/145),
+  [`b626f49`](https://github.com/jpshackelford/ohtv/commit/b626f4937f5f1b77db52a890ff8190ae48635449))
+
+## Summary
+
+When `analyze_objectives` auto-promotes the context level because the caller's requested level
+  produced an empty transcript (the worker-conversation ladder from #149), we have already paid the
+  full input-token cost for the richest transcript we'll see for that conversation. This PR uses
+  that sunk cost to opportunistically generate + cache analyses for sibling prompts in the same
+  family that declare `key_variant_on_promotion: true` in their frontmatter — so the next `gen objs`
+  invocation at a different `(detail, assess)` combo is a free cache hit.
+
+This is a pure cache-warming optimization: zero behavior change for callers, zero change to
+  `AnalysisResult.cost`, zero CLI/flag/env-var/output surface impact. The variant set is
+  **metadata-driven** (frontmatter), never hardcoded.
+
+## Key design decisions
+
+- **Shared helpers refactor**: `_build_framed_transcript`, `_run_single_analysis`,
+  `_parse_variant_name`, and `_warm_key_variant_cache` are extracted from the inline LLM-call block
+  so the primary path and the fan-out share identical input framing, JSON-parse, and
+  `ObjectiveAnalysis` construction. No drift between primary and variants. - **Metadata-driven
+  variant discovery**: `PromptMetadata.key_variant_on_promotion: bool = False` (opt-in, default
+  off). `list_key_variants_on_promotion(family)` in `prompts/discovery.py` is the single source of
+  truth for the candidate set — returns `[]` for unknown families so a missing family is a no-op,
+  not an error (AC #1). - **Fan-out trigger gate**: runs only when `effective_context != context`
+  (i.e. promotion happened). Normal-path conversations that succeed at their requested context level
+  get zero extra calls (AC #8). - **Two-layered failure isolation** (AC #7): each variant is wrapped
+  in per-variant `try/except` inside `_warm_key_variant_cache`; the entire helper call is wrapped in
+  a defensive outer `try/except` inside `analyze_objectives`. A variant failure logs a `WARNING` and
+  continues — the primary `AnalysisResult` is never affected. - **Cache-hit short-circuit** (AC #5):
+  each variant probes `_cache_manager.load_cached(...)` first at the promoted context with matching
+  `content_hash + event_count + prompt_hash`. Hits skip the LLM entirely with `$0` cost. -
+  **Primary-only cost semantics** (AC #6): `AnalysisResult.cost` is the primary call's cost. Variant
+  costs are aggregated into a single `INFO` summary log line: `Opportunistic key-variant fan-out: N
+  generated, M cached, K failed, $X.YYYY total`. - **Alias-key parity with #129**: each variant is
+  saved with `requested_key_kwargs` pointing at the originally-requested context level, mirroring
+  the primary's behavior so subsequent lookups at the requested (pre-promotion) level also hit
+  cache. - **One opt-in this PR**: only `src/ohtv/prompts/objs/standard_assess.md` flips
+  `key_variant_on_promotion: true` (AC #2). Adding more is a one-line frontmatter change in a
+  follow-up — no code change required.
+
+## Test coverage
+
+- **Full unit suite**: 2165 passed, 2 skipped, 3 xfailed (~38s on the test runner). - **New
+  unit-test files** (40 new tests total): - `tests/unit/analysis/test_key_variant_warming.py` —
+  mirrors every AC: opt-in variant set discovery, primary+variant caching after promotion,
+  pre-populated variant short-circuit (no LLM call), per-variant failure isolation, primary-only
+  cost accounting, no-promotion no-op regression guard. -
+  `tests/unit/analysis/test_cache_alias_promoted_context.py` — updated regression for the #129
+  cache-alias behavior, now accounting for the variant call on the first analyze. -
+  `tests/unit/prompts/test_parser.py` — parser coverage for `key_variant_on_promotion`
+  (present/absent/non-bool → `bool(...)` coercion, default `False`). - **6 blackbox manual
+  scenarios** (PR comment 2026-05-30T17:23:54Z, all PASS): - A: frontmatter backward-compat (prompts
+  without the field parse unchanged). - B: opportunistic warming on promotion (variant cache file
+  appears after a single `gen objs` call). - C: cache-hit skip with `$0` evidence (re-running with
+  pre-populated variant emits no LLM call). - D: per-variant failure isolation (AC #7) — one variant
+  raising does not affect primary or other variants. - E: primary-only cost (AC #6) —
+  `AnalysisResult.cost` excludes variant cost; variant cost is in the INFO log line. - F:
+  no-promotion regression guard (AC #8) — normal path emits zero variant calls.
+
+Closes #145
+
+--- _This PR was prepared and merged by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+
 ## v0.19.1 (2026-05-30)
 
 ### Bug Fixes
