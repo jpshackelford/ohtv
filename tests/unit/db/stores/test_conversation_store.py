@@ -1,10 +1,12 @@
 """Unit tests for ConversationStore."""
 
+import sqlite3
 from datetime import datetime, timezone
 
 import pytest
 
 from ohtv.db.models import Conversation
+from ohtv.db.stores import ConversationStore
 
 
 class TestUpsert:
@@ -454,3 +456,230 @@ class TestUpdateMetadataIssue87:
         db_conn.commit()
         # All four args unset.
         assert conversation_store.update_metadata("conv1") is True
+
+
+# ---------------------------------------------------------------------------
+# Issue #125 — roots-only default on list_by_date_range
+# ---------------------------------------------------------------------------
+
+
+class TestListByDateRangeIncludeSubs:
+    """Cluster: #125. ``gen objs/titles/run`` multi-conv mode must not
+    pull agent-delegated sub-conversations as independent rows.
+
+    These tests exercise the contract directly on ``list_by_date_range``
+    so a regression at the orchestration layer (cli.py wiring) can be
+    distinguished from one at the SQL layer. The DB-layer guarantee is:
+
+    * ``include_subs=False`` (default) → only rows where
+      ``id = root_conversation_id`` (i.e. roots) are returned.
+    * ``include_subs=True`` → every row that matches the other filters
+      is returned, subs and roots alike.
+
+    Fixtures use dashless IDs throughout per AGENTS.md item #14.
+    """
+
+    def _seed_root_and_subs(
+        self, conversation_store, db_conn, *, created_at: str | None = None
+    ):
+        """1 root + 2 subs in the same tree (one chain via grand-child).
+
+        Returns the (root_id, sub_id, grandchild_id) triple. All three
+        rows share the root's ``root_conversation_id``.
+        """
+        # Root.
+        conversation_store.upsert(
+            Conversation(
+                id="r0001",
+                location="/tmp/r0001",
+                source="cloud",
+                event_count=10,
+                created_at=datetime.fromisoformat(created_at) if created_at else None,
+            )
+        )
+        # Sub (delegated from root).
+        conversation_store.upsert(
+            Conversation(
+                id="s0001",
+                location="/tmp/s0001",
+                source="cloud",
+                event_count=5,
+                parent_conversation_id="r0001",
+                created_at=datetime.fromisoformat(created_at) if created_at else None,
+            )
+        )
+        # Grand-child (delegated from sub).
+        conversation_store.upsert(
+            Conversation(
+                id="g0001",
+                location="/tmp/g0001",
+                source="cloud",
+                event_count=3,
+                parent_conversation_id="s0001",
+                created_at=datetime.fromisoformat(created_at) if created_at else None,
+            )
+        )
+        db_conn.commit()
+        return "r0001", "s0001", "g0001"
+
+    def test_excludes_subs_by_default(self, conversation_store, db_conn):
+        root_id, sub_id, grandchild_id = self._seed_root_and_subs(
+            conversation_store, db_conn
+        )
+        result = conversation_store.list_by_date_range()
+        ids = {c.id for c in result}
+        assert ids == {root_id}, (
+            "Default include_subs=False must return only the root; "
+            f"got {ids}"
+        )
+
+    def test_includes_subs_when_flag_set(self, conversation_store, db_conn):
+        root_id, sub_id, grandchild_id = self._seed_root_and_subs(
+            conversation_store, db_conn
+        )
+        result = conversation_store.list_by_date_range(include_subs=True)
+        ids = {c.id for c in result}
+        assert ids == {root_id, sub_id, grandchild_id}, (
+            f"include_subs=True must return roots + subs; got {ids}"
+        )
+
+    def test_pure_root_set_unchanged_by_flag(self, conversation_store, db_conn):
+        """A tree with no subs returns the same row both ways — the
+        flag is a no-op when there's nothing to filter out."""
+        conversation_store.upsert(
+            Conversation(id="lone", location="/tmp/lone", source="cloud")
+        )
+        db_conn.commit()
+
+        default_ids = {c.id for c in conversation_store.list_by_date_range()}
+        with_subs_ids = {
+            c.id for c in conversation_store.list_by_date_range(include_subs=True)
+        }
+        assert default_ids == with_subs_ids == {"lone"}
+
+    def test_orphan_sub_is_its_own_root_and_appears_by_default(
+        self, conversation_store, db_conn
+    ):
+        """Per AGENTS.md item #32 + migration 020 orphan policy: a sub
+        whose parent isn't in the local DB gets ``root_conversation_id
+        = id`` and is therefore a root for this query's purposes. The
+        ``gen`` family will still see it (which is the right call —
+        we have no way to identify it as a sub without the parent's
+        provenance)."""
+        conversation_store.upsert(
+            Conversation(
+                id="orph0",
+                location="/tmp/orph0",
+                source="cloud",
+                parent_conversation_id="ghostroot",
+            )
+        )
+        db_conn.commit()
+
+        default_ids = {c.id for c in conversation_store.list_by_date_range()}
+        assert default_ids == {"orph0"}
+
+    def test_date_filter_still_applies_with_subs_excluded(
+        self, conversation_store, db_conn
+    ):
+        """``since`` / ``until`` are AND-ed with the roots predicate."""
+        root_id, _, _ = self._seed_root_and_subs(
+            conversation_store, db_conn, created_at="2024-03-15T10:00:00+00:00"
+        )
+        # Add another root outside the window.
+        conversation_store.upsert(
+            Conversation(
+                id="rold0",
+                location="/tmp/rold0",
+                source="cloud",
+                created_at=datetime(2023, 1, 1, tzinfo=timezone.utc),
+            )
+        )
+        db_conn.commit()
+
+        result = conversation_store.list_by_date_range(
+            since=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        )
+        ids = {c.id for c in result}
+        assert ids == {root_id}
+
+    def test_source_filter_still_applies_with_subs_excluded(
+        self, conversation_store, db_conn
+    ):
+        """``source`` filter is AND-ed with the roots predicate."""
+        self._seed_root_and_subs(conversation_store, db_conn)
+        # A local-source root should also exist for filter sanity.
+        conversation_store.upsert(
+            Conversation(id="localroot", location="/tmp/localroot", source="local")
+        )
+        db_conn.commit()
+
+        cloud_result = conversation_store.list_by_date_range(source="cloud")
+        assert {c.id for c in cloud_result} == {"r0001"}
+
+        local_result = conversation_store.list_by_date_range(source="local")
+        assert {c.id for c in local_result} == {"localroot"}
+
+    def test_guard_raises_when_migration_020_missing(self, db_conn):
+        """A schema without ``root_conversation_id`` → loud failure.
+
+        Message must reference migration ``020`` and ``ohtv db scan``
+        so users know how to fix it. Mirrors the guard pattern from
+        #123 / #124 (per PR #153). We tear down migration 020's
+        column + supporting index to mimic a pre-020 dataset.
+        """
+        # Drop the partial index + view first — both reference the column.
+        db_conn.execute("DROP INDEX IF EXISTS idx_conversations_root")
+        db_conn.execute("DROP VIEW IF EXISTS conversations_by_root")
+        db_conn.execute("ALTER TABLE conversations DROP COLUMN root_conversation_id")
+        db_conn.commit()
+
+        store = ConversationStore(db_conn)
+        with pytest.raises(RuntimeError) as exc_info:
+            store.list_by_date_range()  # default include_subs=False
+        msg = str(exc_info.value)
+        assert "migration 020" in msg, f"Guard must reference '020', got: {msg}"
+        assert "ohtv db scan" in msg, f"Guard must hint 'ohtv db scan', got: {msg}"
+        # Cluster wording: the message should say "gen" since this
+        # path is reached from the gen-family commands.
+        assert "gen" in msg
+
+    def test_guard_does_not_fire_when_include_subs_true(self, db_conn):
+        """Callers that opt in to subs don't need migration 020 — the
+        guard only fires when the SQL predicate is about to be added.
+        This is what lets pre-020 callers (e.g. legacy ``list``)
+        continue to work via the explicit ``include_subs=True`` opt-out
+        in ``cli.py``.
+        """
+        # Seed a row first (the FK / index structure tolerates the
+        # column being present; we only drop it below to simulate
+        # the pre-020 surface).
+        store = ConversationStore(db_conn)
+        store.upsert(Conversation(id="legacy", location="/tmp/legacy", source="cloud"))
+        db_conn.commit()
+
+        db_conn.execute("DROP INDEX IF EXISTS idx_conversations_root")
+        db_conn.execute("DROP VIEW IF EXISTS conversations_by_root")
+        db_conn.execute("ALTER TABLE conversations DROP COLUMN root_conversation_id")
+        db_conn.commit()
+
+        # The select statement references root_conversation_id via
+        # ``_ALL_COLUMNS``; with the column gone the query raises
+        # OperationalError. That's expected — the guard's promise is
+        # only about the ``include_subs=False`` predicate path. We
+        # therefore can't usefully ``SELECT *`` from a column-stripped
+        # row. Instead, verify the function does NOT raise the
+        # RuntimeError guard (the SQL error is a separate failure
+        # mode and not the one we're asserting on).
+        try:
+            store.list_by_date_range(include_subs=True)
+        except RuntimeError as e:
+            pytest.fail(
+                f"include_subs=True must not trip the migration-020 guard; "
+                f"got: {e}"
+            )
+        except sqlite3.OperationalError:
+            # Acceptable — the underlying SELECT can't run because we
+            # tore down the ``_ALL_COLUMNS`` shape. The point of this
+            # test is just that the *guard* doesn't fire.
+            pass

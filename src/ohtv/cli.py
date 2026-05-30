@@ -2208,11 +2208,12 @@ def _apply_conversation_filters(
     include_empty: bool = False,
     initial_show_all: bool = False,
     errors_only: bool = False,
+    include_sub_conversations: bool = False,
 ) -> FilterResult:
     """Apply all conversation filters and return filtered results.
-    
+
     This centralizes the filtering logic used by both `list` and `summary` commands.
-    
+
     Args:
         config: Application configuration
         since: Filter conversations after this datetime
@@ -2224,18 +2225,30 @@ def _apply_conversation_filters(
         include_empty: Include conversations with 0 events
         initial_show_all: Initial value for show_all flag
         errors_only: Only include conversations with agent/LLM errors
-        
+        include_sub_conversations: When False (default, Issue #125),
+            agent-delegated sub-conversations are excluded from the
+            result. The ``gen objs / titles / run`` commands pass
+            ``True`` only when the user explicitly opts in via the
+            ``--include-sub-conversations`` flag. Other callers
+            (``list``, ``summary``) leave the default — they have
+            their own roll-up policy in #127.
+
     Returns:
         FilterResult with filtered conversations and metadata
     """
     show_all = initial_show_all
-    
+
     # Any filter implies --all (show all matching records)
     if any([since, until, pr_filter, repo_filter, action_filter, label_filter, errors_only]):
         show_all = True
-    
+
     # Load conversations from both sources, with date filtering pushed to DB
-    conversations = _load_all_conversations(config, since=since, until=until)
+    conversations = _load_all_conversations(
+        config,
+        since=since,
+        until=until,
+        include_subs=include_sub_conversations,
+    )
     
     # Filter out empty conversations unless requested
     if not include_empty:
@@ -2671,6 +2684,11 @@ def list_conversations(
     since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
 
     # Apply all conversation filters
+    # Issue #125: ``list`` continues to show sub-conversations as
+    # individual rows pre-#127. The display roll-up UX (sub count
+    # column, expand/collapse, etc.) is #127's scope. Pass
+    # ``include_sub_conversations=True`` to opt out of the
+    # ``gen``-family roots-only default until #127 ships.
     filter_result = _apply_conversation_filters(
         config,
         since=since,
@@ -2682,8 +2700,9 @@ def list_conversations(
         include_empty=include_empty,
         initial_show_all=show_all,
         errors_only=errors_only,
+        include_sub_conversations=True,
     )
-    
+
     conversations = filter_result.conversations
     possible_match_ids = filter_result.possible_match_ids
     show_all = filter_result.show_all
@@ -3540,25 +3559,36 @@ def _load_all_conversations(
     config: Config,
     since: datetime | None = None,
     until: datetime | None = None,
+    include_subs: bool = False,
 ) -> list[ConversationInfo]:
     """Load conversations from local, cloud, and extra directories.
-    
+
     Uses database when available for fast metadata access, with date filtering
     pushed down to the database query. Falls back to filesystem scanning when
     database is unavailable.
-    
+
     Args:
         config: Application configuration
         since: Optional filter for conversations created on or after this time
         until: Optional filter for conversations created before this time
+        include_subs: When False (default, Issue #125), exclude
+            agent-delegated sub-conversations on the DB path. On the
+            filesystem fallback this is a no-op (FS has no parent/root
+            metadata) — see :func:`ohtv.conversations.get_conversations`.
     """
     # Try database-first approach
     try:
         from ohtv.conversations import get_conversations, is_db_available_with_metadata
-        
+
         if is_db_available_with_metadata():
             # Use fast database path with date filtering pushed down
-            conversations = get_conversations(config, since=since, until=until, use_db=True)
+            conversations = get_conversations(
+                config,
+                since=since,
+                until=until,
+                use_db=True,
+                include_subs=include_subs,
+            )
             log.debug("Loaded %d conversations from database (fast path)", len(conversations))
             return conversations
     except Exception as e:
@@ -5155,6 +5185,9 @@ def _refs_multi_conversation(
     since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
 
     # Apply conversation filters
+    # Issue #125: ``refs`` continues to surface sub-conversation refs
+    # pre-#127. Display roll-up is #127's scope; this caller opts out
+    # of the ``gen``-family roots-only default with an explicit True.
     filter_result = _apply_conversation_filters(
         config,
         since=since,
@@ -5164,6 +5197,7 @@ def _refs_multi_conversation(
         action_filter=action_filter,
         include_empty=False,
         initial_show_all=show_all,
+        include_sub_conversations=True,
     )
 
     conversations = filter_result.conversations
@@ -8444,6 +8478,13 @@ def gen() -> None:
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation for large result sets")
 @click.option("--quiet", "-q", is_flag=True, help="Generate/cache summaries without displaying output")
+@click.option(
+    "--include-sub-conversations",
+    "include_sub_conversations",
+    is_flag=True,
+    default=False,
+    help="Include sub-conversations created by agent delegation (default: roots only)",
+)
 def gen_objs_cmd(
     conversation_id: str | None,
     variant: str | None,
@@ -8469,17 +8510,18 @@ def gen_objs_cmd(
     fmt: str,
     yes: bool,
     quiet: bool,
+    include_sub_conversations: bool,
 ) -> None:
     """Identify what the user hopes to achieve in a conversation.
-    
+
     Uses the extensible prompt system with family/variant organization.
-    
+
     \b
     SINGLE-CONVERSATION MODE (with conversation_id):
       ohtv gen objs abc123              # Use default variant
       ohtv gen objs abc123 -v brief     # Brief variant
       ohtv gen objs abc123 -c 1         # Context level 1 (minimal)
-    
+
     \b
     MULTI-CONVERSATION MODE (without conversation_id):
       ohtv gen objs                     # Analyze last 10 conversations
@@ -8488,6 +8530,10 @@ def gen_objs_cmd(
       ohtv gen objs --pr repo#42        # Conversations for a PR
       ohtv gen objs --label team=AI     # Conversations with specific label
       ohtv gen objs --all               # All conversations (no limit)
+
+    Multi-conversation mode defaults to root conversations only;
+    sub-conversations created by agent delegation are excluded. Pass
+    ``--include-sub-conversations`` to include them.
     
     \b
     Variants (objs family):
@@ -8545,6 +8591,7 @@ def gen_objs_cmd(
             fmt=fmt,
             yes=yes,
             quiet=quiet,
+            include_sub_conversations=include_sub_conversations,
         )
     else:
         # Single-conversation mode - use --json for JSON output
@@ -8583,11 +8630,18 @@ def _run_batch_objectives_analysis(
     fmt: str = "table",
     yes: bool = False,
     quiet: bool = False,
+    include_sub_conversations: bool = False,
 ) -> None:
     """Run objectives analysis on multiple conversations.
-    
+
     This is the batch/summary mode, ported from the legacy `summary` command.
     Uses minimal context + brief detail by default for token efficiency.
+
+    ``include_sub_conversations`` is forwarded to
+    :func:`_apply_conversation_filters` per Issue #125. When ``False``
+    (the default), agent-delegated sub-conversations are dropped from
+    the selection so we don't analyze them as independent units of
+    human intent.
     """
     from ohtv.progress import make_progress
     from ohtv.parallel import format_remaining
@@ -8609,6 +8663,7 @@ def _run_batch_objectives_analysis(
         label_filter=label_filter,
         include_empty=False,  # Summary always excludes empty
         initial_show_all=show_all,
+        include_sub_conversations=include_sub_conversations,
     )
     
     conversations = filter_result.conversations
@@ -9261,6 +9316,13 @@ def _run_objectives_analysis(
         "(sync, db scan, gen titles) is running. 0 fails fast (Issue #109)."
     ),
 )
+@click.option(
+    "--include-sub-conversations",
+    "include_sub_conversations",
+    is_flag=True,
+    default=False,
+    help="Include sub-conversations created by agent delegation (default: roots only)",
+)
 def gen_titles_cmd(
     limit: int | None,
     show_all: bool,
@@ -9281,6 +9343,7 @@ def gen_titles_cmd(
     yes: bool,
     verbose: bool,
     lock_timeout: float,
+    include_sub_conversations: bool,
 ) -> None:
     """Auto-rename placeholder-titled cloud conversations using cached ``gen objs`` analyses.
 
@@ -9301,6 +9364,12 @@ def gen_titles_cmd(
       ohtv gen titles --week --dry-run
       ohtv gen titles --all-titled --label experiment=t1
       ohtv gen titles -y --workers 10  # apply without prompt, 10 PATCH workers
+
+    \b
+    MULTI-CONVERSATION MODE:
+      Multi-conversation mode defaults to root conversations only;
+      sub-conversations created by agent delegation are excluded. Pass
+      ``--include-sub-conversations`` to include them.
 
     \b
     Conversations without any cached ``gen objs`` analysis are skipped
@@ -9329,6 +9398,7 @@ def gen_titles_cmd(
                 batch_size=batch_size,
                 model=model,
                 yes=yes,
+                include_sub_conversations=include_sub_conversations,
             )
     except SyncLockTimeout as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -9354,6 +9424,7 @@ def _run_gen_titles(
     batch_size: int,
     model: str | None,
     yes: bool,
+    include_sub_conversations: bool = False,
     # Injection hooks (used by tests to bypass the live LLM + cloud client)
     llm_call=None,
     cloud_client=None,
@@ -9401,6 +9472,7 @@ def _run_gen_titles(
         label_filter=label_filter,
         include_empty=False,
         initial_show_all=show_all,
+        include_sub_conversations=include_sub_conversations,
     )
     conversations = sorted(
         filter_result.conversations,
@@ -10032,6 +10104,13 @@ def _apply_local_title_writeback(
 @click.option("--format", "-F", "fmt", type=click.Choice(["table", "json", "markdown"]),
               default="table", help="Output format (default: table)")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.option(
+    "--include-sub-conversations",
+    "include_sub_conversations",
+    is_flag=True,
+    default=False,
+    help="Include sub-conversations created by agent delegation (default: roots only)",
+)
 def gen_run_cmd(
     job_id: str,
     model: str | None,
@@ -10046,26 +10125,33 @@ def gen_run_cmd(
     output_dir: str | None,
     fmt: str,
     yes: bool,
+    include_sub_conversations: bool,
 ) -> None:
     """Run an analysis job by ID (supports both single and aggregate modes).
-    
+
     \b
     SINGLE-TRAJECTORY JOBS (default mode):
       These run one analysis per conversation, like gen objs.
-    
+
     \b
     AGGREGATE JOBS (mode: aggregate in frontmatter):
       These synthesize cached results from multiple conversations.
-      
+
       If the job has 'period' defined, it iterates over periods:
         ohtv gen run reports.weekly --since 2024-01        # Weekly reports for Q1
         ohtv gen run reports.weekly --last 4               # Last 4 weekly reports
-      
+
       Use --per to override the period granularity:
         ohtv gen run reports.weekly --since 2024-01 --per month  # Monthly instead
-      
+
       Jobs without 'period' aggregate all selected conversations into one output.
-    
+
+    \b
+    MULTI-CONVERSATION MODE:
+      Multi-conversation mode defaults to root conversations only;
+      sub-conversations created by agent delegation are excluded. Pass
+      ``--include-sub-conversations`` to include them.
+
     \b
     Examples:
       ohtv gen run objs.brief abc123           # Run specific job on conversation
@@ -10109,6 +10195,7 @@ def gen_run_cmd(
             output_dir=output_dir,
             fmt=fmt,
             yes=yes,
+            include_sub_conversations=include_sub_conversations,
         )
     else:
         # For single-trajectory jobs, defer to gen objs logic
@@ -10132,8 +10219,14 @@ def _run_aggregate_job(
     output_dir: str | None,
     fmt: str,
     yes: bool,
+    include_sub_conversations: bool = False,
 ) -> None:
-    """Run an aggregate analysis job."""
+    """Run an aggregate analysis job.
+
+    ``include_sub_conversations`` defaults to ``False`` per Issue #125;
+    when ``False`` the aggregate's source-conversation membership
+    excludes agent-delegated sub-conversations.
+    """
     from datetime import date
     from ohtv.progress import make_progress
     from rich.table import Table
@@ -10205,6 +10298,7 @@ def _run_aggregate_job(
         until=datetime.combine(range_end, datetime.max.time()) if isinstance(range_end, date) else range_end,
         include_empty=False,
         initial_show_all=True,
+        include_sub_conversations=include_sub_conversations,
     )
     
     conversations = filter_result.conversations

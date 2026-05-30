@@ -291,44 +291,85 @@ class ConversationStore:
         since: datetime | None = None,
         until: datetime | None = None,
         source: str | None = None,
+        include_subs: bool = False,
     ) -> list[Conversation]:
         """List conversations within a date range.
-        
+
         Args:
             since: Include conversations created on or after this time
             until: Include conversations created before this time
             source: Filter by source (e.g., 'local', 'cloud')
-        
+            include_subs: When False (default, Issue #125), exclude
+                agent-delegated sub-conversations — only rows where
+                ``id = root_conversation_id`` are returned. When True,
+                subs are included alongside their roots.
+
         Returns:
             List of matching conversations, ordered by created_at descending
+
+        Raises:
+            RuntimeError: when ``include_subs=False`` and migration 020
+                (which adds ``root_conversation_id``) has not been
+                applied. Callers that genuinely want every row should
+                pass ``include_subs=True`` — that path is unaffected
+                by the guard.
         """
         conditions = []
         params = []
-        
+
         if since:
             conditions.append("created_at >= ?")
             params.append(since.isoformat())
-        
+
         if until:
             conditions.append("created_at < ?")
             params.append(until.isoformat())
-        
+
         if source:
             conditions.append("source = ?")
             params.append(source)
-        
+
+        if not include_subs:
+            # Issue #125: roots-only is the default for `gen objs / titles
+            # / run` multi-conv mode. The same predicate
+            # ``id = root_conversation_id`` matches what ``count_roots``
+            # uses. Migration 020 guarantees every row has a non-NULL
+            # ``root_conversation_id`` (orphans get their own id), so
+            # the predicate covers the whole table without an
+            # ``IS NOT NULL`` clause.
+            self._assert_root_column_present_for_list("gen")
+            conditions.append("id = root_conversation_id")
+
         where_clause = " AND ".join(conditions) if conditions else "1=1"
-        
+
         cursor = self.conn.execute(
             f"""
-            SELECT {self._ALL_COLUMNS} 
-            FROM conversations 
+            SELECT {self._ALL_COLUMNS}
+            FROM conversations
             WHERE {where_clause}
             ORDER BY created_at DESC
             """,
             params,
         )
         return [self._row_to_conversation(row) for row in cursor.fetchall()]
+
+    def _assert_root_column_present_for_list(self, command: str) -> None:
+        """Guard for the Issue #125 roots-only predicate on ``list_by_date_range``.
+
+        Mirrors the guards landed in :mod:`ohtv.reports.weekly_counts`
+        (#123) and :mod:`ohtv.reports.velocity` (#124). Silently falling
+        back to the legacy SQL would reintroduce the duplication-by-sub
+        bug this PR fixes, so we fail loudly instead.
+
+        The ``command`` argument is the user-facing command name (e.g.
+        ``"gen"``) so the message points at the right CLI surface.
+        """
+        cols = {row[1] for row in self.conn.execute("PRAGMA table_info(conversations)")}
+        if "root_conversation_id" not in cols:
+            raise RuntimeError(
+                f"{command} requires migration 020; "
+                f"run 'ohtv db scan' to apply pending migrations"
+            )
     
     def list_by_source(self, source: str) -> list[Conversation]:
         """List conversations from a specific source."""

@@ -57,6 +57,13 @@ GITHUB_TOKEN=...
                           ohtv gen objs --quiet
 ```
 
+> Since [#125](https://github.com/jpshackelford/ohtv/issues/125),
+> `ohtv gen objs --quiet` in batch mode analyzes **root conversations
+> only** by default — agent-delegated sub-conversations are skipped.
+> Add `--include-sub-conversations` to the cron command if you want
+> the pre-#125 behaviour. See
+> [analysis.md § ohtv gen objs](analysis.md#ohtv-gen-objs---extract-user-objectives).
+
 ### Weekly velocity CSV
 
 ```sh

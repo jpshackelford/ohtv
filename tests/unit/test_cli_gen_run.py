@@ -235,3 +235,162 @@ class TestErrorMessages:
         # Should suggest alternative command
         if "single-trajectory" in result.output.lower():
             assert "gen objs" in result.output
+
+
+# =============================================================================
+# Issue #125 — sub-conversation default exclusion regression tests
+# =============================================================================
+
+
+class TestGenRunSubConversations:
+    """Regression tests for Issue #125 — gen run arm.
+
+    ``gen run`` aggregate-job mode shares the
+    ``_apply_conversation_filters`` pipeline with ``gen objs`` / ``gen
+    titles``, so the roots-only default applies here too. A weekly
+    report would otherwise inflate period membership by the number of
+    agent-delegated sub-conversations.
+    """
+
+    def test_help_advertises_flag(self, runner):
+        """The ``--help`` output names the flag verbatim."""
+        result = runner.invoke(main, ["gen", "run", "--help"])
+        assert result.exit_code == 0
+        assert "--include-sub-conversations" in result.output
+        assert (
+            "agent delegation" in result.output
+            or "roots only" in result.output
+        ), result.output
+
+    def test_help_docstring_mentions_default_roots_only(self, runner):
+        """Docstring sentence Click renders into help must say the default
+        excludes subs."""
+        result = runner.invoke(main, ["gen", "run", "--help"])
+        assert result.exit_code == 0
+        assert "root conversations only" in result.output
+        assert "include them" in result.output
+
+    def test_default_passes_include_sub_conversations_false_to_aggregate(
+        self, runner
+    ):
+        """No flag → ``_run_aggregate_job`` receives
+        ``include_sub_conversations=False``.
+
+        We mock at the ``_run_aggregate_job`` boundary because Click's
+        option parsing + dispatch is the contract under test here; the
+        full aggregate pipeline is exercised separately.
+        """
+        from unittest.mock import patch, MagicMock
+
+        captured: dict = {}
+
+        def _fake_run(**kwargs):
+            captured.update(kwargs)
+
+        with (
+            patch("ohtv.cli._run_aggregate_job", side_effect=_fake_run),
+            # Force ``is_aggregate`` so we hit the aggregate branch
+            # without needing a real prompt fixture on disk.
+            patch("ohtv.prompts.resolve_prompt") as mock_resolve,
+        ):
+            mock_prompt = MagicMock()
+            mock_prompt.is_aggregate = True
+            mock_prompt.input_config.source = "objs.brief"
+            mock_resolve.return_value = mock_prompt
+
+            result = runner.invoke(
+                main, ["gen", "run", "reports.weekly", "-y"]
+            )
+        assert result.exit_code == 0, result.output
+        assert captured.get("include_sub_conversations") is False, (
+            "gen run default must pass include_sub_conversations=False to "
+            f"_run_aggregate_job; got {captured.get('include_sub_conversations')!r}"
+        )
+
+    def test_flag_passes_include_sub_conversations_true_to_aggregate(
+        self, runner
+    ):
+        """``--include-sub-conversations`` → aggregate gets ``True``."""
+        from unittest.mock import patch, MagicMock
+
+        captured: dict = {}
+
+        def _fake_run(**kwargs):
+            captured.update(kwargs)
+
+        with (
+            patch("ohtv.cli._run_aggregate_job", side_effect=_fake_run),
+            patch("ohtv.prompts.resolve_prompt") as mock_resolve,
+        ):
+            mock_prompt = MagicMock()
+            mock_prompt.is_aggregate = True
+            mock_prompt.input_config.source = "objs.brief"
+            mock_resolve.return_value = mock_prompt
+
+            result = runner.invoke(
+                main,
+                ["gen", "run", "reports.weekly", "-y",
+                 "--include-sub-conversations"],
+            )
+        assert result.exit_code == 0, result.output
+        assert captured.get("include_sub_conversations") is True, (
+            "--include-sub-conversations must propagate as True; got "
+            f"{captured.get('include_sub_conversations')!r}"
+        )
+
+    def test_aggregate_job_forwards_flag_to_filter(self, runner, tmp_path):
+        """End-to-end on the aggregate path: the flag the CLI parsed
+        must reach ``_apply_conversation_filters`` as
+        ``include_sub_conversations=True``.
+
+        We let the orchestrator's resolve_prompt go through so the
+        aggregate branch actually runs, but mock the filter call so we
+        can inspect kwargs without hitting the DB."""
+        from unittest.mock import patch, MagicMock
+
+        # Aggregate prompt without a period definition — produces a
+        # single non-period aggregate, which keeps the pipeline short.
+        mock_prompt = MagicMock()
+        mock_prompt.is_aggregate = True
+        mock_prompt.input_config.source = "objs.brief"
+        mock_prompt.input_config.period = None  # non-period aggregate
+
+        mock_source_meta = MagicMock()
+        mock_source_meta.variant = "brief"
+
+        filter_result = MagicMock()
+        filter_result.conversations = []  # short-circuit before LLM
+        filter_result.show_all = True
+
+        # resolve_prompt is called twice — once for the aggregate
+        # prompt, once for the source prompt. Use side_effect.
+        with (
+            patch(
+                "ohtv.prompts.resolve_prompt",
+                side_effect=[mock_prompt, mock_source_meta],
+            ),
+            patch(
+                "ohtv.cli._apply_conversation_filters",
+                return_value=filter_result,
+            ) as mock_filters,
+        ):
+            result = runner.invoke(
+                main,
+                ["gen", "run", "reports.themes", "-y",
+                 "--since", "2024-01-01", "--until", "2024-03-31",
+                 "--include-sub-conversations"],
+            )
+
+        # Exit can be 0 (no conversations found → no error) or 1 if
+        # the command short-circuits. Either way the filter MUST have
+        # been called with the flag.
+        assert mock_filters.call_count == 1, (
+            f"Filter must be called once; got {mock_filters.call_count}. "
+            f"CLI output: {result.output}"
+        )
+        call_kwargs = mock_filters.call_args.kwargs
+        assert call_kwargs.get("include_sub_conversations") is True, (
+            f"--include-sub-conversations not threaded; got "
+            f"{call_kwargs.get('include_sub_conversations')!r}. "
+            f"CLI output: {result.output}"
+        )

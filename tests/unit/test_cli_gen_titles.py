@@ -806,3 +806,215 @@ class TestLocalWriteback:
 
         config = Config.from_env()
         assert _apply_local_title_writeback(config, {}) == _WritebackResult(0, 0, 0)
+
+
+# =============================================================================
+# Issue #125 — sub-conversation default exclusion regression tests
+# =============================================================================
+
+
+class TestGenTitlesSubConversations:
+    """Regression tests for Issue #125 — gen titles arm.
+
+    ``gen titles`` shares the ``_apply_conversation_filters`` orchestration
+    layer with ``gen objs`` / ``gen run``, so the same default-correctness
+    contract holds: roots only unless the user passes
+    ``--include-sub-conversations``.
+    """
+
+    def _conv_root(self) -> ConversationInfo:
+        return _conv(
+            "r10000000000000000000000000000001",
+            title="Conversation r10000",
+        )
+
+    def _subs(self) -> list[ConversationInfo]:
+        return [
+            _conv(
+                "s20000000000000000000000000000002",
+                title="Conversation s20000",
+            ),
+            _conv(
+                "s20000000000000000000000000000003",
+                title="Conversation s20000",
+            ),
+        ]
+
+    def _call_run_gen_titles_with_filter_mock(
+        self,
+        isolated_env: Path,
+        *,
+        include_sub_conversations: bool,
+        returned_conversations: list[ConversationInfo],
+    ):
+        """Drive ``_run_gen_titles`` directly with injected stubs.
+
+        Mirrors the existing test pattern in this module
+        (``TestDryRun``) — bypass the Click wrapper because the
+        wrapper's only job here is to forward the option, and we test
+        that separately via the ``--help`` content + the regression
+        test on the kwargs reaching ``_apply_conversation_filters``.
+        """
+        from ohtv.cli import _run_gen_titles
+
+        filter_result = MagicMock()
+        filter_result.conversations = returned_conversations
+        filter_result.show_all = True
+
+        stub_client = _stub_cloud_client()
+        stub_llm = _make_llm_stub(
+            {c.id: "✨ Auto-titled" for c in returned_conversations}
+        )
+
+        for c in returned_conversations:
+            _seed_cloud_conv(isolated_env, c.id, goal="Generic")
+
+        with (
+            patch(
+                "ohtv.cli._apply_conversation_filters",
+                return_value=filter_result,
+            ) as mock_filters,
+            patch(
+                "ohtv.cli._find_conversation_dir",
+                side_effect=lambda config, conv_id: (
+                    Path(isolated_env)
+                    / "ohtv"
+                    / "cache"
+                    / "analysis"
+                    / conv_id.replace("-", ""),
+                    True,
+                ),
+            ),
+        ):
+            _run_gen_titles(
+                limit=None,
+                show_all=True,
+                offset=0,
+                since_date=None,
+                until_date=None,
+                day_date=None,
+                week_date=None,
+                pr_filter=None,
+                repo_filter=None,
+                label_filter=None,
+                reverse=False,
+                all_titled=True,
+                dry_run=True,
+                workers=2,
+                batch_size=25,
+                model=None,
+                yes=True,
+                include_sub_conversations=include_sub_conversations,
+                llm_call=stub_llm,
+                cloud_client=stub_client,
+            )
+
+        return mock_filters
+
+    def test_default_passes_include_sub_conversations_false(
+        self, isolated_env: Path
+    ) -> None:
+        """``include_sub_conversations=False`` reaches
+        ``_apply_conversation_filters``."""
+        mock_filters = self._call_run_gen_titles_with_filter_mock(
+            isolated_env,
+            include_sub_conversations=False,
+            returned_conversations=[self._conv_root()],
+        )
+
+        assert mock_filters.call_count == 1
+        call_kwargs = mock_filters.call_args.kwargs
+        assert call_kwargs.get("include_sub_conversations") is False, (
+            "gen titles default must pass include_sub_conversations=False; "
+            f"got {call_kwargs.get('include_sub_conversations')!r}"
+        )
+
+    def test_flag_passes_include_sub_conversations_true(
+        self, isolated_env: Path
+    ) -> None:
+        """``include_sub_conversations=True`` reaches the filter call."""
+        root_and_subs = [self._conv_root(), *self._subs()]
+        mock_filters = self._call_run_gen_titles_with_filter_mock(
+            isolated_env,
+            include_sub_conversations=True,
+            returned_conversations=root_and_subs,
+        )
+
+        assert mock_filters.call_count == 1
+        call_kwargs = mock_filters.call_args.kwargs
+        assert call_kwargs.get("include_sub_conversations") is True, (
+            "--include-sub-conversations must propagate as True; got "
+            f"{call_kwargs.get('include_sub_conversations')!r}"
+        )
+
+    def test_cli_flag_threads_through_to_run_gen_titles(
+        self, runner: CliRunner, isolated_env: Path
+    ) -> None:
+        """End-to-end Click invocation: the CLI option is forwarded to
+        the implementation function. We assert by inspecting the
+        ``include_sub_conversations`` kwarg ``_run_gen_titles`` is
+        called with — that's the contract."""
+        from ohtv.cli import main
+
+        captured: dict = {}
+
+        def _fake_run_gen_titles(**kwargs):
+            captured.update(kwargs)
+
+        with (
+            patch("ohtv.cli._run_gen_titles", side_effect=_fake_run_gen_titles),
+            patch(
+                "ohtv.cli.sync_lock",
+                return_value=MagicMock(
+                    __enter__=MagicMock(return_value=None),
+                    __exit__=MagicMock(return_value=False),
+                ),
+            ),
+        ):
+            result = runner.invoke(
+                main,
+                ["gen", "titles", "--all", "--all-titled", "--dry-run",
+                 "--include-sub-conversations", "-y"],
+            )
+        assert result.exit_code == 0, result.output
+        assert captured.get("include_sub_conversations") is True
+
+        captured.clear()
+        with (
+            patch("ohtv.cli._run_gen_titles", side_effect=_fake_run_gen_titles),
+            patch(
+                "ohtv.cli.sync_lock",
+                return_value=MagicMock(
+                    __enter__=MagicMock(return_value=None),
+                    __exit__=MagicMock(return_value=False),
+                ),
+            ),
+        ):
+            result = runner.invoke(
+                main,
+                ["gen", "titles", "--all", "--all-titled", "--dry-run", "-y"],
+            )
+        assert result.exit_code == 0, result.output
+        assert captured.get("include_sub_conversations") is False
+
+    def test_help_advertises_flag(self, runner: CliRunner) -> None:
+        """The ``--help`` output names the flag verbatim."""
+        from ohtv.cli import main
+        result = runner.invoke(main, ["gen", "titles", "--help"])
+        assert result.exit_code == 0
+        assert "--include-sub-conversations" in result.output
+        assert (
+            "agent delegation" in result.output
+            or "roots only" in result.output
+        ), result.output
+
+    def test_help_docstring_mentions_default_roots_only(
+        self, runner: CliRunner
+    ) -> None:
+        """Docstring sentence Click renders into help must say the default
+        excludes subs."""
+        from ohtv.cli import main
+        result = runner.invoke(main, ["gen", "titles", "--help"])
+        assert result.exit_code == 0
+        assert "root conversations only" in result.output
+        assert "include them" in result.output
