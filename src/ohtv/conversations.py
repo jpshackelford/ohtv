@@ -67,12 +67,14 @@ def get_conversations(
     if not include_subs:
         # FS path has no parent/root metadata — the DB-first design
         # means this branch only runs when the DB is unavailable
-        # (fresh checkout, or DB read failed above). Log so the user
-        # can see why subs may appear in a pre-DB result set.
-        log.debug(
+        # (fresh checkout, or DB read failed above). Surface at
+        # WARNING level so users notice the silent degradation:
+        # the requested ``include_subs=False`` becomes a no-op here
+        # and subs slip back into the result set (PR #154 review).
+        log.warning(
             "Filesystem fallback cannot distinguish root vs sub conversations; "
-            "include_subs=False is a no-op here. Run 'ohtv db scan' for the "
-            "DB-side roots-only filter (Issue #125)."
+            "include_subs=False has no effect. Run 'ohtv db scan' to enable "
+            "roots-only filtering (Issue #125)."
         )
 
     # Apply date filters manually

@@ -315,7 +315,7 @@ class ConversationStore:
                 by the guard.
         """
         conditions = []
-        params: list[str] = []
+        params = []
 
         if since:
             conditions.append("created_at >= ?")
