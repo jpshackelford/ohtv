@@ -2106,34 +2106,50 @@ def _filter_by_date_range(
 def _filter_by_pr(
     conversations: list[ConversationInfo],
     pr_filter: str,
+    *,
+    include_subs: bool = False,
 ) -> list[ConversationInfo]:
     """Filter conversations by PR reference.
-    
+
     Requires the database to be initialized and refs to be indexed.
+
+    When ``include_subs`` is False (Issue #127), the resolved
+    conversation-id set is expanded to roots via
+    :func:`ohtv.filters.expand_to_roots` so PRs touched only by a
+    sub-conversation still surface the matching root.
     """
+    from ohtv.db import get_connection
     from ohtv.filters import (
+        expand_to_roots,
         filter_conversations_by_ids,
         get_conversation_ids_for_pr,
         is_db_available,
     )
-    
+
     if not is_db_available():
         console.print("[yellow]Warning:[/yellow] Database not initialized. Run 'ohtv db scan && ohtv db process refs' first.")
         console.print("[dim]PR filtering requires indexed conversations.[/dim]")
         return []
-    
+
     conversation_ids, matched_prs = get_conversation_ids_for_pr(pr_filter)
-    
+
     if not matched_prs:
         console.print(f"[yellow]Warning:[/yellow] No PRs found matching '{pr_filter}'")
         console.print("[dim]Try 'ohtv db status' to check indexed PRs.[/dim]")
         return []
-    
+
     if len(matched_prs) > 1:
         console.print(f"[dim]Matched {len(matched_prs)} PRs: {', '.join(matched_prs)}[/dim]")
     else:
         console.print(f"[dim]Filtering by PR: {matched_prs[0]}[/dim]")
-    
+
+    if not include_subs and conversation_ids:
+        # Issue #127: roots-only is the default — expand each id to
+        # its root so the roots-only SELECT-layer result still finds
+        # work attributed to a sub.
+        with get_connection() as conn:
+            conversation_ids = expand_to_roots(conn, conversation_ids)
+
     return filter_conversations_by_ids(conversations, conversation_ids)
 
 
@@ -2256,27 +2272,39 @@ def _apply_conversation_filters(
     
     # Apply PR filtering (requires database)
     if pr_filter is not None:
-        conversations = _filter_by_pr(conversations, pr_filter)
-    
+        conversations = _filter_by_pr(
+            conversations, pr_filter, include_subs=include_sub_conversations
+        )
+
     # Track possible matches (for action+repo combined filter)
     possible_match_ids: set[str] = set()
-    
+
     # Apply action filtering (optionally combined with repo for precise matching)
     if action_filter is not None:
         conversations, possible_match_ids = _filter_by_action(
-            conversations, action_filter, repo_filter
+            conversations,
+            action_filter,
+            repo_filter,
+            include_subs=include_sub_conversations,
         )
         # If action+repo combined, skip separate repo filter
         if repo_filter is not None:
             repo_filter = None  # Already handled in _filter_by_action
-    
+
     # Apply repo filtering (requires database) - only if not already combined with action
     if repo_filter is not None:
-        conversations = _filter_by_repo(conversations, repo_filter)
-    
+        conversations = _filter_by_repo(
+            conversations, repo_filter, include_subs=include_sub_conversations
+        )
+
     # Apply label filtering (requires database)
     if label_filter is not None:
-        conversations = _filter_by_label(config, conversations, label_filter)
+        conversations = _filter_by_label(
+            config,
+            conversations,
+            label_filter,
+            include_subs=include_sub_conversations,
+        )
     
     # Apply error filtering
     if errors_only:
@@ -2292,34 +2320,46 @@ def _apply_conversation_filters(
 def _filter_by_repo(
     conversations: list[ConversationInfo],
     repo_filter: str,
+    *,
+    include_subs: bool = False,
 ) -> list[ConversationInfo]:
     """Filter conversations by repository reference.
-    
+
     Requires the database to be initialized and refs to be indexed.
+
+    Issue #127: when ``include_subs`` is False the resolved id set is
+    expanded to roots so a repo touched only by a sub still surfaces
+    the matching root row.
     """
+    from ohtv.db import get_connection
     from ohtv.filters import (
+        expand_to_roots,
         filter_conversations_by_ids,
         get_conversation_ids_for_repo,
         is_db_available,
     )
-    
+
     if not is_db_available():
         console.print("[yellow]Warning:[/yellow] Database not initialized. Run 'ohtv db scan && ohtv db process refs' first.")
         console.print("[dim]Repo filtering requires indexed conversations.[/dim]")
         return []
-    
+
     conversation_ids, matched_repos = get_conversation_ids_for_repo(repo_filter)
-    
+
     if not matched_repos:
         console.print(f"[yellow]Warning:[/yellow] No repos found matching '{repo_filter}'")
         console.print("[dim]Try 'ohtv db status' to check indexed repos.[/dim]")
         return []
-    
+
     if len(matched_repos) > 1:
         console.print(f"[dim]Matched {len(matched_repos)} repos: {', '.join(matched_repos)}[/dim]")
     else:
         console.print(f"[dim]Filtering by repo: {matched_repos[0]}[/dim]")
-    
+
+    if not include_subs and conversation_ids:
+        with get_connection() as conn:
+            conversation_ids = expand_to_roots(conn, conversation_ids)
+
     return filter_conversations_by_ids(conversations, conversation_ids)
 
 
@@ -2327,18 +2367,26 @@ def _filter_by_action(
     conversations: list[ConversationInfo],
     action_filter: str,
     repo_filter: str | None = None,
+    *,
+    include_subs: bool = False,
 ) -> tuple[list[ConversationInfo], set[str]]:
     """Filter conversations by action type, optionally combined with repo.
-    
+
     When combined with repo filter, tries to do precise matching:
     - If action has target URL, match against repo URL (definite match)
     - If action has no target, match on write link to repo (possible match)
-    
+
+    Issue #127: when ``include_subs`` is False the resolved id set is
+    expanded to roots before reducing. ``possible_match_ids`` is also
+    root-expanded so the ``*`` badge tracks the root row, not the sub.
+
     Returns:
         Tuple of (filtered_conversations, possible_match_ids)
         - possible_match_ids: IDs marked with * (ambiguous matches)
     """
+    from ohtv.db import get_connection
     from ohtv.filters import (
+        expand_to_roots,
         filter_conversations_by_ids,
         get_conversation_ids_for_action,
         get_conversation_ids_for_action_and_repo,
@@ -2346,53 +2394,63 @@ def _filter_by_action(
         is_db_available,
         normalize_action_type,
     )
-    
+
     if not is_db_available():
         console.print("[yellow]Warning:[/yellow] Database not initialized. Run 'ohtv db scan && ohtv db process actions' first.")
         console.print("[dim]Action filtering requires indexed conversations.[/dim]")
         return [], set()
-    
+
     action_type = normalize_action_type(action_filter)
     valid_types = get_valid_action_types()
-    
+
     if action_type not in valid_types:
         console.print(f"[yellow]Warning:[/yellow] Unknown action type '{action_filter}'")
         console.print(f"[dim]Valid types: {', '.join(sorted(valid_types))}[/dim]")
         return [], set()
-    
+
     if repo_filter:
         # Combined action + repo filter with precise matching
         definite, possible, action_type, matched_repos = get_conversation_ids_for_action_and_repo(
             action_filter, repo_filter
         )
-        
+
         if not matched_repos:
             console.print(f"[yellow]Warning:[/yellow] No repos found matching '{repo_filter}'")
             return [], set()
-        
+
         all_matches = definite | possible
-        
+
         if not all_matches:
             console.print(f"[dim]No conversations with '{action_type}' action for {', '.join(matched_repos)}[/dim]")
             return [], set()
-        
+
         repo_info = matched_repos[0] if len(matched_repos) == 1 else f"{len(matched_repos)} repos"
-        
+
         if possible:
             console.print(f"[dim]Filtering by action '{action_type}' + repo ({repo_info}): {len(definite)} definite, {len(possible)} possible matches[/dim]")
         else:
             console.print(f"[dim]Filtering by action '{action_type}' + repo ({repo_info}): {len(definite)} matches[/dim]")
-        
+
+        if not include_subs and all_matches:
+            with get_connection() as conn:
+                all_matches = expand_to_roots(conn, all_matches)
+                possible = expand_to_roots(conn, possible)
+
         return filter_conversations_by_ids(conversations, all_matches), possible
     else:
         # Action filter only
         conversation_ids, action_type = get_conversation_ids_for_action(action_filter)
-        
+
         if not conversation_ids:
             console.print(f"[dim]No conversations with '{action_type}' action[/dim]")
             return [], set()
-        
+
         console.print(f"[dim]Filtering by action '{action_type}': {len(conversation_ids)} matches[/dim]")
+
+        if not include_subs and conversation_ids:
+            with get_connection() as conn:
+                conversation_ids = expand_to_roots(conn, conversation_ids)
+
         return filter_conversations_by_ids(conversations, conversation_ids), set()
 
 
@@ -2400,52 +2458,63 @@ def _filter_by_label(
     config: Config,
     conversations: list[ConversationInfo],
     label_filter: str,
+    *,
+    include_subs: bool = False,
 ) -> list[ConversationInfo]:
     """Filter conversations by label (key=value format).
-    
+
+    Issue #127: when ``include_subs`` is False the resolved id set is
+    expanded to roots so labels attributed to a sub still surface the
+    matching root row.
+
     Args:
         config: Application configuration
         conversations: List of conversations to filter
         label_filter: Filter string in "key=value" format
-        
+        include_subs: When False (default), expand matching IDs to
+            their root conversation IDs before reducing.
+
     Returns:
         Filtered list of conversations matching the label
     """
     from ohtv.db import get_db_path, get_ready_connection
     from ohtv.db.stores import ConversationStore
-    from ohtv.filters import filter_conversations_by_ids
-    
+    from ohtv.filters import expand_to_roots, filter_conversations_by_ids
+
     # Parse label filter
     if "=" not in label_filter:
         console.print(f"[red]Error:[/red] Label filter must be in 'key=value' format, got: {label_filter}")
         return []
-    
+
     key, value = label_filter.split("=", 1)
     key = key.strip()
     value = value.strip()
-    
+
     if not key or not value:
         console.print(f"[red]Error:[/red] Label filter must have non-empty key and value: {label_filter}")
         return []
-    
+
     db_path = get_db_path()
     if not db_path.exists():
         console.print("[yellow]Warning:[/yellow] Database not initialized. Run 'ohtv db scan' first.")
         console.print("[dim]Label filtering requires indexed conversations.[/dim]")
         return []
-    
+
     try:
         with get_ready_connection() as conn:
             store = ConversationStore(conn)
             matching = store.list_by_label(key, value)
-            
+
             if not matching:
                 console.print(f"[dim]No conversations found with label {key}={value}[/dim]")
                 return []
-            
+
             matching_ids = {c.id for c in matching}
             console.print(f"[dim]Filtering by label {key}={value}: {len(matching_ids)} matches[/dim]")
-            
+
+            if not include_subs:
+                matching_ids = expand_to_roots(conn, matching_ids)
+
             return filter_conversations_by_ids(conversations, matching_ids)
     except Exception as e:
         console.print(f"[red]Error:[/red] Failed to filter by label: {e}")
@@ -2652,6 +2721,13 @@ def _populate_error_info(
               help="Show Idle column (minutes since last event). Colorized: red if < MINS (default: 7), green if >= MINS")
 @click.option("--with-errors", "-E", "with_errors", is_flag=True, help="Include error info column (agent/LLM errors)")
 @click.option("--errors-only", "errors_only", is_flag=True, help="Show only conversations with agent/LLM errors")
+@click.option(
+    "--include-sub-conversations",
+    "include_sub_conversations",
+    is_flag=True,
+    default=False,
+    help="Include sub-conversations created by agent delegation (default: roots only)",
+)
 @logging_options
 @click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def list_conversations(
@@ -2674,9 +2750,16 @@ def list_conversations(
     idle_minutes: int | None,
     with_errors: bool,
     errors_only: bool,
+    include_sub_conversations: bool,
     verbose: bool,
 ) -> None:
-    """List available conversations from local and cloud sources."""
+    """List available conversations from local and cloud sources.
+
+    Issue #127: defaults to **root conversations only**. Agent-delegated
+    sub-conversations are hidden so each row represents a unit of human
+    intent. Pass ``--include-sub-conversations`` to render every row
+    (pre-#127 behavior).
+    """
     _init_logging(verbose=verbose)
     config = Config.from_env()
 
@@ -2684,11 +2767,9 @@ def list_conversations(
     since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
 
     # Apply all conversation filters
-    # Issue #125: ``list`` continues to show sub-conversations as
-    # individual rows pre-#127. The display roll-up UX (sub count
-    # column, expand/collapse, etc.) is #127's scope. Pass
-    # ``include_sub_conversations=True`` to opt out of the
-    # ``gen``-family roots-only default until #127 ships.
+    # Issue #127: roots-only by default. The flag flips the behavior
+    # back to the pre-#127 per-row rendering — useful when inspecting
+    # the delegation tree itself.
     filter_result = _apply_conversation_filters(
         config,
         since=since,
@@ -2700,7 +2781,7 @@ def list_conversations(
         include_empty=include_empty,
         initial_show_all=show_all,
         errors_only=errors_only,
-        include_sub_conversations=True,
+        include_sub_conversations=include_sub_conversations,
     )
 
     conversations = filter_result.conversations
@@ -4953,6 +5034,13 @@ def _print_error_detail(err) -> None:
 @click.option("--actions", "-a", is_flag=True, help="Show only refs with detected interactions (read or write)")
 @click.option("--write-only", "-w", is_flag=True, help="Show only refs with write actions (pushed, created, merged, etc.)")
 @click.option("--no-index", is_flag=True, help="Skip database indexing (faster, but refs won't be queryable)")
+@click.option(
+    "--include-sub-conversations",
+    "include_sub_conversations",
+    is_flag=True,
+    default=False,
+    help="Include sub-conversations created by agent delegation (default: roots only)",
+)
 @logging_options
 @click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def refs(
@@ -4976,6 +5064,7 @@ def refs(
     actions: bool,
     write_only: bool,
     no_index: bool,
+    include_sub_conversations: bool,
     verbose: bool,
 ) -> None:
     """Extract repository, issue, and PR references from conversations.
@@ -5005,6 +5094,13 @@ def refs(
 
     By default, indexes conversations in the database for future queries.
     Use --no-index to skip this (faster for one-off lookups).
+
+    Issue #127: ``ohtv refs <root-id>`` rolls up refs across the
+    delegation subtree (refs created by delegated subs are surfaced
+    under the root). ``ohtv refs <sub-id>`` is unchanged — single-conv
+    view always shows that conversation's own refs. Multi-conv mode
+    defaults to roots-only resolution; pass
+    ``--include-sub-conversations`` to opt back into per-sub rendering.
     """
     _init_logging(verbose=verbose)
     config = Config.from_env()
@@ -5034,6 +5130,7 @@ def refs(
             actions=actions,
             write_only=write_only,
             no_index=no_index,
+            include_sub_conversations=include_sub_conversations,
             verbose=verbose,
         )
     elif has_filters:
@@ -5058,6 +5155,7 @@ def refs(
             actions=actions,
             write_only=write_only,
             no_index=no_index,
+            include_sub_conversations=include_sub_conversations,
             verbose=verbose,
         )
     else:
@@ -5073,6 +5171,112 @@ def refs(
         raise SystemExit(1)
 
 
+def _resolve_refs_subtree(conv_id: str) -> tuple[bool, list[str]]:
+    """Resolve a conversation id to its delegation subtree (Issue #127).
+
+    Returns ``(is_root, subtree_ids)`` where:
+      * ``is_root`` is True iff the id is the root of its tree (or the
+        only known conversation in its tree).
+      * ``subtree_ids`` is the list of conversation ids in the tree
+        (root first, subs after) when ``is_root`` is True. When the id
+        IS a sub, ``subtree_ids`` is ``[conv_id]`` — the single-conv
+        path is preserved unchanged.
+
+    Raises:
+        RuntimeError: when migration 020 has not been applied (the
+            ``root_conversation_id`` column is absent). Same shape as
+            the cluster's other guards (#123, #124, #125).
+    """
+    from ohtv.db import get_connection, get_db_path
+    from ohtv.filters import normalize_conversation_id
+
+    normalized = normalize_conversation_id(conv_id)
+    if not get_db_path().exists():
+        # No DB at all → no roll-up possible, behave as single-conv.
+        return True, [normalized]
+
+    with get_connection() as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(conversations)")}
+        if "root_conversation_id" not in cols:
+            raise RuntimeError(
+                "refs requires migration 020; "
+                "run 'ohtv db scan' to apply pending migrations"
+            )
+
+        row = conn.execute(
+            "SELECT root_conversation_id FROM conversations WHERE id = ?",
+            (normalized,),
+        ).fetchone()
+        if row is None:
+            # Unknown to DB (e.g. FS-only conversation) — keep
+            # single-conv behavior.
+            return True, [normalized]
+
+        root_id = row[0] or normalized
+        if root_id != normalized:
+            # ``normalized`` is a sub. Per AC, keep single-conv path
+            # unchanged so ``refs <sub-id>`` shows only that sub's refs.
+            return False, [normalized]
+
+        # It's a root — enumerate subtree members.
+        cursor = conn.execute(
+            "SELECT id FROM conversations WHERE root_conversation_id = ? ORDER BY id",
+            (normalized,),
+        )
+        subtree_ids = [r[0] for r in cursor.fetchall()]
+        # Defensive: ensure root id is present and first.
+        if normalized in subtree_ids:
+            subtree_ids.remove(normalized)
+        subtree_ids = [normalized] + subtree_ids
+        return True, subtree_ids
+
+
+def _extract_refs_subtree(
+    config: Config,
+    subtree_ids: list[str],
+) -> tuple[dict[str, set[str]], RefInteractions]:
+    """Extract and union refs + interactions across a delegation subtree.
+
+    Issue #127: the per-conv extractor (``_extract_refs_from_conversation``)
+    is the authoritative noise-filtered surface. We reuse it for each
+    subtree member and union the resulting set-valued dicts (dedup is
+    by URL string, equivalent to ``(ref_id, link_type)`` at the DB
+    layer for our purposes). Interactions are merged so the strongest
+    link per ref wins (set union over interaction strings).
+    """
+    aggregated: dict[str, set[str]] = {
+        "repos": set(),
+        "issues": set(),
+        "prs": set(),
+        "branches": set(),
+    }
+    merged_interactions = RefInteractions()
+
+    for sub_id in subtree_ids:
+        sub_result = _find_conversation_dir(config, sub_id)
+        if not sub_result:
+            continue
+        sub_dir, _ = sub_result
+        sub_extracted = _extract_refs_from_conversation(sub_dir)
+        sub_interactions = _detect_interactions_from_conversation(sub_dir, sub_extracted)
+
+        for kind in ("repos", "issues", "prs", "branches"):
+            aggregated[kind].update(sub_extracted.get(kind, set()))
+
+        # Merge interaction maps (url -> set of action strings).
+        for target, interactions_map in (
+            ("repos", sub_interactions.repos),
+            ("prs", sub_interactions.prs),
+            ("issues", sub_interactions.issues),
+        ):
+            dest = getattr(merged_interactions, target)
+            for url, action_set in interactions_map.items():
+                dest.setdefault(url, set()).update(action_set)
+        merged_interactions.unpushed_commits.update(sub_interactions.unpushed_commits)
+
+    return aggregated, merged_interactions
+
+
 def _refs_single_conversation(
     *,
     config: Config,
@@ -5084,9 +5288,19 @@ def _refs_single_conversation(
     actions: bool,
     write_only: bool,
     no_index: bool,
+    include_sub_conversations: bool = False,
     verbose: bool,
 ) -> None:
-    """Handle refs command for a single conversation."""
+    """Handle refs command for a single conversation.
+
+    Issue #127: when ``conversation_id`` resolves to a *root* of a
+    delegation tree, refs from every sub in the tree are rolled up into
+    a single view. When it resolves to a *sub*, the single-conv path is
+    preserved verbatim. The ``include_sub_conversations`` flag is
+    accepted for API symmetry with the multi-conv path but does not
+    change the single-conv behavior — passing the flag with a root id
+    is already the "show every sub's refs" mode.
+    """
     # Search both local and cloud sources
     result = _find_conversation_dir(config, conversation_id)
 
@@ -5098,12 +5312,37 @@ def _refs_single_conversation(
     # Get conversation metadata
     conv_id, title = _get_conversation_info(conv_dir)
 
-    # Index conversation in DB (unless --no-index)
+    # Index conversation in DB (unless --no-index) — ensures
+    # ``_resolve_refs_subtree`` can see this row even on first lookup.
     if not no_index:
         _ensure_refs_indexed(conv_id, conv_dir, verbose)
 
-    # Extract references from events
-    extracted = _extract_refs_from_conversation(conv_dir)
+    # Issue #127: detect whether this id is a root (subtree rollup) or
+    # a sub (single-conv path unchanged).
+    is_root, subtree_ids = _resolve_refs_subtree(conv_id)
+
+    if is_root and len(subtree_ids) > 1:
+        # Root with delegated subs — index each sub on demand and
+        # extract the union.
+        if not no_index:
+            for sub_id in subtree_ids:
+                sub_result = _find_conversation_dir(config, sub_id)
+                if sub_result:
+                    sub_dir, _ = sub_result
+                    _ensure_refs_indexed(sub_id, sub_dir, verbose)
+        extracted, precomputed_interactions = _extract_refs_subtree(
+            config, subtree_ids
+        )
+        sub_count = len(subtree_ids) - 1
+        if fmt not in ("lines", "csv", "json"):
+            console.print(
+                f"[dim]Rolling up refs from {sub_count} sub-conversation(s) "
+                f"under root {conv_id[:8]}…[/dim]"
+            )
+    else:
+        # Sub-id or root-with-no-subs — preserve single-conv path.
+        extracted = _extract_refs_from_conversation(conv_dir)
+        precomputed_interactions = None
 
     # Apply type filter if specified
     if prs_only:
@@ -5121,8 +5360,12 @@ def _refs_single_conversation(
             console.print("[dim]No repository references found.[/dim]")
         return
 
-    # Detect interactions for each ref
-    interactions = _detect_interactions_from_conversation(conv_dir, extracted)
+    # Detect interactions for each ref. For root-with-subs we already
+    # merged interactions across the subtree above.
+    if precomputed_interactions is not None:
+        interactions = precomputed_interactions
+    else:
+        interactions = _detect_interactions_from_conversation(conv_dir, extracted)
 
     # Filter by write actions only if requested
     if write_only:
@@ -5178,16 +5421,26 @@ def _refs_multi_conversation(
     actions: bool,
     write_only: bool,
     no_index: bool,
+    include_sub_conversations: bool = False,
     verbose: bool,
 ) -> None:
-    """Handle refs command for multiple conversations (filtered)."""
+    """Handle refs command for multiple conversations (filtered).
+
+    Issue #127: defaults to roots-only. The filter pipeline excludes
+    subs from the SELECT-layer result and root-expands the
+    ``--pr`` / ``--repo`` / ``--action`` id sets so refs created by
+    delegated subs still surface their parent root. Each rendered root
+    row's refs roll up the entire subtree via :func:`_extract_refs_subtree`.
+
+    Pass ``include_sub_conversations=True`` to opt back into the
+    pre-#127 per-sub rendering (no rollup, raw filter set).
+    """
     # Parse date filters
     since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
 
     # Apply conversation filters
-    # Issue #125: ``refs`` continues to surface sub-conversation refs
-    # pre-#127. Display roll-up is #127's scope; this caller opts out
-    # of the ``gen``-family roots-only default with an explicit True.
+    # Issue #127: forward the flag so the SELECT and filter layers
+    # agree on the same root-or-sub semantics.
     filter_result = _apply_conversation_filters(
         config,
         since=since,
@@ -5197,7 +5450,7 @@ def _refs_multi_conversation(
         action_filter=action_filter,
         include_empty=False,
         initial_show_all=show_all,
-        include_sub_conversations=True,
+        include_sub_conversations=include_sub_conversations,
     )
 
     conversations = filter_result.conversations
@@ -5243,16 +5496,47 @@ def _refs_multi_conversation(
         if not no_index:
             _ensure_refs_indexed(conv.id, conv_dir, verbose)
 
-        # Extract refs
-        extracted = _extract_refs_from_conversation(conv_dir)
+        # Issue #127: when roots-only, each row in ``conversations`` is
+        # a root — roll up refs across its subtree so the aggregate
+        # picks up refs created by delegated subs.
+        if not include_sub_conversations:
+            try:
+                is_root, subtree_ids = _resolve_refs_subtree(conv.id)
+            except RuntimeError:
+                # Pre-migration-020 fallback handled by the SELECT-layer
+                # guard above; if we got here without that firing, treat
+                # as single-conv.
+                is_root, subtree_ids = True, [conv.id]
+            if is_root and len(subtree_ids) > 1:
+                if not no_index:
+                    for sub_id in subtree_ids:
+                        sub_result = _find_conversation_dir(config, sub_id)
+                        if sub_result:
+                            sub_dir, _ = sub_result
+                            _ensure_refs_indexed(sub_id, sub_dir, verbose)
+                extracted, subtree_interactions = _extract_refs_subtree(
+                    config, subtree_ids
+                )
+            else:
+                extracted = _extract_refs_from_conversation(conv_dir)
+                subtree_interactions = None
+        else:
+            extracted = _extract_refs_from_conversation(conv_dir)
+            subtree_interactions = None
 
         # Filter by write actions only if requested
         if write_only:
-            interactions = _detect_interactions_from_conversation(conv_dir, extracted)
+            if subtree_interactions is not None:
+                interactions = subtree_interactions
+            else:
+                interactions = _detect_interactions_from_conversation(conv_dir, extracted)
             extracted = _filter_refs_by_write_actions(extracted, interactions)
         # Filter by any actions if requested (read or write)
         elif actions:
-            interactions = _detect_interactions_from_conversation(conv_dir, extracted)
+            if subtree_interactions is not None:
+                interactions = subtree_interactions
+            else:
+                interactions = _detect_interactions_from_conversation(conv_dir, extracted)
             extracted = _filter_refs_by_actions(extracted, interactions)
 
         # Aggregate

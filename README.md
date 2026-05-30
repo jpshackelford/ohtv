@@ -6,9 +6,12 @@ trajectories — from both the cloud product and local CLI sessions.
 
 - 🔄 **Sync** cloud conversations to disk (incremental, with metadata refresh).
   Delegated sub-conversations are synced by default since
-  [#108](https://github.com/jpshackelford/ohtv/pull/134); analysis and report
-  commands then roll up to root conversations by default. The `gen objs / titles / run`
-  batch commands accept `--include-sub-conversations` to opt back into per-sub analysis.
+  [#108](https://github.com/jpshackelford/ohtv/pull/134); `list`, `refs`,
+  `gen objs / titles / run`, and the report commands then roll up to root
+  conversations by default. Pass `--include-sub-conversations` on any of them
+  to opt back into per-sub rendering. *(`list` and `refs` flipped in v0.18.0
+  — see the [exploration guide](docs/guides/exploration.md#roots-only-default)
+  for the migration note.)*
 - 📚 **Index** them into a local SQLite database (refs, actions, contributions, human input)
 - 🤖 **Analyze** with LLMs (objectives, summaries, weekly reports, auto-titles)
 - 📈 **Report** velocity (merged-PRs × LOC × human-words) as tables, CSV, or 3-panel charts

@@ -516,3 +516,66 @@ def filter_conversations_by_ids(
     # Normalize allowed IDs for comparison
     normalized_allowed = {normalize_conversation_id(id) for id in allowed_ids}
     return [c for c in conversations if normalize_conversation_id(c.id) in normalized_allowed]
+
+
+
+def expand_to_roots(conn, conv_ids: set[str]) -> set[str]:
+    """Map sub-conversation IDs to their root conversation IDs.
+
+    Issue #127: ``ohtv list`` / ``ohtv refs`` (multi-conv) default to
+    root-only rendering. But the ID sets that come out of the
+    ``conversation_refs`` / ``actions`` / ``conversation_labels`` tables
+    are attributed to whichever conversation actually performed the
+    action — which for delegated work is often the sub. When
+    ``--include-sub-conversations`` is OFF we expand each id to its
+    root so the roots-only SELECT-layer result set still matches.
+
+    Per migration 020 (#122), every row has a non-NULL
+    ``root_conversation_id`` (orphans get their own id), so each input
+    id maps to exactly one root. The result is a set; duplicates
+    collapse (e.g. three subs of the same root → one root id).
+
+    IDs not present in the ``conversations`` table pass through
+    unchanged. That covers the FS-fallback case and the (rare) race
+    where the DB is mid-rescan.
+
+    IDs are normalized (dashes stripped) per AGENTS.md item #14 —
+    the DB stores dashless IDs.
+
+    Args:
+        conn: Open sqlite3 connection.
+        conv_ids: Conversation IDs (any format) to expand.
+
+    Returns:
+        Set of root conversation IDs (dashless), with unknown IDs
+        passed through unchanged.
+
+    Raises:
+        sqlite3.OperationalError: If ``root_conversation_id`` column is
+            absent. Callers that hit this path should have already
+            checked for migration 020 — the typical CLI entry-point
+            guard fires before this helper runs.
+    """
+    if not conv_ids:
+        return set()
+    normalized = {normalize_conversation_id(c) for c in conv_ids}
+    placeholders = ",".join("?" * len(normalized))
+    cursor = conn.execute(
+        f"SELECT id, root_conversation_id FROM conversations "
+        f"WHERE id IN ({placeholders})",
+        tuple(normalized),
+    )
+    roots: set[str] = set()
+    seen_ids: set[str] = set()
+    for row in cursor.fetchall():
+        conv_id, root_id = row[0], row[1]
+        seen_ids.add(conv_id)
+        # Defensive: migration 020 backfills root_conversation_id for
+        # every row, but if a NULL slips through treat it as a root.
+        roots.add(root_id if root_id else conv_id)
+    # Pass-through for IDs not in the DB (FS-only conversations, race
+    # conditions during scan, etc.).
+    for cid in normalized:
+        if cid not in seen_ids:
+            roots.add(cid)
+    return roots
