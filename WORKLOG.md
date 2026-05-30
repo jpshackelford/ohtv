@@ -2,6 +2,83 @@
 
 ## Log
 
+### 2026-05-30 15:20 UTC - Orchestrator (spawned testing worker for PR #158)
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `6c514c7` | testing | PR #158 — LiteLLM log suppression (#148) | **NEW** running |
+
+**Spawned: Testing Worker for PR #158**
+- PR: [#158 — fix(logging): suppress LiteLLM botocore pre-load warnings (#148)](https://github.com/jpshackelford/ohtv/pull/158)
+- Conversation: [`6c514c7`](https://app.all-hands.dev/conversations/6c514c7dae2b4247bf477f40c467e1b3) (`execution_status=running, sandbox_status=RUNNING`)
+- Start task `69edac5e` → READY on **first poll (~5s)** — warm sandbox, no cold-start penalty.
+
+**Step 0 — Setup:** Container respawned again (15:16Z wake-up). Skipped the `lxa`/`ohtv` install dance this cycle — every decision-tree input was available via `gh` CLI + the `/app-conversations/search` REST endpoint, and the previous five cycles have shown that the `uv pip install --system` path consistently fails on read-only `/usr/local/lib/python3.13/site-packages` while the `.venv` fallback succeeds. Net: zero tooling install, zero `ohtv sync` ⇒ ~30s saved. `GH_TOKEN=$github_token` bridge applied directly.
+
+**Step 0.5 — Housekeeping (truncation deferred AGAIN):** WORKLOG.md is **1,465 lines** at wake-up. The 14:49Z orchestrator established the "defer until 1,500 lines" rule (since 13:48Z just truncated 2,427 → 1,287 lines, churning again for <100 lines of headroom is wasteful). Current state is 35 lines under that ceiling. After appending this entry (~70 lines), file will sit at ~1,535 — JUST crossing the deferred-to threshold. Next cycle's first action should be truncation. Marking the file with a soft-deferred flag here so the next orchestrator picks it up.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty; the prior cycle's grep-match false-positives are inside fenced code blocks, hence the awk-with-fence-toggle pattern).
+
+**Step 2/3 — Active workers at cycle entry:**
+- API query `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` → only `6b5e12d` (this orchestrator) is `execution_status=running`.
+- **Impl worker `2d4299a`** (spawned 14:49Z by previous cycle): `execution_status=finished, sandbox_status=RUNNING (released)` at 14:54:53Z — **5-minute turnaround** on a tightly-scoped 3-line fix. **Best impl-worker latency** of this orchestration cluster (typical is 15–30 min). The 14:54Z WORKLOG entry it self-authored matches the spawn brief verbatim: scope-locked to the 3-line `setdefault` + 2 subprocess tests + 1-row docs touch, no scope creep, conventional commit subject `fix(logging): suppress LiteLLM botocore pre-load warnings (#148)` as forecasted.
+- Both worker slots **CLEAR at cycle entry**.
+
+**Step 4 — State gather:**
+
+- **Open PRs**: **1** — PR #158 (`fix/litellm-log-suppression-148`), created `14:52:58Z`, updated `14:55:48Z` (just 21 min before this cycle wakeup).
+- **PR #158 state probe** (`gh pr view` + `gh pr checks` + `gh pr diff --name-only`):
+  - `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`.
+  - `reviewDecision=APPROVED` by `@github-actions` (the pr-review bot) at `14:55:48Z` with the verdict **"🟢 Good taste — Clean, minimal solution that solves a real problem"**.
+  - CI: **3/3 green** — `lint-pr-title=3s`, `tests/pytest=53s` (the 2,156-test suite + the 2 new subprocess tests), `PR Review by OpenHands/pr-review=1m48s`.
+  - Files changed: `src/ohtv/__init__.py` (+10), `tests/unit/test_litellm_log_suppression.py` (new, +70), `docs/reference/configuration.md` (+1 row), `uv.lock` (version bump 0.18.1 → 0.19.0, fixing the post-#149 release-workflow lockfile drift as a bonus).
+  - Manual test results: **NONE** (no comments on the PR yet apart from the bot review).
+
+- **Issue census** (no change from 14:49Z entry — picking from the same backlog):
+  - Needs expansion (no `ready`, no `hold`): **0** — expansion slot stays IDLE. **Forty-fourth consecutive idle expansion cycle.** Not at auto-disable risk because PR slot productive this cycle.
+  - Ready + prioritized: **#148** (in PR #158, now testing), **#145** (`priority:low`, still queued).
+  - On hold: #90, #26.
+
+**Step 5 — Decision-tree row matched:** *"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker"*.
+
+- Docs-updated check: README.md was NOT touched, but `docs/reference/configuration.md` was (the `LITELLM_LOG` row in the env-var table). The README delegates env-var documentation entirely to `docs/reference/configuration.md` (line 84: `[docs/reference/configuration.md](docs/reference/configuration.md)` and line 96: same link with `#logging` anchor). So a logging-suppression env var landing in `configuration.md` satisfies the docs gate without needing a README touch. The skill's "Do NOT require docs update if only … Bug fixes that don't change documented behavior" carve-out also applies — this is a UX-cleanup fix that introduces one new opt-in env var, fully documented where the README points users.
+- No-test-results check: `gh pr view 158 --json comments,reviews` → `comments=[]`, only the bot's APPROVED review. The impl worker's WORKLOG entry self-reports "manual smoke check already confirmed the user-visible acceptance criterion" but that was an in-sandbox `ohtv --help | grep` check, not a PR-comment-formatted test report. The skill is explicit: testing comment must exist on the PR, posted by `openhands-ai` or carrying the AI-disclosure footer. **Spawn testing worker.**
+- The fact that `pr-review` already APPROVED does **not** skip testing. Per skill: *"The testing step is NOT skipped just because review started. CI must be green to test."* Both gates pass here.
+
+**Step 6 — Spawn dispatch:** ✅ Testing worker spawned (PR slot).
+
+**Spawn payload highlights** (sent to `POST /api/v1/app-conversations`):
+- Plugin: `source=github:jpshackelford/.openhands, repo_path=plugins/ohtv-workflow, ref=feat/ohtv-workflow-plugin` (had to correct from the WRONG-shape `git_provider/repository/version` field set on first attempt — API rejected with `Field required: source` and `pr_number must be list`; second attempt with correct shape succeeded).
+- `selected_repository=jpshackelford/ohtv`, `selected_branch=fix/litellm-log-suppression-148`, `pr_number=[158]` (list, not scalar).
+- 9-step ordered test plan: clone-and-checkout-PR → `uv venv .venv && uv sync` (fallback path, since the system `uv pip install --system` keeps hitting read-only `site-packages` errors) → diff-read → full pytest → focused regression test → **CRITICAL BLACKBOX smoke**: stash + `git checkout origin/main -- src/ohtv/__init__.py` to reproduce the pre-fix state, capture `2>/tmp/stderr_before.txt`, restore the fix, capture `2>/tmp/stderr_after.txt`, `grep -i 'litellm\|botocore\|bedrock\|sagemaker'` both → escape-hatch verification (`LITELLM_LOG=WARNING` re-enables warnings) → multi-command sanity (`prompts list`, `db status`, `--version`) → ruff lint.
+- Hard guardrails: NO push to PR branch (read-only QA); NO approve/merge (next worker handles); NO `gh pr review --request-changes` (surface blockers in the test report comment, not in a review action); 15-minute budget hard cap.
+- Required test-report fields: `## Manual Test Results` heading (regex-detection), `git rev-parse HEAD` SHA, acceptance-criterion-to-status table, unit test pass/fail summary, 🟢/🟡/🔴 rating, AI-disclosure footer.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned testing worker — advances PR #158 through the docs→test→merge lifecycle). **Fifty-fifth consecutive productive cycle.** Not at risk.
+
+**Next cycle expectations (~15:50Z window):**
+- Testing worker `6c514c7` turnaround for a 3-line-fix QA pass: typical 8–15 min (clone, `uv sync`, run pytest, run blackbox smoke, post comment, exit). The PR is small enough that the worker should comfortably finish well within the 15-min budget. Plausible states at next cycle:
+  - **Most likely (~75%)**: Test report posted, 🟢 GOOD rating. Decision-tree row at next cycle: *"PR exists, ready, CI green, test results valid, 💬 > 0"* (the test report itself counts as a comment, but the pr-review bot already approved → effective state is APPROVED + green + docs OK + tested) → matches the **merge worker** row: *"PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker"*. Merge → squash → semantic-release bumps `fix:` subject to **`ohtv-v0.19.1`** (patch, with `🐛 Bug Fixes` CHANGELOG entry).
+  - **Likely (~15%)**: Test report posted with 🟡 OK + notes (e.g., a sanity-check command surfaced an unrelated pre-existing stderr warning). Next cycle weighs the note severity; most likely still routes to merge with a "noted, not blocking" annotation.
+  - **Unlikely (~8%)**: 🔴 BLOCKERS found (e.g., the blackbox smoke unexpectedly shows warnings still leaking — maybe a sibling import path that loads litellm before `import ohtv` triggers). Would route to review worker for round-2 implementation. Low probability because the impl worker's in-sandbox smoke check already confirmed cleanliness.
+  - **Rare (~2%)**: Worker times out or sandbox dies → counter goes to 1, re-spawn on cycle after that.
+
+**Backlog forecast post-#158 merge:**
+- #148 ships → `ohtv-v0.19.1` (patch via `fix:` subject + `(#148)` issue link → semantic-release auto-closes the issue).
+- **Single pre-staged action for the orchestrator that picks the next cycle**: drop a priority-graduation comment on **#145** (`priority:low` → `priority:medium`) before spawning impl. The 13:48Z + 14:49Z entries both forecasted this. Single follow-up issue, single spawn.
+- After #145: prioritized backlog **EMPTY for the first time** since this orchestration cluster started. #90 (label CLI) + #26 (MCP server) stay on `hold`. Auto-disable counter will start accruing: **productive #145-spawn → wait-cycle → 1 → 2 → disable** over ~90 min.
+
+**Sync notes:**
+- `gh pr list` shows 1 open (PR #158). `git log --oneline -1 origin/main` confirms HEAD is at `1dbb92a` (impl worker's worklog commit, NOT a `chore(release):` — the release workflow has NOT fired yet because PR #158 hasn't merged).
+- Did NOT run `ohtv sync` — same reasoning as 14:49Z entry (direct API queries covered all decision-tree needs, sync is only needed when downstream commands need the local conversation snapshot).
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-30 14:54 UTC - Implementation Worker (Issue #148)
 
 **Worked on:** Issue #148 — Suppress LiteLLM botocore warnings at import time.
