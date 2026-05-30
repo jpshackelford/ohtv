@@ -1,6 +1,83 @@
 # CHANGELOG
 
 
+## v0.19.0 (2026-05-30)
+
+### Chores
+
+- **worklog**: Impl worker for #149 — PR #157 opened (ready)
+  ([`b59e20d`](https://github.com/jpshackelford/ohtv/commit/b59e20d4400cca6f22e8352e3cb765f019e3e0e8))
+
+- **worklog**: Orchestrator spawned docs spot-check for PR #157; truncated 19 entries to archive
+  ([`3397e77`](https://github.com/jpshackelford/ohtv/commit/3397e777e587c6488e935d6993931ec6d1998795))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned impl worker for #149 (priority:high)
+  ([`de371e0`](https://github.com/jpshackelford/ohtv/commit/de371e09068567e2af4e459d6f22c7f5f7e4fe98))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned testing worker for PR #157
+  ([`95b57cd`](https://github.com/jpshackelford/ohtv/commit/95b57cd200ed68db337616f37751cda3b1a0183a))
+
+- **worklog**: Orchestrator wait cycle — impl worker for #149 running
+  ([`cf3d5cc`](https://github.com/jpshackelford/ohtv/commit/cf3d5ccf326be26cb1a94740354b8167c413b00b))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Pr #156 merge complete
+  ([`a93e376`](https://github.com/jpshackelford/ohtv/commit/a93e376ae79cf6a4a37f20fac700d5ab30c29643))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- **gen-objs**: Expand context levels from 3 to 5
+  ([#149](https://github.com/jpshackelford/ohtv/pull/149),
+  [`7815fd1`](https://github.com/jpshackelford/ohtv/commit/7815fd134d92bddbeeb652d52f4e32733e51eb1d))
+
+Replaces the legacy 3-level `minimal` / `default` / `full` context ladder in `ohtv gen objs` with a
+  5-level additive ladder. Each level extends the previous one with strictly more event types,
+  letting users tune the analyzer precisely against token cost vs signal quality.
+
+| # | Name | Adds (vs previous level) | | --- | --- | --- | | 1 | `minimal` | user messages only | |
+  2 | `outcome` | + `finish` action | | 3 | `dialogue` | + agent messages | | 4 | `actions` | +
+  non-`finish` action summaries (with commands) | | 5 | `observations` | + truncated tool
+  observations |
+
+The auto-promotion ladder (`promote_context_level` in `analysis/objectives.py`) now steps one level
+  at a time through `CONTEXT_LEVEL_ORDER`, replacing the previous two-step jump. This is the clean
+  function boundary that #145 plugs into next.
+
+Stale 3-level references in `docs/guides/analysis.md` were scrubbed in the docs follow-up commit
+  (c5645c1) after the manual test pass flagged them; no re-test required (docs-only).
+
+Closes #149.
+
+BREAKING CHANGE: The `-c / --context` flag no longer accepts the retired aliases `default` or
+  `full`. Click now rejects them with a `BadParameter` error that includes a migration hint pointing
+  at the new 5-level surface (`minimal` / `outcome` / `dialogue` / `actions` / `observations`, also
+  addressable as `-c 1` through `-c 5`). Migration map: `default` -> `outcome` (level 2); `full` ->
+  `observations` (level 5). The `analysis_cache.cache_key` shape is unchanged but the level *values*
+  are not, so all pre-#149 cached analyses become orphaned and are regenerated lazily on the next
+  `ohtv gen objs` run per conversation. Embeddings with `embed_type='analysis'` carry the same
+  orphaned `cache_key` and will be re-embedded on next `ohtv db embed` run. No migration script is
+  shipped (per the explicit PM decision in #149).
+
+### Breaking Changes
+
+- **gen-objs**: The `-c / --context` flag no longer accepts the retired aliases `default` or `full`.
+  Click now rejects them with a `BadParameter` error that includes a migration hint pointing at the
+  new 5-level surface (`minimal` / `outcome` / `dialogue` / `actions` / `observations`, also
+  addressable as `-c 1` through `-c 5`). Migration map: `default` -> `outcome` (level 2); `full` ->
+  `observations` (level 5). The `analysis_cache.cache_key` shape is unchanged but the level *values*
+  are not, so all pre-#149 cached analyses become orphaned and are regenerated lazily on the next
+  `ohtv gen objs` run per conversation. Embeddings with `embed_type='analysis'` carry the same
+  orphaned `cache_key` and will be re-embedded on next `ohtv db embed` run. No migration script is
+  shipped (per the explicit PM decision in #149).
+
+
 ## v0.18.1 (2026-05-30)
 
 ### Bug Fixes
