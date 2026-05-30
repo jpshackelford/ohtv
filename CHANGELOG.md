@@ -1,6 +1,49 @@
 # CHANGELOG
 
 
+## v0.19.1 (2026-05-30)
+
+### Bug Fixes
+
+- **logging**: Suppress LiteLLM botocore pre-load warnings
+  ([#148](https://github.com/jpshackelford/ohtv/pull/148),
+  [`aedfc69`](https://github.com/jpshackelford/ohtv/commit/aedfc690608162b20e7f50f9fb84ce7e54a04055))
+
+Sets `LITELLM_LOG=ERROR` via `os.environ.setdefault` at package init so the eager `litellm` import
+  in commands like `ohtv ask`/`ohtv gen objs` no longer leaks `could not pre-load <provider>
+  response stream shape` warnings to stderr on `ohtv --help`, `ohtv prompts list`, `ohtv db status`,
+  etc.
+
+The `setdefault` is the escape hatch: `LITELLM_LOG=WARNING ohtv ask ...` brings warnings back when
+  debugging is needed.
+
+Adds two subprocess-isolated regression tests asserting both the default `ERROR` path and the
+  preserve-user-set contract.
+
+Documents `LITELLM_LOG` as a user knob in `docs/reference/configuration.md`.
+
+Closes #148.
+
+_This commit message was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+### Chores
+
+- **worklog**: Note PR #158 ready for review (Issue #148)
+  ([`1dbb92a`](https://github.com/jpshackelford/ohtv/commit/1dbb92a684fb842517ec85c282164db54843b869))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-05-30T14:51:24Z — spawn impl worker for #148
+  ([`b33e007`](https://github.com/jpshackelford/ohtv/commit/b33e007eb98341e9a5a4babc818035914d2009d1))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned testing worker for PR #158
+  ([`0e407b8`](https://github.com/jpshackelford/ohtv/commit/0e407b8973fc7cdfa649196da74c5d7fcf3be12e))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+
 ## v0.19.0 (2026-05-30)
 
 ### Chores
