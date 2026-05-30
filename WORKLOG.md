@@ -2,6 +2,59 @@
 
 ## Log
 
+### 2026-05-30 11:53 UTC - Merge worker (PR #156) — **#122 cluster CLOSED**
+
+**Merged**: [PR #156](https://github.com/jpshackelford/ohtv/pull/156) — `fix(rag): cite root_conversation_id in ask/search results (#128)`
+- **Conv ID**: `b732cd1` (this merge worker). Spawned by orchestrator conv `8929ca8`.
+- **Merge SHA**: `48e6f2a12fb6985b21aa5c2fa432edba4242c942`
+- **Released**: [`ohtv-v0.18.1`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.18.1) — release commit `c4b8526`, published 2026-05-30T11:55:04Z (~2 min after merge). semantic-release fired cleanly on `fix:` → patch bump as expected.
+
+**Commit-type decision** (documented on PR before merge — [comment 4582741951](https://github.com/jpshackelford/ohtv/pull/156#issuecomment-4582741951)):
+- Squash subject **flipped from PR title** `feat(rag): …` → `fix(rag): …` for the merge commit.
+- Rationale: Issue #128 is filed as a bug ("RAG `ask`/`search` cite sub-conversation IDs the user doesn't recognize"). This PR is render-layer-only — `embedding_store` is untouched (closing AC), no new flags, no new migration, no schema change. Cluster precedent matches:
+  - PR #152 `fix(reports): aggregate weekly-counts at root grain (#123)` → v0.16.1 (patch) — render-layer-only
+  - PR #153 `fix(reports): aggregate velocity at root grain (#124)` → v0.16.2 (patch) — render-layer-only
+  - PR #154/#155 used `feat:` because they introduced new flags / changed default output (`⚠ BREAKING`).
+- PR body's "non-breaking patch release" claim ↔ `fix:` → v0.18.1 alignment confirmed by the released tag.
+
+**Manual test confirmation** (from the 11:25Z [test report comment](https://github.com/jpshackelford/ohtv/pull/156#issuecomment) by jpshackelford via openhands-ai): **7/7 scenarios PASS** — A full suite 2163/2163, B 81 new tests, C `--help` smoke (no new flag), D migration-020 guardrail (correct message, cites migration 020 explicitly), E inline-fixture end-to-end, F `embedding_store.py` diff empty (closing AC #128), G MAX-aggregation code-read. No commits since the test landed → results were fresh, no re-test needed.
+
+**What shipped** (render-layer-only):
+- `ContextChunk` carries `root_conversation_id`; standalone convs use own id as root.
+- `RAGRetrievalResult.source_conversation_ids` / `RAGAnswer.source_conversation_ids` are sets of root ids.
+- `ohtv ask` Sources table → root id/title + `[via sub: <hex8>]` annotation when max-scoring chunk came from a sub.
+- `ohtv search` table → one row per root, MAX-score aggregation, rank/score/snippet from max-scoring chunk.
+- `--explain` / `--explain-only` → both grains (per-chunk `conversation_id` + rolled-up `root_conversation_id`).
+- Runtime guardrail `_assert_root_column_present` at `RAGRetriever.retrieve` / `RAGAnswerer.answer_question` entry; error message cites migration **020** explicitly.
+- `embedding_store.*` intentionally unchanged — chunk-grain retrieval preserved, dedup happens render-side only (this is the #122 cluster contract).
+- Helper `filters.map_to_roots(conn, list)` — list-shaped companion to #127's set-shaped `expand_to_roots`.
+
+**Tests**: 2163 passed, 2 skipped, 3 xfailed (113 new tests this PR).
+
+**#122 root-conversation-aggregation cluster CLOSED.** Final snapshot:
+
+| Issue | Surface | PR | Status | Release |
+|---|---|---|---|---|
+| #122 (umbrella) | migration 020 + `root_conversation_id` column + `ConversationStore.list_roots` | #138 | merged | foundation |
+| #123 | `report weekly-counts` | #150 | merged | v0.16.1 |
+| #124 | `report velocity` | #153 | merged | v0.16.2 |
+| #125 | `gen objs / titles / run` | #154 | merged | v0.17.0 ⚠ BREAKING |
+| #127 | `list` / `refs` | #155 | merged | v0.18.0 ⚠ BREAKING |
+| **#128** | **RAG `ask` / `search` citation dedup** | **#156 (this entry)** | **merged** | **v0.18.1** |
+| #126 | `classify` self-healing UPDATE | — | unprioritized, queued for next impl pick | — |
+
+The cluster pattern across 5 shipped PRs: chunk-grain DB stays untouched, render-layer COALESCEs to root via migration-020's `root_conversation_id`, migration-020 guardrail fires on entry to new code paths, `⚠ BREAKING` reserved for default-flip surfaces (#125/#127), `fix:` patch for render-layer-only dedup (#123/#124/#128).
+
+Only **#126** (classify policy) remains in the cluster's sibling issues. It's unprioritized — next orchestrator cycle should run `/assess-priority` inline to weigh it against the rest of the unprioritized `ready` backlog (#145, #148, #149) before picking the next impl target.
+
+**No AGENTS.md edits** per cluster convention — the AGENTS.md item is owned by the #122 umbrella (item #32), not per-issue PRs.
+
+EXIT per merge-worker contract — one PR per wake-up.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-30 11:10 UTC - Implementation worker (#128 RAG citation root dedup)
 
 ✅ **Completed: Implementation of #128** — [PR #156](https://github.com/jpshackelford/ohtv/pull/156) `feat(rag): cite root_conversation_id in ask/search results (#128)`
