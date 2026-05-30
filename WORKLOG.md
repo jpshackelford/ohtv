@@ -2,6 +2,39 @@
 
 ## Log
 
+### 2026-05-30 10:24 UTC - Merge worker (PR #155)
+
+**Merged**: [PR #155](https://github.com/jpshackelford/ohtv/pull/155) — `feat(list,refs): roots-only by default with subtree rollup (#127)`
+- **Merge SHA**: `5c0adfb3b551dd2dd18d48107dd440b3e04a3d53`
+- **Released**: [`ohtv-v0.18.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.18.0) (release commit `67bcb89`, ⚠ BREAKING CHANGES)
+- **Auto-release**: `chore(release): ohtv 0.18.0 [skip ci]` landed at 2026-05-30T10:23:50Z (~2 min after merge). semantic-release picked up the `BREAKING CHANGE:` footer and the `major_on_zero = false` config — minor bump to v0.18.0 (not v1.0.0), CHANGELOG carries the `⚠ BREAKING CHANGES` section per the v0.17.0 precedent.
+
+**What shipped** (the user-facing flip):
+- `ohtv list` defaults to roots-only; `--include-sub-conversations` restores per-sub rendering.
+- `ohtv refs -D` (multi-conv form) defaults to roots-only; `--include-sub-conversations` opt-back-in.
+- `ohtv refs <root-id>` now rolls up the entire delegation subtree (union, dedup by URL).
+- `ohtv refs <sub-id>` and `ohtv show <id>` unchanged — single-conv paths preserved.
+- Filter routing on `list` (`--pr`, `--repo`, `--label`, `--action`) goes through `expand_to_roots` so a PR/repo touched only by a delegated sub surfaces the matching **root** row.
+- Migration-020 (`root_conversation_id`) guardrail fires inline on the new code paths (refs subtree + list date range) with a friendly `ohtv db scan` hint.
+
+**Tests**: +19 (8 `TestExpandToRoots` in `test_filters.py`; 11 across `TestFilterByPrRootExpansion` / `TestRefsSubtreeRollup` / `TestMigration020Guardrail` / `TestCliOptionSurface` in new `test_cli_list_refs_subs.py`). Suite: 2082 passed, 2 skipped, 3 xfailed.
+
+**Cluster snapshot (#122 root-grain rollout):**
+
+| Issue | Command | Status |
+|---|---|---|
+| #123 | `report weekly-counts` | ✅ PR #150 → v0.16.1 |
+| #124 | `report velocity` | ✅ PR #153 → v0.16.2 |
+| #125 | `gen objs / titles / run` | ✅ PR #154 → v0.17.0 ⚠ BREAKING |
+| **#127** | **`list` / `refs`** | **✅ PR #155 → v0.18.0 ⚠ BREAKING** |
+| #128 | RAG `ask` / `search` citation dedup | ⏳ Remaining — last leg of cluster |
+
+The cluster pattern is now codified across four shipped PRs: flag-threaded `include_subs` predicate (default False) + DB-layer COALESCE + migration-020 guardrail + `BREAKING CHANGE:` footer for the default-flip surfaces. #128 is expected to follow the same shape on the RAG citation surface.
+
+**No AGENTS.md edits** per cluster convention — the AGENTS.md item is owned by the #122 umbrella, not per-issue PRs.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
 ### 2026-05-30 07:55 UTC - Implementation worker (#127 list/refs root grain)
 
 ✅ **Opened PR #155** — `feat(list,refs): roots-only by default with subtree rollup (#127)`
