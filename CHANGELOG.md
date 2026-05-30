@@ -1,6 +1,171 @@
 # CHANGELOG
 
 
+## v0.16.1 (2026-05-30)
+
+### Bug Fixes
+
+- **reports**: Aggregate weekly-counts at root grain
+  ([#123](https://github.com/jpshackelford/ohtv/pull/123),
+  [`75eb2cb`](https://github.com/jpshackelford/ohtv/commit/75eb2cb75031c2a165122ea4cd8a7b57e4c02f04))
+
+After sub-conversation sync (#108) and migration 020 (#122) landed, 'ohtv report weekly-counts'
+  over-counted the cloud column by the agent delegation rate: each delegated sub became its own row
+  in conversations and the report had no way to distinguish them from roots.
+
+Add a single predicate to the report SQL:
+
+AND id = root_conversation_id
+
+Plus a column-presence guard at fetch_rows entry that raises a clear RuntimeError telling the user
+  to run 'ohtv db scan' if migration 020 hasn't been applied. The root's own created_at already
+  equals MIN(created_at) across its subtree (a sub cannot exist before its parent), so the direct
+  predicate is the minimal, index-friendly fix — the conversations_by_root view stays the right
+  surface for #124 (velocity), which DOES roll up subtree sums.
+
+Tests: 5 new (T-A through T-E) covering single root, root+subs same week, root + sub in next week
+  (sub must NOT add a row), 2-deep chain, and missing-column error path. Full unit suite: 2033
+  passed.
+
+CSV header (week,cloud,cli,total) and the cli vs DB-side local naming contract (AGENTS.md #29) are
+  unchanged.
+
+Closes #123
+
+### Chores
+
+- **worklog**: #116 PR #151 ready for review
+  ([`a96e675`](https://github.com/jpshackelford/ohtv/commit/a96e6751c966623bf28c1e416ac1320f8c8fc761))
+
+- **worklog**: #148 expansion ready for impl
+  ([`bc574e8`](https://github.com/jpshackelford/ohtv/commit/bc574e8a19748a7d31554f2a999645c6bbe90600))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Cycle #3 broken-dispatch — escalated via issue #150
+  ([`f22ac07`](https://github.com/jpshackelford/ohtv/commit/f22ac07e2351ec7eb77798c3ba9892e80dd2cb5f))
+
+Pre-committed forecast from 22:50Z fired. Opened tracking issue documenting POST-API child spawn
+  failure window (21:19Z→23:16Z, 3 confirmed-dead spawns, sandbox=PAUSED at creation). Labeled the
+  tracking issue 'hold' so it doesn't enter the expansion queue.
+
+No worker spawn this cycle (EV≈0). Next cycle checks #150 for human response before resuming normal
+  dispatch.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Cycle #4 broken-dispatch — inline-review #149 ready
+  ([`881923a`](https://github.com/jpshackelford/ohtv/commit/881923a3a584de0b062c832393d8fad141102e77))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Cycle 00:21Z - dispatch healed, 2 workers spawned (#145 exp, #116 impl)
+  ([`eda1abe`](https://github.com/jpshackelford/ohtv/commit/eda1abeddcdecfbfeeef08b33fc2f67bbdbcc02a))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Expansion worker #145 - ready for impl
+  ([`5ea0437`](https://github.com/jpshackelford/ohtv/commit/5ea0437029ee67f8ccfdf4b833ce000437489d47))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Impl worker shipped #123 as PR #152
+  ([`7388f73`](https://github.com/jpshackelford/ohtv/commit/7388f7346a6c3dea6758067ac5a9a801952b4379))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Merge worker shipped #116 as PR #151
+  ([`0214125`](https://github.com/jpshackelford/ohtv/commit/0214125b13b6e86db372043a79be3ccaac202cb1))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator diagnostic cycle 2 — confirm broken POST-spawn dispatch, no spawn this
+  cycle
+  ([`8c89696`](https://github.com/jpshackelford/ohtv/commit/8c8969642a756b7f998fc757dc7531be4f3a3713))
+
+- **worklog**: Orchestrator diagnostic — systemic spawn failure since 21:15Z
+  ([`68331e5`](https://github.com/jpshackelford/ohtv/commit/68331e5d7cf5be783cc21ae64c44d4d84981ca6a))
+
+5 consecutive worker spawns dead with execution_status=null, updated_at==created_at. Issue #145
+  untouched after 2 expansion attempts. PR slot empty post-#147 merge / v0.16.0 release. Surfacing
+  to @jpshackelford rather than spawning a 3rd attempt or auto-disabling.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator inline-merged PR #147 (v0.16.0), respawned expansion for #145
+  ([`8cf7249`](https://github.com/jpshackelford/ohtv/commit/8cf7249fc53141ac3ac2c7bafda655506c53c23b))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawn merge worker for #152
+  ([`9d9c700`](https://github.com/jpshackelford/ohtv/commit/9d9c7008fa179c2d5e99385bf54d6460c1861fbc))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawn testing #152, archive 2026-05-29
+  ([`a85e02e`](https://github.com/jpshackelford/ohtv/commit/a85e02ebc0c8325bacc003e7940e3582258701af))
+
+Truncated WORKLOG.md from 2342 → 1148 lines (archived 19 entries to WORKLOG_ARCHIVE_2026-05-29.md),
+  spawned testing worker 06ac1e1 for PR #152.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned impl worker e93754b for #123
+  ([`9ca6770`](https://github.com/jpshackelford/ohtv/commit/9ca67708b5a365b155d3700c600c72de28f52f80))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned testing #151 + expansion #148 (2026-05-30T00:54:20Z)
+  ([`e8f5666`](https://github.com/jpshackelford/ohtv/commit/e8f56667d5afc138eb69e2a9c9fa9b93c5c60904))
+
+### Refactoring
+
+- **db**: Centralize migration through get_ready_connection
+  ([#151](https://github.com/jpshackelford/ohtv/pull/151),
+  [`b93c247`](https://github.com/jpshackelford/ohtv/commit/b93c24773e7cfd1a80020d49192f3b4aa92f8f07))
+
+Adds `ohtv.db.get_ready_connection()` as the canonical entry point for production code that touches
+  the SQLite index. It composes `get_connection()` with `ensure_db_ready()` so every command —
+  fresh-install or otherwise — opens a connection that has the current schema **and** has had all
+  pending maintenance tasks evaluated.
+
+This replaces 14 ad-hoc `get_connection()` + `migrate(conn)` call sites across `analysis/cache.py`,
+  `conversations.py`, and `cli.py`. The two low-level primitives (`get_connection`, `migrate`,
+  `ensure_db_ready`) remain public for niche callers — notably `db init`, which surfaces the list of
+  newly-applied migration names that `migrate(conn)` returns.
+
+Behavior-preserving internal refactor — no CLI surface change, no flag, command, or output format
+  added or removed. The visible effect is "fewer `no such table` errors after a fresh checkout".
+
+Key implementation notes:
+
+- `get_ready_connection(*, show_progress=False)` lives in `db/connection.py` and is re-exported from
+  `ohtv.db`. `show_progress` is plumbed through to `ensure_db_ready` so library/batch callers stay
+  quiet by default and CLI sites can opt in. - Idempotency is preserved: `ensure_db_ready`
+  short-circuits when no migrations or maintenance tasks are pending, so repeated calls are cheap.
+  Verified by `TestIdempotency` and manual scenario #12 (two consecutive `ohtv list -A` runs — no
+  `Initializing database…` line on the second). - Allow-list regression test
+  (`tests/unit/test_no_raw_migrate.py`) greps `src/ohtv/` for `migrate(conn)` outside three
+  documented sites: `db/maintenance.py` (the wrapper itself), `db/connection.py` (docstring
+  example), and `cli.py` `db init` (uses `migrate`'s return value). A liveness check confirms each
+  allow-listed file still actually contains `migrate(conn)`, so a future move/rename cannot silently
+  over-allow. - Lock semantics unchanged: `get_ready_connection` does not take `sync.lock`; it
+  delegates to `ensure_db_ready`, which already does the right thing per item #25 / item #27 in
+  AGENTS.md.
+
+Tests: 26 new (18 helper-contract + 6 fresh-install CLI integration + 2 allow-list regression). Full
+  suite 2028 passed, 2 skipped, 3 xfailed.
+
+Manual verification: 15 scenarios all PASS — fresh-install probes for `list`, `search`, `db scan`,
+  `db process all`, `db index-cache`; idempotency; `db init` happy path and second-run no-op; CI
+  green.
+
+Documentation: AGENTS.md item #25 gains a "Single entry point (#116)" bullet pointing at the helper,
+  the canonical-callers rule, and the regression test as the floor of the prevention strategy.
+
+Closes #116
+
+
 ## v0.16.0 (2026-05-29)
 
 ### Chores
