@@ -1368,3 +1368,95 @@ EXIT.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 06:49 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7220b3d` | review | PR #154 — `--include-sub-conversations` (#125) | **NEW** running |
+
+**Spawned: Review Worker**
+- PR: [#154 — feat(gen): exclude sub-conversations from multi-conv mode by default (#125)](https://github.com/jpshackelford/ohtv/pull/154)
+- Branch: `feat/gen-roots-only-125`
+- Conversation: [`7220b3d`](https://app.all-hands.dev/conversations/7220b3dcf6614a33bb0d35d24c2113d2)
+- Start task id: `c9881c96…` → `READY` on first poll → `execution_status=running` + `sandbox_status=RUNNING` confirmed
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+
+**State at wake-up:**
+
+- **Step 0 — Setup**: `lxa` + `ohtv` installed into `.venv` (system Python was read-only). `lxa repo add jpshackelford/ohtv` re-created the "Unnamed Board 1" (consistent with prior-cycle note that the lxa board is non-persistent across cron wake-ups). Skipped `ohtv sync` — GH is the source of truth this cycle.
+- **Step 0.5 — Worklog housekeeping**: WORKLOG.md at **1370 lines** (above 300 threshold). Prior cycles (05:14Z full truncation 1723→1066; 06:19Z deferred) established the trigger as *"first productive cycle after PR #154 merges, force-truncate regardless"*. PR #154 still in flight → **deferring** truncation again. Will execute on the post-merge cycle as planned.
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2/3 — Active workers**: testing worker `e2f465f` queried → `finished` at 06:23Z (and posted comment #4581947363 with all 9 ✅ before exiting). Search of `/app-conversations/search?selected_repository=jpshackelford/ohtv` filtered to `running` returned only `d4be3ec` = this orchestrator self. Both slots free at wake-up.
+- **Step 4 — Open PRs**: 1 — PR #154 (`feat/gen-roots-only-125`).
+- **Step 4 — PR #154 status**:
+  - Not draft, `reviewDecision = CHANGES_REQUESTED` (pr-review bot, 05:15Z, unchanged).
+  - CI: `lint=SUCCESS`, `pytest=SUCCESS` on head `7b37cec`.
+  - 2 PR comments: (1) docs-update notification from `eec0de5` at 05:25Z, (2) `## Manual Test Results for PR #154` from testing worker `e2f465f` at 06:23Z — all 9 scenarios PASS, full unit suite `2063 passed, 2 skipped, 3 xfailed`.
+  - 1 review (the pr-review bot CHANGES_REQUESTED).
+- **Step 4 — Issue census**:
+  - Issues needing expansion: **0**.
+  - Ready, prioritized: #125 (in PR #154), #127, #128 (all `priority:medium`).
+  - Ready, unprioritized: #145, #148, #149.
+
+**Decision tree path:**
+
+- **Expansion slot**: 0 issues need expansion → slot idle. No spawn.
+- **PR slot**: PR #154 → ready, CI green, docs updated, **test results valid (all ✓)**, 💬 = 1 review (CHANGES_REQUESTED) → row matches ***"PR exists, ready, CI green, test results valid, 💬 > 0 → review worker"***. ✓ matched. Spawned.
+
+**Review worker brief (key elements)**:
+
+The prompt carries forward both named threads from prior orchestrator cycles + the explicit option A/B framing:
+
+1. **Semver classification** — the new `--include-sub-conversations` default flip excludes subs. Two options framed:
+   - **Option A** (treat as breaking): add `BREAKING CHANGE:` footer to the squash-merge commit → python-semantic-release bumps to **v1.0.0**. Leave default as-is.
+   - **Option B** (opt-in): rename to `--exclude-sub-conversations`, default to *including* subs (pre-#125 behavior), add `DeprecationWarning`, update help + README + analysis.md + test matrix. Bumps to **v0.17.0**.
+   - **Context for the call**: siblings #123 (PR #150 → v0.16.1) and #124 (PR #153 → v0.16.2) shipped as patch bumps (SQL-only, no user-facing CLI). PR #154 is the first user-facing default flip in the #125–#128 root-grain cluster — the choice sets the pattern for #127/#128. Single-conv `gen objs <id>` is unaffected either way (confirmed in testing report).
+2. **FS-fallback log level** — `src/ohtv/sources/conversations.py` L72–76 logs at `debug` when DB-fast-path falls back to FS scan; reviewer suggests `warning`. Worker to evaluate "is this a normal expected path on fresh installs (→ debug) or a real degradation (→ warning)" and either bump the level or document the rationale in the thread reply.
+
+Workflow lock-down:
+- Set PR back to draft immediately (`gh pr ready 154 --undo`).
+- For each thread: implement-or-reject → logical commit → push → CI watch → GraphQL reply citing SHA → `resolveReviewThread`.
+- After all threads resolved + CI green: `gh pr ready 154` (re-triggers pr-review bot).
+- Worklog entry on `main` summarizing the option-A-vs-B call + FS-fallback decision.
+- EXIT — next review round is a separate conversation.
+
+Explicit non-goals:
+- No re-testing — 06:23Z report stays current unless reviewer changes `src/` files (per orchestrate skill heuristic; if so, the *next* orchestrator wake-up dispatches a re-testing worker before pr-review bot).
+- No merge — separate dispatch.
+
+**Spawn payload shape** (validated):
+- `selected_repository=jpshackelford/ohtv`, `selected_branch=feat/gen-roots-only-125`, `git_provider=github`.
+- `pr_number=[154]`.
+- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
+- `initial_message.content[].type=text`, `run=true`.
+- POST `/api/v1/app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY` → start task `c9881c96…` returned `status=WORKING`; poll `/start-tasks/search` → `READY` immediately (first poll, ~14s after POST); `app_conversation_id=7220b3dc…`; `/app-conversations?ids=7220b3dc…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
+
+**Sibling-contrast tracker** (unchanged):
+
+| # | Surface | Fix style | Status |
+|---|---|---|---|
+| #123 | `report weekly-counts` | predicate in `WHERE` | shipped `v0.16.1` |
+| #124 | `report velocity` | DISTINCT-keyed-on-root | shipped `v0.16.2` |
+| **#125** | `gen objs/titles/run` | flag-threaded predicate | **PR #154 in review leg** |
+| #126 | `classify` policy | sub→`automation` short-circuit | (separate cluster) |
+| #127 | `list`/`refs` display | (roll-up UX) | not started |
+| #128 | RAG `ask`/`search` dedup | (`EmbeddingStore.search_conversations`) | not started |
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned review worker — terminal action on PR #154 review leg). **Forty-second consecutive productive cycle.** Not at risk.
+
+**Next cycle expectations (~07:20Z window):**
+
+- Review worker `7220b3d` turnaround: depends entirely on the semver option chosen. Option A is **fast** (single commit or PR-description edit + thread replies + resolve, ~15-20 min). Option B is **slow** (flag rename + invert default + deprecation warning + 5+ file updates + test re-runs, ~45-60 min and possibly two review rounds).
+- If next-cycle status is `running` → wait.
+- If next-cycle status is `finished` + new pr-review bot review → check `reviewDecision`:
+  - `APPROVED` (test results valid, docs current, no significant `src/` changes) → ***"Spawn merge worker"***.
+  - `APPROVED` (test results valid, `src/` changed substantially in review) → ***"Spawn re-testing worker"*** first.
+  - `CHANGES_REQUESTED` again → ***"Spawn review worker (round 2)"***.
+- The semver thread's outcome dictates whether the eventual squash-merge commit carries a `BREAKING CHANGE:` footer. **Merge worker must read the review worker's worklog entry** before crafting the commit message.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
