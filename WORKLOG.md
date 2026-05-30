@@ -1146,3 +1146,45 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-30 05:30 UTC - Docs worker (#125 / PR #154)
+
+📚 **Docs updated for PR #154** — `--include-sub-conversations` flag now documented.
+
+- **Branch**: `feat/gen-roots-only-125`
+- **Commit**: [`7b37cec`](https://github.com/jpshackelford/ohtv/commit/7b37cec) — `docs: update for --include-sub-conversations flag (#125)`
+- **PR comment**: [#154 (comment-4581802236)](https://github.com/jpshackelford/ohtv/pull/154#issuecomment-4581802236)
+- **CI re-run on push**: lint=SUCCESS (3s), pytest=PENDING at hand-off (started 05:29Z, no .py changes → expected SUCCESS), pr-review will re-run.
+
+**Doc surface touched (3 files, +58 / -2)**:
+
+| File | Change |
+|---|---|
+| `README.md` | Sync bullet split into two sentences. First keeps the #108 reference for "subs are synced by default"; second adds "analysis and report commands then roll up to root conversations by default" and names `--include-sub-conversations` as the `gen objs / titles / run` batch-mode opt-in. Scope is explicit: the flag is gen-family only — report commands roll up at the SQL level (no flag). |
+| `docs/guides/analysis.md` | Added a `> **Roots-only default**` callout block under each of `gen objs` (multi-conv), `gen titles`, and `gen run`, plus a copy-pasteable default + `--include-sub-conversations` example pair under each. Each subcommand's options table gained the new flag row with the verbatim help text. The `gen objs` callout explicitly notes that single-conv `ohtv gen objs <id>` is **unaffected** — flag is multi-only. |
+| `docs/guides/automation.md` | Brief note after the nightly cron recipe (which uses `ohtv gen objs --quiet`) explaining the default change and the opt-in flag, with a link back to `analysis.md`. |
+
+**Deliberately not touched** (per brief):
+
+- `docs/guides/syncing.md` — the `gen titles` mention there is part of the lock-contract discussion, not the scope/grain discussion. The scope change is orthogonal to the writer-mutex contract.
+- `docs/reference/cli.md` — command-table rows don't carry flag detail; the analysis.md link is sufficient.
+- `docs/guides/getting-started.md` — the `ohtv gen objs` quick example is a beginner walkthrough; flag callout would dilute the 5-minute tour.
+- `docs/contributing/manual-qa-pr18.md` — historical QA file for PR #18, not maintained.
+- CLI `--help` text — already authored by impl worker; analysis.md flag-table row uses the same verbatim wording (`"Include sub-conversations created by agent delegation (default: roots only)"`).
+- The pr-review CHANGES_REQUESTED thread — explicitly the **next review worker's** job per the brief; documented current behavior as implemented (excluded by default).
+
+**Sibling-contrast note for next worker**: Neither PR #150 (#123) nor PR #153 (#124) shipped accompanying doc commits — those changes were SQL-layer aggregations with no user-visible CLI surface. PR #154 is the **first** root-grain rollout entry that ships a user-facing CLI flag, so it's also the first that warranted a docs update. The `> Roots-only default` callout shape established in this commit is the proposed pattern for #127's display roll-up docs, if a similar callout is needed there.
+
+**What testing worker should verify**:
+
+1. `ohtv gen objs --week` (no flag) → working set excludes agent-delegated sub-conversations (matches the new callout in `analysis.md`).
+2. `ohtv gen objs --week --include-sub-conversations` → working set includes subs (pre-#125 behavior, matches the second example).
+3. Same default / opt-in pair for `ohtv gen titles --week` and `ohtv gen run reports.weekly --last 4`.
+4. `ohtv gen objs <id>` (single-conv form) is unaffected by the flag (the README + analysis.md callout both state this).
+5. `ohtv gen objs --help`, `ohtv gen titles --help`, `ohtv gen run --help` all emit the verbatim help line `"Include sub-conversations created by agent delegation (default: roots only)"` for the new flag (matches the analysis.md options tables).
+
+EXIT per docs-worker pattern — testing worker handles the next step.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
