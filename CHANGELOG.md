@@ -1,6 +1,101 @@
 # CHANGELOG
 
 
+## v0.17.0 (2026-05-30)
+
+### Chores
+
+- **worklog**: Docs worker shipped #154 doc updates
+  ([#125](https://github.com/jpshackelford/ohtv/pull/125),
+  [`eb199c5`](https://github.com/jpshackelford/ohtv/commit/eb199c5acb532a6d41fb6fa68ff79b573e421742))
+
+- **worklog**: Impl hand-off for #125 PR #154
+  ([`946b447`](https://github.com/jpshackelford/ohtv/commit/946b4474973341d3b23ff0f3dfa9a816627ac794))
+
+PR #154 opened DRAFT → marked ready at 05:12Z. CI green on draft (lint=3s pass, pytest=53s pass).
+  Awaits pr-review on ready transition.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-05-30T04:50Z — spawn impl worker for #125
+  ([`c2ccf82`](https://github.com/jpshackelford/ohtv/commit/c2ccf82b412b5b8ec297fb4291b8bed536edfbb5))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-05-30T05:50Z — spawned testing worker for PR #154
+  ([`e2a9150`](https://github.com/jpshackelford/ohtv/commit/e2a9150cb61cfe5be3e2b8f34ce2202aefe62b72))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-05-30T06:50:00Z - spawn review worker for PR #154
+  ([`40429a6`](https://github.com/jpshackelford/ohtv/commit/40429a641e067f200743e4c21600229e96847721))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator no-action 2026-05-30T06:19:35Z [skip ci]
+  ([`3b81ebb`](https://github.com/jpshackelford/ohtv/commit/3b81ebbe8f58b19aedce9f48ea654ecb135e6716))
+
+- **worklog**: Review worker addressed PR #154 round-1 feedback (Option A on semver, warning bump,
+  annotation nit)
+  ([`3ef7edb`](https://github.com/jpshackelford/ohtv/commit/3ef7edbf473e8b276b0e612f0be852c5dee8afa0))
+
+- **worklog**: Spawn docs worker for PR #154 + truncate 18:51-21:50Z May-29
+  ([`6c74ce8`](https://github.com/jpshackelford/ohtv/commit/6c74ce865fcfd0a0829a696c1965cdec1539f765))
+
+- Spawned docs worker eec0de5 for PR #154 (--include-sub-conversations flag, README not updated,
+  decision-tree row 'PR ready, CI green, README not updated'). - Surfaced pr-review
+  CHANGES_REQUESTED feedback (semver breaking-change classification) for the next review worker. -
+  Truncated WORKLOG.md: 1723 -> 1066 lines pre-entry. Archived 8 older productive entries from
+  18:51-21:50Z May-29 to WORKLOG_ARCHIVE_2026-05-29.md (existing file, appended). Kept 19 entries
+  spanning 6.3h productive window (22:50Z May 29 -> 05:12Z May 30) per skill's 6-hour rule.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Testing worker reported all-pass for PR #154
+  ([#125](https://github.com/jpshackelford/ohtv/pull/125),
+  [`def863f`](https://github.com/jpshackelford/ohtv/commit/def863f1c3db989e8400dc78412d5b256c696317))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- **gen**: Exclude sub-conversations from multi-conv mode by default (#125)
+  ([#154](https://github.com/jpshackelford/ohtv/pull/154),
+  [`4f2217d`](https://github.com/jpshackelford/ohtv/commit/4f2217dc1aa64d996a5fc67ac99d00db384aade2))
+
+Multi-conversation `gen objs`, `gen titles`, and `gen run` now exclude agent-delegated
+  sub-conversations by default and process only root conversations. Sub-conversations are agent
+  work, not human intent — since #108 enabled sub-conv sync, batch analysis runs have been
+  double-counting prompts and inflating LLM cost linearly with delegation depth. The DB-layer
+  predicate is `id = root_conversation_id`, the same shape `report velocity` uses; migration 020's
+  backfill guarantees orphan subs become their own root so the predicate covers the whole table.
+
+Pass `--include-sub-conversations` on any of the three gen-family commands to restore the previous
+  behavior of treating sub-conversations as independent units. Single-conversation `ohtv gen objs
+  <id>` is unaffected (the flag is multi-only). The `list` and `refs` commands continue to show
+  every row — display roll-up is #127's scope.
+
+This is the third PR in the #122 root-grain rollout series (after #150 → weekly-counts v0.16.1 and
+  #153 → velocity v0.16.2). `major_on_zero = false` in pyproject.toml ships this as v0.17.0 (minor)
+  with a ⚠ BREAKING CHANGES CHANGELOG entry — see the round-1 review hand-off for the Option A
+  rationale (acknowledge as breaking vs. deprecation cycle).
+
+Tests: +24 new tests across DB layer (`TestListByDateRangeIncludeSubs`, 8 tests) and CLI layer
+  (`TestBatchModeSubConversations` / `TestGenTitlesSubConversations` / `TestGenRunSubConversations`,
+  16 tests combined). Suite: 2063 passed (+24 from baseline). Manual testing: all 9 scenarios
+  verified by testing worker `e2f465f` (see PR comment #4581947363).
+
+Fixes #125.
+
+BREAKING CHANGE: ohtv gen objs/titles/run multi-conv mode now excludes sub-conversations by default.
+  Use --include-sub-conversations to restore the pre-v1.0.0 behavior.
+
+### Breaking Changes
+
+- **gen**: Ohtv gen objs/titles/run multi-conv mode now excludes sub-conversations by default. Use
+  --include-sub-conversations to restore the pre-v1.0.0 behavior.
+
+
 ## v0.16.2 (2026-05-30)
 
 ### Bug Fixes
