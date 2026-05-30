@@ -58,15 +58,46 @@ _DB_SOURCE_CLOUD = "cloud"
 
 
 # Pure SQL — bucketing happens in Python (see module docstring).
+#
+# Root-grain filter (issue #123): ``id = root_conversation_id``
+# restricts the result set to root conversations only. Once
+# sub-conversations are synced (issue #108 / migration 019), each
+# agent-delegated sub becomes its own row in ``conversations``;
+# without this predicate the ``cloud`` column over-counts by the
+# delegation rate. The root's own ``created_at`` already equals
+# ``MIN(created_at)`` across the subtree by construction (a sub
+# cannot exist before its parent), so a direct predicate is both
+# simpler and cheaper than going through the
+# ``conversations_by_root`` view, which is needed only by reports
+# that roll up quantitative subtree fields. The column is indexed
+# by migration 020 (``idx_conversations_root``).
 _WEEKLY_COUNTS_SQL = """
 SELECT created_at, source
 FROM conversations
 WHERE created_at IS NOT NULL
+  AND id = root_conversation_id
   AND (:since   IS NULL OR created_at >= :since)
   AND (:until   IS NULL OR created_at <  :until)
   AND (:source  IS NULL OR source = :source)
 ORDER BY created_at
 """
+
+
+def _assert_root_column_present(conn: sqlite3.Connection) -> None:
+    """Guard against running on a pre-migration-020 schema.
+
+    The report's count is fundamentally wrong without
+    ``root_conversation_id`` (it would over-count by the agent
+    delegation rate). Silently falling back to the legacy
+    "every row counts" query would just reintroduce the bug
+    this issue (#123) fixes, so we fail loudly instead.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(conversations)")}
+    if "root_conversation_id" not in cols:
+        raise RuntimeError(
+            "report weekly-counts requires migration 020; "
+            "run 'ohtv db scan' to apply pending migrations"
+        )
 
 
 @dataclass
@@ -126,6 +157,7 @@ def fetch_rows(
     """
     if conn.row_factory is None:
         conn.row_factory = sqlite3.Row
+    _assert_root_column_present(conn)
     cursor = conn.execute(
         _WEEKLY_COUNTS_SQL,
         {

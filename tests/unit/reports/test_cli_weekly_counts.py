@@ -45,17 +45,25 @@ def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _seed_two_weeks(db_path: Path) -> None:
-    """Seed two cloud conversations in adjacent ISO weeks."""
+    """Seed two cloud conversations in adjacent ISO weeks.
+
+    Each row sets ``root_conversation_id = id`` so it survives the
+    root-grain filter added in issue #123. ``ConversationStore``
+    does this automatically in production; raw-SQL test seeds
+    have to do it explicitly.
+    """
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "INSERT INTO conversations (id, location, created_at, source) "
-        "VALUES (?, ?, ?, ?)",
-        ("c1", "/tmp/c1", "2024-03-05T12:00:00Z", "cloud"),  # W10
+        "INSERT INTO conversations "
+        "(id, location, created_at, source, root_conversation_id) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("c1", "/tmp/c1", "2024-03-05T12:00:00Z", "cloud", "c1"),  # W10
     )
     conn.execute(
-        "INSERT INTO conversations (id, location, created_at, source) "
-        "VALUES (?, ?, ?, ?)",
-        ("c2", "/tmp/c2", "2024-03-12T12:00:00Z", "local"),  # W11
+        "INSERT INTO conversations "
+        "(id, location, created_at, source, root_conversation_id) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("c2", "/tmp/c2", "2024-03-12T12:00:00Z", "local", "c2"),  # W11
     )
     conn.commit()
     conn.close()
