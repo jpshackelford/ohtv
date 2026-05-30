@@ -1575,3 +1575,86 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 04:50 UTC - Orchestrator
+
+**Active Workers (at cycle exit):**
+| Conv ID   | Type           | Working On                                                                | Status          |
+|-----------|----------------|---------------------------------------------------------------------------|-----------------|
+| `5c05fff` | implementation | Issue #125 — `gen objs/titles/run` sub-conversation grain                 | **NEW** running |
+
+🛠️ **Spawned: Implementation Worker for Issue #125**
+
+- **Issue**: [#125](https://github.com/jpshackelford/ohtv/issues/125) — `gen objs/titles/run` multi-conv mode treats sub-conversations as independent units of human intent
+- **Priority**: `priority:medium`
+- **Cluster slot**: 3rd of the #122 root-grain rollout series (sibling-after-merge of #123→v0.16.1 and #124→v0.16.2)
+- **Conversation**: [`5c05fff`](https://app.all-hands.dev/conversations/5c05fff...) — `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 04:49:30Z (READY after 1 poll / ~5s; start task `d419a19f`).
+- **Expected branch**: `feat/gen-roots-only-125`
+- **Expected commit prefix**: `feat:` → minor bump → **`ohtv-v0.17.0`** on merge.
+
+**Current State (at cycle entry):**
+
+- **Open PRs**: 0 ✅ (PR #153 merged at 04:20:57Z as merge SHA `c79ffde`; release tag `ohtv-v0.16.2` cut at `541b8d6` — current HEAD of main).
+- **Issues needing expansion**: 0 (none — all open issues are either `ready` or `hold`).
+- **Ready issues (6)**:
+  - `priority:medium`: **#125** (now being implemented), #127 (`list`/`refs` sub roll-up display), #128 (RAG citation dedup)
+  - No priority: #145 (gen-objs full-context key variants), #148 (litellm botocore warnings), #149 (5-level context expansion)
+- **On hold (2)**: #26, #90
+- **Recent main history**:
+  - `541b8d6` chore(release): ohtv 0.16.2 [skip ci]
+  - `1f7b946` chore(worklog): merge worker shipped #153 as ohtv-v0.16.2
+  - `c79ffde` fix(reports): aggregate velocity at root grain (#124)
+
+**Decision-tree trace:**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^\`\`\`/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2 — Active workers**: Only `3b8fcfc` (this orchestrator conv) was `running` at entry. Prior merge worker `e6546ca` for PR #153 = `PAUSED` / `execution_status=null` (terminal — completed its hand-off entry at 04:21:55Z `1f7b946`). All other recent worker conv IDs (`d3fcf92`, `75ea76e`, `afee19f`, `366ad04`, `cae3819`, `2a022b3`, `3fc03cb`, `37e670a`, `06fa0b1`, `06ac1e1`, `f47380`, `e93754b`, `677db4f`, `1c2eba0`, `cc8ff6a`, `80a8953`, `25468bb`, `7c9951d`) = `PAUSED` or `MISSING`. **PR slot CLEAR; expansion slot CLEAR at cycle entry.**
+- **Expansion slot**: OPEN. `gh issue list … (ready or hold) | not` → empty. Slot stays **IDLE**. **27th consecutive idle expansion cycle.** Not at auto-disable risk because PR slot productive this cycle.
+- **PR slot**: OPEN at entry, no open PR. Decision-tree row matched: *"No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue (tie-break = lowest number)"*.
+  - Tie-break among `priority:medium` ready issues: **#125 < #127 < #128** → impl pick is **#125**.
+  - This matches the previous orchestrator entry's predicted action exactly: *"Predicted action: spawn implementation worker for #125."*
+
+**Implementation worker brief** (full text in spawn payload) anchors on:
+
+- **Fix shape = Option B** per the expansion: thread `include_subs: bool = False` flag through the existing pipeline (`ConversationStore.list_by_date_range` → `get_conversations` → `_load_all_conversations` → `_apply_conversation_filters`). NOT a new mirror method.
+- **CLI surface**: `--include-sub-conversations` flag added to `gen objs`, `gen titles`, `gen run` with identical help text `"Include sub-conversations created by agent delegation (default: roots only)"` per the expansion's verbatim sentence.
+- **Migration-020 guard** mirroring #123 (`weekly-counts`) and #124 (`velocity`) — `RuntimeError("<command> requires migration 020; run 'ohtv db scan' to apply pending migrations")`. **Reminder embedded in brief**: migration number is **020 not 019** (the #152 gotcha that #153 called out).
+- **Single-conv mode unchanged** (`gen objs <id>` bypass at `cli.py:8281–8292` not touched).
+- **No cache-key change** — per the expansion's gating-question #5, cache stays per-conversation-id only.
+- **Filesystem-fallback symmetry** is a literal AC bullet to preserve.
+- **Test surface**: regression tests in `tests/unit/test_cli_gen.py` + mirror tests in `_gen_titles.py` and `_gen_run.py` + DB-layer tests on `list_by_date_range`'s new flag.
+- **Out-of-scope** (literally enumerated in brief): hierarchical analysis, #126 (classify policy), #127 (list/refs display), #128 (RAG dedup), flag renaming to `--include-subs`, new migration.
+
+**Sibling-contrast carry-over** (orchestrator's tracker, mirrors expansion's table):
+
+| # | Surface | Fix style | Status |
+|---|---|---|---|
+| #123 | `report weekly-counts` | 1-line predicate in `WHERE` | shipped `v0.16.1` |
+| #124 | `report velocity` | DISTINCT-keyed-on-root substitute | shipped `v0.16.2` |
+| **#125** | `gen objs/titles/run` | **Flag on filter pipeline → predicate in `list_by_date_range`** | **PR pending** |
+| #126 | `classify` policy | (subs → `automation` short-circuit) | not started |
+| #127 | `list`/`refs` display | (roll-up UX) | not started |
+| #128 | RAG `ask`/`search` dedup | (`EmbeddingStore.search_conversations` path) | not started |
+
+**Sync notes:**
+
+- `ohtv` and `lxa` re-installed via `uv tool install git+...` — the `--system` flag failed (sandbox `/usr/local/lib/python3.13` is read-only). Path `/home/openhands/.local/bin` added to PATH for this session. `lxa repo add jpshackelford/ohtv` created a new board (no prior board persisted across container respawn) — board name `Unnamed Board 1`, fine for read-only use this cycle.
+- `ohtv sync` hung silently — abandoned (GH state is the orchestrator's truth, board is read-only this cycle).
+- `gh` CLI needed `GH_TOKEN="$github_token"` (lowercase env var name); `$GITHUB_TOKEN` is empty. Pattern: `export GH_TOKEN="$github_token"` once per shell.
+- **Spawn payload shape (confirmed working)**: `{title, selected_repository, selected_branch, git_provider, initial_message: {content: [{type: "text", text}]}}`. POST to `/api/v1/app-conversations` with `X-Access-Token: $OH_API_KEY` header. Returned start task `d419a19f` in `WORKING` → polled the conversations-search endpoint (NOT `/start-tasks/search` which 404s with HTML) → conv `5c05fff` appeared `running` / `RUNNING` after ~10s. **Note for future cycles**: `/api/v1/start-tasks/{id}` and `/api/v1/start-tasks/search` both return the SPA HTML, NOT JSON — use `/api/v1/app-conversations/search?selected_repository=...` and filter by recency / title-prefix instead.
+- Worklog size: **1577 lines** pre-entry. **Still deferring truncation** — impl worker just spawned will write a hand-off entry on its completion (15-45 min from now); truncating mid-flight risks merge conflict on its push. The "first post-#153-merge idle cycle" target the merge worker set still stands; deferring to whichever orchestrator cycle has both slots empty post-impl-completion. **If next cycle is also productive, force truncate then regardless** (this is the threshold the previous orchestrator self-imposed at the 04:20Z cycle).
+
+**Auto-disable counter:** **0 → 0.** Productive cycle. **Thirty-eighth consecutive productive cycle.** Not at risk.
+
+**Next cycle expectations (~05:20-05:30Z window):**
+
+- Impl worker `5c05fff` likely still `running` (typical impl for sibling PRs #150 and #153 ran ~30-90 min; this one is a 3-file flag-thread plus tests, on the easier side of that range). Plausible cycle-2 finish at ~05:50Z.
+- If finished and PR opened DRAFT → orchestrator decision tree row: *"PR exists, draft, CI green → Wait (impl worker finishing up)"* → log status, exit. If PR is `ready` post-`gh pr ready` → next decision is whether docs update is needed.
+- **Docs question for #125**: this PR introduces a **NEW CLI flag** (`--include-sub-conversations`) → matches the skill's "New flags or options" trigger. **Docs worker WILL be required** before testing. The expansion's verbatim help-text sentence and the docstring update are in the brief, but the README likely needs a `gen objs/titles/run` example update too. Plan: next cycle after PR is ready & CI green → **spawn docs worker**.
+- Expansion slot stays idle (no issues need expansion; backlog remains the 5 ready issues after #125 enters PR pipeline: #127, #128, #145, #148, #149).
+- If impl worker hits a blocker (e.g., DB migration ordering, filter symmetry tricky in FS fallback) → it should add `needs-info` and exit per the brief.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
