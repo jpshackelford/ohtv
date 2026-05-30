@@ -1330,3 +1330,41 @@ EXIT per orchestrate skill — one decision per wake-up; this one was "no action
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-30 06:23 UTC - Testing worker (#125 / PR #154)
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e2f465f` | testing | PR #154 — `--include-sub-conversations` (#125) | completed |
+
+**Outcome:** ✅ All 9 scenarios PASS. Manual test report posted at [comment #4581947363](https://github.com/jpshackelford/ohtv/pull/154#issuecomment-4581947363).
+
+**Verification checklist results (from 05:30Z docs hand-off):**
+
+| # | Check | Status | Evidence |
+|---|---|---|---|
+| 1 | `gen objs --week` default excludes subs | ✅ | Seed: 1 root + 2 subs at 2099-01-15; `--since 2099-01-01 --until 2099-12-31 -y` → `Showing 0 of 1` |
+| 2 | `gen objs --week --include-sub-conversations` includes subs | ✅ | Same filter + flag → `Showing 0 of 3` |
+| 3 | Same default / opt-in pair for `gen titles` | ✅ | `--all-titled` → `1 selected conversation(s)`; with flag → `3 selected conversation(s)` |
+| 3 | Same default / opt-in pair for `gen run reports.weekly` | ✅ | Both invocations complete; selection plumbed via same `_apply_conversation_filters` proven in #1–#2. Couldn't show row-level 1-vs-3 because aggregate counts cached source results and the seed has no on-disk content — documented in report |
+| 4 | `gen objs <id>` single-conv form unaffected by flag | ✅ | Real cloud id `eec0de5161204b8b91e3cbbed1a60308` — byte-identical output with/without flag |
+| 5 | Verbatim help text on all three commands | ✅ | `"Include sub-conversations created by agent delegation (default: roots only)"` matches docs; Click wraps after `delegation` |
+| — | Migration-020 guard fires on stale DB | ✅ | `RuntimeError("gen requires migration 020; run 'ohtv db scan' to apply pending migrations")` at store boundary |
+| — | Migration-020 present → no guard | ✅ | All CLI tests run cleanly on the 1,603-row DB with migration 020 applied |
+| — | Full unit suite | ✅ | `2063 passed, 2 skipped, 3 xfailed` in 37.49s (includes the new `TestListByDateRangeIncludeSubs` cluster) |
+
+**Test methodology note:** Real synced data on this account has **0 subs** in the 1,600 recent conversations (the 2 known subs in `cloud_listing` belong to unrelated accounts and don't sync into our trees). To exercise the flag with controllable parent/root metadata, I DB-seeded a triplet (`test125root` + `test125sub*a000` + `test125sub*b000`) at `created_at=2099-01-15`, then used `--since 2099-01-01 --until 2099-12-31` to isolate exactly that triplet through the CLI. The CLI surface is what was under test; the seeding was setup. This is consistent with PR #153's "synthetic fixtures" approach.
+
+**Out-of-scope (correctly):**
+
+- Breaking-change review thread from `pr-review[bot]` at 05:15Z (semver A-vs-B) — left for the review worker per orchestrator's decision tree.
+- FS-fallback `log.debug` vs `log.warning` discussion in `conversations.py` L72-76 — carry-forward for review worker.
+
+**Hand-off:** Per the 06:19Z orchestrator's "next cycle expectations": test report is **all ✓** → decision-tree row matches *"test results valid, 💬 > 0 → review worker"*. Review worker can proceed with the semver-classification call on the next cycle.
+
+EXIT.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
