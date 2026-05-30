@@ -96,8 +96,17 @@ class ConversationSource:
 
 @dataclass
 class ContextChunk:
-    """A chunk of context retrieved for RAG."""
+    """A chunk of context retrieved for RAG.
+
+    Issue #128: ``root_conversation_id`` is the per-#122 (migration 020)
+    root of the parent chain for this chunk's source conversation. For
+    standalone conversations it equals ``conversation_id``. The
+    render-layer citation pipeline groups by this field so users see
+    one citation per *user-intent unit* (root) instead of one per
+    delegated sub-conversation.
+    """
     conversation_id: str
+    root_conversation_id: str
     title: str
     embed_type: str
     source_text: str
@@ -220,6 +229,29 @@ def _get_conversation_source(
         return None
 
 
+def _assert_root_column_present(conn) -> None:
+    """Guard against running on a pre-migration-020 schema.
+
+    Issue #128: the RAG citation-dedup pipeline collapses chunks by
+    ``root_conversation_id`` (added in migration 020 — see #122).
+    Silently falling back to ``conversation_id`` here would reintroduce
+    the very bug this fix closes ("citations point at sub-conversation
+    IDs the user doesn't recognize"), so we fail loudly instead.
+
+    Called once at the entry of :meth:`RAGRetriever.retrieve` and
+    :meth:`RAGAnswerer.answer_question` — runtime, not import — so
+    ``import ohtv.analysis.rag`` stays cheap and DB-free for tests
+    that don't touch retrieval.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(conversations)")}
+    if "root_conversation_id" not in cols:
+        raise RuntimeError(
+            "RAG citation dedup requires migration 020 "
+            "(root_conversation_id column). Run 'ohtv' once to trigger "
+            "ensure_db_ready(), or 'ohtv db scan' to apply pending migrations."
+        )
+
+
 def _results_to_context_chunks(
     results,
     conv_store,
@@ -228,7 +260,14 @@ def _results_to_context_chunks(
     repo_store,
     cloud_base_url: str,
 ) -> list[ContextChunk]:
-    """Convert embedding search results to ContextChunk objects with full metadata."""
+    """Convert embedding search results to ContextChunk objects with full metadata.
+
+    Issue #128: populates ``root_conversation_id`` from
+    ``Conversation.root_conversation_id`` (migration 020). When the
+    column is NULL (FS-only fallback, or pre-backfill state) or the
+    conversation isn't in the DB, the field falls back to the chunk's
+    own ``conversation_id`` so standalone-conv semantics are preserved.
+    """
     chunks = []
     for r in results:
         conv = conv_store.get(r.conversation_id)
@@ -236,6 +275,15 @@ def _results_to_context_chunks(
         created_at = conv.created_at if conv else None
         summary = conv.summary if conv else None
         conv_source = conv.source if conv else "local"
+        # Issue #128: root id always populated. For standalones,
+        # migration 020's backfill sets root = id. For subs, it walks
+        # parent_conversation_id to the top. Falls back to self-id when
+        # the DB row is missing or the column is NULL (defensive).
+        root_id = (
+            conv.root_conversation_id
+            if conv and conv.root_conversation_id
+            else r.conversation_id
+        )
         source = _get_conversation_source(
             r.conversation_id, conv_store, link_store, ref_store, repo_store, cloud_base_url
         )
@@ -243,6 +291,7 @@ def _results_to_context_chunks(
 
         chunks.append(ContextChunk(
             conversation_id=r.conversation_id,
+            root_conversation_id=root_id,
             title=title,
             embed_type=r.embed_type,
             source_text=r.source_text,
@@ -307,6 +356,9 @@ class RAGRetriever:
         import time
         from ohtv.analysis.embeddings import get_embedding
 
+        # Issue #128: fail loudly if the schema is pre-migration-020.
+        _assert_root_column_present(self.conv_store.conn)
+
         # Extract temporal filter if enabled and no explicit dates provided
         temporal_applied = False
         search_query = question
@@ -370,7 +422,10 @@ class RAGRetriever:
         # Sort chunks: group by conversation, then by embed_type, then by chunk_index
         context_chunks.sort(key=lambda c: (c.conversation_id, c.embed_type, c.chunk_index))
 
-        source_ids = {c.conversation_id for c in context_chunks}
+        # Issue #128: source IDs are roots, not raw conversation IDs.
+        # Sub-conversations roll up to their root so the caller sees one
+        # citation per user-intent unit.
+        source_ids = {c.root_conversation_id for c in context_chunks}
 
         return RAGRetrievalResult(
             context_chunks=context_chunks,
@@ -469,7 +524,10 @@ class RAGAnswerer:
             ValueError: If no relevant context is found
         """
         import time
-        
+
+        # Issue #128: fail loudly if the schema is pre-migration-020.
+        _assert_root_column_present(self.conv_store.conn)
+
         # Extract temporal filter if enabled and no explicit dates provided
         temporal_applied = False
         search_query = question
@@ -514,8 +572,9 @@ class RAGAnswerer:
         answer, context_tokens, total_tokens, cost = self._generate_answer(question, context_chunks)
         gen_time = time.perf_counter() - gen_start
         
-        source_ids = {c.conversation_id for c in context_chunks}
-        
+        # Issue #128: source IDs are roots, not raw conversation IDs.
+        source_ids = {c.root_conversation_id for c in context_chunks}
+
         # Aggregate refs from all source conversations
         all_repos: dict[str, RepoInfo] = {}
         all_prs: dict[str, RefInfo] = {}
@@ -631,12 +690,21 @@ class RAGAnswerer:
         return "\n".join(context_parts)
     
     def _format_chunk_header(self, chunk: ContextChunk, index: int) -> str:
-        """Format the header line for a context chunk."""
+        """Format the header line for a context chunk.
+
+        Issue #128: cites the **root** conversation ID as the canonical
+        ``Conversation ID:`` so the LLM cites root IDs in its answer
+        text (the user's mental model). When the chunk came from a
+        delegated sub, append a ``(via sub: <hex8>)`` annotation so the
+        chunk-grain truth is still visible.
+        """
         header = f"[Source {index}: {chunk.title}"
         if chunk.created_at:
             header += f" ({self._format_age(chunk.created_at)})"
         header += f" - relevance: {chunk.score:.0%}]"
-        header += f"\nConversation ID: {chunk.conversation_id}"
+        header += f"\nConversation ID: {chunk.root_conversation_id}"
+        if chunk.conversation_id != chunk.root_conversation_id:
+            header += f" (via sub: {chunk.conversation_id[:8]})"
         if chunk.display_url:
             header += f"\nURL: {chunk.display_url}"
         return header

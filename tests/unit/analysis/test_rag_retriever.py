@@ -7,6 +7,35 @@ from unittest.mock import MagicMock, patch
 from ohtv.analysis.rag import RAGRetriever, RAGRetrievalResult, ContextChunk
 
 
+def _mock_conv_store_with_root_column(
+    *, root_conversation_id: str | None = None
+) -> MagicMock:
+    """Build a ``conv_store`` MagicMock that satisfies the #128 guard.
+
+    The guard calls ``conv_store.conn.execute("PRAGMA table_info(...)")``
+    and walks rows looking for column index [1] == ``root_conversation_id``.
+    We stub that one row so existing tests don't need a real DB.
+
+    When ``root_conversation_id`` is set, ``conv_store.get(...)`` returns
+    a Conversation-like mock with that field set (so the chunk's root
+    field gets populated correctly). Tests that don't override
+    ``conv_store.get`` themselves use this default.
+    """
+    conv_store = MagicMock()
+    # One PRAGMA row per column; only the second column (name) is
+    # consulted by the guard. ``id`` and ``root_conversation_id`` rows
+    # are enough.
+    conv_store.conn.execute.return_value = [
+        (0, "id", "TEXT", 0, None, 1),
+        (1, "root_conversation_id", "TEXT", 0, None, 0),
+    ]
+    if root_conversation_id is not None:
+        mock_conv = MagicMock()
+        mock_conv.root_conversation_id = root_conversation_id
+        conv_store.get.return_value = mock_conv
+    return conv_store
+
+
 class TestRAGRetrievalResult:
     """Tests for RAGRetrievalResult dataclass."""
 
@@ -150,10 +179,10 @@ class TestRAGRetrieverRetrieve:
         """Test basic retrieval without temporal filter."""
         # Setup mocks
         mock_get_embedding.return_value = MagicMock(embedding=[0.1] * 1536)
-        
+
         embed_store = MagicMock()
-        conv_store = MagicMock()
-        
+        conv_store = _mock_conv_store_with_root_column()
+
         # Mock embedding search results
         mock_result = MagicMock()
         mock_result.conversation_id = "abc123"
@@ -162,38 +191,43 @@ class TestRAGRetrieverRetrieve:
         mock_result.score = 0.85
         mock_result.chunk_index = 0
         embed_store.get_context_for_rag.return_value = [mock_result]
-        
+
         # Mock conversation
         mock_conv = MagicMock()
         mock_conv.title = "Test Conversation"
         mock_conv.created_at = datetime(2024, 1, 15, tzinfo=timezone.utc)
         mock_conv.summary = None
         mock_conv.source = "local"
+        # Issue #128: standalone conv → root == id.
+        mock_conv.root_conversation_id = "abc123"
         conv_store.get.return_value = mock_conv
-        
+
         retriever = RAGRetriever(
             embed_store, conv_store,
             enable_temporal_filter=False,
         )
-        
+
         result = retriever.retrieve("test query", max_context_chunks=5)
-        
+
         assert len(result.context_chunks) == 1
         assert result.source_conversation_ids == {"abc123"}
         assert result.temporal_filter_applied is False
         assert result.context_chunks[0].title == "Test Conversation"
         assert result.context_chunks[0].score == 0.85
+        # Issue #128: root field populated; for a standalone it equals
+        # the chunk's conversation_id.
+        assert result.context_chunks[0].root_conversation_id == "abc123"
 
     @patch("ohtv.analysis.embeddings.get_embedding")
     def test_retrieve_with_no_results(self, mock_get_embedding):
         """Test retrieval when no results found."""
         mock_get_embedding.return_value = MagicMock(embedding=[0.1] * 1536)
-        
+
         embed_store = MagicMock()
         embed_store.get_context_for_rag.return_value = []
-        
+
         retriever = RAGRetriever(
-            embed_store, MagicMock(),
+            embed_store, _mock_conv_store_with_root_column(),
             enable_temporal_filter=False,
         )
         
@@ -217,8 +251,8 @@ class TestRAGRetrieverRetrieve:
         mock_extract.return_value = mock_temporal
         
         embed_store = MagicMock()
-        conv_store = MagicMock()
-        
+        conv_store = _mock_conv_store_with_root_column()
+
         # Mock embedding search results
         mock_result = MagicMock()
         mock_result.conversation_id = "abc123"
@@ -227,12 +261,13 @@ class TestRAGRetrieverRetrieve:
         mock_result.score = 0.75
         mock_result.chunk_index = 0
         embed_store.get_context_for_rag.return_value = [mock_result]
-        
+
         mock_conv = MagicMock()
         mock_conv.title = "Test"
         mock_conv.created_at = datetime(2024, 1, 15, tzinfo=timezone.utc)
         mock_conv.summary = None
         mock_conv.source = "cloud"
+        mock_conv.root_conversation_id = "abc123"
         conv_store.get.return_value = mock_conv
         
         retriever = RAGRetriever(
@@ -252,12 +287,12 @@ class TestRAGRetrieverRetrieve:
         
         embed_store = MagicMock()
         embed_store.get_context_for_rag.return_value = []
-        
+
         retriever = RAGRetriever(
-            embed_store, MagicMock(),
+            embed_store, _mock_conv_store_with_root_column(),
             enable_temporal_filter=False,
         )
-        
+
         retriever.retrieve("test", min_score=0.6)
         
         embed_store.get_context_for_rag.assert_called_once()
@@ -268,9 +303,9 @@ class TestRAGRetrieverRetrieve:
     def test_retrieve_sorts_chunks(self, mock_get_embedding):
         """Test that chunks are sorted by conversation, type, index."""
         mock_get_embedding.return_value = MagicMock(embedding=[0.1] * 1536)
-        
+
         embed_store = MagicMock()
-        conv_store = MagicMock()
+        conv_store = _mock_conv_store_with_root_column()
         
         # Create unsorted results
         results = [
@@ -354,6 +389,7 @@ class TestDisplayRetrievalBreakdown:
         chunks = [
             MagicMock(
                 conversation_id="abc123",
+                root_conversation_id="abc123",
                 embed_type="analysis",
                 title="Test Conversation",
                 created_at=datetime(2024, 1, 15, tzinfo=timezone.utc),
@@ -362,6 +398,7 @@ class TestDisplayRetrievalBreakdown:
             ),
             MagicMock(
                 conversation_id="abc123",
+                root_conversation_id="abc123",
                 embed_type="summary",
                 title="Test Conversation",
                 created_at=datetime(2024, 1, 15, tzinfo=timezone.utc),
@@ -398,6 +435,7 @@ class TestDisplayRetrievalBreakdown:
         chunks = [
             MagicMock(
                 conversation_id="abc123",
+                root_conversation_id="abc123",
                 embed_type="analysis",
                 title="Test",
                 created_at=datetime(2024, 1, 15, tzinfo=timezone.utc),
@@ -430,6 +468,7 @@ class TestDisplayRetrievalBreakdown:
         chunks = [
             MagicMock(
                 conversation_id="abc123",
+                root_conversation_id="abc123",
                 embed_type="summary",
                 title="Test",
                 created_at=datetime(2024, 2, 15, tzinfo=timezone.utc),

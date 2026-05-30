@@ -579,3 +579,67 @@ def expand_to_roots(conn, conv_ids: set[str]) -> set[str]:
         if cid not in seen_ids:
             roots.add(cid)
     return roots
+
+
+def map_to_roots(conn, conv_ids: list[str]) -> dict[str, str]:
+    """Map conversation IDs to their root IDs, preserving rank order.
+
+    Issue #128: list-shaped companion to :func:`expand_to_roots`. The
+    RAG ``ohtv search`` pipeline returns a *ranked* list of
+    ``ConversationSearchResult`` (max-scoring chunk per conversation,
+    sorted score-desc). To dedup that list to one row per root while
+    preserving the existing rank order, callers walk the list and look
+    up each id's root via ``mapping[id]`` — the dict form is the
+    natural shape (set-based expansion would lose rank).
+
+    Like :func:`expand_to_roots`, this helper:
+
+    * normalizes IDs (strips dashes) per AGENTS.md item #14 so dashed
+      inputs find their dashless DB rows;
+    * falls back to ``id`` itself when ``root_conversation_id`` is NULL
+      (defensive — migration 020 backfills, but mid-rescan races exist);
+    * passes unknown IDs through unchanged (mapping them to themselves)
+      so FS-only conversations don't disappear from search results.
+
+    The returned dict is keyed by **caller-provided** (possibly dashed)
+    IDs so callers can use ``mapping[orig_id]`` directly without
+    re-normalizing on their side.
+
+    Args:
+        conn: Open sqlite3 connection.
+        conv_ids: Conversation IDs (any format) to map. Duplicates are
+            allowed; the dict naturally collapses them.
+
+    Returns:
+        ``{caller_id: root_id}`` for every input id. Unknown IDs map
+        to themselves (normalized form). Empty input yields ``{}``.
+
+    Raises:
+        sqlite3.OperationalError: If ``root_conversation_id`` column is
+            absent. Callers that hit this path should have already
+            checked for migration 020 — the typical RAG entry-point
+            guard fires before this helper runs.
+    """
+    if not conv_ids:
+        return {}
+    # Map original (possibly dashed) → normalized form. Preserves the
+    # caller-provided keys in the result dict so callers don't have to
+    # re-normalize.
+    orig_to_normalized = {cid: normalize_conversation_id(cid) for cid in conv_ids}
+    normalized_unique = set(orig_to_normalized.values())
+    placeholders = ",".join("?" * len(normalized_unique))
+    cursor = conn.execute(
+        f"SELECT id, root_conversation_id FROM conversations "
+        f"WHERE id IN ({placeholders})",
+        tuple(normalized_unique),
+    )
+    # Defensive: NULL root_conversation_id (shouldn't happen after
+    # migration 020, but be safe) → self-root.
+    normalized_to_root = {
+        row[0]: (row[1] if row[1] else row[0]) for row in cursor.fetchall()
+    }
+    # IDs not in the DB pass through (mapped to their normalized self).
+    return {
+        orig: normalized_to_root.get(norm, norm)
+        for orig, norm in orig_to_normalized.items()
+    }

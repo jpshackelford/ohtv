@@ -327,3 +327,125 @@ class TestExpandToRoots:
         result = expand_to_roots(db_conn, {"orphan1"})
 
         assert result == {"orphan1"}
+
+
+# ---------------------------------------------------------------------------
+# Issue #128 — map_to_roots helper (list-shaped companion)
+# ---------------------------------------------------------------------------
+
+
+class TestMapToRoots:
+    """``map_to_roots`` is the list-shaped companion to
+    :func:`expand_to_roots`. The RAG ``ohtv search`` pipeline returns a
+    *ranked* list, so the dedup helper needs a mapping (not a set) to
+    preserve rank order via ``mapping[id]`` lookups.
+    """
+
+    def _seed_tree(self, db_conn, root_id: str, sub_ids: list[str]) -> None:
+        db_conn.execute(
+            "INSERT INTO conversations (id, location, source, root_conversation_id) "
+            "VALUES (?, ?, 'cloud', ?)",
+            (root_id, f"/tmp/{root_id}", root_id),
+        )
+        for sub_id in sub_ids:
+            db_conn.execute(
+                "INSERT INTO conversations "
+                "(id, location, source, parent_conversation_id, root_conversation_id) "
+                "VALUES (?, ?, 'cloud', ?, ?)",
+                (sub_id, f"/tmp/{sub_id}", root_id, root_id),
+            )
+        db_conn.commit()
+
+    def test_empty_input(self, db_conn):
+        from ohtv.filters import map_to_roots
+
+        assert map_to_roots(db_conn, []) == {}
+
+    def test_all_roots_self_map(self, db_conn):
+        """A list of roots maps each id to itself."""
+        from ohtv.filters import map_to_roots
+
+        self._seed_tree(db_conn, "r0001", [])
+        self._seed_tree(db_conn, "r0002", [])
+
+        result = map_to_roots(db_conn, ["r0001", "r0002"])
+
+        assert result == {"r0001": "r0001", "r0002": "r0002"}
+
+    def test_all_subs_map_to_root(self, db_conn):
+        """A list of subs all under the same root all map to the same root."""
+        from ohtv.filters import map_to_roots
+
+        self._seed_tree(db_conn, "r0001", ["s0001", "s0002", "s0003"])
+
+        result = map_to_roots(db_conn, ["s0001", "s0002", "s0003"])
+
+        assert result == {"s0001": "r0001", "s0002": "r0001", "s0003": "r0001"}
+
+    def test_mixed_subs_and_roots(self, db_conn):
+        """A mixed list: roots map to self, subs map to their root."""
+        from ohtv.filters import map_to_roots
+
+        self._seed_tree(db_conn, "raaa1", ["saaa1"])
+        self._seed_tree(db_conn, "rbbb1", ["sbbb1", "sbbb2"])
+
+        result = map_to_roots(db_conn, ["raaa1", "saaa1", "sbbb1", "sbbb2"])
+
+        assert result == {
+            "raaa1": "raaa1",
+            "saaa1": "raaa1",
+            "sbbb1": "rbbb1",
+            "sbbb2": "rbbb1",
+        }
+
+    def test_unknown_ids_pass_through(self, db_conn):
+        """IDs not in the DB map to themselves (normalized form) so
+        FS-only conversations don't vanish from the result."""
+        from ohtv.filters import map_to_roots
+
+        result = map_to_roots(db_conn, ["unknown1", "unknown2"])
+
+        assert result == {"unknown1": "unknown1", "unknown2": "unknown2"}
+
+    def test_preserves_caller_keys_for_dashed_input(self, db_conn):
+        """When the caller passes dashed ids, the dict is keyed by the
+        **caller-provided** id so ``mapping[orig]`` works without
+        re-normalizing."""
+        from ohtv.filters import map_to_roots
+
+        root_dashless = "abcd1234567890abcdef1234567890ab"
+        sub_dashless = "12345678aabbccdd1122334455667788"
+        self._seed_tree(db_conn, root_dashless, [sub_dashless])
+
+        dashed_sub = "12345678-aabb-ccdd-1122-334455667788"
+        result = map_to_roots(db_conn, [dashed_sub])
+
+        # Caller's original (dashed) id is the dict key; value is the
+        # normalized root id (DB-form).
+        assert result == {dashed_sub: root_dashless}
+
+    def test_duplicates_in_input_collapse_in_dict(self, db_conn):
+        """A list with duplicates yields a dict (duplicates merge)."""
+        from ohtv.filters import map_to_roots
+
+        self._seed_tree(db_conn, "r0001", ["s0001"])
+
+        result = map_to_roots(db_conn, ["s0001", "s0001", "r0001"])
+
+        assert result == {"s0001": "r0001", "r0001": "r0001"}
+
+    def test_null_root_falls_back_to_self(self, db_conn):
+        """A row whose ``root_conversation_id`` is NULL (pre-backfill
+        race) maps to its own id rather than ``None``."""
+        from ohtv.filters import map_to_roots
+
+        db_conn.execute(
+            "INSERT INTO conversations (id, location, source, root_conversation_id) "
+            "VALUES (?, ?, 'cloud', NULL)",
+            ("nullroot", "/tmp/nullroot"),
+        )
+        db_conn.commit()
+
+        result = map_to_roots(db_conn, ["nullroot"])
+
+        assert result == {"nullroot": "nullroot"}
