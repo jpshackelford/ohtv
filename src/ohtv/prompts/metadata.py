@@ -73,7 +73,13 @@ class DisplaySchema:
 class EventFilter:
     """Filter for matching events in context level definitions."""
     source: Literal["user", "agent", "*"] = "*"
-    kind: Literal["MessageEvent", "ActionEvent", "ErrorEvent", "*"] = "*"
+    kind: Literal[
+        "MessageEvent",
+        "ActionEvent",
+        "ObservationEvent",
+        "ErrorEvent",
+        "*",
+    ] = "*"
     tool: str | None = None
 
     def matches(self, event: dict) -> bool:

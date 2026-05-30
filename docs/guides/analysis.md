@@ -26,15 +26,19 @@ ohtv gen objs abc123 -v brief_assess   # Goal + achieved/in_progress/not_achieve
 ohtv gen objs abc123 -v standard_assess
 ohtv gen objs abc123 -v detailed_assess
 
-# Control how much conversation context is analyzed
-ohtv gen objs abc123 -c 1              # Minimal: user messages only (fastest)
-ohtv gen objs abc123 -c 2              # Default: user messages + finish action
-ohtv gen objs abc123 -c 3              # Full: all messages + action summaries
+# Control how much conversation context is analyzed (5 levels; Issue #149)
+ohtv gen objs abc123 -c 1              # minimal: user messages only (fastest)
+ohtv gen objs abc123 -c 2              # outcome: + finish action
+ohtv gen objs abc123 -c 3              # dialogue: + agent messages
+ohtv gen objs abc123 -c 4              # actions: + non-finish action summaries
+ohtv gen objs abc123 -c 5              # observations: + tool outputs (highest tokens)
 
 # Context levels also accept names
 ohtv gen objs abc123 -c minimal
-ohtv gen objs abc123 -c default
-ohtv gen objs abc123 -c full
+ohtv gen objs abc123 -c outcome
+ohtv gen objs abc123 -c dialogue
+ohtv gen objs abc123 -c actions
+ohtv gen objs abc123 -c observations
 
 # Force re-analysis (refresh cache)
 ohtv gen objs abc123 -r
@@ -114,13 +118,7 @@ ohtv gen objs --week --include-sub-conversations
 | `detailed` | Full hierarchical objectives with subordinate goals |
 | `detailed_assess` | Detailed + completion assessment for each objective |
 
-**Context Levels:**
-
-| Level | Name | Includes | Use When |
-|-------|------|----------|----------|
-| 1 | `minimal` | User messages only | Quick summaries, low token cost |
-| 2 | `default` | User messages + finish action | Balanced (default) |
-| 3 | `full` | All messages + action summaries | Need to assess what was actually done |
+**Context Levels:** See [Context levels (`gen objs --c` flag)](#context-levels-gen-objs--c-flag) below for the full 5-level ladder and per-prompt defaults.
 
 **Example Output (brief):**
 ```
@@ -146,7 +144,7 @@ Primary Objectives
     ├── → Update user session handling [In Progress]
     └── ✗ Add refresh token support [Not Achieved]
 
-Analyzed: 2024-03-15 14:30 UTC • Model: claude-sonnet-4 • Context: full
+Analyzed: 2024-03-15 14:30 UTC • Model: claude-sonnet-4 • Context: actions
 
 Outputs:
   pushed user/repo
@@ -217,7 +215,7 @@ Showing 2 of 150 (2/2 cached)
 | Flag | Description |
 |------|-------------|
 | `-v, --variant` | Output variant (default: `brief`) |
-| `-c, --context` | Context level: 1-3 or name (default: from prompt) |
+| `-c, --context` | Context level: 1-5 or name (default: from prompt). See [Context levels](#context-levels-gen-objs--c-flag). |
 | `-r, --refresh` | Force re-analysis (refresh cache) |
 | `-m, --model` | LLM model to use |
 | `--json` | Output as JSON |
@@ -228,7 +226,7 @@ Showing 2 of 150 (2/2 cached)
 | Flag | Description |
 |------|-------------|
 | `-v, --variant` | Output variant (default: `brief`) |
-| `-c, --context` | Context level (default: `minimal` for token efficiency) |
+| `-c, --context` | Context level: 1-5 or name (default: from prompt). See [Context levels](#context-levels-gen-objs--c-flag). |
 | `-n, --max N` | Maximum conversations to analyze (default: 10) |
 | `-A, --all` | Analyze all conversations (no limit) |
 | `-k, --offset N` | Skip first N conversations |
@@ -249,6 +247,37 @@ Showing 2 of 150 (2/2 cached)
 | `-q, --quiet` | Generate/cache summaries without displaying output |
 | `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
 | `--verbose` | Show debug output |
+
+### Context levels (`gen objs --c` flag)
+
+Issue #149 replaced the previous 3-level context system (`minimal`/`default`/`full`) with a 5-level additive ladder. Each level is a strict superset of the previous one:
+
+| # | Name           | Adds                                                | Use case                              |
+|---|----------------|-----------------------------------------------------|---------------------------------------|
+| 1 | `minimal`      | User messages only                                  | "What did they ask for?"              |
+| 2 | `outcome`      | + `finish` action                                   | "How did it end?"                     |
+| 3 | `dialogue`     | + agent messages                                    | "What was the conversation flow?"     |
+| 4 | `actions`      | + non-finish action summaries with full commands    | "What steps were taken and how?"      |
+| 5 | `observations` | + truncated tool observations (terminal/file outputs)| "What were the results?"              |
+
+You can specify either the numeric form (`-c 3`) or the name (`-c dialogue`). The CLI accepts either; both resolve to the same canonical name internally. Old names `default` (was level 2) and `full` (was level 3) **no longer work** — pass `outcome` or `actions` respectively.
+
+**Per-prompt defaults** (frontmatter `context.default`):
+
+| Variant            | Default level | Rationale                                                  |
+|--------------------|---------------|------------------------------------------------------------|
+| `brief`            | `minimal`     | Goal extraction needs only the user's framing              |
+| `brief_assess`     | `outcome`     | Status check needs the finish message                      |
+| `standard`         | `outcome`     | Outcomes derive from the finish summary                    |
+| `standard_assess`  | `outcome`     | Same as above + status                                     |
+| `detailed`         | `actions`     | Hierarchical objectives need agent reasoning + action list |
+| `detailed_assess`  | `actions`     | Same as above + status                                     |
+
+**Auto-promotion ladder.** When the requested context produces an empty transcript but the conversation does have agent actions (e.g. orchestrator worker conversations with no user messages), `analyze_objectives` automatically walks up the ladder **one level at a time** — `minimal → outcome → dialogue → actions → observations` — until content materialises. This replaces the previous 2-jump system (`minimal → default → full`) which over-shot in the common case where only the finish action was needed. Promotions are logged at debug level.
+
+**Cache invalidation.** Existing cache entries keyed against the old `default`/`full` names are simply orphaned (the cache layer never re-keys them). The next `gen objs` invocation per conversation regenerates analyses at the new level names. No migration is needed; expect a one-time spend on the first `gen objs` pass after upgrading.
+
+**Embeddings.** `embeddings.cache_key` follows the same one-time orphaning behaviour. `ohtv db status` degrades gracefully (it reports "missing embeddings" by cache_key, surfacing the orphans), and `ohtv db embed` re-embeds the new variants on the next run.
 
 ## `ohtv gen titles` - Auto-Rename Placeholder-Titled Cloud Conversations
 

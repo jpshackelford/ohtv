@@ -201,35 +201,70 @@ def _normalize_datetime_for_sort(dt: datetime | None) -> datetime:
     return dt
 
 
-# Context level mapping: numeric strings and names to canonical names
-# Used to normalize CLI -c/--context values before passing to analysis functions
+# Context level mapping (5 levels, Issue #149): numeric strings and names to
+# canonical names. Used to normalize CLI -c/--context values before passing to
+# analysis functions. The old 3-level names (`default`, `full`) were retired
+# with #149 and are intentionally NOT preserved as aliases - breaking change
+# per the issue's PM decision comment.
 CONTEXT_LEVEL_MAP = {
     "1": "minimal",
-    "2": "default",
-    "3": "full",
+    "2": "outcome",
+    "3": "dialogue",
+    "4": "actions",
+    "5": "observations",
     "minimal": "minimal",
-    "default": "default",
-    "full": "full",
+    "outcome": "outcome",
+    "dialogue": "dialogue",
+    "actions": "actions",
+    "observations": "observations",
+}
+
+
+_RETIRED_CONTEXT_LEVELS = {
+    "default": "outcome",  # old 3-level "default" mapped to new level 2
+    "full": "observations",  # old 3-level "full" mapped to new level 5
 }
 
 
 def _normalize_context_level(context: str | None, default: str = "minimal") -> str:
     """Normalize context level from CLI input to canonical name.
 
-    Converts numeric strings ("1", "2", "3") to their canonical names
-    ("minimal", "default", "full"). Returns the default if context is
-    None or not recognized.
+    Converts numeric strings ("1" through "5") to their canonical names
+    ("minimal", "outcome", "dialogue", "actions", "observations"). Returns
+    ``default`` when ``context`` is ``None`` (CLI flag omitted).
+
+    Raises ``click.BadParameter`` for unknown values, with a special-cased
+    migration hint when callers pass the retired pre-#149 names
+    (``default``, ``full``).
 
     Args:
-        context: Context level from CLI (numeric string or name)
-        default: Default context level if context is None or invalid
+        context: Context level from CLI (numeric string or name); ``None``
+            means the flag was omitted.
+        default: Canonical level name to return when ``context`` is ``None``.
 
     Returns:
-        Canonical context level name
+        Canonical context level name.
+
+    Raises:
+        click.BadParameter: When ``context`` is a non-empty string that is
+            not one of the 5 valid level names / numeric forms.
     """
     if context is None:
         return default
-    return CONTEXT_LEVEL_MAP.get(context, default)
+    if context in CONTEXT_LEVEL_MAP:
+        return CONTEXT_LEVEL_MAP[context]
+    valid = "1-5 or minimal / outcome / dialogue / actions / observations"
+    if context in _RETIRED_CONTEXT_LEVELS:
+        suggestion = _RETIRED_CONTEXT_LEVELS[context]
+        raise click.BadParameter(
+            f"context level {context!r} was retired in #149. Use {suggestion!r} "
+            f"(or another of: {valid}).",
+            param_hint="'-c' / '--context'",
+        )
+    raise click.BadParameter(
+        f"invalid context level {context!r}. Valid values: {valid}.",
+        param_hint="'-c' / '--context'",
+    )
 
 
 # URL patterns for git hosting platforms
@@ -8920,7 +8955,13 @@ def gen() -> None:
 @gen.command("objs")
 @click.argument("conversation_id", required=False)
 @click.option("--variant", "-v", help="Prompt variant (brief, standard, detailed, brief_assess, etc.)")
-@click.option("--context", "-c", help="Context level (by name or number: 1=minimal, 2=standard, 3=full)")
+@click.option(
+    "--context", "-c",
+    help=(
+        "Context level (5 levels): 1=minimal, 2=outcome, 3=dialogue, "
+        "4=actions, 5=observations. Accepts numbers or names."
+    ),
+)
 @click.option("--model", "-m", help="LLM model to use for analysis")
 @click.option("--refresh", "-r", "refresh", is_flag=True, help="Force re-analysis (refresh cache)")
 @click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
@@ -9017,11 +9058,17 @@ def gen_objs_cmd(
       detailed_assess - Detailed + status assessment
     
     \b
-    Context levels (how much conversation to generate from):
-      1 / minimal   - User messages only (lowest tokens) [default for multi]
-      2 / standard  - User messages + finish action (recommended)
-      3 / full      - All messages + action summaries (highest tokens)
-    
+    Context levels (5 levels, additive; Issue #149):
+      1 / minimal      - User messages only (lowest tokens) [default for multi]
+      2 / outcome      - + finish action
+      3 / dialogue     - + agent messages
+      4 / actions      - + non-finish action summaries with commands
+      5 / observations - + truncated tool observations (highest tokens)
+
+    The auto-promotion ladder walks up one level at a time when content is
+    empty (e.g. worker conversations with no user messages but real
+    ActionEvents). Old names (default/full) were retired with #149.
+
     Requires LLM_API_KEY environment variable to be set.
     """
     # Check if filters are being used (multi-conversation options)
@@ -9038,6 +9085,13 @@ def gen_objs_cmd(
             "Either analyze a single conversation: ohtv gen objs <conversation_id>\n"
             "Or analyze multiple conversations: ohtv gen objs --day"
         )
+
+    # Issue #149: validate --context up-front so a typo / retired name fails
+    # BEFORE we run the conversation filter (otherwise the user sees an
+    # unrelated "no conversations matched" message). We discard the return —
+    # downstream helpers re-normalize with their own defaults.
+    if context is not None:
+        _normalize_context_level(context)
     
     if conversation_id is None:
         # Multi-conversation mode
@@ -9193,8 +9247,9 @@ def _run_batch_objectives_analysis(
         assess = variant.endswith("_assess")
         detail = variant.replace("_assess", "")
     
-    # Normalize context level: convert numeric ("3") to name ("full")
-    # Default to minimal for multi-conversation mode (token efficient)
+    # Normalize context level: numeric (e.g. "3") -> canonical name (e.g. "dialogue")
+    # Default to "minimal" for multi-conversation mode (token efficient). Invalid /
+    # retired values raise click.BadParameter inside the helper (Issue #149).
     context_value = _normalize_context_level(context, default="minimal")
     
     # Resolve prompt metadata to get display schema (if variant has one)

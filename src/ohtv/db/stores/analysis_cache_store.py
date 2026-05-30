@@ -33,12 +33,21 @@ class AnalysisSkipEntry:
     context_level: str = "minimal"  # The context level at which skip occurred
 
 
-# Context levels ordered from lowest to highest content inclusion
-CONTEXT_LEVELS = ["minimal", "default", "full"]
+# Context levels ordered from lowest to highest content inclusion (5 levels,
+# Issue #149). Source of truth lives in
+# ``ohtv.analysis.objectives.CONTEXT_LEVEL_ORDER``; this list mirrors it for
+# the DB-side comparison used by skip-cache ordering. Keep the two in sync.
+CONTEXT_LEVELS = ["minimal", "outcome", "dialogue", "actions", "observations"]
 
 
 def context_level_index(level: str) -> int:
-    """Get the numeric index of a context level (0=minimal, 1=default, 2=full)."""
+    """Get the numeric index of a context level.
+
+    0=minimal, 1=outcome, 2=dialogue, 3=actions, 4=observations.
+
+    Unknown values are treated as ``minimal`` (index 0) so skip-cache
+    ordering remains monotonic against stale or malformed entries.
+    """
     try:
         return CONTEXT_LEVELS.index(level)
     except ValueError:
@@ -87,12 +96,15 @@ class CacheStatus:
     
     def needs_analysis_for_context(self, requested_context: str) -> bool:
         """True if this conversation needs (re)analysis at the requested context level.
-        
-        This is context-aware: a skip at 'minimal' allows retry at 'full'.
-        
+
+        This is context-aware: a skip at ``minimal`` allows retry at higher
+        levels such as ``observations`` (Issue #149 expanded the ladder to
+        5 entries).
+
         Args:
-            requested_context: The context level being requested (minimal, default, full)
-        
+            requested_context: The context level being requested
+                (one of: minimal, outcome, dialogue, actions, observations).
+
         Returns:
             True if analysis should be attempted, False if cached/skipped result is valid
         """

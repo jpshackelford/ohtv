@@ -132,38 +132,31 @@ class TestGenObjectivesCommand:
         assert meta.family == "objs"
     
     def test_context_selection_by_number(self, runner, mock_config, mock_conversation, mock_conv_info):
-        """Test context selection using numeric level."""
+        """Test context selection using numeric level (5 levels, Issue #149)."""
         # Get a prompt to test context resolution
         meta = resolve_prompt("objs", "brief")
-        
-        # Should have context levels 1, 2, 3
-        assert 1 in meta.context_levels
-        assert 2 in meta.context_levels
-        assert 3 in meta.context_levels
-        
-        # Resolve by number
-        ctx = resolve_context(meta, 1)
-        assert ctx.name == "minimal"
-        
-        ctx = resolve_context(meta, 2)
-        assert ctx.name == "default"  # Level 2 is named "default" in prompts
-        
-        ctx = resolve_context(meta, 3)
-        assert ctx.name == "full"
-    
+
+        # Should have all 5 context levels
+        for n in (1, 2, 3, 4, 5):
+            assert n in meta.context_levels
+
+        # Resolve by number - canonical names per CONTEXT_LEVEL_ORDER
+        assert resolve_context(meta, 1).name == "minimal"
+        assert resolve_context(meta, 2).name == "outcome"
+        assert resolve_context(meta, 3).name == "dialogue"
+        assert resolve_context(meta, 4).name == "actions"
+        assert resolve_context(meta, 5).name == "observations"
+
     def test_context_selection_by_name(self, runner, mock_config, mock_conversation, mock_conv_info):
-        """Test context selection using name."""
+        """Test context selection using name (5 levels, Issue #149)."""
         meta = resolve_prompt("objs", "brief")
-        
+
         # Resolve by name
-        ctx = resolve_context(meta, "minimal")
-        assert ctx.number == 1
-        
-        ctx = resolve_context(meta, "default")  # Level 2 is named "default" in prompts
-        assert ctx.number == 2
-        
-        ctx = resolve_context(meta, "full")
-        assert ctx.number == 3
+        assert resolve_context(meta, "minimal").number == 1
+        assert resolve_context(meta, "outcome").number == 2
+        assert resolve_context(meta, "dialogue").number == 3
+        assert resolve_context(meta, "actions").number == 4
+        assert resolve_context(meta, "observations").number == 5
     
     def test_default_variant_used_when_not_specified(self):
         """Test that default variant is used when none specified."""
@@ -190,16 +183,22 @@ class TestGenObjectivesCommand:
         meta = resolve_prompt("objs", "standard_assess")
         assert meta.variant == "standard_assess"
     
-    def test_legacy_context_default_resolves(self):
-        """Test that 'default' context level resolves correctly."""
+    def test_outcome_context_resolves(self):
+        """Test that the ``outcome`` context level resolves correctly.
+
+        (Issue #149: ``outcome`` replaced the old ``default`` name at
+        level 2; the level slot is unchanged.)
+        """
         meta = resolve_prompt("objs", "brief")
-        
-        # Context level 2 is named "default" in the prompts
-        ctx = resolve_context(meta, "default")
-        assert ctx.name == "default"
-        
+
+        ctx = resolve_context(meta, "outcome")
+        assert ctx.name == "outcome"
+        assert ctx.number == 2
+
         # Verify the context exists
-        assert any(level.name == "default" for level in meta.context_levels.values())
+        assert any(
+            level.name == "outcome" for level in meta.context_levels.values()
+        )
     
     def test_all_objective_variants_exist(self):
         """Test that all expected objective variants exist."""
@@ -244,13 +243,15 @@ class TestRunObjectivesAnalysis:
         assert meta_assess.variant.endswith("_assess")
     
     def test_context_level_name_extraction(self):
-        """Test that context level names are correctly extracted."""
+        """Test that context level names are correctly extracted (5 levels, #149)."""
         meta = resolve_prompt("objs", "brief")
-        
-        # All prompts should have context levels with names
+
+        # All prompts should have context levels with names from the
+        # canonical ladder.
+        valid_names = {"minimal", "outcome", "dialogue", "actions", "observations"}
         for level_num, level in meta.context_levels.items():
             assert level.name, f"Level {level_num} should have a name"
-            assert level.name in ["minimal", "default", "full"]
+            assert level.name in valid_names
 
 
 class TestContextLevelFilters:
@@ -270,34 +271,40 @@ class TestContextLevelFilters:
         assert ctx.matches(user_msg)
         assert not ctx.matches(agent_msg)
     
-    def test_default_context_includes_user_and_finish(self):
-        """Test that default context includes user messages and finish action."""
+    def test_outcome_context_includes_user_and_finish(self):
+        """Test that 'outcome' context (level 2) includes user messages and finish action.
+
+        Issue #149: Renamed from ``default`` -> ``outcome``. Level 2 now adds the
+        finish action on top of level 1 (minimal = user messages only).
+        """
         meta = resolve_prompt("objs", "brief")
-        ctx = resolve_context(meta, 2)  # Level 2 is "default"
-        
-        assert ctx.name == "default"
-        
+        ctx = resolve_context(meta, 2)  # Level 2 is "outcome"
+
+        assert ctx.name == "outcome"
+
         # Should match user messages and finish action
         user_msg = {"source": "user", "kind": "MessageEvent"}
         finish_action = {"source": "agent", "kind": "ActionEvent", "tool_name": "finish"}
-        agent_msg = {"source": "agent", "kind": "MessageEvent"}
-        
+
         assert ctx.matches(user_msg)
         assert ctx.matches(finish_action)
-        # Agent messages might be included depending on the prompt
-    
-    def test_full_context_includes_all_messages(self):
-        """Test that full context includes all messages and actions."""
+
+    def test_observations_context_includes_all_messages(self):
+        """Test that the top context level (5 = observations) includes all event kinds.
+
+        Issue #149: Renamed from ``full`` -> ``observations``. Level 5 is now the
+        widest context: user msgs + agent msgs + actions + observation summaries.
+        """
         meta = resolve_prompt("objs", "brief")
-        ctx = resolve_context(meta, 3)  # Full
-        
-        assert ctx.name == "full"
-        
+        ctx = resolve_context(meta, 5)  # Level 5 is "observations" (widest)
+
+        assert ctx.name == "observations"
+
         # Should match all event types
         user_msg = {"source": "user", "kind": "MessageEvent"}
         agent_msg = {"source": "agent", "kind": "MessageEvent"}
         action = {"source": "agent", "kind": "ActionEvent", "tool_name": "terminal"}
-        
+
         assert ctx.matches(user_msg)
         assert ctx.matches(agent_msg)
         assert ctx.matches(action)

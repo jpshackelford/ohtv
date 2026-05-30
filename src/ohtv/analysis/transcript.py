@@ -7,6 +7,12 @@ context logic with flexible, metadata-driven filtering.
 
 from ohtv.prompts.metadata import ContextLevel
 
+# Default truncation for tool observations at the "observations" context level.
+# Per Issue #149 data analysis, average terminal observations are ~2.2k chars
+# and file_editor observations ~5k chars; 800 keeps the LLM signal high
+# without ballooning tokens.
+DEFAULT_OBSERVATION_TRUNCATE = 800
+
 
 def extract_message_content(event: dict, include_critic: bool = False) -> str:
     """Extract text content from a message event.
@@ -80,6 +86,52 @@ def extract_action_summary(event: dict, include_command: bool = False) -> str:
     return summary_text
 
 
+def extract_observation_content(
+    event: dict, max_length: int = DEFAULT_OBSERVATION_TRUNCATE
+) -> str:
+    """Extract text content from an ObservationEvent.
+
+    Observations carry tool outputs (terminal stdout/stderr, file contents,
+    etc.). They are included only at the highest context level
+    (``observations``) per Issue #149.
+
+    Args:
+        event: The observation event dictionary
+        max_length: Maximum length for content (0 = no limit). Truncated content
+            is suffixed with ``... [truncated]``.
+
+    Returns:
+        Observation content as a single string. Returns an empty string if
+        the event has no observation payload.
+    """
+    obs = event.get("observation") or {}
+    content = obs.get("content", "")
+
+    text = ""
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(item.get("text", ""))
+        text = "\n".join(parts)
+
+    if not text:
+        # Fall back to direct content/message fields, mirroring extract_content.
+        text = event.get("content", "") or event.get("message", "")
+        if not isinstance(text, str):
+            text = ""
+
+    exit_code = obs.get("exit_code")
+    if max_length > 0 and len(text) > max_length:
+        text = text[:max_length] + "... [truncated]"
+
+    if exit_code is not None:
+        return f"(exit={exit_code}) {text}" if text else f"(exit={exit_code})"
+    return text
+
+
 def extract_content(event: dict, max_length: int = 0) -> str:
     """Extract text content from an event with optional truncation.
 
@@ -98,6 +150,14 @@ def extract_content(event: dict, max_length: int = 0) -> str:
     elif kind == "ActionEvent":
         # Include full command when no truncation (full context level)
         content = extract_action_summary(event, include_command=(max_length == 0))
+    elif kind == "ObservationEvent":
+        # Observations have their own dedicated extractor so we honour the
+        # per-level truncate setting (caller already truncates, but we pass 0
+        # here to defer to the level's truncate value below).
+        return extract_observation_content(
+            event,
+            max_length=max_length if max_length > 0 else DEFAULT_OBSERVATION_TRUNCATE,
+        )
     else:
         content = event.get("content", "") or event.get("message", "")
 
@@ -133,6 +193,8 @@ def build_transcript_from_context(
                     role = "user" if source == "user" else "assistant"
                 elif kind == "ActionEvent":
                     role = "action"
+                elif kind == "ObservationEvent":
+                    role = "observation"
                 else:
                     role = "system"
 

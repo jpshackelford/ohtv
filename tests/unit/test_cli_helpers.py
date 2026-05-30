@@ -1,8 +1,8 @@
 """Unit tests for CLI helper functions."""
 
 from pathlib import Path
-from unittest.mock import patch
 
+import click
 import pytest
 
 from ohtv.cli import _normalize_context_level, _format_path_for_display, CONTEXT_LEVEL_MAP
@@ -10,45 +10,78 @@ from ohtv.db.utils import generate_unique_source_names
 
 
 class TestNormalizeContextLevel:
-    """Tests for _normalize_context_level helper."""
+    """Tests for _normalize_context_level helper (5 levels, Issue #149)."""
 
     def test_numeric_1_returns_minimal(self):
         assert _normalize_context_level("1") == "minimal"
 
-    def test_numeric_2_returns_default(self):
-        assert _normalize_context_level("2") == "default"
+    def test_numeric_2_returns_outcome(self):
+        assert _normalize_context_level("2") == "outcome"
 
-    def test_numeric_3_returns_full(self):
-        assert _normalize_context_level("3") == "full"
+    def test_numeric_3_returns_dialogue(self):
+        assert _normalize_context_level("3") == "dialogue"
+
+    def test_numeric_4_returns_actions(self):
+        assert _normalize_context_level("4") == "actions"
+
+    def test_numeric_5_returns_observations(self):
+        assert _normalize_context_level("5") == "observations"
 
     def test_minimal_returns_minimal(self):
         assert _normalize_context_level("minimal") == "minimal"
 
-    def test_default_returns_default(self):
-        assert _normalize_context_level("default") == "default"
+    def test_outcome_returns_outcome(self):
+        assert _normalize_context_level("outcome") == "outcome"
 
-    def test_full_returns_full(self):
-        assert _normalize_context_level("full") == "full"
+    def test_dialogue_returns_dialogue(self):
+        assert _normalize_context_level("dialogue") == "dialogue"
+
+    def test_actions_returns_actions(self):
+        assert _normalize_context_level("actions") == "actions"
+
+    def test_observations_returns_observations(self):
+        assert _normalize_context_level("observations") == "observations"
 
     def test_none_returns_default_minimal(self):
         assert _normalize_context_level(None) == "minimal"
 
     def test_none_with_custom_default(self):
-        assert _normalize_context_level(None, default="full") == "full"
+        assert _normalize_context_level(None, default="actions") == "actions"
 
-    def test_unknown_value_returns_default(self):
-        assert _normalize_context_level("unknown") == "minimal"
+    def test_unknown_value_raises_bad_parameter(self):
+        """Issue #149: unknown context levels now raise click.BadParameter
+        instead of silently degrading. This prevents typos from masquerading
+        as `minimal`."""
+        with pytest.raises(click.BadParameter, match="invalid context level"):
+            _normalize_context_level("unknown")
 
-    def test_unknown_value_with_custom_default(self):
-        assert _normalize_context_level("invalid", default="full") == "full"
+    def test_unknown_value_ignores_custom_default(self):
+        """The ``default`` arg is only consulted when ``context is None``; an
+        explicit invalid value always raises."""
+        with pytest.raises(click.BadParameter):
+            _normalize_context_level("invalid", default="actions")
 
-    def test_empty_string_returns_default(self):
-        assert _normalize_context_level("") == "minimal"
+    def test_empty_string_raises_bad_parameter(self):
+        """Empty string is not None — it represents user-supplied gibberish."""
+        with pytest.raises(click.BadParameter):
+            _normalize_context_level("")
+
+    def test_old_default_name_raises_with_migration_hint(self):
+        """Issue #149: legacy ``default`` is intentionally NOT aliased. A user
+        who passes it gets a migration hint pointing at the closest new level."""
+        with pytest.raises(click.BadParameter, match=r"retired in #149.*'outcome'"):
+            _normalize_context_level("default")
+
+    def test_old_full_name_raises_with_migration_hint(self):
+        """Issue #149: legacy ``full`` is intentionally NOT aliased."""
+        with pytest.raises(click.BadParameter, match=r"retired in #149.*'observations'"):
+            _normalize_context_level("full")
 
     def test_context_level_map_completeness(self):
-        """Verify CONTEXT_LEVEL_MAP has all expected entries."""
-        assert set(CONTEXT_LEVEL_MAP.keys()) == {"1", "2", "3", "minimal", "default", "full"}
-        assert set(CONTEXT_LEVEL_MAP.values()) == {"minimal", "default", "full"}
+        """Verify CONTEXT_LEVEL_MAP has all expected entries (5 levels, #149)."""
+        expected_names = {"minimal", "outcome", "dialogue", "actions", "observations"}
+        assert set(CONTEXT_LEVEL_MAP.keys()) == {"1", "2", "3", "4", "5"} | expected_names
+        assert set(CONTEXT_LEVEL_MAP.values()) == expected_names
 
 
 class TestGenerateUniqueSourceNames:

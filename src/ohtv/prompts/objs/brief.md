@@ -13,7 +13,7 @@ context:
           kind: MessageEvent
       truncate: 500
     2:
-      name: default
+      name: outcome
       include:
         - source: user
           kind: MessageEvent
@@ -22,7 +22,18 @@ context:
           tool: finish
       truncate: 1000
     3:
-      name: full
+      name: dialogue
+      include:
+        - source: user
+          kind: MessageEvent
+        - source: agent
+          kind: MessageEvent
+        - source: agent
+          kind: ActionEvent
+          tool: finish
+      truncate: 1000
+    4:
+      name: actions
       include:
         - source: user
           kind: MessageEvent
@@ -31,6 +42,17 @@ context:
         - source: agent
           kind: ActionEvent
       truncate: 2000
+    5:
+      name: observations
+      include:
+        - source: user
+          kind: MessageEvent
+        - source: agent
+          kind: MessageEvent
+        - source: agent
+          kind: ActionEvent
+        - kind: ObservationEvent
+      truncate: 800
 
 output:
   schema:

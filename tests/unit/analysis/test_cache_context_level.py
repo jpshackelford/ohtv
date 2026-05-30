@@ -51,48 +51,48 @@ class TestIsSkippedContextAware:
         """Skip at 'minimal' should allow retry at 'default' level."""
         cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="minimal")
         
-        result = cache_manager.is_skipped(conv_dir, 5, context_level="default")
+        result = cache_manager.is_skipped(conv_dir, 5, context_level="outcome")
         assert result is None
 
     def test_skip_at_minimal_allows_full(self, cache_manager, conv_dir):
         """Skip at 'minimal' should allow retry at 'full' level."""
         cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="minimal")
         
-        result = cache_manager.is_skipped(conv_dir, 5, context_level="full")
+        result = cache_manager.is_skipped(conv_dir, 5, context_level="observations")
         assert result is None
 
     def test_skip_at_default_blocks_minimal(self, cache_manager, conv_dir):
         """Skip at 'default' should block requests at 'minimal' level."""
-        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="default")
+        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="outcome")
         
         result = cache_manager.is_skipped(conv_dir, 5, context_level="minimal")
         assert result == "no_content"
 
     def test_skip_at_default_blocks_default(self, cache_manager, conv_dir):
         """Skip at 'default' should block requests at 'default' level."""
-        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="default")
+        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="outcome")
         
-        result = cache_manager.is_skipped(conv_dir, 5, context_level="default")
+        result = cache_manager.is_skipped(conv_dir, 5, context_level="outcome")
         assert result == "no_content"
 
     def test_skip_at_default_allows_full(self, cache_manager, conv_dir):
         """Skip at 'default' should allow retry at 'full' level."""
-        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="default")
+        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="outcome")
         
-        result = cache_manager.is_skipped(conv_dir, 5, context_level="full")
+        result = cache_manager.is_skipped(conv_dir, 5, context_level="observations")
         assert result is None
 
     def test_skip_at_full_blocks_all(self, cache_manager, conv_dir):
         """Skip at 'full' should block all context levels."""
-        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="full")
+        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="observations")
         
         assert cache_manager.is_skipped(conv_dir, 5, context_level="minimal") == "no_content"
-        assert cache_manager.is_skipped(conv_dir, 5, context_level="default") == "no_content"
-        assert cache_manager.is_skipped(conv_dir, 5, context_level="full") == "no_content"
+        assert cache_manager.is_skipped(conv_dir, 5, context_level="outcome") == "no_content"
+        assert cache_manager.is_skipped(conv_dir, 5, context_level="observations") == "no_content"
 
     def test_event_count_change_invalidates_skip(self, cache_manager, conv_dir):
         """Skip should be invalidated if event count changes, regardless of context."""
-        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="full")
+        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="observations")
         
         # Event count changed (conversation grew)
         result = cache_manager.is_skipped(conv_dir, 10, context_level="minimal")
@@ -106,7 +106,7 @@ class TestIsSkippedContextAware:
         # Default is minimal, so should block minimal but allow higher
         assert cache_manager.is_skipped(conv_dir, 5) == "no_content"
         assert cache_manager.is_skipped(conv_dir, 5, context_level="minimal") == "no_content"
-        assert cache_manager.is_skipped(conv_dir, 5, context_level="full") is None
+        assert cache_manager.is_skipped(conv_dir, 5, context_level="observations") is None
 
 
 class TestMarkSkippedContextLevel:
@@ -114,17 +114,17 @@ class TestMarkSkippedContextLevel:
 
     def test_stores_context_level_in_cache(self, cache_manager, conv_dir, cache_dir):
         """Context level should be stored in cache file."""
-        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="default")
+        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="outcome")
         
         cache_file = cache_dir / conv_dir.name / "objective_analysis.json"
         data = json.loads(cache_file.read_text())
         
-        assert data["skipped"]["context_level"] == "default"
+        assert data["skipped"]["context_level"] == "outcome"
 
     def test_does_not_downgrade_context_level(self, cache_manager, conv_dir, cache_dir):
         """Mark skipped should not overwrite higher context level with lower."""
         # First mark at 'full'
-        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="full")
+        cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="observations")
         
         # Try to mark at 'minimal'
         cache_manager.mark_skipped(conv_dir, 5, "different_reason", context_level="minimal")
@@ -133,7 +133,7 @@ class TestMarkSkippedContextLevel:
         cache_file = cache_dir / conv_dir.name / "objective_analysis.json"
         data = json.loads(cache_file.read_text())
         
-        assert data["skipped"]["context_level"] == "full"
+        assert data["skipped"]["context_level"] == "observations"
         assert data["skipped"]["reason"] == "no_content"
 
     def test_upgrades_context_level(self, cache_manager, conv_dir, cache_dir):
@@ -142,13 +142,13 @@ class TestMarkSkippedContextLevel:
         cache_manager.mark_skipped(conv_dir, 5, "no_content", context_level="minimal")
         
         # Mark at 'full'
-        cache_manager.mark_skipped(conv_dir, 5, "still_no_content", context_level="full")
+        cache_manager.mark_skipped(conv_dir, 5, "still_no_content", context_level="observations")
         
         # Should now be 'full'
         cache_file = cache_dir / conv_dir.name / "objective_analysis.json"
         data = json.loads(cache_file.read_text())
         
-        assert data["skipped"]["context_level"] == "full"
+        assert data["skipped"]["context_level"] == "observations"
         assert data["skipped"]["reason"] == "still_no_content"
 
     def test_event_count_updated_despite_higher_context_skip(self, cache_manager, conv_dir, cache_dir):
@@ -161,7 +161,7 @@ class TestMarkSkippedContextLevel:
         4. Without this fix, the early return would leave event_count=10, causing endless retries
         """
         # Skip at 'full' with event_count=10
-        cache_manager.mark_skipped(conv_dir, 10, "no_content", context_level="full")
+        cache_manager.mark_skipped(conv_dir, 10, "no_content", context_level="observations")
         
         # Conversation grows to 20 events, batch run fails at 'minimal'
         cache_manager.mark_skipped(conv_dir, 20, "still_no_content", context_level="minimal")
@@ -171,7 +171,7 @@ class TestMarkSkippedContextLevel:
         data = json.loads(cache_file.read_text())
         
         assert data["event_count"] == 20, "event_count should be updated to prevent retry loops"
-        assert data["skipped"]["context_level"] == "full", "context_level should remain at 'full'"
+        assert data["skipped"]["context_level"] == "observations", "context_level should remain at observations"
         # Reason should be preserved from the higher-context skip
         assert data["skipped"]["reason"] == "no_content"
 
@@ -198,5 +198,5 @@ class TestLegacyCacheCompatibility:
         assert cache_manager.is_skipped(conv_dir, 5, context_level="minimal") == "no_content"
         
         # Should allow higher levels
-        assert cache_manager.is_skipped(conv_dir, 5, context_level="default") is None
-        assert cache_manager.is_skipped(conv_dir, 5, context_level="full") is None
+        assert cache_manager.is_skipped(conv_dir, 5, context_level="outcome") is None
+        assert cache_manager.is_skipped(conv_dir, 5, context_level="observations") is None
