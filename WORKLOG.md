@@ -1460,3 +1460,66 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-30 06:55 UTC - Review worker (PR #154 round 1 → ready-for-round-2)
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+**Scope:** Address PR #154 round-1 review (`pr-review[bot]`, CHANGES_REQUESTED @ 05:15Z). Three actionable threads identified — two inline + one top-level summary item.
+
+**Threads + decisions:**
+
+| # | Thread | File | Decision | Commit |
+|---|---|---|---|---|
+| 1 | FS-fallback `log.debug` → `log.warning` | `src/ohtv/conversations.py:72-76` | **Accepted.** Suggested wording used verbatim. FS path is the degraded-state branch — silently ignoring `include_subs=False` is exactly the silent-inconsistency the reviewer flagged. DB-first design keeps noise floor low. | `cd15dad` |
+| 2 | `params: list[str] = []` redundant annotation | `src/ohtv/db/stores/conversation_store.py:318` | **Accepted.** Pure stylistic nit. `params = []` is enough; append sites constrain the type. | `cd15dad` |
+| 3 | Missing `BREAKING CHANGE:` footer on default flip | top-level review summary (CRITICAL) | **Accepted (Option A).** Added empty footer commit `11f3523` + updated PR description. **See semver reasoning below.** | `11f3523` |
+
+**Semver decision — chose Option A. Reasoning:**
+
+1. The new behavior is the *correct* one (subs are agent work, not human intent) — shipping the right default sooner is better than a deprecation cycle. The review itself acknowledged this.
+2. **`[tool.semantic_release] major_on_zero = false` in `pyproject.toml`** means the BREAKING footer ships this as **v0.17.0** (minor bump with a `⚠ BREAKING CHANGES` CHANGELOG entry), **not** v1.0.0 as the hand-off summary anticipated. The user-visible signal — the CHANGELOG entry — is exactly what the review asked for, without the scary version jump.
+3. A deprecation cycle (Option B) would add a dual-write code path + `DeprecationWarning` on every gen-* invocation + a future flip-the-default release — significant machinery for a 0.x project where breaking changes are conventionally tolerated.
+4. **Sets the pattern for #127 (list/refs display roll-up) and #128 (RAG citation dedup).** Each user-facing default flip in the root-grain cluster lands with a `BREAKING CHANGE:` footer in 0.x. Once the cluster ships, the 1.0.0 graduation conversation can be a single coordinated decision rather than a per-PR debate.
+
+**Hand-off correction noted in PR comment:** the hand-off summary said Option A would bump to v1.0.0. That's only true under `major_on_zero = true`. The project explicitly opts out with `major_on_zero = false` (with a comment in `pyproject.toml`: "Repo is pre-1.0 and we want to stay there"). Option A's actual outcome is **v0.17.0 with a `⚠ BREAKING CHANGES` CHANGELOG entry** — both options ship the same version, so the choice is really about deprecation-cycle complexity vs. acknowledge-and-ship.
+
+**Commits pushed to `feat/gen-roots-only-125`:**
+
+```
+11f3523 docs: acknowledge gen multi-conv default flip as a breaking change
+cd15dad fix: address PR #154 review feedback (warning level, type annotation)
+7b37cec docs: update for --include-sub-conversations flag (#125)        ← round-1 head
+```
+
+`11f3523` is an empty (`--allow-empty`) commit whose sole purpose is to inject the `BREAKING CHANGE:` footer into the squash-merge body. The PR description was also updated to reproduce the footer at the bottom for belt-and-suspenders coverage of GitHub's body-construction strategy.
+
+**CI status @ 06:55Z:**
+
+- `lint`: ✅ pass (5s)
+- `pytest`: ✅ pass (55s on head `11f3523`)
+
+**Thread actions:**
+
+- Inline thread 1 (`PRRT_kwDOR9seq86F1_EH`): reply posted, thread resolved.
+- Inline thread 2 (`PRRT_kwDOR9seq86F1_EP`): reply posted, thread resolved.
+- Top-level summary (semver): full reasoning posted as PR comment `#issuecomment-4582012978`; PR description rewritten to remove the now-incorrect "No new `BREAKING CHANGE:` footer" AC line and add a "Breaking change acknowledgment" section.
+
+**PR state:**
+
+- Was set to draft at round-1 start (`gh pr ready 154 --undo`).
+- Now back to ready-for-review on commit `11f3523`.
+- Re-triggers pr-review bot for round 2.
+
+**For the next orchestrator wake-up:**
+
+- Re-testing: **NOT required.** Code changes are (a) `log.debug` → `log.warning` (no behavior change at the CLI surface) and (b) a type-annotation deletion (no runtime effect). The 9-scenario test report posted at 06:23Z stays current.
+- Expected next state: pr-review bot opens round 2 within ~10-15 min of the ready transition. Most likely outcomes:
+  - **APPROVED** → orchestrator spawns merge worker. Merge worker should use squash strategy and **verify the squash commit body retains the `BREAKING CHANGE:` footer** (visible in commit `11f3523` and reproduced at the bottom of the PR description). Expected release: **v0.17.0** with `⚠ BREAKING CHANGES` CHANGELOG section.
+  - **CHANGES_REQUESTED (round 2)** → orchestrator spawns another review worker. New threads to be evaluated then.
+
+**Auto-disable counter:** **0 → 0** (productive — addressed 3 threads, pushed 2 commits, PR back in review queue).
+
+EXIT.
+
+---
