@@ -1751,3 +1751,103 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-30 10:48 UTC - Orchestrator
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `517c1b1` | implementation | Issue #128 — RAG `ask`/`search` cite root_conversation_id | **NEW** running |
+
+**Spawned: Implementation Worker for Issue #128**
+- Issue: [#128 — RAG `ask` and `search` cite sub-conversation IDs the user doesn't recognize](https://github.com/jpshackelford/ohtv/issues/128) (`priority:medium`)
+- Conversation: [`517c1b1`](https://app.all-hands.dev/conversations/517c1b1b95c64dc0bc20c7fdd2082b5b)
+- Start task `bc38306f` → `READY` after ~15s (2 `STARTING_CONVERSATION` polls); sandbox `RUNNING`, agent `execution_status=running`.
+
+**Why impl for #128 (decision-tree walk):**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`grep -A8 "## INSTRUCTION:" WORKLOG.md` → only the `0 unacknowledged` markers from prior cycle entries).
+- **Step 2/3 — Active workers**: Only `368701a` (this orchestrator, `trigger=automation`) was `running` at entry. Prior merge worker `f4efb86` for PR #155 = `execution_status=finished` at 10:25:05Z (handed off the cluster-snapshot WORKLOG entry to `267fab2` on main). All other recent worker conv IDs (`c111e1d` 10:16Z orchestrator, `8723ef4` testing retry, `c4b122f`, `e7f42f8`, `7aab96f`, `f7c21ca`, `5a19b24`, `18f797e`) = `PAUSED`/`MISSING` with `execution_status=null`. **PR slot CLEAR; expansion slot CLEAR at cycle entry.**
+- **Step 4 — Open PRs**: 0. PR #155 merged at 10:21:53Z, `5c0adfb` on main; semantic-release shipped `ohtv-v0.18.0` at 10:23:52Z (tag + Release).
+- **Step 4 — Issue census**:
+  - Needs expansion (no `ready`, no `hold`): **0** — expansion slot stays IDLE. **Thirty-fifth consecutive idle expansion cycle.** Not at auto-disable risk because PR slot productive this cycle.
+  - Ready + prioritized: **#128** (`priority:medium`, RAG citation dedup).
+  - Ready + unprioritized: #145, #148, #149.
+  - On hold: #26, #90.
+- **Decision-tree row matched**: *"No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue."* Only one prioritized ready issue exists (#128), so no tie-break needed.
+
+**Why #128 now (cluster context):**
+
+#128 is the **final member** of the #122 root-conversation-aggregation cluster on the user-visible display surface. Cluster status after the v0.18.0 ship:
+
+| Issue | PR | Status | Release |
+|---|---|---|---|
+| #122 (umbrella) | #138 | merged | (foundation) |
+| #123 weekly-counts | #150 | merged | v0.16.1 |
+| #124 velocity | #153 | merged | v0.16.2 |
+| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
+| #127 list/refs display | #155 | merged | v0.18.0 ⚠ BREAKING |
+| **#128 RAG ask/search cite** | **(impl-in-flight)** | **`517c1b1` working** | **(target: v0.18.1 — NO BREAKING)** |
+| #126 classification policy | — | open, queued for impl after #128 | — |
+
+#128 ships as a **non-breaking** patch release because, per the issue body, it is "**purely a display/dedup concern**" — the retrieval contract, the `embeddings` table, the `min_score`/`max_chunks` semantics, and the CLI surface are all unchanged. No `BREAKING CHANGE:` footer → semantic-release will tag `ohtv-v0.18.1`, not 0.19.0.
+
+**Impl worker brief — three hard mitigations baked in:**
+
+1. **Migration-number correction (RED text at the top of the prompt)**: The issue body cites *"migration 019"* for `root_conversation_id`. **The actual migration is 020** (per AGENTS.md item #32; PRs #152 and #155 already corrected this in their guard error messages — pattern is established). The prompt explicitly says: "every guard message, comment, docstring, and PR description that mentions the column's migration must say **020**, not 019." Mirrors the same mistake-prevention shape used in the #123 impl spawn brief.
+2. **Render-layer-only constraint repeated 3×** in the prompt body + a "Hard constraints — DO NOT violate" section at the bottom: NO modifications to `embedding_store.search` / `search_conversations` / `get_context_for_rag`. The `JOIN ON e.conversation_id = c.id` is explicitly not modified. This is the issue's closing-checkbox AC, and the easiest way for an impl worker to over-reach.
+3. **No `--include-sub-conversations` flag** — unlike sibling #125 (which legitimately has this flag), #128 explicitly rejects it (the bug is "users don't recognize sub IDs"; there's no opt-out value). The prompt cites the exact issue-body section that rejects it ("Section 'No new `--include-sub-conversations` flag'") so the worker doesn't re-derive and re-litigate the decision.
+
+**`map_to_roots` helper placement decision** in the spawn brief: PR #155 (issue #127) shipped `expand_to_roots(conn, set)` in `src/ohtv/filters.py` per the issue's "Soft-related to #127" dependency note. The brief tells the worker to add a list-shaped companion `map_to_roots(conn, ids: list[str]) -> dict[str, str]` in the same `filters.py` module (not duplicated in rag.py), with the dict shape preserving rank order via caller-side lookup.
+
+**Investigator-mode footnote**: The brief reminds the worker that the issue's "Out of Scope" section notes investigator mode (`--agent`) inherits the dedup for free via `RAGAnswer.context_chunks` — no per-investigator changes needed. Worth calling out in the PR description so reviewers don't ask.
+
+**Spawn payload shape** (validated):
+- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker creates its own `feat/rag-citation-root-dedup-128` from `origin/main`).
+- `issue_number=[128]` for issue context.
+- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
+- `initial_message.content[].type=text`, `run=true`. Prompt body = 12,104 chars; total payload = 12,823 bytes.
+- POST `/api/v1/app-conversations` with `X-Session-API-Key: $OPENHANDS_API_KEY` → start task `bc38306f` returned `status=WORKING`; 3rd poll (15s in) → `READY`, `app_conversation_id=517c1b1b…`; `/app-conversations?ids=517c1b1b…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
+
+**Sync notes:**
+- Container respawned this cycle. `pip install --user git+...lxa.git git+...ohtv.git` succeeded (the `uv pip install --system` path still trips on read-only `/usr/local/lib/python3.13/site-packages`; the `pip install --user` fallback into `$HOME/.local/bin` works fine — recording again for next respawn).
+- `lxa repo add jpshackelford/ohtv` was called (no-op after the existing board registration, but the underlying response now creates a default "Unnamed Board 1" — cosmetic, not breaking).
+- `gh auth status` initially failed because `GH_TOKEN` env var was empty but the lowercase `github_token` was populated — used `export GH_TOKEN="$github_token"` to bridge. Same pattern as some prior respawns; the canonical fix would be to set GH_TOKEN at the cron-config level.
+- `git pull origin main` → `Already up to date` (267fab2, post-#155 merge).
+
+**Worklog housekeeping:**
+- WORKLOG.md was 1753 lines at wake-up. Ran the 6-hour productive-window truncation algorithm in dry-run mode → returns "Nothing to archive — all productive entries within retention window." The four productive entries on the file all sit within the active push-to-merge cycle for PR #155 (08:20Z docs spawn → 08:50Z testing spawn → 10:20Z merge spawn → 10:25Z merge completion); none has aged past the 6-hour productive window measured from the most recent productive entry (10:25Z). Natural truncation point is **one cycle from now**, after the next impl-worker spawn or completion makes 10:25Z fall out of the productive window. Deferring per the discipline of one orchestrator action per wake-up.
+
+**Cluster progress snapshot** (post-v0.18.0, impl-in-flight on final cluster member):
+
+| Issue | PR | Status | Release |
+|---|---|---|---|
+| #123 weekly-counts | #150 | merged | v0.16.1 |
+| #124 velocity | #153 | merged | v0.16.2 |
+| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
+| #127 list/refs display | #155 | merged | v0.18.0 ⚠ BREAKING |
+| **#128 RAG citation dedup** | **(impl `517c1b1`)** | **in flight** | **(target: v0.18.1)** |
+| #126 classification policy | — | open, queued (next impl pick after #128 lands) | — |
+
+After #128 lands, the only ready/prioritized issue remaining is #126 (classify policy); after that, the unprioritized backlog (#145, #148, #149) needs `/assess-priority` to graduate.
+
+**Expansion slot (next-cycle outlook):**
+- Backlog is 4 deep on `ready` (#126, #145, #148, #149). 0 issues need expansion. Slot stays IDLE — **34th + 1 = 35th consecutive idle expansion cycle**.
+- Auto-disable risk: **NONE this cycle** because the PR slot is productive (impl spawn is a terminal action advancing PR #128's lifecycle). The orchestrator's quiet-cycle counter resets every productive cycle, so 35 idle-expansion-only cycles do not approach the auto-disable threshold.
+
+**Next cycle expectations (~11:20Z window):**
+- Impl worker `517c1b1` turnaround for #128: render-layer dedup is a focused cut (rag.py + cli.py + a one-shot helper in filters.py + ~6 test files). Sibling #155 (issue #127) took ~5 hours from impl-spawn to merge across multiple cycles (impl → docs → testing → merge); #128 is a simpler scope (no `selected_branch` config plumbing, no SELECT-layer dedup, no filter-reduce-layer dedup). Expected impl-only wall time: **45–90 min**. PR open + draft-to-ready transition expected by ~12:20Z.
+- Most likely next-cycle state:
+  - **PR open, draft, CI running** → wait (impl worker still finishing CI).
+  - **PR open, draft, CI green** → wait one more cycle (impl worker may still be moving to ready).
+  - **PR open, ready, CI green, no docs comment** → docs check: this is a render-layer-only patch. Per orchestrate skill *"Do NOT require docs update if only: Bug fixes that don't change documented behavior"* — `ohtv ask` and `ohtv search` keep the same flag surface, same output schema (just with deduped IDs). Docs SKIPPED → straight to testing. Same shape as #152, #153, #154 skipped docs.
+  - **PR open, ready, CI green, no test results** → spawn testing worker.
+  - **Worker `finished` but no PR opened** → 2nd cluster dead-spawn since PR #155's 08:50Z testing dead-spawn (`e7f42f8`); investigate per the same pattern, but for an impl worker this is unusual.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned impl worker for #128 — terminal action initiating the final cluster member). **Forty-ninth consecutive productive cycle.** Not at risk.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
