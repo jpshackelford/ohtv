@@ -1643,3 +1643,78 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 10:20 UTC - Orchestrator
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `f4efb86` | merge | PR #155 → squash-merge as v0.18.0 ⚠ BREAKING | **NEW** running |
+
+**Spawned: Merge Worker for PR #155**
+- PR: [#155 — feat(list,refs): roots-only by default with subtree rollup (#127)](https://github.com/jpshackelford/ohtv/pull/155)
+- Conversation: [`f4efb86`](https://app.all-hands.dev/conversations/f4efb861777c4726a8cdeb82ef018440)
+- Start task `23a33c5f` → READY in ~10s; agent `execution_status=running`, sandbox `RUNNING`.
+
+**Why merge (decision-tree walk):**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged.
+- **Step 2/3 — Active workers**: Testing retry worker `8723ef4` is `execution_status=finished`, sandbox=RUNNING (about to release), `updated_at=10:09:21Z`. **No active workers.**
+- **Step 4 — Open PRs**: 1 — PR #155.
+  - `state=OPEN`, `isDraft=false`, `mergeable=MERGEABLE`, `reviewDecision=APPROVED`.
+  - CI: `lint pass 5s`, `pytest pass 53s`. Both green.
+  - Last commit: `2026-05-30T08:24:09Z` (docs commit `711d7f7`).
+  - Comments: 2 total — docs marker (08:25:42Z) + Manual Test Results (10:09:20Z, **AFTER** last commit, so test is current).
+  - Review threads: 0 unresolved (GraphQL `reviewThreads` empty).
+- **Step 4b — Test report content**: retry worker `8723ef4` posted comprehensive 8-test matrix (T-1 … T-8), all PASS except T-5 marked `⚠️ partial (not bug)` — degenerate test case because the account has no true delegated subs in the sync window; rollup branch was instead exercised through dashed-id duplicate rows from item #14, which the code handles correctly. Recommendation: **ready-to-merge**.
+- **Step 5 — Open issues**: 5 ready (all expanded). 0 need expansion. Priority order: #128 (medium, queued for impl after #155 merges), #127 (medium, IN PR #155). Unprioritized ready: #145, #148, #149.
+
+**Decision-tree path**: `PR exists, ready, CI green, test results valid (timestamp > last commit), good rating (ready-to-merge), docs valid (08:25Z marker exists)` → **Spawn merge worker**. No re-test trigger (no significant code changes after the test; the 711d7f7 docs commit predates the test).
+
+**Dead-spawn risk mitigation**:
+
+The prior testing worker `e7f42f8` (08:50Z spawn) was a dead spawn — finished after $3.20 burn with no comment posted. The retry `8723ef4` (09:52Z spawn) succeeded thanks to the tightened prompt with cardinal "EVERY EXIT PATH MUST END WITH A POSTED PR COMMENT" rule. The merge worker prompt is short and unambiguous (single terminal action — `gh pr merge --squash`), so dead-spawn risk is low. The cluster's PR #154 merge (`fc23665b`) used the same shape and completed in one cycle.
+
+**Squash-commit guidance baked into the prompt**:
+
+- Subject: `feat(list,refs): roots-only by default with subtree rollup (#127)` — matches PR title (no `!`).
+- Body: implementation summary + AC coverage + test summary.
+- Footer: **MUST** include `BREAKING CHANGE:` explaining the user-facing default flip (list/refs no longer include sub-conversations by default; pass `--include-sub-conversations` to restore).
+- Per AGENTS.md release contract + `[tool.semantic_release] major_on_zero = false`, the footer triggers v0.17.0 → **v0.18.0** with `⚠ BREAKING CHANGES` CHANGELOG section. Mirrors PR #154 → v0.17.0 precedent for #125.
+
+**Cluster progress snapshot** (merge-in-flight):
+
+| Issue | PR | Status | Release |
+|---|---|---|---|
+| #123 weekly-counts | #150 | merged | v0.16.1 |
+| #124 velocity | #153 | merged | v0.16.2 |
+| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
+| **#127 list/refs display** | **#155** | **merge in progress** | **(target: v0.18.0 ⚠ BREAKING)** |
+| #126 classification policy | — | open, queued | — |
+| #128 RAG citation dedup | — | open, queued | — |
+
+After this merge, the #122 root-grain cluster has only #128 (RAG citation dedup, ready/priority:medium) remaining on the display surface. #126 is the policy companion.
+
+**Expansion slot:**
+
+- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** Thirty-fourth consecutive idle expansion cycle, but the PR slot is productive this cycle → no auto-disable risk.
+
+**Next cycle expectations (~10:50Z window):**
+
+- Merge worker `f4efb86` turnaround: PR #154 precedent was ~10 min from spawn to merge + semantic-release tag. Expecting similar.
+- Most likely next-cycle state:
+  - **PR #155 merged, `chore(release): ohtv 0.18.0 [skip ci]` commit on main, `ohtv-v0.18.0` tag + GitHub Release created** → spawn **implementation worker for #128** (next prioritized ready issue, RAG citation dedup — final cluster member).
+  - **PR #155 merged but no release commit yet** → likely a semantic-release race; check the `release.yml` workflow run; if stuck, escalate.
+  - **PR #155 merge failed** (rare: mergeable=UNKNOWN flipped) → orchestrator investigates; possibly re-run CI or rebase.
+  - **Merge worker still running** → wait one more cycle.
+
+**Worklog housekeeping:**
+
+WORKLOG.md is at 1645 lines (was truncated at 07:50Z down to 1253; productive cluster activity has grown it back). Will defer truncation to **post-#155 merge** when the cluster snapshot crystallizes — that's the natural archive point. The forty-eighth consecutive productive cycle is a higher priority than the housekeeping pass right now.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned merge worker — terminal action that ships v0.18.0 and closes the PR #155 / Issue #127 leg of the root-grain cluster). **Forty-eighth consecutive productive cycle.** Not at risk.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
