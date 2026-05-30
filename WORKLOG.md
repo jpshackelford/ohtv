@@ -2336,3 +2336,92 @@ EXIT per orchestrate skill — wait-cycle is also one decision per wake-up (the 
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 13:20 UTC - Orchestrator (spawned testing worker for PR #157)
+
+**Active Workers (at cycle exit):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c1f80e4` | testing | PR #157 — Expand context levels 3→5 for `gen objs` (#149) | **NEW** running |
+
+**Spawned: Testing Worker for PR #157**
+- PR: [#157 — `feat(gen-objs): expand context levels from 3 to 5 (#149)`](https://github.com/jpshackelford/ohtv/pull/157)
+- Issue: [#149 — Expand context levels 3→5 for `gen objs`](https://github.com/jpshackelford/ohtv/issues/149)
+- Branch: `feat/gen-objs-5-context-levels-149`
+- Conversation: [`c1f80e4`](https://app.all-hands.dev/conversations/c1f80e4e1e574ed5903f3209755baf82) (`execution_status=running, sandbox_status=RUNNING`)
+
+**Step 0 — Setup:** container respawned again this cycle (the recurring `/usr/local/lib/python3.13/site-packages` read-only failure persists — still unfixed at the cron-config level; flagged in every cycle for 8+ hours now). Fallback `uv venv .venv && uv pip install …` succeeded; `lxa` + `ohtv` resolved at `/workspace/project/ohtv/.venv/bin/`. `gh auth status` required `export GH_TOKEN="$github_token"` bridge. `ohtv sync` required `OH_API_KEY=$OPENHANDS_API_KEY` (the env-var rename hasn't been picked up by ohtv's sync subcommand — minor recurring friction). `git pull` → already up to date (HEAD `cf3d5cc`).
+
+**Step 0.5 — Housekeeping (truncation deferred — 5th consecutive cycle):**
+- WORKLOG.md at 2,338 lines.
+- 6-hour productive window from cycle entry (13:20Z) reaches back to **07:20Z**. The 07:55Z PR #155 impl-spawn entry is *just* inside the window by ~35 min.
+- Per the prior cycle's plan: truncation fires at the first cycle after 13:55Z (when the 07:55Z entry exits the window). Current cycle is 35 min early. **Flagging for next-cycle's housekeeping pass** (next cycle at ~13:50Z–14:00Z will be the one to truncate).
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged.
+
+**Step 2/3 — Active workers at cycle entry:**
+- **`50edf47` (impl for #149)**: at cycle entry — `execution_status=null, sandbox_status=PAUSED, updated_at=2026-05-30T12:51:01Z`. The worker **finished** 29 min before this cycle wake-up (last activity 12:51Z; sandbox reaped → PAUSED). It successfully opened **PR #157** at 12:48Z (3 min before pausing).
+- **`b732cd1` (merge for #156)**, **`dac424c` (prior orchestrator)**: both `sandbox_status=PAUSED`/`MISSING` — normal post-completion state.
+- Only this orchestrator (`4e6f79b`, auto-spawned at 13:16:17Z) shows running at cycle entry. **PR slot CLEAR; expansion slot CLEAR.**
+
+**Step 4 — State gather:**
+
+- **Open PRs**: **1** new this cycle.
+  - **[PR #157](https://github.com/jpshackelford/ohtv/pull/157)** — `feat(gen-objs): expand context levels from 3 to 5 (#149)`
+  - `lxa` status: `oA green ready 1` (opened → APPROVED by github-actions; CI green; ready-for-review with 1 review).
+  - **CI checks (all SUCCESS)**: `lint`, `pytest`, `pr-review` (1 skipped, 1 success).
+  - **Mergeable**: `CLEAN`. **ReviewDecision**: `APPROVED` (github-actions auto-review: "🟢 Good taste — Clean, well-executed breaking change").
+  - **Comments**: 0 (no manual test results yet).
+  - **Diff scope (21 files)**: `AGENTS.md`, `docs/guides/analysis.md` (canonical user guide — thoroughly updated), `src/ohtv/analysis/{cache,objectives,transcript}.py`, `src/ohtv/cli.py`, `src/ohtv/db/stores/analysis_cache_store.py`, `src/ohtv/prompts/metadata.py`, **6 prompt files** (`objs/{brief,brief_assess,standard,standard_assess,detailed,detailed_assess}.md`), **6 test files**, `uv.lock`.
+  - **README NOT in diff** — verified that README only mentions `gen objs` at the high level (deferring to `docs/guides/analysis.md` for flag-level detail). The 5-level table, per-prompt defaults table, auto-promotion ladder explanation, cache-invalidation note, and embeddings-orphan note all live in `analysis.md` (the linked canonical guide). **README does not need updating** — its role is the elevator pitch, and the guide is the contract.
+
+- **Issue census**:
+  - Needs expansion (no `ready`, no `hold`): **0**. **41st consecutive idle expansion cycle.**
+  - On hold: #26 (MCP server), #90 (`ohtv label`).
+  - Ready + prioritized: **#149** (`priority:high` — PR #157 NOW IN TESTING), **#148** (`priority:medium` — LiteLLM warnings, next PR-slot pick after #157 ships), **#145** (`priority:low` — key-variant fan-out, blocked by #149 per its own technical comment).
+
+**Step 5 — Decision-tree row matched:** *"PR exists, ready, CI green, **docs updated**, **no manual test results** → Spawn testing worker"*.
+
+- Docs check: PR diff includes `docs/guides/analysis.md` with comprehensive updates (new 5-level table, per-prompt-defaults table, auto-promotion explanation, cache-invalidation + embeddings-orphan notes, and updated flag reference linking to a new anchor). README intentionally defers to this guide — no README change needed per the orchestrate skill's rule ("docs update required if user-facing changes" — the canonical guide IS the docs surface).
+- Manual test check: 0 comments on PR, 0 `## Manual Test Results` headers anywhere. Github-actions APPROVED review is the only review-side activity; the orchestrate skill's contract is explicit: even an APPROVED PR still requires manual blackbox testing.
+- Re-test gate not applicable (no prior test results exist).
+
+**Step 6 — Spawn dispatch:** ✅ Testing worker spawned (PR slot).
+
+**Spawn payload highlights** (sent to `POST /api/v1/app-conversations`):
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+- `pr_number=[157]`, `selected_repository=jpshackelford/ohtv`
+- Initial message lists **7 critical-area checks** plus the standard `/manual-test` skill flow:
+  1. 5 context levels resolve correctly (numeric `-c 1-5` + names `minimal/outcome/dialogue/actions/observations`)
+  2. **Breaking change** — verify `-c default` and `-c full` rejected with clear error (Click's choice validator should fire here)
+  3. Per-prompt defaults match the docs table (6 variants × default-level mapping)
+  4. **Auto-promotion ladder** — pick a no-user-messages conversation, verify promotion walks one level at a time (replaces the old 2-jump system)
+  5. Old cache entries orphaned cleanly (no crash, regeneration succeeds)
+  6. Read `docs/guides/analysis.md` and verify documented behavior matches reality
+  7. `uv run pytest tests/unit -x` (the CI signal is already green, but a local run confirms environment parity)
+
+**Start task progression:** Spawn `01f8c3ab39a6` → READY in ~13s → `app_conversation_id=c1f80e4e1e574ed5903f3209755baf82`. Verified `execution_status=running, sandbox_status=RUNNING` immediately after.
+
+**Auto-disable counter:** **1 → 0.** Productive cycle (spawned testing worker for PR #157 — terminal action transitioning the PR from "awaiting tests" to "tests in progress"). Counter resets. **Fifty-second consecutive productive cycle.** Not at risk.
+
+**Next cycle expectations (~13:50Z window):**
+- Testing worker `c1f80e4` turnaround: typical manual-test cycle for a CLI/cache change is ~20-45 min (clone + sync + 7 test scenarios + unit-test suite + report-formatting). Plausible states at next cycle:
+  - **Most likely (~60%)**: Tests still running → wait-cycle, counter goes to 1.
+  - **Likely (~30%)**: Tests finished, manual test results comment posted → next cycle picks up review-or-merge row. With `APPROVED` already in place, if tests show ✅ across the board: **decision tree match becomes "ready, CI green, test results valid, good rating, docs valid → spawn merge worker"**.
+  - **Less likely (~10%)**: Tests revealed real issues → bug-fix round needed, PR drops back to "fix and re-test" cadence. PR slot still occupied with the fixer.
+- Note on next-cycle truncation: the 07:55Z PR #155 impl-spawn entry will exit the 6-hour window at ~13:55Z. The next cycle (~13:50Z) is *just barely* before the natural truncation point. The cycle after that (~14:20Z) will definitely truncate.
+
+**Backlog forecast post-#157 PR:**
+- #157 lands → bumps to `ohtv-v0.19.0` (minor + BREAKING CHANGE per cluster precedent — context-level name changes break old `-c default`/`-c full` callers). #122 cluster moves to its next-most-recent post-merge close.
+- Next PR-slot pick: **#148** (Suppress LiteLLM warnings, `priority:medium`). Very-low-complexity 2-line fix (`_os.environ.setdefault("LITELLM_LOG", "ERROR")`).
+- After #148: re-assess **#145** (graduate from `priority:low` → `priority:medium` since #149 unblocks the key-variant fan-out work).
+- After #145: prioritized backlog **EMPTY**. #26 (MCP server) and #90 (`ohtv label`) both on `hold`. Auto-disable counter starts accruing for real after that point.
+
+**Sync notes:**
+- `ohtv sync --since 4h` ran clean (silent stdout, exit 0).
+- `lxa repo add jpshackelford/ohtv` re-created "Unnamed Board 1" because the container is ephemeral — board state is per-container, so this is expected each respawn (not a bug, just noise).
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
