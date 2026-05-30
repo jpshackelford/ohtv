@@ -1745,3 +1745,96 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 16:48 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `37e6b4a` | testing | PR #159 - gen objs key variant warming | **NEW** |
+
+**Spawned: Testing Worker**
+- PR: [#159 — feat(gen-objs): warm key cache variants when context auto-promotes (#145)](https://github.com/jpshackelford/ohtv/pull/159)
+- Issue closed: [#145](https://github.com/jpshackelford/ohtv/issues/145)
+- Branch: `feat/gen-objs-key-variants-145`
+- Conversation: [`37e6b4a`](https://app.all-hands.dev/conversations/37e6b4a2ca50468b8f79642ac45bffef) (`sandbox=RUNNING, execution_status=idle` at spawn — transitioning to `running` on first agent step)
+
+**Step 0 — Setup:** Same `/usr/local/lib/python3.13/site-packages` read-only pattern as the last several cycles. `uv venv` + `uv pip install` `lxa` + `ohtv` from git in the orchestrator's tooling venv. `lxa repo add` ran (created an unnamed board — cosmetic, ignored). `ohtv sync` started but hit a `--quiet` quirk where it idled past the soft timeout without output; orchestrator inputs came from direct `gh` + `app-conversations/search` queries instead, so the sync was unnecessary this cycle.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md was 1,747 lines at wake-up. Growth since 13:48Z truncation: 1,287 → 1,747 = +460 over ~3h / 6 cycles (~77 lines/cycle, holding steady). Still below the ~2,000-line mark for the next archive pass. Last archive `WORKLOG_ARCHIVE_2026-05-30.md` untouched.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`grep -c "^## INSTRUCTION:" WORKLOG.md` → 0).
+
+**Step 2/3 — Active workers at cycle entry:**
+- `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` shows the impl worker `c1d4764b` (spawned last cycle for #145) as `execution_status=finished, sandbox=RUNNING, updated_at=16:35:07Z` — **completed cleanly**. Total elapsed: spawn 16:18Z → finish 16:35Z = **~17 minutes** for a feat-sized impl (frontmatter parser tweak + opportunistic-variant warming hook + 3 unit test files + DRAFT→ready CI cycle). Faster than the 30-60 min forecast — sandbox-warm spawn + tight scope.
+- Both worker slots **CLEAR at cycle entry**. No ghost cycles.
+
+**Step 4 — State gather:**
+
+- **Open PRs**: **1** (`#159`).
+  - `lxa pr list "jpshackelford/ohtv#159"` → `oA  green  ready  --  16m  11m ago`. Decode: opened → Approved by `pr-review` bot, CI green, ready state, 0 review comments, 16-min-old PR, last activity 11 min ago.
+  - `gh pr view 159 --json` confirms: `reviewDecision=APPROVED`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, all 4 checks SUCCESS (`pr-review` x2 — one auto-skipped one ran, `lint`, `pytest`).
+  - **Files changed (8):** `src/ohtv/analysis/objectives.py`, `src/ohtv/prompts/{discovery,parser,metadata}.py`, `src/ohtv/prompts/objs/standard_assess.md`, 3 test files (`test_key_variant_warming.py`, `test_cache_alias_promoted_context.py`, `test_parser.py`).
+  - **No `README.md` in diff. No docs comment. No manual test results comment.**
+
+- **Issue census** (post-#148 cluster close, #145 impl in PR):
+  - Needs expansion: **0** — **46th consecutive idle expansion cycle**.
+  - Ready + prioritized: **#145** (`priority:low`) — still open until PR #159 merges (PR says `Closes #145` via the conventional commit subject).
+  - On hold: #90, #26.
+
+**Step 5 — Decision-tree row analysis:**
+
+PR #159 is `ready + CI green + APPROVED` but has no manual test results comment. The two relevant rows are:
+1. *"PR exists, ready, CI green, README not updated → Spawn docs worker"*
+2. *"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker"*
+
+**Docs short-circuit applied:** The orchestrate skill's docs-exemption rule states *"Do NOT require docs update if only: Internal refactoring (no user-facing changes), Bug fixes that don't change documented behavior, Test-only changes, Performance improvements"*. PR #159 is internal cache-warming under-the-hood behavior + a new `key_variants` frontmatter field that's backward-compatible for user-customized prompts (existing prompts without the field still load). No new CLI commands, no new flags, no new env vars, no changed defaults, no changed output formats. This is item 4 (performance / cache warming). **Docs not required.**
+
+Note: even with `reviewDecision=APPROVED`, the testing gate is independent and required per orchestrate skill (*"Testing IS required regardless of approval. CI must be green to test."*). The `pr-review` bot's auto-approval doesn't satisfy the manual-test prerequisite.
+
+**Decision-tree row matched:** *"PR exists, ready, CI green, docs updated [N/A — short-circuit], no manual test results → Spawn testing worker"*.
+
+**Step 6 — Spawn dispatch:** ✅ Testing worker spawned (PR slot).
+
+**Spawn payload highlights** (sent to `POST /api/v1/app-conversations`):
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`, `repo_path=skills/manual-test.md` (dict schema — first-try success, no retry).
+- `pr_number=[159]`, `selected_repository=jpshackelford/ohtv`, `git_provider=github`.
+- **Initial message walks 8 numbered steps:**
+  1. Clone + `gh pr checkout 159` + `uv sync`.
+  2. Read PR diff focused on the 5 critical source seams.
+  3. Read issue #145 body for the 10 ACs.
+  4. Full unit-test suite (`uv run python -m pytest tests/unit/ -x --timeout=60`).
+  5. **Six blackbox tests (A–F):**
+     - **A** — frontmatter parser handles `key_variants` + backwards-compat for prompts without the field.
+     - **B** — opportunistic warming triggers on context promotion (multiple cache entries appear from a single `gen objs` invocation).
+     - **C** — cache-hit skip on re-run (\$0 cost evidence).
+     - **D** — per-variant failure isolation (AC #7; skippable if >10 min setup, marked NOT EXECUTED).
+     - **E** — primary-only cost semantics (AC #6).
+     - **F** — no-promotion path unchanged (regression guard for conversations that don't trigger promotion).
+  6. Targeted re-run of the three new test files for symmetry.
+  7. Post structured test report comment with the standard `## Manual Test Results — PR #159` schema (commit SHA, env, automated test summary, blackbox table, verdict checkbox, rating, AI-disclosure footer).
+  8. EXIT (no review, no merge, no code modification).
+- **Hard rules in prompt:** no commits to branch, no draft-state flips, no thread resolves, partial report if setup blocks (don't hang the slot).
+
+**Start task progression:** Spawn task `11ad663a` → conversation `37e6b4a2ca50468b8f79642ac45bffef` materialized in ~8s (`sandbox=RUNNING, execution_status=idle`). The status-check endpoint (`/api/v1/app-conversations/start-tasks/{id}`) returned HTML for both forms tried this cycle — same pattern as prior cycles, the V1 endpoint surfaces only via the GUI route; using `/app-conversations/search` to poll the materialized conversation works around it. Documented here so future cycles can skip the discovery dance again.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned testing worker — the required gate between impl-complete and merge). **Fifty-seventh consecutive productive cycle.** Not at risk.
+
+**Next cycle expectations (~17:18Z window):**
+- Testing worker `37e6b4a` turnaround: typical run is **15-30 min** (clone, `uv sync`, read diff, run unit tests, design+execute 6 blackbox scenarios, post structured comment, exit). Plausible states at next cycle:
+  - **Most likely (~65%)**: Worker finished, structured test report posted, all gates green. Decision-tree row: *"PR exists, ready, CI green, test results valid, good rating, docs valid → Spawn merge worker"*. Straight to merge.
+  - **Likely (~20%)**: Worker still in flight at 17:18Z (especially if Test D — failure isolation — pulls them into a deeper investigation). Wait cycle, counter stays at 0.
+  - **Less likely (~10%)**: Test report posted with minor concerns (e.g., Test D NOT EXECUTED + a noted quirk). Still mergeable per `acceptable` rating — spawn merge worker with a note.
+  - **Edge (~5%)**: Blackbox tests surface a genuine bug or behavioral discrepancy from the ACs → spawn review worker (PR goes back to draft).
+
+**Backlog forecast post-#159 merge:**
+- #159 ships → semantic-release picks `feat(gen-objs):` → **minor bump → `ohtv-v0.20.0`**. Cluster line extends: v0.17.0 (PR #154) → v0.18.0 → v0.18.1 → v0.19.0 → v0.19.1 (PR #158) → **v0.20.0 (PR #159)**. Six releases over ~7 hours.
+- After #145/#159 ships: prioritized backlog **EMPTY**. Auto-disable counter starts accruing on the next quiet cycle (0 → 1 → 2 → disable over ~90 min) unless: (a) human files new issue, (b) #90 / #26 get unblocked. Within ~3-5 cycles of the auto-disable horizon.
+
+**Sync notes:**
+- `ohtv sync` invoked with `--quiet` and a 4h window; hit a soft-timeout without producing output. Bailed and used direct `gh` + `/app-conversations/search` queries. Same pattern as the 16:18Z cycle. Worth investigating in a follow-up issue if it recurs — `ohtv sync --quiet` may be eating spinner output without making progress, or the cloud listing endpoint is timing out on this network path.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
