@@ -1159,16 +1159,14 @@ def _run_post_sync_processing(quiet: bool, verbose: bool, no_llm: bool = False, 
         no_llm: Skip LLM-powered analysis (summaries won't be generated)
         no_embed: Skip embedding generation
     """
-    from ohtv.db import get_connection, migrate, scan_conversations
+    from ohtv.db import get_ready_connection, scan_conversations
     from ohtv.db.stages import STAGES
     from ohtv.db.stores import ConversationStore, StageStore
     
     if not quiet:
         console.print("\n[bold]Running processing stages...[/bold]")
     
-    with get_connection() as conn:
-        migrate(conn)
-        
+    with get_ready_connection(show_progress=not quiet) as conn:
         # Scan to register any new conversations
         scan_result = scan_conversations(conn)
         conn.commit()
@@ -2400,7 +2398,7 @@ def _filter_by_label(
     Returns:
         Filtered list of conversations matching the label
     """
-    from ohtv.db import get_connection, get_db_path, migrate
+    from ohtv.db import get_db_path, get_ready_connection
     from ohtv.db.stores import ConversationStore
     from ohtv.filters import filter_conversations_by_ids
     
@@ -2424,8 +2422,7 @@ def _filter_by_label(
         return []
     
     try:
-        with get_connection() as conn:
-            migrate(conn)
+        with get_ready_connection() as conn:
             store = ConversationStore(conn)
             matching = store.list_by_label(key, value)
             
@@ -2459,7 +2456,7 @@ def _count_uncached_conversations_fast(
         Number of conversations that need LLM analysis
     """
     try:
-        from ohtv.db import get_connection, get_db_path, migrate
+        from ohtv.db import get_db_path, get_ready_connection
         from ohtv.db.stores import AnalysisCacheStore
         from ohtv.analysis.cache import make_cache_key
         
@@ -2474,8 +2471,7 @@ def _count_uncached_conversations_fast(
         # Normalize conversation IDs (remove dashes)
         conv_ids = [c.lookup_id.replace("-", "") for c in conversations]
         
-        with get_connection() as conn:
-            migrate(conn)
+        with get_ready_connection() as conn:
             store = AnalysisCacheStore(conn)
             
             # Get cache status for all conversations in one query
@@ -2794,7 +2790,7 @@ def search(
       ohtv search "error 404" --exact           # Keyword search
       ohtv ask "how did we fix the auth bug"    # For question answering
     """
-    from ohtv.db import get_connection, get_db_path, migrate
+    from ohtv.db import get_db_path, get_ready_connection
     from ohtv.db.stores import ConversationStore, EmbeddingStore
     
     _init_logging(verbose=verbose)
@@ -2806,8 +2802,7 @@ def search(
         console.print("[dim]Run 'ohtv db scan' and 'ohtv db embed' first.[/dim]")
         raise SystemExit(1)
     
-    with get_connection() as conn:
-        migrate(conn)
+    with get_ready_connection(show_progress=True) as conn:
         
         embed_store = EmbeddingStore(conn)
         conv_store = ConversationStore(conn)
@@ -3161,7 +3156,7 @@ def ask(
       ohtv ask "explain the auth fix in detail" --agent  # Multi-turn investigation
       ohtv ask "what PRs were created?" --agent --max-steps 10  # More investigation steps
     """
-    from ohtv.db import get_connection, get_db_path, migrate
+    from ohtv.db import get_db_path, get_ready_connection
     from ohtv.db.stores import ConversationStore, EmbeddingStore, LinkStore, ReferenceStore, RepoStore
     from ohtv.analysis.rag import RAGAnswerer, RAGRetriever
     from ohtv.filters import parse_date_filter
@@ -3195,8 +3190,7 @@ def ask(
     config = Config.from_env()
     cloud_base_url = config.cloud_api_url
     
-    with get_connection() as conn:
-        migrate(conn)
+    with get_ready_connection(show_progress=True) as conn:
         
         embed_store = EmbeddingStore(conn)
         conv_store = ConversationStore(conn)
@@ -5331,14 +5325,13 @@ def _ensure_refs_indexed(conv_id: str, conv_dir: Path, verbose: bool = False) ->
     
     Runs scan + refs processing if needed, silently.
     """
-    from ohtv.db import get_connection, migrate
+    from ohtv.db import get_ready_connection
     from ohtv.db.models import Conversation
     from ohtv.db.scanner import count_events, get_events_mtime
     from ohtv.db.stages import process_refs
     from ohtv.db.stores import ConversationStore, StageStore
     
-    with get_connection() as conn:
-        migrate(conn)
+    with get_ready_connection(show_progress=True) as conn:
         
         # Check if conversation needs processing
         conv_store = ConversationStore(conn)
@@ -6863,7 +6856,7 @@ def db_process(stage: str, force: bool, conversation: str | None, verbose: bool)
       human_input    - Count human words/messages (initial prompt + follow-ups)
       all            - Run all stages in sequence
     """
-    from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
+    from ohtv.db import get_db_path, get_ready_connection, scan_conversations
     from ohtv.db.stages import STAGES
     from ohtv.db.stores import ConversationStore, StageStore
     
@@ -6879,7 +6872,7 @@ def db_process(stage: str, force: bool, conversation: str | None, verbose: bool)
 
 def _run_process_stage(stage: str, force: bool, conversation: str | None, verbose: bool) -> None:
     """Run a single processing stage."""
-    from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
+    from ohtv.db import get_db_path, get_ready_connection, scan_conversations
     from ohtv.db.stages import STAGES
     from ohtv.db.stores import ConversationStore, StageStore
     
@@ -6894,8 +6887,7 @@ def _run_process_stage(stage: str, force: bool, conversation: str | None, verbos
     if not db_path.exists():
         console.print("[dim]Initializing database...[/dim]")
     
-    with get_connection() as conn:
-        migrate(conn)
+    with get_ready_connection(show_progress=True) as conn:
         
         # Auto-scan to ensure conversations are registered
         scan_result = scan_conversations(conn)
@@ -7013,7 +7005,7 @@ def db_scan(force: bool, remove_missing: bool, verbose: bool, lock_timeout: floa
     to wait up to N seconds for the lock instead of failing fast.
     """
     from ohtv.progress import make_progress
-    from ohtv.db import get_connection, get_db_path, migrate, scan_conversations
+    from ohtv.db import get_db_path, get_ready_connection, scan_conversations
 
     db_path = get_db_path()
 
@@ -7023,8 +7015,7 @@ def db_scan(force: bool, remove_missing: bool, verbose: bool, lock_timeout: floa
 
     try:
         with sync_lock(timeout=lock_timeout, label="scan"):
-            with get_connection() as conn:
-                migrate(conn)
+            with get_ready_connection(show_progress=True) as conn:
 
                 # Use progress bar for scan
                 with make_progress(
@@ -7228,15 +7219,14 @@ def db_index_cache(verbose: bool) -> None:
     """
     from datetime import datetime
     from ohtv.progress import make_progress
-    from ohtv.db import get_connection, migrate
+    from ohtv.db import get_ready_connection
     from ohtv.db.stores import AnalysisCacheStore, ConversationStore
     from ohtv.db.stores.analysis_cache_store import AnalysisCacheEntry, AnalysisSkipEntry
     from ohtv.analysis.cache import load_analysis
     
     config = Config.from_env()
     
-    with get_connection() as conn:
-        migrate(conn)
+    with get_ready_connection(show_progress=True) as conn:
         
         conv_store = ConversationStore(conn)
         cache_store = AnalysisCacheStore(conn)
@@ -7511,7 +7501,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
     """
     from ohtv.progress import make_progress
     from rich.prompt import Confirm
-    from ohtv.db import get_connection, get_db_path, migrate
+    from ohtv.db import get_connection, get_db_path, get_ready_connection
     from ohtv.db.stores import ConversationStore, EmbeddingStore
     from ohtv.analysis.embeddings import (
         EmbeddingStats, estimate_cost, get_embedding_model, embed_conversation_full,
@@ -7527,8 +7517,7 @@ def db_embed(force: bool, estimate: bool, yes: bool, verbose: bool) -> None:
     if not db_path.exists():
         console.print("[dim]Initializing database...[/dim]")
     
-    with get_connection() as conn:
-        migrate(conn)
+    with get_ready_connection(show_progress=True) as conn:
         
         conv_store = ConversationStore(conn)
         embed_store = EmbeddingStore(conn)

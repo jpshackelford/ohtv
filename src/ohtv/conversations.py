@@ -157,28 +157,20 @@ def _get_conversations_from_filesystem(
 
 def is_db_available_with_metadata() -> bool:
     """Check if database is available and has metadata populated.
-    
-    Useful for determining whether fast path is available.
-    Note: This doesn't run maintenance - use get_conversations() for that.
+
+    Useful for determining whether fast path is available. Maintenance is
+    applied transparently via :func:`get_ready_connection` (AGENTS.md item
+    #25), so this probe is safe to call on a fresh checkout.
     """
     try:
-        from ohtv.db import get_connection, get_db_path, migrate
+        from ohtv.db import get_db_path, get_ready_connection
         from ohtv.db.stores import ConversationStore
-        from ohtv.db.maintenance import get_pending_tasks
-        
+
         db_path = get_db_path()
         if not db_path.exists():
             return False
-        
-        with get_connection() as conn:
-            migrate(conn)
-            
-            # If there are pending maintenance tasks, we may need to run them
-            # Return True so that get_conversations() will run them
-            pending = get_pending_tasks(conn)
-            if pending:
-                return True  # Let get_conversations handle maintenance
-            
+
+        with get_ready_connection() as conn:
             store = ConversationStore(conn)
             return store.count_with_metadata() > 0
     except Exception:
