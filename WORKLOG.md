@@ -2,6 +2,45 @@
 
 ## Log
 
+### 2026-05-30 16:33 UTC - Implementation Worker (Issue #145)
+
+**Issue:** #145 — when `gen objs` promotes to full context, use it to generate key variants (priority:low; #149 unblocked it earlier today via PR #157)
+
+**PR:** [#159 — feat(gen-objs): warm key cache variants when context auto-promotes (#145)](https://github.com/jpshackelford/ohtv/pull/159) — opened DRAFT, CI green (lint ✅, pytest ✅, pr-review skipped on draft), then marked **ready-for-review** to trigger the review bot.
+
+**What landed:**
+- Frontmatter contract: `PromptMetadata.key_variant_on_promotion: bool = False` (parsed in `prompts/parser.py`).
+- Discovery helper: `prompts/discovery.py:list_key_variants_on_promotion(family)` — single source of truth for the candidate set. No hardcoded variant lists in `objectives.py`.
+- Opt-in: only `src/ohtv/prompts/objs/standard_assess.md` flips `key_variant_on_promotion: true` in this PR (per AC #2). Detailed/brief/etc. stay opt-out — follow-up issues can flip them after team review of cost/benefit.
+- Refactor: extracted `_run_single_analysis(...)` from the inline LLM block so primary + fan-out share the framed-transcript + LLM-call + JSON-parse + `ObjectiveAnalysis`-construction code.
+- Fan-out: `_warm_key_variant_cache(...)` runs after primary cache-save, only when `effective_context != context`. Cache-probe-then-LLM per variant; `try/except` per variant so failures never bubble to the caller; INFO summary log line aggregates variant costs separately so `AnalysisResult.cost` stays primary-only.
+
+**Tests added:** 3 AC-mandated unit tests in `tests/unit/analysis/test_key_variant_warming.py` (promotion → primary+variants all cached, pre-populated variant → LLM skipped, one variant raises → primary + other variant survive), plus parser + discovery unit tests in `tests/unit/prompts/test_parser.py`. Existing `test_cache_alias_promoted_context.py` updated to account for the variant LLM call on the first analyze.
+
+**Test matrix:**
+- `uv run python -m pytest tests/unit/analysis -q` → 426 passed
+- `uv run python -m pytest tests/ -q` → 2214 passed, 2 skipped, 3 xfailed
+- `uv run ruff check` on touched files → clean
+- GHA CI: lint ✅ (3s), pytest ✅ (57s), pr-review skipped (draft, then ready)
+
+**Cache-invalidation note** (called out in PR description): adding the new frontmatter line to `standard_assess.md` bumps that prompt's `content_hash`, so existing cached `standard_assess` analyses go stale and re-generate lazily on the next `gen objs` per conversation. Documented one-time cost.
+
+**Hard guardrails maintained:**
+- Cache-key format unchanged (`assess=…,context_level=…,detail_level=…`) — #149's contract byte-stable.
+- 5-level context ladder unchanged.
+- `AnalysisResult.cost` semantics primary-only (AC #6).
+- Variant set 100% metadata-driven (AC #1, no hardcoded lists in `objectives.py`).
+- No new LLM-batch surface; single-call-per-variant.
+- Auto-promotion trigger conditions unchanged.
+
+**Possible follow-up issues** (NOT in this PR's scope — orchestrator's decision whether to file):
+- Flip `objs/detailed_assess.md` to `key_variant_on_promotion: true` once usage justifies the extra LLM call (technical-approach comment explicitly recommended opt-out for this variant in initial PR).
+- Pre-existing maintenance-task error surfaced during testing: `cache_index_backfill_005 failed: make_cache_key() got an unexpected keyword argument 'context_level'` (orthogonal to #145; lives in `db/maintenance.py`).
+
+Worker exiting cleanly. Docs / testing / review / merge are separate handlers per orchestrator contract.
+
+
+
 ### 2026-05-30 15:20 UTC - Orchestrator (spawned testing worker for PR #158)
 
 **Active Workers (at cycle exit):**
