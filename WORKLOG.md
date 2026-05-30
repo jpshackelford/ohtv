@@ -2,6 +2,81 @@
 
 ## Log
 
+### 2026-05-30 12:18 UTC - Orchestrator (impl-worker spawn for #149)
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `50edf47` | implementation | Issue #149 - Expand context levels from 3 to 5 | **NEW** |
+
+**Spawned: Implementation Worker** for [#149](https://github.com/jpshackelford/ohtv/issues/149) (`priority:high`)
+- Conversation: [`50edf47`](https://app.all-hands.dev/conversations/50edf47b6d0844fc91b770a39f4dd82e) — start task `a460d15b…`, `execution_status=running`, `sandbox_status=RUNNING` at spawn verification.
+- Plugin: `github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin`.
+
+**Step 0 — Setup:** container respawned this cycle. `uv pip install --system` failed with `/usr/local/lib/python3.13/site-packages` read-only (same recurring pattern across container respawns). Fallback to `uv tool install` succeeded — both `lxa` and `ohtv` resolved at `/home/openhands/.local/bin/`. `gh auth status` required `export GH_TOKEN="$github_token"` bridge (same cron-config-level fix pending). `ohtv sync --since 4h` ran clean (no output = nothing new since 11:53Z cutoff). `git pull origin main --rebase` → `Already up to date` (HEAD at `a93e376` `chore(worklog): PR #156 merge complete`).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at 2,158 lines — third cycle in a row over the 300-line truncation threshold. Productive-entry density: every cycle since 07:55Z has been a cluster-pipeline step (impl → docs → test → merge × 5). 6-hour productive window from 12:18Z reaches back to ~06:18Z, still inside the 07:55Z impl spawn. **Truncation deferred for the third cycle** — the #122 cluster's tail is finally closed (PR #156 merged 11:53Z), so the next natural truncation point is once 07:55Z ages out of the productive window (~14:00Z cycle). **Flagging for next cycle's housekeeping pass.**
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`grep -n "## INSTRUCTION:" WORKLOG.md` → all matches are historical `0 unacknowledged` markers, no actionable entries).
+
+**Step 2/3 — Active workers at cycle entry:**
+- Prior merge worker `b732cd1b` for PR #156: `execution_status=finished`, `sandbox_status=RUNNING` (still cooling down — PR merged at 11:53Z, ~25 min before cycle entry). PR slot CLEAR.
+- Prior orchestrator `8929ca83`: `execution_status=null`, `sandbox_status=MISSING` (terminated).
+- Only this orchestrator (`dac424c7`) shows `execution_status=running` on conv-search. **Both slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs**: **0** (`gh pr list --state open` empty). #122 cluster fully closed — PR #156 merged `48e6f2a1` at 11:53:08Z, semantic-release fired `ohtv-v0.18.1` (release commit `c4b8526`, published 11:55:04Z). Tag list confirms: `ohtv-v0.18.1` (latest), `ohtv-v0.18.0`, `ohtv-v0.17.0`, `ohtv-v0.16.2`, `ohtv-v0.16.1` — the full cluster's release trail.
+- **Issues needing expansion** (no `ready`, no `hold`): **0**. **39th consecutive idle expansion cycle.**
+- **Ready + prioritized**: **0** (the just-merged #128 was the last `priority:high` graduate).
+- **Ready + unprioritized**: 3 — #149, #148, #145. **PR-slot decision-tree row matched**: *"No open PR + ready issues, no priority → Run `/assess-priority` inline, then spawn impl worker"*.
+- **On hold**: #90 (`priority:medium`), #26.
+- **Recently CLOSED noted**: #126 (`classify` policy — the last cluster sibling) is now `state=CLOSED` despite the 11:53Z worklog entry calling it "unprioritized, queued for next impl pick". Closure cause not investigated this cycle — likely either auto-closed by a PR not in the ohtv repo, or manually closed by @jpshackelford as superseded by the cluster work. Removing it from the impl-pick candidate set.
+
+**Step 5 — `/assess-priority` inline pass:**
+
+| Issue | Impact | Urgency | Complexity | Dependencies | Risk | → Priority |
+|---|---|---|---|---|---|---|
+| **#149** Expand context levels 3→5 for `gen objs` | **High** (core analytical surface; feeds RAG embeddings) | Medium | High (rename levels, refactor auto-promotion, 6 prompt files, breaking) | **Blocks #145** | Medium | **HIGH** ⬅️ NEXT |
+| #148 Suppress LiteLLM botocore warnings at import | Low (cosmetic — visible right here in my own session: `LiteLLM:WARNING: common_utils.py:979 …`) | Low | **Very Low** (2-line `_os.environ.setdefault("LITELLM_LOG", "ERROR")` in `__init__.py` + 3 subprocess tests; expansion comment is impeccable — diagnoses logging-vs-warnings channel, explains why `setdefault` is correct, refutes the orchestrator's incorrect `warnings.filterwarnings` suggestion) | None | Very Low | **MEDIUM** (quick win) |
+| #145 Key-variant fan-out on promotion | Medium (opportunistic cache-warm) | Low (no user-facing surface) | Medium (refactor `_run_single_analysis` extraction + fan-out loop + metadata + discovery helper) | **BLOCKED BY #149** (issue's own technical comment cites hostile merge conflict) | Low | **LOW** (deferred until #149 lands) |
+
+**Labels applied** this cycle:
+- `gh issue edit 149 --add-label priority:high`
+- `gh issue edit 148 --add-label priority:medium`
+- `gh issue edit 145 --add-label priority:low`
+
+**Decision rationale (why #149 over #148's quick-win)**: priorities are NOT tied — the orchestrate skill's tie-breaking rule about "prefer lower complexity" only applies when impact/urgency are equal. #149 wins on raw impact AND on the dependency-unblock dimension (gates #145). #148 picks up automatically next PR-slot cycle once #149's PR ships.
+
+**Step 6 — Spawn dispatch** (one action per wake-up per orchestrate-skill contract):
+- Payload: `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (impl worker creates `feat/gen-objs-5-context-levels-149` from main), `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`, `initial_message.content[].type=text`, `run=true`. Prompt body = ~8.2KB.
+- POST `/api/v1/app-conversations` with `X-Session-API-Key: $OPENHANDS_API_KEY` → start task `a460d15b…` returned `status=WORKING`. Poll loop → `READY` at ~16s with `app_conversation_id=50edf47b…`. Verification call `/app-conversations?ids=50edf47b…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
+
+**Prompt highlights** (baked into the spawn brief — surfaced here for the audit trail):
+1. **Level-name choice deferred to the impl worker** — issue body proposes `minimal/default/dialogue/full/complete`; the 22:11Z follow-up proposes content-describing alternatives like `intent/outcome/reasoning/execution/observations`. Worker picks at impl time and documents the chosen set in the PR body. **PM decision** explicitly green-lit breaking changes (no `default`/`full` aliases preserved).
+2. **Auto-promotion ladder refactor** — reference implementation embedded in the brief (the `CONTEXT_LEVEL_ORDER` + `while not data.items` loop from the 22:10Z comment). Brief instructs to extract the ladder into a small reusable helper so **#145's fan-out** plugs into a clean function boundary on its next-cycle implementation.
+3. **`analysis_cache` invalidation policy** — let old entries fall stale (re-keyed by new level names); next `gen objs` run re-generates. **Do NOT** write a migration that rewrites old cache keys to new ones (that would be "reverse-engineering name mappings under 'breaking change is OK'" — wrong shape per AGENTS.md item 6 + 23). Same applies to `embeddings.cache_key` per AGENTS.md item 23 — `ohtv db status` already surfaces missing embeddings by cache_key and `ohtv db embed` will re-embed on next run.
+4. **Squash subject guidance for the eventual merge worker** — cluster precedent (PR #154 / PR #155 — both default-flip surfaces): `feat(<scope>): <summary> (#149)` + `BREAKING CHANGE:` footer → `major_on_zero=false` bumps to next **minor** with `⚠ BREAKING CHANGES` CHANGELOG section. Target tag: **`ohtv-v0.19.0`** (next after the just-shipped `v0.18.1`).
+
+**Backlog state outlook (after #149 PR lands):**
+- **#145** unblocked — should graduate from `priority:low` → `priority:medium` next priority-reassessment.
+- **#148** becomes the natural next PR-slot pick (already `priority:medium`, 2-line quick win, plugin worker can ship it inside a single cycle).
+- Expansion slot stays IDLE until a new issue is filed.
+
+**Next cycle expectations (~12:48Z window):**
+- Impl worker `50edf47` turnaround: **2-4 hours** is realistic (5-level refactor + 6 prompt files + tests + 8 ACs to reflect on). Per the recent cluster precedent (PR #154 impl: 4 hours from spawn to ready-for-review; PR #155 impl: 3.5 hours), expect this is **still running** at next cycle entry. PR slot stays OCCUPIED.
+- Most likely next-cycle state:
+  - **`50edf47` still running**, no PR yet → orchestrator logs "PR slot occupied, expansion idle" entry; expansion slot stays idle (nothing to spawn); auto-disable counter ticks to 1 (because this would be the first quiet cycle in a productive streak — but the PR slot being occupied isn't actually "quiet" in the spirit of the rule; need to log productively).
+  - **`50edf47` finished, PR opened in draft, CI still cooking** → orchestrator notes the PR but waits for ready-for-review flip (impl-worker contract is to ship ready, not draft).
+  - **`50edf47` finished, PR ready-for-review, CI green** → docs/test/review pipeline kicks in. README updates needed (new `--context` choice list, auto-promotion ladder behaviour) → docs worker first per workflow-sequence rule.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned impl worker for `priority:high` issue + applied 3 priority labels). **Fifty-second consecutive productive cycle.** Not at risk.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-30 11:53 UTC - Merge worker (PR #156) — **#122 cluster CLOSED**
 
 **Merged**: [PR #156](https://github.com/jpshackelford/ohtv/pull/156) — `fix(rag): cite root_conversation_id in ask/search results (#128)`
