@@ -2277,3 +2277,43 @@ _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-30 01:48 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e93754b` | implementation | Issue #123 - report weekly-counts over-counts subs | **NEW** |
+
+**Spawned: Implementation Worker**
+- Issue: [#123 - `report weekly-counts` over-counts when sub-conversations exist](https://github.com/jpshackelford/ohtv/issues/123) (priority:medium)
+- Conversation: [`e93754b`](https://app.all-hands.dev/conversations/e93754b0bfc947c7945b9ec985893d70)
+- Branch suggestion in spawn brief: `fix/weekly-counts-root-grain-123`
+- Conventional commit type: `fix:` (patch bump per AGENTS.md release contract)
+
+**Current State:**
+- 0 unacknowledged `## INSTRUCTION:` entries.
+- **PR slot:** was empty after PR #151 merged at 01:24Z. Now occupied by the new impl worker.
+- **Expansion slot:** OPEN, IDLE. 0 issues need expansion (no label-less open issues; the 8 `ready` issues span the queue's bottom). **Becomes the 23rd consecutive idle expansion cycle if next cycle still finds nothing to expand.**
+- **Ready issues backlog (8):** #123 (now impl), #124, #125, #127, #128 all `priority:medium` (sub-conversation roll-up siblings of #122 foundation); #145 (sequencing-blocked behind #149), #148 (litellm warning suppression), #149 (5-level context expansion).
+- **Why #123:** lowest-numbered `priority:medium` ready issue. All five `priority:medium` issues are tied; per worklog convention (and the merge worker's hand-off note), tie-break is lowest issue number. #145/#148/#149 are unprioritized and would only be picked after the `priority:medium` tier drains.
+- **Sequencing note:** #123–#128 are independent of each other once #122's foundation landed (PR #138, merged earlier today). Each can be implemented in any order; the impl worker has a self-contained brief that consumes `list_roots` + `conversations_by_root` without touching the other roll-up commands.
+
+**Sync notes:**
+- Container respawned this cycle. `uv venv` + `uv pip install git+...lxa.git git+...ohtv.git` to a local `.venv` (the `--system` path still hits read-only `/usr/local/lib/python3.13/site-packages` per prior cycle's note — recording again for next respawn). `ohtv sync --since 4h` succeeded silently with `OPENHANDS_API_KEY` in the env.
+- `gh` authenticated via `GH_TOKEN=$github_token`.
+- Spawn payload posted directly to `POST /api/v1/app-conversations` (X-Access-Token auth); start task `e53cf291` → `SETTING_UP_SKILLS` → `READY` in two polls (~8s); conversation `e93754b` is `execution_status=running`, `sandbox_status=RUNNING` at verification time.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (impl worker spawned). **Thirty-third consecutive productive cycle.** Not at risk of auto-disable.
+
+**Worklog size:** 2279 lines pre-entry. Truncation threshold (300) exceeded by ~7×. Deferred to the next quiet cycle to avoid mixing a truncation commit with the spawn-decision entry; the `truncate-worklog` skill should be run when the PR slot is genuinely idle.
+
+**Next cycle expectations:**
+- Impl worker `e93754b` likely still running (impl cycles on this codebase have been averaging ~30–60 min based on recent worklog entries for #143/#144/#147/#151).
+- If finished: PR exists, draft → CI green path → **docs worker required** (`report weekly-counts` is a user-facing CLI command per AGENTS.md item #29; README's Reports section needs the root-grain caveat documented) → testing → review → merge.
+- If still running: log `All quiet`-style status; do NOT spawn duplicate.
+- Expansion slot stays idle until the human files new issues.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
