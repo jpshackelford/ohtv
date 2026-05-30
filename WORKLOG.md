@@ -1405,3 +1405,76 @@ EXIT per orchestrate skill — implementation done, PR ready for review, orchest
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 03:50 UTC - Orchestrator
+
+**Active Workers (at cycle exit):**
+| Conv ID   | Type    | Working On                                                          | Status          |
+|-----------|---------|---------------------------------------------------------------------|-----------------|
+| `366ad04` | testing | PR #153 — `fix(reports): aggregate velocity at root grain (#124)`   | **NEW** running |
+
+🧪 **Spawned: Testing Worker for PR #153**
+
+- **PR**: [#153](https://github.com/jpshackelford/ohtv/pull/153) — `fix(reports): aggregate velocity at root grain (#124)`
+- **Issue**: [#124](https://github.com/jpshackelford/ohtv/issues/124)
+- **Branch**: `fix/velocity-root-grain-124`
+- **Conversation**: [`366ad04`](https://app.all-hands.dev/conversations/366ad04805014a6abc8c2bb69cc63f50) — `execution_status=running`, `sandbox_status=RUNNING`, `selected_repository=jpshackelford/ohtv` at 03:50:18Z (READY after 1 poll / ~6s; start task `d0d45e75`).
+- **Plugin**: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+
+**Current State:**
+
+- [PR #153](https://github.com/jpshackelford/ohtv/pull/153): `oA green ready` (lxa-equivalent), 💬 0 review threads, age 23m
+  - **CI**: lint=SUCCESS, pytest=SUCCESS, pr-review=SUCCESS — all checks green at single commit [`66ea5cd`](https://github.com/jpshackelford/ohtv/pull/153/commits/66ea5cd) (03:26:57Z)
+  - **Review**: APPROVED by `github-actions` `pr-review` bot at 03:31:16Z. Verdict: 🟢 LOW risk, "Good taste — elegant fix that eliminates the double-counting bug by changing the join grain from conversation to root. Worth merging — minimal, well-documented, thoroughly tested." Key insight noted: "fixes by changing the data structure (join key) rather than adding conditionals — the double-counting simply cannot occur when the DISTINCT is keyed on root grain."
+  - **Mergeable**: `MERGEABLE` / `CLEAN`
+  - **Manual test results**: **NONE** ← this cycle's gap
+  - **No commits since review submission at 03:31:16Z** → not outdated; once tests land, merge gate is one orchestrator hop away.
+- **Issues**: 7 `ready` (#124 now PR #153, #125, #127, #128 all `priority:medium`; #145, #148, #149 no priority), 0 need expansion, 2 on `hold` (#26, #90).
+
+**Decision-tree trace:**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`grep -E "^## INSTRUCTION:" WORKLOG.md` → empty).
+- **Step 2 — Active workers**: prior impl worker `2a022b3` for PR #153 = `execution_status=finished`, `sandbox_status=RUNNING` (sandbox not yet reaped but conv done — entered terminal state after posting its hand-off entry at 03:35Z). All other recent worker conv IDs (`37e670a`, `06ac1e1`, `e93754b`, `1c2eba0`, `cc8ff6a`, `25468bb`, `7c9951d`, `652ba7e`, `0f04330`) = `PAUSED` with `execution_status=null`. **PR slot CLEAR at cycle entry.**
+- **Expansion slot**: OPEN. `gh issue list … contains(["ready"]) or contains(["hold"]) | not` → empty. Slot stays **IDLE** — backlog is 7 deep on ready, nothing to expand. **25th consecutive idle expansion cycle.** Not at risk of auto-disable because PR slot remains productive.
+- **PR slot**: OPEN at entry. PR #153 ready, CI green, APPROVED, 0 review threads, but **no manual test results posted yet**.
+  - Decision-tree row matched: *"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker"*.
+  - **Docs update skipped per skill rule**: this PR introduces zero user-facing changes (same `report velocity` command, same flags, same `--chart` / `--csv` outputs, same `VelocityRow` dataclass shape). The skill's "Do NOT require docs update if only: ... bug fixes that don't change documented behavior" clause applies. Diff is `src/ohtv/reports/velocity.py` + `tests/unit/reports/test_velocity.py` + `tests/unit/reports/conftest.py` + `uv.lock` (cosmetic). README is unaffected. Same precedent as #152 (which also skipped docs).
+- **Re-test consideration**: N/A — no prior test exists.
+
+**Testing worker brief** explicitly covers:
+- 8 blackbox scenarios A–H mirroring the AC table on PR #153 and #152's proven testing pattern:
+  - A: subless baseline (no-op proof)
+  - B: root+sub same PR same week (the bug)
+  - C: cross-week sub-only contribution (bucket-by-merge week)
+  - D: 2-deep chain root→sub1→sub2
+  - E: LOC accounting unchanged (Lines+, Lines-, Total LOC, partial_loc, missing_loc_count)
+  - F: migration-020 guard fires with correct message
+  - G: chart output stability (`--chart /tmp/v.png` renders)
+  - H (optional): CLI flags / CSV header unchanged
+- Full unit-suite re-run with expected `2039 passed, 2 skipped, 3 xfailed` baseline (2033 from #152 + 6 new from PR #153).
+- Migration-number wording reminder: the guard MUST reference migration **020**, not 019 — same gotcha PR #152 hit, called out explicitly in the brief so the tester knows what to verify in scenario F.
+
+**Sync notes:**
+
+- Container respawned (`/workspace/project/ohtv` already checked out at main, clean tree apart from a stray `uv.lock` mod that `git stash` cleared before pull). Pre-existing virtualenv at `.venv` already had ohtv installed.
+- `uv pip install` needed `--system`/venv flag → switched to `uv sync` followed by `source .venv/bin/activate`, then installed `lxa` via `uv pip install git+...` inside the activated venv. Recording for next respawn: `uv sync && source .venv/bin/activate && uv pip install git+https://github.com/jpshackelford/lxa.git` is the clean sequence.
+- `gh` CLI required `GH_TOKEN` env. The injected secret is `$github_token` (lowercase); `$GITHUB_TOKEN` (uppercase) is empty in this environment. Inline `GH_TOKEN="$github_token" gh ...` works; `export GH_TOKEN="$github_token"` once per session also works after the first command makes the env stick.
+- `ohtv sync --since 4h --quiet` started but didn't return promptly — likely a multi-second silent sync. Not blocking on it since GH state is the orchestrator's source of truth, not local ohtv data this cycle.
+- Spawn POST to `/api/v1/app-conversations` with `X-Access-Token: $OH_API_KEY` returned start task `d0d45e75` in `WORKING` → polled `/start-tasks/search` once → `READY` (very fast this run) → `app_conversation_id=366ad04805014a6abc8c2bb69cc63f50`. Verified `execution_status=running`, `sandbox_status=RUNNING` on conv-search before exit.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (testing worker spawned). **Thirty-sixth consecutive productive cycle.** Not at risk.
+
+**Worklog size:** 1407 lines pre-entry — above the 300-line truncation threshold. **Deferring truncation again** to a future genuinely idle cycle to avoid touching `main` twice while a worker is potentially writing its hand-off entry (testing-worker reports go to PR #153 as a comment, not WORKLOG, so the contention argument is weaker this cycle — but the next genuinely idle cycle remains the cleaner moment). If the next 2 cycles are also productive, force a truncation at that point regardless.
+
+**Next cycle expectations (~04:20-04:30Z window):**
+
+- Testing worker `366ad04` likely `finished` with manual-test report posted on PR #153 covering all 8 scenarios. Sub-conversation testing for scenarios B/C/D may take longer than #152's analogous run since fabricating a realistic root+sub+merged-PR fixture is meatier than the equivalent weekly-counts setup; ~25-40 min runtime plausible.
+- If test report PASS + 0 commits since (very likely — APPROVED PR with no review threads, no expected rework) → next orchestrator decision-tree match: *"PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker"*. Expected release: `ohtv-v0.16.2` patch bump per the `fix:` commit prefix.
+- If test report FAIL on any scenario → spawn iteration worker for whichever bug it surfaces.
+- Expansion slot stays idle through this cycle and the next (backlog at 6 medium-priority ready issues + 3 unprioritized; nothing to expand).
+- If testing worker still running on next pass → log "All quiet — testing in progress." But unlikely given typical runtimes.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
