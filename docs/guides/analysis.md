@@ -84,7 +84,24 @@ ohtv gen objs --action pushed --repo OpenPaw
 
 # Skip confirmation for large result sets
 ohtv gen objs --action pushed --yes
+
+# Roots-only by default (since #125 / v0.17.0):
+# the working set excludes agent-delegated sub-conversations.
+ohtv gen objs --week
+
+# Opt back into per-sub analysis (pre-#125 behaviour):
+ohtv gen objs --week --include-sub-conversations
 ```
+
+> **Roots-only default (multi-conversation mode).** Since
+> [#125](https://github.com/jpshackelford/ohtv/issues/125), the batch
+> form `ohtv gen objs` (no `conversation_id` argument) defaults to
+> **root conversations only**: sub-conversations created by agent
+> delegation are excluded from the selection. Pass
+> `--include-sub-conversations` to bring them back. The
+> single-conversation form `ohtv gen objs <id>` is **unaffected** — it
+> always analyzes exactly the conversation you point it at, root or
+> sub.
 
 **Variants:**
 
@@ -230,6 +247,7 @@ Showing 2 of 150 (2/2 cached)
 | `--no-outputs` | Don't show outputs (repos, PRs, issues modified) |
 | `-y, --yes` | Skip confirmation for large result sets (>20 conversations) |
 | `-q, --quiet` | Generate/cache summaries without displaying output |
+| `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
 | `--verbose` | Show debug output |
 
 ## `ohtv gen titles` - Auto-Rename Placeholder-Titled Cloud Conversations
@@ -275,7 +293,19 @@ ohtv gen titles -m haiku
 # Filter by repo or PR (uses indexed actions; run `ohtv db process all` first)
 ohtv gen titles --repo OpenPaw
 ohtv gen titles --pr OpenPaw#17
+
+# Roots-only by default (since #125 / v0.17.0):
+ohtv gen titles --week
+
+# Opt back into per-sub retitling (pre-#125 behaviour):
+ohtv gen titles --week --include-sub-conversations
 ```
+
+> **Roots-only default.** Like `gen objs` batch mode, `ohtv gen titles`
+> defaults to **root conversations only** since
+> [#125](https://github.com/jpshackelford/ohtv/issues/125) —
+> sub-conversations created by agent delegation are skipped. Pass
+> `--include-sub-conversations` to retitle subs as well.
 
 **How a run is structured:**
 
@@ -307,6 +337,7 @@ ohtv gen titles --pr OpenPaw#17
 | `-m, --model MODEL` | LLM model override (e.g. `haiku`) |
 | `-y, --yes` | Skip the >5-conversation confirmation prompt |
 | `--lock-timeout SECONDS` | Wait up to N seconds for `$OHTV_DIR/sync.lock` instead of failing fast. Default `0` = fail-fast. See note below. |
+| `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
 | `--verbose` | Show debug output |
 
 > **Writer mutex.** `ohtv gen titles` PATCHes cloud titles and writes
@@ -368,7 +399,21 @@ ohtv gen run reports.weekly --last 4 -r
 
 # Skip confirmation prompts
 ohtv gen run reports.weekly --last 4 -y
+
+# Roots-only by default (since #125 / v0.17.0):
+ohtv gen run reports.weekly --last 4
+
+# Opt back into per-sub aggregation (pre-#125 behaviour):
+ohtv gen run reports.weekly --last 4 --include-sub-conversations
 ```
+
+> **Roots-only default.** Aggregate jobs default to **root
+> conversations only** since
+> [#125](https://github.com/jpshackelford/ohtv/issues/125): the
+> source-conversation membership of each period excludes
+> agent-delegated sub-conversations, matching the grain that
+> `report velocity` and `report weekly-counts` already use. Pass
+> `--include-sub-conversations` to aggregate over every row.
 
 **How Aggregate Jobs Work:**
 
@@ -431,6 +476,7 @@ Respond with JSON matching the output schema.
 | `-r, --refresh` | Force re-analysis (refresh cache) |
 | `-m, --model` | LLM model to use |
 | `-y, --yes` | Skip confirmation prompts |
+| `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
 
 ---
 
