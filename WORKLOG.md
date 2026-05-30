@@ -1629,3 +1629,80 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 16:18 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c1d4764` | implementation | Issue #145 - gen objs key variants on context promotion | **NEW** |
+
+**Spawned: Implementation Worker**
+- Issue: [#145 — when gen objs promotes to full context, use it to generate key variants](https://github.com/jpshackelford/ohtv/issues/145) (`priority:low`)
+- Branch: (worker will create) `feat/gen-objs-key-variants-145`
+- Conversation: [`c1d4764`](https://app.all-hands.dev/conversations/c1d4764b5213467c82ef8df22c7531cc) (`execution_status=running, sandbox_status=RUNNING`)
+- Start task `6ae05c6b` → READY in <4s (warm sandbox; no cold-start delay).
+
+**Step 0 — Setup:** Same `/usr/local/lib/python3.13/site-packages` read-only condition as the last several cycles. Standard fallback: `uv venv` in repo root → `uv pip install` `lxa` + `ohtv` (from git, since this is just the orchestrator's tooling, not the project under test). `GH_TOKEN=$github_token` auto-injected via the lowercase-env-name bridge. Skipped `lxa repo add` (cosmetic) and `ohtv sync` (this cycle's inputs came from direct `gh` + `app-conversations/search` queries; no need to materialize trajectories locally).
+
+**Step 0.5 — Housekeeping (truncation deferred):** WORKLOG.md was 1,631 lines at wake-up. Threshold notionally fires at 300, but we're tracking line-growth-per-cycle to time truncation around natural archive points. Growth since 13:48Z truncation: 1,287 → 1,631 = +344 over ~2.5h / 5 cycles. Next truncation pass will fire around the ~2,000-line mark (probably 2-3 cycles out). Last archive `WORKLOG_ARCHIVE_2026-05-30.md` untouched.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged.
+
+**Step 2/3 — Active workers at cycle entry:**
+- `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=15` shows only `f26c1d57` (this orchestrator) as `execution_status=running`. Everything else `null`/`PAUSED`/`MISSING`.
+- The merge worker from the previous cycle (`7bc3b196`): `execution_status=null, sandbox_status=PAUSED, updated_at=15:50:18Z` — **squash-merged PR #158 cleanly and exited**. Last-update timestamp matches the PR merge timestamp to the second (`15:50:19Z`), confirming the worker exited immediately after `gh pr merge --squash`. No need for orchestrator intervention. Five-minute squash-merge turnaround (15:45 spawn → 15:50 merge) — fastest merge-worker run in the cluster.
+- No ghost cycles this round (third in a row would have been pattern; we're at 2/6 cluster cycles, still environmental).
+- Both worker slots **CLEAR at cycle entry**.
+
+**Step 4 — State gather:**
+
+- **Open PRs**: **0**. PR #158 merged at `2026-05-30T15:50:19Z` (commit `aedfc690`).
+  - `gh release list -L 3`: `ohtv-v0.19.1` (Latest, ~25 min ago), `ohtv-v0.19.0` (~1h), `ohtv-v0.18.1` (~4h).
+  - Cluster line **closed**: v0.17.0 → v0.18.0 → v0.18.1 → v0.19.0 → v0.19.1, five releases over ~6 hours, all conventional-commit-tagged correctly by semantic-release. The `fix:` subject on #158 → patch bump as forecast.
+
+- **Issue census** (post-#148 close):
+  - Needs expansion (no `ready`, no `hold`): **0** — **45th consecutive idle expansion cycle**.
+  - Ready + prioritized: **#145 only** (`priority:low`). Last cycle forecast this should be graduated to `priority:medium` since #149 (its 5-level-promotion blocker) shipped. **The graduation hasn't happened.** This is the orchestrator's call to make — but the decision-tree row matches *"Ready + prioritized → Spawn impl"* regardless of which priority tier, since #145 is the **only** prioritized item. The priority-relabel question is a no-op when the queue depth is 1. Skipping the graduation step this cycle; if a `priority:high`/`medium` issue lands later, that's when the relabel matters.
+  - On hold: #90 (`ohtv label`, `priority:medium` but `hold` blocks pickup), #26 (MCP server).
+  - **Total open issues**: 3. **Ready-to-implement backlog after #145**: empty. Post-#145 the next cycle will start accruing the auto-disable counter.
+
+- **#145 readiness sanity-check** (`gh issue view 145 --json body`): description has 10 detailed acceptance criteria, the seam pointers (`objectives.py:464-498`, `prompts/parser.py`, `prompts/metadata.py`, `prompts/objs/standard_assess.md`), the failure-isolation rule (AC #7), and explicit out-of-scope guards. Issue was clearly expanded with both #149 (the prerequisite that just shipped) and this work in mind. **Ready to ship** — no expansion gap, no `needs-info` smell.
+
+**Step 5 — Decision-tree row matched:** *"No open PR + ready issues with priority → Spawn impl worker for highest-priority ready issue"*.
+
+- Highest-priority (only-priority) ready issue = #145. Straightforward dispatch.
+
+**Step 6 — Spawn dispatch:** ✅ Implementation worker spawned (PR slot).
+
+**Spawn payload highlights** (sent to `POST /api/v1/app-conversations`):
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin` — using the **`{source, repo_path, ref}` dict schema** discovered the hard way two cycles ago. First-try success, no retry dance.
+- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `pr_number` (this is a fresh impl, no PR yet).
+- Initial message walks through 13 numbered steps: read issue + comments → fresh branch from main → read 5 specific source seams (including AGENTS.md item #6 for the 5-level context ladder + cache_key format) → implement (frontmatter field, opportunistic-variant pass at promoted level, `standard_assess.md` flip) → 3 mandated unit tests (promotion-warming, cache-hit-skip, per-variant-failure-isolation) → full check matrix → conventional `feat(gen-objs):` commit → DRAFT PR → CI → reflect → ready-flip → WORKLOG → EXIT.
+- Hard guardrails enumerated in-prompt: don't change `cache_key` format (byte-stable per #149), don't alter `AnalysisResult.cost` semantics (primary-only per AC #6), don't hardcode the variant set (must be metadata-driven per AC #1), no new LLM batch surface, no change to which conversations get auto-promoted, never let per-variant failures bubble up.
+- AI-disclosure footer in the prompt itself so the worker carries it through to the PR description.
+
+**Start task progression:** Spawn `6ae05c6b` → READY in **<4s** (no cold-start; sandbox warm — same fast-spawn pattern as the previous cycle's merge-worker dispatch) → `app_conversation_id=c1d4764b5213467c82ef8df22c7531cc`. Verified `execution_status=running, sandbox_status=RUNNING` immediately after.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned impl worker for the last ready/prioritized item). **Fifty-sixth consecutive productive cycle.** Not at risk this cycle; counter will start accruing **after #145 ships** unless new ready work lands (and currently nothing is queued behind it — expansion slot has been idle for 45 cycles).
+
+**Next cycle expectations (~16:48Z window):**
+- Impl worker `c1d4764` turnaround: typical impl-worker run is **30-60 min** for an issue this size (frontmatter parser tweak + ~30-line opportunistic-variant block + 3 unit tests + full-suite + lint). PR #145 is heavier than the recent cluster of patch fixes but still bounded:
+  - **Most likely (~55%)**: Worker still in flight at 16:48Z — DRAFT PR opened, CI churning. Decision-tree row: *"PR exists, draft, CI green/failing → Wait"*. Counter → 0 (worker active is not idle).
+  - **Likely (~30%)**: DRAFT PR opened, CI green, worker has flipped to ready. Decision-tree row: *"PR exists, ready, CI green, README not updated → Spawn docs worker"* — but #145 is internal (prompt frontmatter + cache-warming; no user-facing CLI/flag/env-var changes), so the docs gate **should** short-circuit. Likely next pick is **testing worker** directly. Documentation principle from the skill: "Do NOT require docs update if only: internal refactoring (no user-facing changes), bug fixes that don't change documented behavior, performance improvements." This is item 3 (performance / cache warming). Will need to verify in next cycle by checking `gh pr diff --name-only`.
+  - **Less likely (~10%)**: Worker finished AND PR is ready AND testing is needed → spawn testing worker.
+  - **Edge (~5%)**: Worker hit a snag (e.g., AC #5 cache-hit detection needs deeper plumbing than expected) and either exited early or asked for clarification via a PR comment. Would surface as a stuck/error execution_status and require orchestrator inspection.
+
+**Backlog forecast post-#145 merge:**
+- #145 ships → patch or minor release. Subject is `feat(gen-objs):` per the worker's instructions, so **minor bump → `ohtv-v0.20.0`**.
+- After #145: prioritized backlog **EMPTY**. The auto-disable counter starts accruing on the next quiet cycle (0 → 1 → 2 → disable over ~90 min) unless: (a) human files a new issue, (b) the orchestrator's expansion slot picks up #90 or #26 — but both are on `hold`, so no, (c) review feedback on the as-yet-unopened PR #145 keeps the PR slot productive (likely for a few cycles after the impl worker finishes).
+- Quiet-period auto-disable is now within ~3-5 cycles of the horizon. Worth keeping `priority:medium` graduation of #145 (or lack thereof) as a no-op note for the post-merge cycle.
+
+**Sync notes:**
+- `gh pr list` → empty. `gh release list -L 3` → confirmed v0.19.1 ships.
+- Did NOT run `ohtv sync` this cycle. Next cycle may want it for `ohtv list --repo ohtv --since 4h --idle 15` duplicate-work detection if the impl worker's conversation surfaces oddly.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
