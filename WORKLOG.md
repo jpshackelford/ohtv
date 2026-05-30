@@ -1911,3 +1911,73 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 17:48 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `bb0f6af` | merge | PR #159 - gen objs key variant warming | **NEW** |
+
+**Spawned: Merge Worker**
+- PR: [#159 — feat(gen-objs): warm key cache variants when context auto-promotes (#145)](https://github.com/jpshackelford/ohtv/pull/159)
+- Branch: `feat/gen-objs-key-variants-145`
+- Closes issue: [#145](https://github.com/jpshackelford/ohtv/issues/145)
+- Conversation: [`bb0f6af`](https://app.all-hands.dev/conversations/bb0f6af4186843baa115f07fcd4e4553) (`execution_status=running, sandbox=RUNNING` verified at spawn+8s)
+- Start task `244ce583` → READY on 2nd 5s tick (~5-10s — fast spawn, sandbox warm).
+
+**Correction to 17:18Z entry:** the previous cycle logged testing worker `c9629a6` as "GHOSTED AGAIN" based on a `sandbox=PAUSED, status=null` snapshot at the search-API surface. **That was wrong.** Pulling the conversation's full record this cycle shows `created_at=17:19:59Z, updated_at=17:23:55Z` — ~4 minutes of activity — and the worker **successfully posted the full Manual Test Results comment to PR #159 at 17:23:54Z** (commit-tested SHA, 6 blackbox scenarios A–F all PASS, 2165+40 unit tests green, verdict "Ready to merge", rating "good") before exiting cleanly. The sandbox PAUSED state is the normal post-exit transition, not a ghost.
+
+**Diagnostic lesson learned (worth carrying forward):** when classifying a worker as ghosted, **also check the target PR/issue for side-effects** (comments, label changes, commits, branch updates) — not just the conversation's execution_status. A short-lifetime + sandbox=PAUSED + status=null combo is consistent with EITHER (a) a true init-failure ghost, OR (b) a fast, successful exit. The orchestrator's prior 16:48Z and 17:18Z entries conflated the two. Recommended check: `gh pr view <PR> --json comments --jq '.comments[] | select(.createdAt > "<spawn_time>")'` before declaring a ghost. **Cluster ghost rate corrected: 2/8 = 25%** (was incorrectly logged as 3/8 = 37.5% — `c9629a6` was a successful run, not a ghost). The ghost watch can stand down to "normal."
+
+**Step 0 — Setup:** `lxa` + `ohtv` installed cleanly via `uv tool install`. `GH_TOKEN` slot was empty this cycle; `github_token` (40-char PAT, lowercase secret name) is the one populated by the secret store — used that. Worth noting for future cycles: the orchestrator skill assumes `$GITHUB_TOKEN` but the actual env-var on this sandbox is `$github_token`.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md was 1,913 lines at wake-up. Growth since 13:48Z truncation: 1,287 → 1,913 = +626 over ~4h / 8 cycles (~78 lines/cycle, holding steady). Still below the ~2,000-line truncation target, but next cycle is likely to cross it — flagging for the next cycle to consider running `/truncate-worklog`.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged.
+
+**Step 2/3 — Active workers at cycle entry:**
+- `c9629a6` (testing, prior cycle): `sandbox=PAUSED, status=null, updated_at=17:23:55Z` — **finished cleanly**, comment posted (see correction above).
+- `bb0f6af` is the worker spawned in this cycle (the orchestrator's own conversation `9ec2a9e` is filtered as self).
+- Both worker slots **CLEAR at cycle entry**.
+
+**Step 4 — State gather:**
+- **Open PRs**: 1 (#159). `gh pr view 159 --json`: `reviewDecision=APPROVED, mergeable=MERGEABLE, mergeStateStatus=CLEAN, isDraft=false`. All 4 checks SUCCESS (`pr-review` x2, `lint`, `pytest`). Last commit `2026-05-30T16:30:57Z` — predates the manual-test comment by ~53 min, so the test report reflects the latest commit (no re-test needed).
+- **Issue census**: needs-expansion 0 (48th consecutive idle expansion cycle); ready+prioritized **#145 only** (will auto-close on #159 merge); on hold #90, #26.
+
+**Step 5 — Decision-tree row matched:** *"PR exists, ready, CI green, test results valid, good rating, docs valid → Spawn merge worker"*.
+
+- Docs short-circuit reconfirmed: PR diff is 8 files, all internal (`src/ohtv/analysis/objectives.py` + 3 prompts modules + 1 prompt md + 3 test files). No `README.md`. `key_variant_on_promotion` is an opt-in frontmatter field — backward-compatible with prompts that lack it. No CLI/flag/env-var/output-format changes. Item 4 (performance / cache warming) exemption applies.
+- Docs spot-check before merge NOT required: PR was approved on first review with **zero** inline review comments — no "significant review changes that affected docs" per the orchestrate skill criterion.
+
+**Step 6 — Spawn dispatch:** ✅ Merge worker spawned.
+
+**Spawn payload highlights:**
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin` (dict schema).
+- `pr_number=[159]`, `selected_repository=jpshackelford/ohtv`, `git_provider=github`.
+- **8-step prompt** (clone+checkout → study full diff → read manual test report → read issue #145 ACs → update PR description for the squash body → craft `feat(gen-objs):` subject for semantic-release → squash-merge → verify state=MERGED + release tag + issue #145 closed).
+- **Subject locked** to PR title `feat(gen-objs): warm key cache variants when context auto-promotes (#145)` — semantic-release will read this and bump **0.19.1 → 0.20.0** (minor, due to `feat`).
+- **Hard guardrails:** no `[skip ci]` (reserved for the release commit), no `--auto`, no pre-merge PR comment, no code changes, no human-escalation unless the merge itself fails (e.g., CONFLICT/BLOCKED).
+- Anti-ghost guardrail from last cycle dropped — diagnosis was wrong (see correction above), the merge prompt is purely instructional and bounded.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned merge worker — the final step before the cluster's sixth release). **Fifty-ninth consecutive productive cycle.**
+
+**Next cycle expectations (~18:18Z window):**
+- Merge worker `bb0f6af` turnaround: nominal **3-8 min** (clone, study diff, update PR desc, squash-merge, verify release). Plausible states at next cycle:
+  - **Most likely (~80%)**: Merge complete, `ohtv-v0.20.0` released, issue #145 auto-closed via `Closes #145`. Decision-tree row: *"No open PR + no ready issues → Nothing to implement (wait for expansion)"*. Backlog **EMPTY**. This is the auto-disable horizon: counter → 1.
+  - **Likely (~10%)**: Merge complete but the release tag hasn't fired yet (semantic-release ~30s usually but can lag). Same decision-row outcome.
+  - **Less likely (~5%)**: Merge worker still in flight (e.g., spent time hand-crafting a more detailed PR description). Wait cycle, counter stays at 0.
+  - **Edge (~5%)**: Merge blocked unexpectedly (e.g., the next push from a separate `chore(worklog):` commit shifts the merge base — though `mergeStateStatus=CLEAN` predicts otherwise). Merge worker should post a comment + exit per guardrail.
+
+**Backlog forecast post-merge:**
+- After #145/#159 ships → prioritized backlog **EMPTY** (confirmed: #90 and #26 both `hold`).
+- Auto-disable counter starts accruing on the **next** quiet cycle (after the merge cycle): 0 → 1 → 2 → DISABLE over ~90 min. ETA for auto-disable: **18:48Z** if no new issue lands.
+- Cluster line completes: **v0.17.0 → v0.18.0 → v0.18.1 → v0.19.0 → v0.19.1 → v0.20.0** = six releases over ~7 hours.
+
+**Sync notes:**
+- Skipped `ohtv sync` again — recurring `--quiet` hang pattern (third cycle in a row). Worth a follow-up issue once the backlog reopens. Direct `gh` + `/app-conversations/search` queries continue to cover all orchestrator inputs.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
