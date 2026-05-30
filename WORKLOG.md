@@ -1380,3 +1380,89 @@ EXIT per orchestrate skill — one action per wake-up (the truncation was Step 0
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-05-30 08:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `f7c21ca` | docs | PR #155 — `list`/`refs` README delta | **NEW** running |
+
+**Spawned: Documentation Worker**
+- PR: [#155 — feat(list,refs): roots-only by default with subtree rollup (#127)](https://github.com/jpshackelford/ohtv/pull/155)
+- Conversation: [`f7c21ca`](https://app.all-hands.dev/conversations/f7c21cab4d25438f93a6a8b439d39a04)
+- Start task: `9ff807e9` → READY in ~5s (first poll), sandbox RUNNING, agent `execution_status=running`.
+
+**Why docs (decision-tree match):**
+
+- **Step 1 — Human INSTRUCTION check**: 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+- **Step 2/3 — Active workers**: API query for `selected_repository=jpshackelford/ohtv` → `5a19b24` is this orchestrator (running); `18f797e` (the #127 impl worker spawned at 07:50Z) is now **`execution_status=finished`** with sandbox RUNNING-but-released; `0b9b6f9` (prior orchestrator) is sandbox MISSING (terminated). Both worker slots free at wake-up.
+- **Step 4 — Open PRs**: **1** — PR #155 opened at 08:06:47Z by the just-completed impl worker.
+- **Step 4 — Issue census**: 0 issues need expansion; ready/prioritized: #127 (now in PR #155), #128. Ready/unprioritized: #145, #148, #149.
+- **PR #155 state probe** (`gh pr view 155 --json …`):
+  - `isDraft=false`, `state=OPEN`, `mergeable=MERGEABLE`, `reviewDecision=APPROVED`.
+  - CI: `lint=SUCCESS`, `pytest=SUCCESS`, `pr-review=SUCCESS` (1 SKIPPED + 1 SUCCESS pr-review entries — the latter is the binding one).
+  - `last_commit=2026-05-30T08:05:51Z`, `n_comments=0` (no docs comment, no test comment, no review threads).
+  - Files changed (4): `src/ohtv/cli.py`, `src/ohtv/filters.py`, `tests/unit/test_cli_list_refs_subs.py`, `tests/unit/test_filters.py`. **README.md absent** — confirmed via `gh pr diff 155 --name-only`.
+- **Decision-tree walk** (PR slot):
+  - "PR exists, ready, CI green, **README not updated**" → ✅ MATCH.
+  - Other branches eliminated: not draft (skip "still in impl"), 0 comments (skip review), no test comment (cannot skip ahead to merge, would violate "test what's documented" ordering principle).
+
+**Critical context injected into the docs worker's prompt:**
+
+The brief carries the full breaking-change framing because the docs delta is the user-facing migration surface for the v0.18.0 ship:
+
+- **Two surfaces flipping**: `ohtv list` default and `ohtv refs` default both move from "show every row including subs" → "show roots only". New `--include-sub-conversations` flag (spelling matches PR #154 verbatim, NOT `--include-subs`) is the opt-out.
+- **Single-conv `refs <root-id>` rollup** documented separately: when id IS a root, returns union of subtree refs (dedup by URL); when id IS a sub, falls through to existing single-conv path.
+- **Filter resolution semantic change** (`--pr`, `--repo`, `--label`, `--action` now route through `expand_to_roots`): flagged as "worth a one-liner if existing doc text would mislead readers."
+- **v0.18.0 ⚠ BREAKING CHANGES callout**: cluster pattern is now well-established (#125 / v0.17.0 introduced it for `gen objs/titles/run`). Worker instructed to mirror PR #154's README section as template.
+- **AGENTS.md item #32 cross-reference**: explicitly told NOT to renumber; just add a sub-bullet noting #127 has shipped if the existing list mentions the predecessors.
+- **Hard guardrails**: do NOT touch CHANGELOG.md (semantic-release owns it on merge); do NOT touch source/tests/pyproject.toml; do NOT flip PR back to draft (docs-only commit is safe on ready+approved+green PR); do NOT remove existing `BREAKING CHANGE:` marker.
+- **Bug-discovery branch**: if worker spots an implementation bug while writing docs (e.g. flag spelling mismatch with #154, `--include-sub-conversations` broken on `refs`), they're instructed to flag-via-comment and EXIT without committing — so the next orchestrator cycle can spawn a review-round worker instead of merging a buggy default flip.
+- **Commit message contract**: `docs:` subject (silently ignored by semantic-release per AGENTS.md commit contract table); the eventual squash-merge keeps `feat(list,refs)!` + `BREAKING CHANGE:` footer.
+- **Marker comment for next worker**: explicit template provided — `## Documentation updated for PR #155` header so the next orchestrator can detect "docs done → spawn testing worker" via the regex in the decision tree.
+
+**Spawn payload shape** (validated):
+- `selected_repository=jpshackelford/ohtv`, `git_provider=github`, no `selected_branch` (worker `git checkout`s the PR branch itself).
+- `pr_number=[155]` so the worker has PR context out of the box.
+- `plugins=[github:jpshackelford/.openhands plugins/ohtv-workflow @feat/ohtv-workflow-plugin]`.
+- `initial_message.content[].type=text`, `run=true`.
+- POST `/api/v1/app-conversations` with `X-Session-API-Key: $OPENHANDS_API_KEY` → start task `9ff807e9` returned `status=WORKING`; first 5s poll → `READY`, `app_conversation_id=f7c21cab…`; `/app-conversations?ids=f7c21cab…` confirmed `execution_status=running`, `sandbox_status=RUNNING`.
+
+**Worklog housekeeping (deferred this cycle):**
+
+- WORKLOG.md was ~1382 lines at wake-up (slightly above the 300-line threshold but the 07:50Z orchestrator already executed a truncation in the previous cycle — bringing it from 1645 down to ~1253 lines and archiving 7 older entries to `WORKLOG_ARCHIVE_2026-05-29.md` / `WORKLOG_ARCHIVE_2026-05-30.md`).
+- Deferring another truncation to keep "one action per wake-up" discipline — the spawn IS this cycle's action, and the prior cycle's truncation kept the productive 6-hour window intact. Next truncation opportunity: after the testing worker posts results (expected next cycle).
+
+**Cluster progress snapshot** (post-impl, pre-docs):
+
+| Issue | PR | Status | Release |
+|---|---|---|---|
+| #123 weekly-counts | #150 | merged | v0.16.1 |
+| #124 velocity | #153 | merged | v0.16.2 |
+| #125 gen objs/titles/run | #154 | merged | v0.17.0 ⚠ BREAKING |
+| **#127 list/refs display** | **#155** | **docs round in progress** | (target: v0.18.0 ⚠ BREAKING) |
+| #126 classification policy | — | open, queued | — |
+| #128 RAG citation dedup | — | open, queued | — |
+
+**Expansion slot:**
+
+- `gh issue list --state open` filtered to `(ready or hold) | not` → empty. **No issues need expansion.** 31st consecutive idle expansion cycle, but PR slot productive this cycle → no auto-disable risk.
+
+**Next cycle expectations (~08:50Z window):**
+
+- Docs worker `f7c21ca` turnaround: docs-only commits typically complete in 10-25 minutes. Worker needs to (1) `git checkout` PR branch, (2) read diffs for context, (3) write README delta + AGENTS.md sub-bullet, (4) push & wait for CI (lint+pytest run on docs commits too — should stay green), (5) post the marker comment.
+- Most likely next-cycle state:
+  - **Docs commit pushed, CI green, marker comment posted** → spawn **testing worker** per "test what's documented" principle.
+  - **Docs commit pushed but CI failing** → wait one cycle (docs commits shouldn't break CI, but lint can if README has CI-checked formatting like the `make lint` step would catch).
+  - **No docs commit yet** → wait (worker may still be reading the PR #154 sibling delta for tone).
+  - **Worker flagged an implementation bug via comment** → spawn **review worker** instead of testing worker (the prompt's bug-discovery branch).
+- If `f7c21ca` is still `running` with no commits by 09:20Z, investigate per the "dead spawn" pattern from 2026-05-29 22:50Z–00:21Z. Recent docs-worker spawns (PR #154 lifecycle) have all been healthy ~15-min cycles, so this is precautionary only.
+
+**Auto-disable counter:** **0 → 0.** Productive cycle (spawned docs worker — terminal action advancing PR #155 through the lifecycle). **Forty-fifth consecutive productive cycle.** Not at risk.
+
+EXIT per orchestrate skill — one action per wake-up.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
