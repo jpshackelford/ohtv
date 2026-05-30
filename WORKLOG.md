@@ -2,6 +2,50 @@
 
 ## Log
 
+### 2026-05-30 07:55 UTC - Implementation worker (#127 list/refs root grain)
+
+✅ **Opened PR #155** — `feat(list,refs): roots-only by default with subtree rollup (#127)`
+
+- **PR**: [#155](https://github.com/jpshackelford/ohtv/pull/155) — `feat/list-refs-roots-only-127` → `main`
+- **Issue**: [#127](https://github.com/jpshackelford/ohtv/issues/127) — `ohtv list` and `refs` surface sub-conversations as siblings of their roots
+- **Cluster slot**: fourth and final issue in the #122 root-grain cluster's display surface (after #123 / #124 / #125; #128 RAG dedup remains).
+- **PR status when this entry was written**: ready-for-review, CI green (lint pass 5s, pytest pass 58s), `pr-review[bot]` re-triggered by the draft→ready flip.
+
+**Squash subject**: `feat(list,refs): roots-only by default with subtree rollup (#127)` — `feat:` minor bump per the AGENTS.md commit contract; the squash body carries a `BREAKING CHANGE:` footer noting the user-facing default flip. With `[tool.semantic_release] major_on_zero = false` this lands as **v0.18.0** with a `⚠ BREAKING CHANGES` CHANGELOG entry (NOT v1.0.0), matching the v0.17.0 precedent set by PR #154 for #125.
+
+**Shape A from the expansion**:
+1. `expand_to_roots(conn, conv_ids) -> set[str]` added to `src/ohtv/filters.py` (+63). Maps each id to its `root_conversation_id` (migration 020), normalizes dashed input, passes unknown ids through unchanged for FS-fallback symmetry.
+2. The four `_filter_by_*` helpers in `cli.py` (at the exact cut-site line numbers called out in the issue body: L1899 / L2072 / L2106 / L2179) gain `include_subs: bool = False` and call `expand_to_roots` between the lookup and the `filter_conversations_by_ids` reduce when False.
+3. `_resolve_refs_subtree` + `_extract_refs_subtree` added to `cli.py`. `ohtv refs <root-id>` rolls up refs across the delegation tree by reusing the per-conv `_extract_refs_from_conversation` extractor (no new SQL surface in the ref store, as the issue's A/B/C matrix recommended); `ohtv refs <sub-id>` is bit-for-bit unchanged.
+4. `--include-sub-conversations` Click option added to both `ohtv list` and `ohtv refs`. Spelling matches #125's flag (NOT `--include-subs`).
+
+**Migration-020 guardrails**: store-level `_assert_root_column_present_for_list` (landed in PR #154) covers the `list_by_date_range` SELECT path. This PR adds an inline `PRAGMA table_info(conversations)` check in `_resolve_refs_subtree` for the new `refs <root-id>` rollup path, raising `RuntimeError("refs requires migration 020; run 'ohtv db scan' to apply pending migrations")` when absent. Both guards fire at command invocation, not import.
+
+**Test coverage** (+19, total 2082 passed, 2 skipped, 3 xfailed, 0 regressions):
+- 8 `TestExpandToRoots` unit tests in `tests/unit/test_filters.py` — mapping semantics, dashed-id normalization, multi-tree mixing, multi-sub collapse, orphan-as-root, empty/unknown input.
+- 11 CLI integration tests in new `tests/unit/test_cli_list_refs_subs.py` covering all five issue ACs (T-1 through T-5) plus subtree-shape and help-text smoke tests. Both the refs-side and list-side migration-020 guardrails are exercised on hand-rolled pre-020 schemas (SQLite < 3.35 lacks `DROP COLUMN`, so the test constructs a legacy `conversations` table directly rather than migrating-and-dropping).
+
+**Sibling-contrast table** (now updated in the PR body):
+| Issue | Command | Fix shape | Status |
+|---|---|---|---|
+| #123 | `report weekly-counts` | predicate in WHERE | ✅ PR #150 → v0.16.1 |
+| #124 | `report velocity` | DISTINCT keyed on root | ✅ PR #153 → v0.16.2 |
+| #125 | `gen objs/titles/run` | flag-threaded predicate, default False | ✅ PR #154 → v0.17.0 ⚠ BREAKING |
+| **#127** | **`list`, `refs`** | **flag-threaded predicate + filter-set expand + subtree rollup, default False** | **PR #155, in review** ⚠ BREAKING |
+
+**No `AGENTS.md` edit in this PR** per the cluster convention from #123/#124/#125's worklog entries (AGENTS.md is owned by #122 / cluster umbrella; per-issue PRs do not append items).
+
+**Follow-up considerations** (noted in the PR reflection section):
+- The store-level guard message still says `"gen requires migration 020"` even when invoked from `ohtv list` / `ohtv refs`. Minor UX rough edge — the actionable advice (`ohtv db scan`) is identical. Could be addressed by threading a command-name kwarg through `list_by_date_range`; not done in this PR to keep the diff focused.
+- `--tree` nested rendering (subs indented under their root) remains explicitly out of scope per the issue body — separate follow-on issue.
+
+**Backlog state**: with #127 in review, the `ready` slot for impl workers is empty until #128 lands the RAG-dedup counterpart. Next orchestrator cycle can spawn a review/QA worker on PR #155 or pull the next priority issue.
+
+EXIT per issue-implementation skill — docs, review handling, and QA are separate conversations.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-05-30 00:55 UTC - Expansion worker (#148 LiteLLM botocore noise)
 
 ✅ **Expanded Issue #148 — `ready` for impl**
