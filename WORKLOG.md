@@ -1541,6 +1541,37 @@ _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford.
 
 EXIT per orchestrate skill — one action per wake-up.
 
+## 2026-05-30T04:21Z — Merge worker: PR #153 shipped as ohtv-v0.16.2
+
+**Trigger:** Orchestrator handoff at 04:20Z — PR #153 (`fix(reports): aggregate velocity at root grain (#124)`) verified merge-ready:
+- CI green at HEAD `66ea5cd` (lint=SUCCESS, pytest=SUCCESS, pr-review=SUCCESS).
+- pr-review bot APPROVED at 03:31Z with verdict 🟢 LOW risk ("Good taste — elegant fix that eliminates the double-counting bug by changing the join grain from conversation to root").
+- Manual QA posted at 04:05Z by testing worker `366ad04`: 8/8 scenarios PASS (subless baseline, root+sub same week, cross-week sub-only, 2-deep chain, LOC accounting unchanged, migration-020 guard, chart stability, CLI surface unchanged).
+- 0 unresolved review threads, `mergeable=MERGEABLE` / `mergeStateStatus=CLEAN`.
+
+**Actions:**
+1. Cloned repo, checked out `fix/velocity-root-grain-124` at `66ea5cd`. Re-read full PR diff + description — description accurately reflects final state (problem statement, fix rationale, SQL snippet, file list, test-coverage table, AC checklist all current). No edits needed.
+2. Crafted squash commit:
+   - **Subject**: `fix(reports): aggregate velocity at root grain (#124)` (matches PR title; `fix:` prefix drives patch bump).
+   - **Body**: Problem (root+sub double-count after #108 + #122; `followup_word_count` / `followup_message_count` slipped through the `'automation'` mask, LOC unaffected) → Fix rationale (WHERE predicate insufficient because duplication is in join cardinality, not row set; INNER JOIN `conversations` projects `root_conversation_id` as join key; orphan-contribution behaviour preserved) → migration-020 guard (mirrors #123) → test coverage (6 new regressions, 27 existing pass, 81-test reports suite green, 8/8 manual QA) → `Fixes #124` / `Closes #124`.
+3. Squash-merged via `gh pr merge 153 --squash`.
+4. Verified: `state=MERGED`, `mergedAt=2026-05-30T04:20:57Z`, merge SHA **`c79ffde8674d3dd309357a05c1e2953125068ebc`**.
+5. Pulled `main` — `c79ffde` is HEAD.
+6. Release workflow started: run ID `26674334321` (status `*` in progress at log time). Expected to bump `pyproject.toml` / `src/ohtv/__init__.py` to `0.16.2`, append CHANGELOG entry under "Bug Fixes", tag `ohtv-v0.16.2`, and push within ~30-60s. Did not wait for completion per task brief.
+
+**AC verification summary** (carried from PR description, all checkboxes ticked pre-merge):
+- ✅ `Words` and `Words/LOC` for a `change_ref` touched by root + sub = root only (T-B).
+- ✅ `Msgs` de-duped by root (T-B).
+- ✅ LOC accounting (`+Lines`, `-Lines`, `Total`, `partial_loc`) unchanged (T-D).
+- ✅ Cross-week case: root in N, sub in N+1, merged in N+1 → words count toward N+1 once (T-C).
+- ✅ Existing 27 velocity tests + 81-test reports suite pass unchanged.
+
+**Follow-up notes for orchestrator:**
+- After release workflow completes (~04:22Z), `ohtv-v0.16.2` tag and CHANGELOG entry should be visible. The auto-generated `chore(release): ohtv 0.16.2 [skip ci]` commit will be HEAD of main, NOT this merge commit.
+- This closes the #124 → #153 chain. Next velocity-related work item, if any, would track display-grain follow-ups, but no carry-over for the orchestrator from this PR.
+- Per AGENTS.md item #32 (root-grain aggregation), this PR is the second of the per-command rollouts (`#123` shipped `weekly_counts` at `ohtv-v0.16.1`; this ships `velocity`). Remaining root-grain consumers per #32: `gen objs/titles/run` (#125), `classify` (#126), `list`/`refs` (#127), RAG `ask`/`search` (#128). Those are independent PRs.
+- Worklog size now well above the 300-line truncation threshold; orchestrator should still defer truncation to a genuinely idle cycle (no contention argument changes here).
+
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
