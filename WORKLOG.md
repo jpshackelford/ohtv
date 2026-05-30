@@ -1330,3 +1330,78 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 03:35 UTC - Implementation worker (#124 velocity root grain)
+
+✅ **Opened PR #153 (ready for review)** — `fix(reports): aggregate velocity at root grain (#124)`
+
+- **Issue**: [#124](https://github.com/jpshackelford/ohtv/issues/124) — `report velocity` double-counts human input when sub-conversations share a PR (`priority:medium`, `ready`)
+- **PR**: [#153](https://github.com/jpshackelford/ohtv/pull/153) — branch `fix/velocity-root-grain-124` → `main`. Opened as DRAFT at 03:30Z, flipped to READY at 03:34Z after CI green.
+- **Single commit**: [`66ea5cd`](https://github.com/jpshackelford/ohtv/pull/153/commits/66ea5cd) on top of `ec658d5` (main HEAD at branch creation).
+
+**Diff shape**: 4 files, +410 / -10. Production code: `src/ohtv/reports/velocity.py` (+53 / -5 — rewrites the `_VELOCITY_SQL` DISTINCT sub-select to substitute `root_conversation_id` for `conversation_id` via an `INNER JOIN conversations c ON c.id = cc.conversation_id`, adds an extensive comment block explaining why a WHERE predicate cannot fix this (the duplication is in join cardinality, not in row set), adds the `_assert_root_column_present(conn)` guard at `fetch_raw_rows` entry mirroring #123/PR #152's pattern). Tests: `tests/unit/reports/conftest.py` (+26 / -4 — `seed_conversation` helper extended with `parent_conversation_id` / `root_conversation_id` kwargs defaulting to self-root, matching #123's `_insert_conv` shape), `tests/unit/reports/test_velocity.py` (+330 / 0 — 6 new regression tests T-A through T-F appended; existing 27 tests untouched). Plus `uv.lock` (+1 / -1, cosmetic: lockfile's ohtv line catches up from 0.15.0 → 0.16.1 to match the post-release `pyproject.toml` — release workflow doesn't regen the lockfile).
+
+**Design contract followed**: per the issue's technical-approach comment, this PR took **Design B** (substitute the join key inside the DISTINCT sub-select), NOT Design A (build a new `human_input_by_root` view + duplicate the human/automation/unknown CASE policy inside it). Design B is a single self-contained SQL change with zero new schema, zero new view surface, and zero new store method. It acts on **both** the DISTINCT boundary (collapses root+sub to one row per change_ref) **and** the human-input join (because `dcc.conversation_id` is now the root's id, the outer `LEFT JOIN` only ever sees the root's `conversation_human_input` row — sub rows are never touched). Orphan contributions (a `conversation_contributions` row whose `conversation_id` is not in `conversations`) are dropped by the new `INNER JOIN`, matching the pre-#124 behaviour of the outer `LEFT JOIN` returning NULL → 0 words for them. No regression risk.
+
+**Why #123's one-line predicate wouldn't work here**: #123 (`weekly-counts`) reads `conversations` directly and counts rows; filtering out non-root rows with `AND id = root_conversation_id` was sufficient. `report velocity` walks `change_refs → conversation_contributions → conversation_human_input` and never reads `conversations` directly. The duplication is in "how many (root + sub) rows reach the human-input join per change_ref", not in "which conversations exist". A WHERE predicate cannot reach into that join — the fix has to substitute the join key.
+
+**Migration number wording**: per the orchestrator's spawn brief, used **migration 020** in the guard error message (not "019" as the issue body's AC mistakenly said). Migration 019 = parent_conversation_id (#108); migration 020 = root_conversation_id (#122). Same precedent as PR #152's guard.
+
+**Conventional commit type `fix:`** — intentional. Per AGENTS.md release contract this will trigger a patch bump from `ohtv-v0.16.1` → `ohtv-v0.16.2` on squash-merge and surface under "Bug Fixes" in CHANGELOG. References `Closes #124` in the squash body for auto-close.
+
+**Test coverage** (per AC table in PR description):
+
+| Test | Asserts |
+|------|---------|
+| `test_root_plus_sub_same_pr_excludes_sub_words` | Words = 50 (root only, not 250); Msgs = 1 (root only, not 5); LOC unchanged at +100/-20/Total 120 |
+| `test_root_plus_sub_cross_week_bucketed_by_merge` | Single bucket at 2024-W11 (merge week); Words = 50 (root only, not 850); Msgs = 3 (root only, not 13) |
+| `test_root_plus_sub_loc_accounting_unchanged` | 2 merged PRs (one LOC populated, one NULL) → partial_loc=True, missing_loc_count=1, lines_added=150, total_loc=180; Words = 20 (root × 2 PRs, sub excluded) |
+| `test_two_deep_chain_excludes_both_subs` | 2-deep chain (root → sub1 → sub2) → Words = 30 (root only, not 830), Msgs = 2 |
+| `test_sub_only_contribution_attributes_to_root` | Sub-only contribution maps to root's chi row → Words = 42 (root, even though only sub had the contribution row) |
+| `test_missing_root_column_raises_clear_error` | RuntimeError with `match="migration 020"` from `fetch_raw_rows` on a bare schema |
+
+**Suite results**:
+- `tests/unit/reports/test_velocity.py` alone: 33 passed (27 existing + 6 new) in 2.04s.
+- `tests/unit/reports/` (all reports): 81 passed in 8.26s.
+- Full unit suite: **2039 passed, 2 skipped, 3 xfailed** in 27.35s — +6 vs the 2033-pass baseline #152 left on `main`.
+- Lint: `uv run ruff check src/ohtv/reports/velocity.py tests/unit/reports/test_velocity.py tests/unit/reports/conftest.py` → "All checks passed!"
+
+**CI status (PR #153, before flip from draft to ready)**:
+
+| Check | Result | Duration |
+|-------|--------|----------|
+| `lint` | ✓ pass | 4s |
+| `pytest` | ✓ pass | 53s |
+| `pr-review` | skipping (draft) | — |
+
+Flipped to ready at 03:34Z via `gh pr ready 153`. `pr-review` will run on the ready event.
+
+**Acceptance criteria check (all 7 ticked):**
+
+1. ✓ Words / Words/LOC for change_ref touched by root + sub = root only (`test_root_plus_sub_same_pr_excludes_sub_words`)
+2. ✓ Msgs deduped by root (same test)
+3. ✓ LOC accounting (+Lines, -Lines, Total, partial_loc) unchanged (`test_root_plus_sub_loc_accounting_unchanged`)
+4. ✓ Cross-week case: root in N, sub in N+1, merged in N+1 → bucket at N+1 with root's words once (`test_root_plus_sub_cross_week_bucketed_by_merge`)
+5. ✓ Existing 27 velocity tests pass unchanged (verified by re-running pre-edit baseline then post-edit)
+6. ✓ New regression tests added for root+sub case (6 new tests covering all 5 scenarios from the test plan, plus an extra T-E variant for sub-only-contribution which the test plan didn't explicitly require but is a natural addition that exercises the substituted join key from a different angle)
+7. ✓ Guard raises `RuntimeError("report velocity requires migration 020; run 'ohtv db scan' to apply pending migrations")` when column missing (`test_missing_root_column_raises_clear_error`)
+
+**Files explicitly NOT touched** (per technical-approach scope):
+- `AGENTS.md` — the durable concept note about `root_conversation_id` as the cluster's de-dup boundary is owned by #122. #124 is the second consumer; we do not re-introduce the concept.
+- `src/ohtv/db/stores/conversation_store.py` — Design B does not need a `human_input_by_root` API.
+- `docs/reference/database.md` — schema docs belong to #122's PR.
+- `src/ohtv/cli.py` `report velocity` command — no flag changes (per "Out of Scope: --include-subs").
+- `src/ohtv/reports/charts.py` / `scripts/chart_velocity.py` — chart code consumes `VelocityRow` unchanged. No visual regression.
+
+**Hand-off for next orchestrator pass** (~03:50-04:00Z window):
+
+- **PR slot**: now occupied by READY PR #153. If `pr-review` bot APPROVES + CI stays green + no review threads → next action per the orchestrate skill's decision tree is **spawn testing worker** (skipping docs — same as #152's bug fix: no user-facing CLI surface change, no flags, no CSV header change; the only observable delta is "Words / Msgs / Words/LOC columns no longer over-count when subs contributed to the same PR").
+- If `pr-review` requests changes → spawn iteration worker per usual.
+- If CI flakes → re-run / iterate as appropriate.
+- **Expansion slot**: still IDLE. Backlog at 6 ready issues post-this-spawn: #125 / #127 / #128 (medium, sub-conversation roll-up siblings), #145 (sequencing-blocked), #148 (litellm warning), #149 (5-level context expansion). Tie-break still lowest-number → next impl pick after #124 lands would be **#125** (gen objs/titles/run aggregation grain), which is the natural next sub-conversation roll-up sibling to clear.
+- **Expected release on merge**: `ohtv-v0.16.2` patch bump per the `fix:` commit prefix. Release workflow will tag + push within ~30-60s post-merge, no PyPI publish (intentional per AGENTS.md).
+
+EXIT per orchestrate skill — implementation done, PR ready for review, orchestrator picks up testing decision on next cron trigger.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
