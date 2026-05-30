@@ -1981,3 +1981,37 @@ EXIT per orchestrate skill — one action per wake-up.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-05-30T17:53Z — Merge worker: PR #159 (`feat/gen-objs-key-variants-145`) merged ✅
+
+**Cluster line update: sixth release shipped.** v0.17.0 → v0.18.0 → v0.18.1 → v0.19.0 → v0.19.1 → **v0.20.0** (pending — semantic-release in-flight at merge time).
+
+**Merge commit:** `b626f4937f5f1b77db52a890ff8190ae48635449` on `main` (squash of PR #159).
+
+**Squash subject:** `feat(gen-objs): warm key cache variants when context auto-promotes (#145)` — `feat(scope):` → semantic-release minor bump → expected tag `ohtv-v0.20.0`.
+
+**Release workflow:** `release.yml` run `26690791326` was in-progress at merge time (started 17:51:27Z, ~1m24s elapsed when checked); did NOT block on the tag landing per the merge-worker exit guidance (>2 min wait threshold). Tag will land via the workflow's own schedule; next orchestrator cycle will observe `ohtv-v0.20.0` in `gh release list`.
+
+**Issue #145 status:** `CLOSED` (auto-closed via `Closes #145` link in the squash body).
+
+**Verification trail:**
+- `gh pr view 159 --json state,mergedAt,mergeCommit` → `state=MERGED`, `mergedAt=2026-05-30T17:51:24Z`, `mergeCommit=b626f493…`.
+- `gh issue view 145 --json state` → `CLOSED`.
+- `gh api repos/jpshackelford/ohtv/commits/main` → SHA + subject confirmed on `main`.
+- `gh release list --limit 5` → `ohtv-v0.19.1` still the latest at the time of this entry; next cycle will observe the bump.
+
+**Pre-merge checklist (all green prior to `gh pr merge`):**
+- CI: `lint` + `pytest` SUCCESS on commit `2c7d7c03`; `pr-review` auto-approve completed.
+- Review: APPROVED by `pr-review`; `mergeable=MERGEABLE`; `mergeStateStatus=CLEAN`; 0 unresolved threads.
+- Manual test: posted 2026-05-30T17:23:54Z, verdict "Ready to merge", rating "good", 6/6 blackbox scenarios PASS (A frontmatter compat, B opportunistic warming, C cache-hit `$0` skip, D per-variant failure isolation AC#7, E primary-only cost AC#6, F no-promotion regression guard AC#8), full unit suite 2165 passed + 40 new tests across 3 new files.
+- Docs: not required (internal cache-warming exemption per orchestrate skill; `key_variant_on_promotion` frontmatter field is backward-compatible; no CLI/flag/env-var/output surface impact; no `README.md` in diff).
+
+**PR description rewritten** before merge so the squash-body inherited a crisp summary of: (a) what was implemented, (b) the four key design decisions (shared-helpers refactor, metadata-driven variant discovery, two-layered failure isolation, primary-only cost semantics), (c) test coverage summary (full suite + 6 blackbox + 3 new unit files), (d) `Closes #145` link, (e) AI-disclosure footer.
+
+**Backlog forecast:** After this merge, prioritized backlog is **empty** (per the spawn-cycle entry: #90 and #26 both `hold`). Auto-disable counter starts accruing on the next quiet cycle.
+
+**EXIT per merge-worker prompt — one action per wake-up; no chatter on the PR; release workflow runs on its own schedule.**
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
