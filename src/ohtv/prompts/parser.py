@@ -240,5 +240,8 @@ def parse_prompt_file(path: Path) -> PromptMetadata:
         path=path,
         content=prompt_content,
         content_hash=content_hash,
-        display=display
+        display=display,
+        key_variant_on_promotion=bool(
+            frontmatter.get("key_variant_on_promotion", False)
+        ),
     )

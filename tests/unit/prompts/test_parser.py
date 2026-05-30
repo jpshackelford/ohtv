@@ -415,3 +415,102 @@ Theme discovery prompt"""
             assert meta.input_config.period is None
         finally:
             path.unlink()
+
+
+class TestKeyVariantOnPromotion:
+    """Issue #145: ``key_variant_on_promotion`` frontmatter field."""
+
+    def test_default_is_false(self):
+        """Prompts without the field default to False (opt-in only)."""
+        content = """---
+id: test.no_flag
+---
+Body."""
+        with NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write(content)
+            f.flush()
+            path = Path(f.name)
+        try:
+            meta = parse_prompt_file(path)
+            assert meta.key_variant_on_promotion is False
+        finally:
+            path.unlink()
+
+    def test_explicit_true_parses(self):
+        """``key_variant_on_promotion: true`` propagates to PromptMetadata."""
+        content = """---
+id: test.warm_me
+key_variant_on_promotion: true
+---
+Body."""
+        with NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write(content)
+            f.flush()
+            path = Path(f.name)
+        try:
+            meta = parse_prompt_file(path)
+            assert meta.key_variant_on_promotion is True
+        finally:
+            path.unlink()
+
+    def test_explicit_false_stays_false(self):
+        """``key_variant_on_promotion: false`` is the same as omitting it."""
+        content = """---
+id: test.optout
+key_variant_on_promotion: false
+---
+Body."""
+        with NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write(content)
+            f.flush()
+            path = Path(f.name)
+        try:
+            meta = parse_prompt_file(path)
+            assert meta.key_variant_on_promotion is False
+        finally:
+            path.unlink()
+
+    def test_standard_assess_ships_with_flag_set(self):
+        """Regression guard: ``src/ohtv/prompts/objs/standard_assess.md`` is
+        the one variant this PR opts in. If someone strips the flag the
+        fan-out becomes a no-op."""
+        from ohtv.prompts.discovery import discover_prompts
+
+        discover_prompts.cache_clear()
+        try:
+            prompts = discover_prompts()
+            standard_assess = prompts["objs"]["standard_assess"]
+            assert standard_assess.key_variant_on_promotion is True
+        finally:
+            discover_prompts.cache_clear()
+
+
+class TestListKeyVariantsOnPromotion:
+    """Issue #145: ``list_key_variants_on_promotion`` discovery helper."""
+
+    def test_unknown_family_returns_empty(self):
+        from ohtv.prompts.discovery import (
+            discover_prompts,
+            list_key_variants_on_promotion,
+        )
+        discover_prompts.cache_clear()
+        try:
+            assert list_key_variants_on_promotion("not-a-real-family") == []
+        finally:
+            discover_prompts.cache_clear()
+
+    def test_objs_family_includes_standard_assess(self):
+        from ohtv.prompts.discovery import (
+            discover_prompts,
+            list_key_variants_on_promotion,
+        )
+        discover_prompts.cache_clear()
+        try:
+            variants = {m.variant for m in list_key_variants_on_promotion("objs")}
+            assert "standard_assess" in variants, (
+                "objs.standard_assess must be flagged for opportunistic warming "
+                f"(got: {sorted(variants)})"
+            )
+        finally:
+            discover_prompts.cache_clear()
+

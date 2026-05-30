@@ -129,7 +129,11 @@ def test_minimal_request_hits_cache_after_auto_promotion(
 
     from ohtv.analysis.objectives import analyze_objectives
 
-    # First call — promotes minimal -> default, calls LLM once, caches result.
+    # First call — promotes minimal -> default. Since Issue #145 landed, the
+    # post-promotion fan-out also warms any sibling prompt in the ``objs``
+    # family whose frontmatter sets ``key_variant_on_promotion: true`` (today
+    # that is just ``standard_assess.md``). So the first analyze produces
+    # 1 primary + 1 opportunistic LLM call.
     result1 = analyze_objectives(
         worker_conv_dir,
         model="test-model",
@@ -139,8 +143,9 @@ def test_minimal_request_hits_cache_after_auto_promotion(
     )
 
     assert result1.from_cache is False, "first call should be a cache miss"
-    assert mock_llm.call_count == 1, (
-        "first analyze should invoke the LLM exactly once"
+    primary_only_calls = mock_llm.call_count
+    assert primary_only_calls >= 1, (
+        "first analyze should invoke the LLM at least once for the primary"
     )
     # Sanity: auto-promotion happened (effective context is not 'minimal').
     assert result1.analysis.context_level != "minimal", (
@@ -149,6 +154,9 @@ def test_minimal_request_hits_cache_after_auto_promotion(
     )
 
     # Second call — must hit the cache via the alias key, NOT invoke the LLM.
+    # The opportunistic fan-out also re-runs but it now sees fresh cache hits
+    # (it warmed standard_assess on call #1) so it does NOT call the LLM
+    # either. Net: no new LLM calls on the second analyze.
     result2 = analyze_objectives(
         worker_conv_dir,
         model="test-model",
@@ -161,8 +169,9 @@ def test_minimal_request_hits_cache_after_auto_promotion(
         "second call at the same requested context must hit the cache "
         "(the alias write under the requested level enables this; see #129)"
     )
-    assert mock_llm.call_count == 1, (
-        "LLM must not be invoked a second time when the alias cache hit fires"
+    assert mock_llm.call_count == primary_only_calls, (
+        "LLM must not be invoked again on the second analyze (primary cache "
+        "hit AND opportunistic variant cache hit; #129 + #145)"
     )
 
     # The returned analysis should carry the TRUE effective context (not the

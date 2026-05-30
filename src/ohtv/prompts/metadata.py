@@ -153,6 +153,14 @@ class PromptMetadata:
     content: str = ""
     content_hash: str = ""
     display: DisplaySchema | None = None
+    # Issue #145: when ``analyze_objectives`` auto-promotes the context level
+    # (because the requested level produced an empty transcript), it
+    # opportunistically warms the cache for sibling prompts in the same family
+    # whose frontmatter sets this flag to True. The "key" framing matches the
+    # subset of variants ``ohtv`` leans on heavily downstream (refs, embeddings,
+    # RAG, titles, weekly reports). Default is False so every existing prompt
+    # is opt-out and only explicitly flagged variants pay the extra LLM call.
+    key_variant_on_promotion: bool = False
 
     @property
     def is_aggregate(self) -> bool:
