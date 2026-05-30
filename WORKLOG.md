@@ -2,6 +2,29 @@
 
 ## Log
 
+### 2026-05-30 01:55 UTC - Impl worker (#123 weekly-counts root grain)
+
+🚧 **Opened PR #152** — `fix(reports): aggregate weekly-counts at root grain (#123)`
+
+- **PR**: [#152](https://github.com/jpshackelford/ohtv/pull/152) — `fix/weekly-counts-root-grain-123` → `main`
+- **Issue**: [#123](https://github.com/jpshackelford/ohtv/issues/123) — `report weekly-counts` over-counts when sub-conversations exist
+- **CI status at hand-off**: lint=pass, pytest=pass (54s), pr-review skipped while draft → will run on ready transition
+- **State**: marked **ready for review**
+
+**Shape**: 3 files, +234 / -11. One-line SQL predicate `AND id = root_conversation_id` added to `_WEEKLY_COUNTS_SQL` in `src/ohtv/reports/weekly_counts.py`, plus a `_assert_root_column_present(conn)` guard at `fetch_rows` entry that raises `RuntimeError("report weekly-counts requires migration 020; run 'ohtv db scan' to apply pending migrations")` if migration 020 hasn't run. Tests: extended `_insert_conv` with `parent_conversation_id` / `root_conversation_id` kwargs (default `root_conversation_id = conv_id` preserves all existing tests), plus 5 new tests T-A through T-E covering same-week siblings, cross-week subs (with `--include-empty`), 2-deep chains, the missing-column error path, and single-root legacy regression. CLI snapshot helper `_seed_two_weeks` in `test_cli_weekly_counts.py` updated to set `root_conversation_id = id` (raw SQL inserts have to do what `ConversationStore.upsert` does in production).
+
+**Implementation contract followed**: the issue's technical-approach comment explicitly chose the direct predicate `id = root_conversation_id` over going through the `conversations_by_root` view; rationale is that the view's value-add is roll-up of quantitative subtree fields (`SUM(event_count)`, `MIN/MAX` timestamps), and the report only reads `created_at` + `source`. The root's own `created_at` already equals `MIN(created_at)` across its subtree by construction. The view remains the right surface for #124 (velocity), which DOES need subtree sums. Per AGENTS.md item #32, this is the first consumer of the COALESCE-protected `root_conversation_id` column added by #122 / migration 020.
+
+**Minor wording correction vs issue body**: the issue's expansion comment alternates between "migration 019" and "migration 020" in the error-message text. Migration 019 is `parent_conversation_id` (from #108); migration 020 is `root_conversation_id` (from #122). The PR uses "migration 020" since that's the migration that actually adds the column the guard tests for.
+
+**Follow-up for future siblings (#124-#128)**: every existing test helper that bypasses `ConversationStore` and inserts directly via SQL into `conversations` may need the same `root_conversation_id = id` fix when its report adopts the root-grain filter. `_seed_two_weeks` and `_insert_conv` here are the templates. Worth surfacing on each sibling issue's PR.
+
+EXIT — docs/testing/review handling is a separate conversation per orchestrate skill.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-30 01:24 UTC - Merge worker (#151 centralize DB migration)
 
 ✅ **Merged PR #151** — `refactor(db): centralize migration through get_ready_connection`
