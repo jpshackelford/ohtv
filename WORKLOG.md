@@ -2081,3 +2081,72 @@ Why #149 and not #145/#148:
 _This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-05-30 00:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0f04330` | expansion | Issue #145 - gen objs full-context key variants | running ✓ |
+| `652ba7e` | implementation | Issue #116 - Centralize DB migration into ensure_db_ready | running ✓ |
+| `675e588` | orchestrator | this cycle (#5 broken-dispatch → **DISPATCH HEALED**) | running |
+
+**🟢 CYCLE #5 OF BROKEN-DISPATCH → DISPATCH HEALED. Both worker slots filled.**
+
+**Wake-up checks (in order):**
+
+1. **Human INSTRUCTION check ✓**: 0 unacknowledged.
+2. **Tracking issue #150**: 0 comments since 23:16Z opening. Pre-committed forecast was "auto-disable at cycle #5", BUT forecast item #3 also said: "If dispatch healed but no #150 human comment: still proceed normally — the artifact (a successful POST-spawn) is the only reliable healed-signal anyway." Decided to test dispatch once before auto-disabling. Low cost, high information value.
+3. **Open PRs ✓**: 0. Clean slate post-#147 merge.
+4. **Dispatch test spawn (expansion for #145, oldest unexpanded):**
+
+   | Metric | Value |
+   |---|---|
+   | Start task | `786c8a62` |
+   | Lifecycle | `WORKING` (00:18:12Z) → `READY` (00:18:24Z) — **~12s** |
+   | Spawned conv | `0f043308` |
+   | T+27s status | `execution_status=running`, `sandbox_status=RUNNING`, `updated_at > created_at` ✓ |
+
+   **Dispatch confirmed healed.** Failure window (final): 21:19:07Z → 00:18:24Z = **~2h59m**. 3 confirmed-dead POSTs (`17b6d1b`, `ad8a0ea`, `069782a`). Root cause not surfaced from orchestrator vantage — likely platform-side recovery (rollout completed, capacity restored, or quota reset).
+
+5. **PR-slot spawn (impl worker for #116):** Since expansion succeeded, fired a second POST-spawn for the implementation slot. Start task `38ebead9` → `READY` in ~12s → conv `652ba7ed` confirmed `running` / `RUNNING` at T+28s with `updated_at > created_at`. Second healthy spawn confirms it wasn't a one-shot fluke.
+
+**Implementation pick rationale (#116):**
+
+Spot-scanned the priority:medium queue (6 issues: #116, #123–#125, #127, #128). Picked **#116 (Centralize DB migration into ensure_db_ready)** over the #122-family rollup work (#123–#128):
+
+- **Lowest interaction risk**: Internal refactor of `db/maintenance.py`, no user-facing surface changes, no entanglement with the `list_roots` foundation work that #123–#128 share.
+- **Well-expanded**: 17184-char body (one of the largest in the queue).
+- **Foundational**: Improves DB lifecycle for all callers (item #25 in AGENTS.md describes the existing `ensure_db_ready()` model).
+- **No dependencies**: #123–#128 all sit on top of #122's `list_roots`; #149 is a separate domain (LLM context levels).
+
+`#149` is on the `ready` queue with no `priority:*` label (added by the 23:50Z inline-review fallback). Not picked this cycle — defer to next `/assess-priority` pass.
+
+**Tracking issue #150 closed.** Posted recovery comment + closed (reason: completed) + removed `hold` label. Dispatch was the only thing it tracked; with dispatch restored, the issue is resolved. Future dispatch failures will follow the same 3-cycle-diagnose → escalate → auto-disable-at-cycle-#5 pattern from a clean slate.
+
+**Auto-disable counter: 0 → 0.** **53rd consecutive non-quiet cycle.** Real productive work this cycle (2 spawns + tracking-issue closure). Not eligible for auto-disable.
+
+**Current State:**
+
+- **Open PRs (0)**: clean slate. Impl worker `652ba7e` will open one soon.
+- **Released**: [`ohtv-v0.16.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.16.0) ✓.
+- **Active workers (2)**: `0f04330` (expansion #145) + `652ba7e` (impl #116). Both slots filled.
+- **Need expansion (1)**: #148 (small import-time fix — next cycle's candidate if expansion slot frees).
+- **Ready priority:high (0)**.
+- **Ready priority:medium (6)**: #116 (now being implemented), #123, #124, #125, #127, #128.
+- **Ready, no priority (1)**: #149.
+- **On hold (2)**: #26, #90. (`#150` closed.)
+
+**Forecast for next cycle (~00:45-00:50Z window):**
+
+1. **Both workers likely still running** (expansion typically takes 5-20 min; impl typically 20-90 min for a foundational refactor). Log status, take no action, exit.
+2. **If expansion slot freed and PR slot still occupied**: spawn expansion for #148 (only unexpanded issue left).
+3. **If PR slot freed (likely a new PR exists)**: handle PR state per the docs → manual-test → review → merge pipeline.
+4. **If dispatch broken again**: per item #150's notes, the cycle counter restarts from 0. 3 diagnostic cycles, then a new tracking issue, then auto-disable at cycle #5.
+
+**Worklog truncation**: 2148 lines pre-this-entry. The `/truncate-worklog` skill's productive-indicator regex still mismatches this codebase's prose log style (documented across 22:17Z / 22:50Z / 23:16Z / 23:50Z cycles). Deferring. Recommend updating the skill (not manually truncating) in a future expansion → impl cycle — could file as a meta-issue if it becomes acute.
+
+**Sync notes:** Fresh container this cycle. `lxa` + `ohtv` installed into a `.venv` via `uv pip install` (had to `uv venv` first — prior cycles' `pip install --user` path also works). `gh` 2.92.0 with `GH_TOKEN=$github_token`. State from `gh` issue/PR list + `curl` to OpenHands `/app-conversations/search` + `/start-tasks/search`. HEAD pulled at the 23:50Z cycle's commit. Spawn POSTs via `curl -X POST … /app-conversations` with `X-Access-Token: $OPENHANDS_API_KEY`; payloads stored at `/tmp/spawn_payload.json` and `/tmp/impl_payload.json` (1953 and 2636 bytes respectively — well below any plausible payload-size limit, so the 21:19Z→00:18Z failure window wasn't payload-related).
+
+_This entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
