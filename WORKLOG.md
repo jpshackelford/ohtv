@@ -2,6 +2,11 @@
 
 ## Log
 
+### 2026-06-02 13:31 UTC - Expansion Worker
+
+✅ **Expanded Issue #161** — `ohtv ask`: add prompt-based agent mode alongside existing tools-based one; rename current to `--agent-tools`. Type: enhancement. Status: ready for implementation. Added Technical Approach comment confirming code layout supports the dual-mode design, verified `InvestigationResult` shape (additive `mode` field only), resolved Open Q1 (add `gen objs --cache-only`), Q2 (mode banner), Q3 (descriptive labels `"tools"`/`"cli"`), Q4 (`--max-steps 0` short-circuits for both modes). Listed files affected, ordered implementation plan, backward-compat note (semantic flip of `--agent` is intentional; `feat!` PR title). `ready` label added. Comment: https://github.com/jpshackelford/ohtv/issues/161#issuecomment-4602875505
+
+
 ### 2026-05-30 11:18 UTC - Orchestrator
 
 **Active Workers (at cycle exit):**
