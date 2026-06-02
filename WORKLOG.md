@@ -1667,3 +1667,39 @@ EXIT per orchestrate skill — one action per wake-up; next cycle (~30 min) chec
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-02 13:55 UTC - Expansion Worker (`0282946`)
+
+✅ **Expanded Issue #162**
+
+- Issue: [Capture ohtv ask sessions as on-disk telemetry for cross-mode comparison and replay](https://github.com/jpshackelford/ohtv/issues/162)
+- Type: Enhancement
+- Status: **Ready for implementation** (`ready` label applied)
+- Approach: Technical Approach comment posted ([gh#4603100696](https://github.com/jpshackelford/ohtv/issues/162#issuecomment-4603100696)). No body rewrite — the existing body is structurally clear.
+
+**Gaps filled by the comment:**
+- SDK metric reality: `response.metrics.accumulated_cost` / `accumulated_token_usage` are **cumulative across the loop**, not per-step. Recorder must compute deltas (snapshot-before, subtract-on-next-read) for `agent.steps[].cost` and `agent.steps[].tokens.{prompt,completion}`.
+- Per-step `elapsed_seconds` is not captured today — recorder wraps the LLM + tool-call pair in `time.perf_counter()`.
+- `RAGAnswer` widening: adds `prompt_tokens` / `completion_tokens` (additive, ~10 LOC) so the schema's `rag.tokens.{prompt,completion}` split is honest. `RAGAnswer.context_tokens` alone is a proxy, not the truth.
+- `agent: null` (explicit-null) rather than key omission for no-agent sessions — stable JSON key set for `jq` consumers.
+- Filename grammar locked: `{ISO8601-with-hyphens-Z}_{8-hex-uuid}.json` — colons replaced by hyphens for Windows / Dropbox / OneDrive safety. The body already used this form in its example.
+- Recorder hookup contract: `SessionRecorder` + `StepRecorder` (context-manager-based, computes deltas in `__exit__`), `InvestigationAgent.investigate(..., recorder=None)`, `InvestigationAgentCli.investigate(..., recorder=None)` — pass-through `nullcontext` when recorder absent.
+- CLI wiring: `try`/`finally` envelope in the `ask` handler so a recorder failure logs `warning` and never re-raises; AC for graceful degradation satisfied.
+- Concurrency: POSIX `O_APPEND` is atomic under `PIPE_BUF` (4096B); index lines are ~200B → no locking. Concurrent-write integrity is testable via `multiprocessing.Process(2)`.
+- All four Open Questions resolved with rationale (UUID4 + 8-char filename prefix; no full embedding vectors; no separate `model_pricing_at_capture_time` field; plain-RAG sessions land in the same store with `agent_mode == null`).
+
+**Anchored on #161's expansion** (verified by reading [#161's expansion comment](https://github.com/jpshackelford/ohtv/issues/161) before drafting): flag names `--agent` / `--agent-tools`, `InvestigationResult.mode == "cli" | "tools"`, and the dual-mode dispatch in `cli.py` are taken as the foundation. `flags.agent_mode` in telemetry mirrors the same labels. Telemetry is sequenced **after** #161 lands.
+
+**Files affected (preview for impl worker):**
+- New: `src/ohtv/analysis/telemetry.py`, `docs/reference/telemetry.md`, `tests/unit/analysis/test_telemetry.py`, `tests/integration/test_ask_telemetry.py`.
+- Modified: `src/ohtv/cli.py` (~30 LOC `ask` delta), `src/ohtv/analysis/{investigator,investigator_cli}.py` (~15 LOC each), `src/ohtv/analysis/rag.py` (~10 LOC additive), `src/ohtv/config.py` (~5 LOC for `get_telemetry_dir()`), `AGENTS.md`.
+- Untouched: `src/ohtv/analysis/agent_tools.py`, `src/ohtv/db/`, `~/.openhands/`.
+
+**Acceptance criteria:** the body's list stands; the comment adds nine clarifying ACs (delta vs cumulative metrics, filename regex, concurrent-write integrity, env-var short-circuit, etc.).
+
+**Worker self-status:** This is the second worker in this orchestrator cycle window — the first (e847fba in spirit, or the immediately preceding expansion of #161) finished moments before. No conflicting touches: I only modified WORKLOG.md on `main` and only commented + labelled #162 on GitHub.
+
+EXIT — `ready` label added; orchestrator's next cycle will see #162 join the impl queue alongside #160/#161/#163.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
