@@ -1550,3 +1550,64 @@ EXIT per orchestrate skill — one action per wake-up; next cycle (~30 min) chec
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-02 13:30 UTC - Human Triage (via conv `045be10`)
+
+Manual intervention by @jpshackelford via conversation `045be10` ("Recap PRs & Worklog for ohtv/voice-relay"). Three issue-state changes plus one infrastructure addition; recording them here so the next orchestrator cycle has clear context for the divergence from its 13:27Z prediction.
+
+**Sequence (precise timestamps from GitHub events API):**
+
+| Time (UTC) | Action | Reference |
+|---|---|---|
+| 13:22:39Z | Opened [PR #164](https://github.com/jpshackelford/ohtv/pull/164) — `ci: add enable-orchestrator workflow` (mirrors `jpshackelford/voice-relay`) | infrastructure |
+| 13:22:50Z | Manually re-enabled the OHTV Workflow Orchestrator automation (`c202ca20-…`) via `PATCH /api/automation/v1/{id}` with `{"enabled": true}` — bridge action while #164 is in draft | bridge |
+| 13:25:39Z | Bumped #163 `priority:medium` → `priority:high` | escalation |
+| 13:27Z | _(orchestrator cycle fires; spawns `e847fba` for #161 — correctly observes #163 as `priority:high` but not yet `ready`; predicts #163 next for expansion)_ | orchestrator |
+| 13:30:19Z | Added `ready` label to #163, **skipping the expansion step** | per `expand-issue.md` skill audit |
+| 13:30:20Z | Posted [audit comment on #163](https://github.com/jpshackelford/ohtv/issues/163#issuecomment-4602870829) | audit trail |
+
+**Why orchestration had stopped (root cause):**
+
+The orchestrator auto-disabled itself at 2026-05-30 19:18Z per `/disable-automation` (3 consecutive quiet cycles after the #122 cluster drained). Between then and 13:22Z today, four new issues landed (#160 `ready,medium`; #161, #162, #163 needing expansion) but the automation toggle stayed `enabled: false` because **ohtv had no auto-enable workflow**, unlike `jpshackelford/voice-relay` which has `.github/workflows/enable-orchestrator.yml` listening on `issues: [opened]` and `pull_request: [opened, ready_for_review, reopened]`. Backlog sat idle for ~66 hours.
+
+PR #164 ports voice-relay's `enable-orchestrator.yml` verbatim with `AUTOMATION_ID` patched to `c202ca20-60d5-4f5b-9d53-3d7308c1d95b`. Requires the `OPENHANDS_API_KEY` repo secret (already configured per @jpshackelford). Once #164 merges, future auto-disables will self-heal on the next new issue/PR.
+
+**Rationale for skipping #163 expansion:**
+
+Compared #163's existing author-written body (17.8 KB) against the `expand-issue.md` skill template from [`plugins/ohtv-workflow/skills/expand-issue.md`](https://github.com/jpshackelford/.openhands/blob/feat/ohtv-workflow-plugin/plugins/ohtv-workflow/skills/expand-issue.md) (PR #17 on `.openhands`, Enhancement variant). The body already provides every section the skill would produce:
+
+| Skill requires | Where in #163 body |
+|---|---|
+| Problem Statement | "Summary" + "Motivation" |
+| Proposed Solution | "Definition" + "Proposed algorithm" (with pseudocode) + "Proposed schema" + "CLI / pipeline integration" |
+| Acceptance Criteria | 6 testable checkboxes in "Acceptance criteria" |
+| Out of Scope | "Non-goals" |
+| 🔧 Technical Approach (would normally be a comment) | inline: Architecture in "Proposed schema", Implementation Plan in pseudocode, Files affected in "References", CLI changes in "CLI / pipeline integration" |
+
+Bonus content not asked for by the skill: a fully worked arithmetic example, an empirical threshold-tuning methodology, edge-case enumeration, and 4 open questions **each with a recommended default** — making it impl-ready without further triage.
+
+Recommended defaults for the 4 open questions, recorded inline so an impl-worker can adopt them without escalation:
+
+1. **Tail handling** — do NOT count tail events unless the preceding user message is itself attended AND the gap from that user message to the last event is ≤ `T`.
+2. **Threshold default before empirical tuning** — `T = 12 min` (the human's updated guess, closer to lived experience than the 8-min strawman).
+3. **Single-instant attention periods** — count as 0 minutes (no synthetic floor); periods-count carries the "user touched the conversation" signal.
+4. **Column name** — bikeshed deferred; `engaged_human_minutes` / `engaged_seconds` is the working name in the proposed schema and is acceptable as-is.
+
+**Effect on next orchestrator cycle (~13:57Z):**
+
+- **Expansion slot:** `e847fba` still in flight for #161. The 13:27Z prediction ("next expansion target after #161 frees = #163") is **obsolete** — #163 is now `ready`. New next-up for expansion is **#162** (oldest remaining unexpanded `priority:medium`).
+- **PR slot:** still held by [PR #164](https://github.com/jpshackelford/ohtv/pull/164) (draft). When it clears:
+  - **#163 wins the impl slot** (`ready, priority:high`) — bumps #160 to second.
+  - **#160** (`ready, priority:medium`) follows once #163 ships.
+- **Quiet-streak counter:** remains at 0 (the 13:27Z cycle was productive).
+
+**Side note on PR #164's bootstrap nature:**
+
+PR #164 adds the workflow that *would have* re-enabled the orchestrator on issue #160 (filed 2026-06-01) had it existed. It can't enable itself — `enable-orchestrator.yml` only fires on `issues: [opened]` and `pull_request: [opened, ready_for_review, reopened]`, not on its own merge. The manual PATCH at 13:22:50Z was the one-shot to break the deadlock; future cycles are protected by the workflow.
+
+**Open follow-ups for the next orchestrator (unchanged from 19:18Z):**
+- `ohtv sync --quiet` hang pattern still unresolved; the 13:27Z orchestrator skipped sync deliberately. File a tracking issue if it recurs on the next attempted sync.
+- WORKLOG.md is now ~1640 lines; consider `/truncate-worklog` on the next cycle (>2,000-line working ceiling approaches).
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
