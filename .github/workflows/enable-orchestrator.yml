@@ -1,0 +1,35 @@
+name: Enable OHTV Orchestrator on New Issue or PR
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, ready_for_review, reopened]
+  workflow_dispatch:
+
+jobs:
+  enable-orchestrator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check and enable orchestrator if disabled
+        env:
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+          AUTOMATION_ID: "c202ca20-60d5-4f5b-9d53-3d7308c1d95b"
+        run: |
+          # Check current status
+          STATUS=$(curl -s -H "Authorization: Bearer $OPENHANDS_API_KEY" \
+            "https://app.all-hands.dev/api/automation/v1/$AUTOMATION_ID" | jq -r '.enabled')
+
+          if [ "$STATUS" = "false" ]; then
+            echo "Orchestrator is disabled. Enabling..."
+            curl -s -X PATCH \
+              -H "Authorization: Bearer $OPENHANDS_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{"enabled": true}' \
+              "https://app.all-hands.dev/api/automation/v1/$AUTOMATION_ID"
+            echo "Orchestrator enabled!"
+          elif [ "$STATUS" = "true" ]; then
+            echo "Orchestrator already enabled. Nothing to do."
+          else
+            echo "Could not determine status: $STATUS"
+          fi
