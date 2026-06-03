@@ -533,3 +533,54 @@ _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford.
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-03 22:00 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `c93653c` | testing | PR #164 — ci: add enable-orchestrator workflow | **NEW** (running) |
+
+**Re-enable event:** Orchestrator was disabled at `2026-06-02T15:17Z` (3rd consecutive quiet cycle). It is running again now (~1d 6h later), so @jpshackelford either toggled the automation in the UI or re-PATCHed it. PR #164 (the enable-orchestrator workflow itself) is still not merged, so the bootstrap loop is still chicken-and-egg — the re-enable was a manual one-shot, not a #164-driven self-heal. **The #164 merge is still the right next milestone to make this loop self-healing.**
+
+**Step 0 — Setup:** Fresh workspace. `pip install --user` of `lxa` + `ohtv` into `~/.local/bin` (4th cycle observing that `uv pip install --system` is blocked and no venv pre-exists; `pip install --user` is the stable fallback — documenting once more then dropping from carry-forward). `lxa repo add jpshackelford/ohtv` produced the cosmetic "Unnamed Board 1" notice. `ohtv sync --since 6h` ran clean (one new conversation indexed: `c2a4e33`).
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged.
+
+**Step 2/3 — Active workers at cycle entry:** `/app-conversations/search?execution_status=RUNNING` (server-side filter is permissive — returned 50 rows; client-side filter on `execution_status=="running"`) returns only this orchestrator (`7567b60`, trigger=automation). All historical worker IDs reaped. `ohtv list --repo jpshackelford/ohtv --since 6h --idle 15` shows just one recent conversation: `c2a4e33` "📝 Review Worklog and Recent PRs Activity" (idle 1m at sync time but **execution_status=finished** per direct API lookup — the idle display was stale; conv ended). That was a human-driven worklog/PR review session, not an orchestrator-spawned worker. **Both worker slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs (1):** [PR #164 — `ci: add enable-orchestrator workflow`](https://github.com/jpshackelford/ohtv/pull/164): **NO LONGER DRAFT** (state change since 15:17Z disable). `lxa` shows `oR` history (opened → ready), CI **green** across the board: `enable-orchestrator` ✓, `pr-review` ✓ (newly ran after ready transition — was SKIPPED while draft), `lint` ✓, `pytest` ✓. Mergeable=CLEAN, mergeStateStatus=CLEAN, lastCommit `1b1cb8e` at `2026-06-02T13:22:21Z` (no new commits since first push — PR went ready without further pushes). Changed file: `.github/workflows/enable-orchestrator.yml` **only**. 💬 **3 unresolved review threads** from the `github-actions` bot reviewer (none human): all on the workflow's bash block — (1) 🟠 missing error handling on `STATUS=$(curl ...)` GET, (2) 🟠 false-positive "Orchestrator enabled!" echo when PATCH fails, (3) 🟡 add `set -euo pipefail`. Bot's "Taste Rating: 🟡 Acceptable" verdict.
+- **Issues needing expansion:** **0** (4th consecutive cycle).
+- **Ready + prioritized:** #163 (priority:high), #160, #161, #162 (all priority:medium).
+- **On hold:** #26, #90.
+
+**Step 6 — Decision tree:**
+- *Expansion slot:* `CAN_SPAWN_EXPANSION` ✓ + 0 issues need expansion → **slot idle**.
+- *PR slot:* `CAN_SPAWN_PR_WORKER` ✓ + PR exists, ready, CI green, README **not** updated. Per skill: *"Do NOT require docs update if only: Internal refactoring (no user-facing changes)."* PR #164 only adds a `.github/workflows/*.yml` file — pure CI/automation infra, no CLI, no user-facing surface → **docs NOT required**. Then: *"Review comments (💬 > 0) but NO manual test results → Spawn testing worker (docs first if missing)"* → **spawn testing worker**.
+
+**Auto-disable counter:** **reset to 0**. This is a productive cycle (worker spawned), not a quiet one.
+
+**Action Taken:**
+- ✅ Spawned **testing worker** `c93653c` ([conversation](https://app.all-hands.dev/conversations/c93653c83cde46aebf068b9fa81a567c)) for PR #164. The prompt instructs the worker to: validate the YAML syntactically, simulate the bash block locally without issuing a real PATCH (since the orchestrator is currently enabled), probe the three failure modes the bot flagged (empty STATUS path, false-positive on PATCH failure, `set -euo pipefail` effect), run `uv run pytest`, and post a structured test report. The worker is **NOT** allowed to address the bot's review threads — that's the next-cycle review worker's job.
+- ⏸ Expansion slot deliberately idle (no issues need expansion).
+
+**Worker prompt rationale:** A `.github/workflows/*.yml`-only PR doesn't fit the standard "blackbox the CLI" testing flow. Adapted the /manual-test skill to (a) verify YAML/syntactic validity, (b) dry-run the bash logic (no live PATCH — the orchestrator itself is the live target and is currently enabled), (c) confirm/disconfirm the bot's three review threads experimentally. This gives the next-cycle review worker an evidence base for which threads warrant code changes vs. polite dismissal.
+
+**Cycle expectations for ~next-cycle (~30 min):**
+- **Most likely (~70%)**: testing worker `c93653c` still running → log quiet entry (counter 0 → 1). Workflow + curl simulation + pytest is ~15-25 min of work.
+- **Possible (~20%)**: testing worker finished, test report posted → spawn **review worker** to address bot's threads. Worker history would then be `oRF` (opened, ready, fixes pushed) after the review worker pushes.
+- **Possible (~7%)**: testing worker finished, test report is clean and bot's threads are determined to be non-actionable → spawn **merge worker** directly.
+- **Less likely (~3%)**: @jpshackelford merges PR #164 himself / opens new issue → handle accordingly.
+
+**Notes / follow-ups:**
+- **PR #164 bootstrap chicken-and-egg:** The workflow this PR adds is gated on `issues:[opened]` / `pull_request:[opened, ready_for_review, reopened]` / `workflow_dispatch`. It will NOT fire on its own squash-merge to main (merges don't open issues/PRs). After #164 merges, the *next* opened issue/PR will be the first invocation. `workflow_dispatch` gives a manual escape hatch from the Actions UI. Acknowledged that this is intentional design per prior worklog entries.
+- **`OPENHANDS_API_KEY` env injection (5th cycle):** continues to require explicit `OH_API_KEY=$OPENHANDS_API_KEY` prefix on `ohtv` invocations. Dropping from carry-forward — it's a known-stable operational pattern.
+- **`pip install --user` for tool install:** dropping from carry-forward — known-stable.
+- **WORKLOG.md size:** ~545 lines pre-entry → ~625 post. Comfortably under thresholds.
+- **Queue if PR #164 merges:** #163 (priority:high) → #160 → #161 → #162 (FIFO tiebreak by issue number).
+
+EXIT per orchestrate skill — next cycle (~30 min) checks testing worker `c93653c` and decides whether to spawn a review worker for the bot's feedback or, if findings warrant, a merge worker.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
