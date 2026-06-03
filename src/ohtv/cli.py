@@ -4242,6 +4242,78 @@ def _format_duration(duration: timedelta | None) -> str:
     return f"{seconds}s"
 
 
+def _load_engagement_row(conv_id: str) -> dict | None:
+    """Load the ``conversation_engagement`` row for a conversation.
+
+    Returns ``None`` if the DB is unavailable, the row is missing
+    (engagement stage has not run for this conversation), or any lookup
+    fails for any reason. Display-time only — never raises.
+
+    Conversation IDs are normalized to the dashless form before lookup
+    (matching the AGENTS.md item #14 rule: the DB stores IDs without
+    dashes; LocalSource returns them with dashes).
+    """
+    normalized = conv_id.replace("-", "")
+    try:
+        from ohtv.db import get_db_path, get_ready_connection
+    except Exception:  # pragma: no cover - defensive only
+        return None
+    db_path = get_db_path()
+    if not db_path.exists():
+        return None
+    try:
+        with get_ready_connection(show_progress=False) as conn:
+            cur = conn.execute(
+                "SELECT engaged_seconds, attention_periods, "
+                "threshold_seconds, total_duration_seconds, "
+                "follow_up_user_message_count, attended_user_message_count "
+                "FROM conversation_engagement WHERE conversation_id = ?",
+                (normalized,),
+            )
+            row = cur.fetchone()
+    except Exception:  # pragma: no cover - defensive only
+        return None
+    if row is None:
+        return None
+    return dict(row) if hasattr(row, "keys") else {
+        "engaged_seconds": row[0],
+        "attention_periods": row[1],
+        "threshold_seconds": row[2],
+        "total_duration_seconds": row[3],
+        "follow_up_user_message_count": row[4],
+        "attended_user_message_count": row[5],
+    }
+
+
+def _format_engaged_line(
+    engagement: dict | None,
+    duration: timedelta | None,
+) -> str | None:
+    """Build the "Engaged: 4m 24s in 2 periods (8.8% of 50m total)" line.
+
+    Returns ``None`` when no engagement row is available (so the caller
+    can drop the line entirely rather than print a "N/A").
+    """
+    if engagement is None:
+        return None
+    engaged_seconds = engagement.get("engaged_seconds")
+    periods = engagement.get("attention_periods")
+    if engaged_seconds is None or periods is None:
+        return None
+    engaged_td = timedelta(seconds=int(engaged_seconds))
+    engaged_str = _format_duration(engaged_td) if engaged_td.total_seconds() > 0 else "0s"
+    period_word = "period" if periods == 1 else "periods"
+    parts = [f"{engaged_str} in {periods} {period_word}"]
+
+    # Pct vs. event-derived duration, when we have one.
+    if duration is not None and duration.total_seconds() > 0:
+        pct = (int(engaged_seconds) / duration.total_seconds()) * 100
+        parts.append(
+            f"({pct:.1f}% of {_format_duration(duration)} total)"
+        )
+    return " ".join(parts)
+
+
 @main.command()
 @click.argument("conversation_id")
 @click.option("--user-messages", "-u", is_flag=True, help="Include user's messages")
@@ -4337,10 +4409,16 @@ def show(
         action_summaries or action_details or show_outputs or thinking
     )
 
+    # Look up the engagement row (if the engagement stage has run for
+    # this conversation). Missing row → not yet processed; we just omit
+    # the line. See Issue #163 / docs/design/conversation-metrics.md.
+    engagement = _load_engagement_row(conv_id)
+
     # Stats-only mode: show statistics and exit
     if stats or not show_content:
         output_text = _format_show_stats(
-            conv_id, title, first_ts, last_ts, event_counts, fmt, error_summary
+            conv_id, title, first_ts, last_ts, event_counts, fmt, error_summary,
+            engagement=engagement,
         )
         _write_or_print_output(output_text, file, fmt)
         # Show refs after stats if requested
@@ -4631,8 +4709,19 @@ def _format_show_stats(
     event_counts: dict[str, int],
     fmt: str,
     error_summary: "ErrorSummary | None" = None,
+    *,
+    engagement: dict | None = None,
 ) -> str:
-    """Format statistics-only output."""
+    """Format statistics-only output.
+
+    Args:
+        engagement: Optional engagement row (as a dict) from
+            ``conversation_engagement`` (migration 023). When supplied,
+            an "Engaged" line is added to text/markdown output and the
+            ``engaged_seconds`` / ``attention_periods`` /
+            ``engagement_threshold_seconds`` fields are added to the
+            JSON payload. Issue #163.
+    """
     from ohtv.errors import ErrorSummary
     
     duration = (last_ts - first_ts) if (first_ts and last_ts) else None
@@ -4648,6 +4737,15 @@ def _format_show_stats(
             "counts": event_counts,
             "total_events": total,
         }
+        if engagement is not None:
+            result["engaged_seconds"] = engagement.get("engaged_seconds")
+            result["attention_periods"] = engagement.get("attention_periods")
+            result["engagement_threshold_seconds"] = engagement.get("threshold_seconds")
+            # Also surface the engagement-derived total. We keep the
+            # ``duration_seconds`` field above (computed from the live
+            # event scan) so consumers can compare; ``conversation_engagement``
+            # is the canonical source for the "engaged" ratio.
+            result["total_duration_seconds"] = engagement.get("total_duration_seconds")
         if error_summary:
             result["errors"] = {
                 "total": error_summary.total_errors,
@@ -4662,6 +4760,8 @@ def _format_show_stats(
     started_str = first_ts.astimezone().strftime('%Y-%m-%d %H:%M:%S') if first_ts else 'N/A'
     ended_str = last_ts.astimezone().strftime('%Y-%m-%d %H:%M:%S') if last_ts else 'N/A'
 
+    engaged_line = _format_engaged_line(engagement, duration)
+
     if fmt == "text":
         lines = [
             f"Conversation: {conv_id}",
@@ -4670,6 +4770,10 @@ def _format_show_stats(
             f"Started:  {started_str}",
             f"Ended:    {ended_str}",
             f"Duration: {_format_duration(duration) if duration else 'N/A'}",
+        ]
+        if engaged_line is not None:
+            lines.append(f"Engaged:  {engaged_line}")
+        lines += [
             "",
             "Event Counts:",
             f"  User messages:    {event_counts['user_messages']}",
@@ -4703,6 +4807,10 @@ def _format_show_stats(
         f"**Started:** {started_str}",
         f"**Ended:** {ended_str}",
         f"**Duration:** {_format_duration(duration) if duration else 'N/A'}",
+    ])
+    if engaged_line is not None:
+        lines.append(f"**Engaged:** {engaged_line}")
+    lines.extend([
         "",
         "| Type | Count |",
         "|------|-------|",
@@ -7379,9 +7487,27 @@ def db_init(verbose: bool) -> None:
 @click.argument("stage", type=click.Choice([*STAGES.keys(), "all"]))
 @click.option("--force", "-f", is_flag=True, help="Reprocess all conversations, ignoring stage completion")
 @click.option("--conversation", "-c", help="Process only this conversation ID")
+@click.option(
+    "--threshold",
+    "threshold_seconds",
+    type=int,
+    default=None,
+    help=(
+        "Sustained-attention threshold T, in seconds. Only meaningful "
+        "for the 'engagement' stage (Issue #163). Default is the "
+        "stage's DEFAULT_THRESHOLD_SECONDS (12 minutes); the row is "
+        "rewritten when reprocessing with a new threshold."
+    ),
+)
 @logging_options
 @click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
-def db_process(stage: str, force: bool, conversation: str | None, verbose: bool) -> None:
+def db_process(
+    stage: str,
+    force: bool,
+    conversation: str | None,
+    threshold_seconds: int | None,
+    verbose: bool,
+) -> None:
     """Run a processing stage on conversations.
     
     Processes conversations that need it (never processed or have new events).
@@ -7395,26 +7521,37 @@ def db_process(stage: str, force: bool, conversation: str | None, verbose: bool)
       push_pr_links  - Correlate git pushes with PRs via branch matching
       summaries      - Extract summaries from objective analysis cache
       human_input    - Count human words/messages (initial prompt + follow-ups)
+      contributions  - Record PR contributions (created/pushed/merged)
+      engagement     - Sustained-attention metric (engaged human minutes)
       all            - Run all stages in sequence
     """
-    from ohtv.db import get_db_path, get_ready_connection, scan_conversations
     from ohtv.db.stages import STAGES
-    from ohtv.db.stores import ConversationStore, StageStore
     
     # Handle "all" - run all stages in sequence
     if stage == "all":
         for stage_name in STAGES:
             console.print(f"\n[bold]Running stage: {stage_name}[/bold]")
-            _run_process_stage(stage_name, force, conversation, verbose)
+            _run_process_stage(stage_name, force, conversation, verbose, threshold_seconds)
         return
     
-    _run_process_stage(stage, force, conversation, verbose)
+    _run_process_stage(stage, force, conversation, verbose, threshold_seconds)
 
 
-def _run_process_stage(stage: str, force: bool, conversation: str | None, verbose: bool) -> None:
+def _run_process_stage(
+    stage: str,
+    force: bool,
+    conversation: str | None,
+    verbose: bool,
+    threshold_seconds: int | None = None,
+) -> None:
     """Run a single processing stage."""
+    from functools import partial
+
     from ohtv.db import get_db_path, get_ready_connection, scan_conversations
     from ohtv.db.stages import STAGES
+    from ohtv.db.stages.engagement import (
+        DEFAULT_THRESHOLD_SECONDS as ENGAGEMENT_DEFAULT_THRESHOLD,
+    )
     from ohtv.db.stores import ConversationStore, StageStore
     
     if stage not in STAGES:
@@ -7422,6 +7559,19 @@ def _run_process_stage(stage: str, force: bool, conversation: str | None, verbos
         raise SystemExit(1)
     
     processor = STAGES[stage]
+    # The engagement stage takes an extra keyword (T). Bind it once so
+    # the per-conversation loop below stays generic.
+    if stage == "engagement":
+        effective_threshold = (
+            threshold_seconds
+            if threshold_seconds is not None
+            else ENGAGEMENT_DEFAULT_THRESHOLD
+        )
+        processor = partial(processor, threshold_seconds=effective_threshold)
+    elif threshold_seconds is not None and verbose:
+        console.print(
+            f"[dim]--threshold is only used by 'engagement'; ignoring for '{stage}'[/dim]"
+        )
     db_path = get_db_path()
     
     # Auto-init and scan if needed
