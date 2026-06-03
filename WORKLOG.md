@@ -3,6 +3,44 @@
 ## Log
 
 
+### 2026-06-03 22:22 UTC - Worker (Issue #163 → PR #165)
+
+✅ **Implemented engaged-human-minutes metric. PR #165 (DRAFT → READY).**
+
+**Issue:** [#163 — Calculate engaged human minutes (sustained-attention metric) per conversation](https://github.com/jpshackelford/ohtv/issues/163) (`priority:high`, `enhancement`, `ready`).
+
+**PR:** https://github.com/jpshackelford/ohtv/pull/165 (marked ready for review at end of cycle — this is the first worker after PR #164's enable-orchestrator workflow merged at 22:08Z, so the `ready_for_review` event also fires that new auto-enable workflow).
+
+**What shipped:**
+- New `engagement` processing stage (`src/ohtv/db/stages/engagement.py`) computing `engaged_seconds`, `attention_periods`, plus supporting counts (`follow_up_user_message_count`, `attended_user_message_count`) per the literal pseudocode in the issue. Default `T = 12 minutes` (per Open Question #3 recommendation), configurable via `ohtv db process engagement --threshold N` (seconds).
+- Migration `023_conversation_engagement.py` adds the per-conversation row with `threshold_seconds` stored alongside the metrics so re-tuning is detectable and reversible. `total_duration_seconds` is normalized on `last_event_ts - first_event_ts` (NOT `base_state.updated_at - created_at`).
+- `ohtv show <id>` stats output gains an `Engaged: 4m 24s in 2 periods (8.8% of 50m total)` line (text + markdown); the JSON payload gains `engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds` keys.
+- `scripts/engagement_threshold_sweep.py` — non-destructive sweep over `T ∈ {6, 8, 12, 14, 16, 18, 20, 22, 24, 26, 28}` minutes. Emits per-threshold totals CSV + a gap-histogram CSV so the empirical break can be eyeballed offline.
+- Docs: new "Engaged Human Minutes" section in `docs/design/conversation-metrics.md` covering definition, schema, edge cases, CLI surface, threshold-tuning methodology, and reconciliation with the legacy `ConversationInfo.duration`.
+
+**Tests:** 35 unit tests in `tests/unit/db/stages/test_engagement.py` + 28 in `tests/unit/test_cli_engagement_display.py`. Full suite: **2228 passed, 2 skipped, 3 xfailed** (all xfails pre-existing). Ruff: net **-5 errors** in `cli.py` from removing dead imports while rewiring `db process`.
+
+**CI status when marked ready:** `pytest pass (57s)`, `lint pass`, `enable-orchestrator pass`, `pr-review skipping` (was a draft).
+
+**Acceptance-criteria reflection:** All seven boxes from the issue are checked off in the PR description. The one open call I made deliberately: `ConversationInfo.duration` (in `src/ohtv/sources/base.py`) still uses `updated_at - created_at` from `base_state.json`; the design doc annotates this as an approximation rather than migrating in this PR. The criterion explicitly allows "either reconciled with this or annotated as approximations." Migrating the legacy display path is a clean follow-up.
+
+**Open questions resolved in code:**
+- **#1 Tail handling:** the literal pseudocode is implemented — tail events after the last user message do NOT extend the attention period. The prose worked example in the issue suggests a forward-extension that produces "two periods, ~4:24"; my `test_worked_example_from_issue` pins the literal-pseudocode output (one merged period, 2460 s) and documents the discrepancy in both code comments and the design doc. Forward-extension is a clean follow-up — schema-compatible.
+- **#3 Threshold default before tuning:** shipped `T = 12 min` (recommended over the original 8-min strawman).
+- **#4 Single-instant periods:** kept at 0 s span, counted as 1 period (matches recommendation).
+
+**Follow-ups worth surfacing for the orchestrator / a future expansion:**
+1. Run the tuning sweep on a real corpus and pick the empirical `T` (mechanical, no code changes — just rerun `ohtv db process engagement --threshold <chosen> --force`).
+2. Tail / forward-extension behavior — should the per-attended-Uᵢ block extend to the last contiguous post-`Uᵢ` event within `T`? Schema-compatible — only changes `compute_engagement`. Worth a small follow-up issue once tuning data is in.
+3. Migrate `ConversationInfo.duration` to `last_event_ts - first_event_ts` for cross-command consistency with `conversation_engagement.total_duration_seconds`.
+4. A `report human-attention` (engaged-minutes histograms, engaged-minutes-per-merged-LOC) — listed as "Optional follow-on" in the issue.
+
+Exiting — docs / testing / review / merge are separate cycles.
+
+_This worklog entry was written by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-05-30 19:18 UTC - Orchestrator
 
 🔒 **Auto-disabled due to inactivity**
