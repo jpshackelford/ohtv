@@ -754,3 +754,55 @@ EXIT per orchestrate skill — next cycle (~30 min) checks docs worker `88315ec`
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-03 23:16 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e85cba5` | testing | PR #165 — engaged-human-minutes manual test | **NEW** (idle→running) |
+
+**Big-picture event since last cycle (22:51Z):** ✅ **Docs worker `88315ec` shipped clean** at 22:57:12Z (commit `1c83535`, `docs: document engagement stage and --threshold flag for PR #165`) and posted the canonical `## Documentation updated` comment at 23:00:00Z. Worker correctly redirected from `README.md` (high-level pitch) to `docs/guides/indexing.md` (Available Stages table + `--threshold` option + new Engagement-stage subsection) and `docs/guides/exploration.md` (the `Engaged:` stats line + JSON keys). Explicitly skipped `docs/reference/cli.md` with documented reasoning (only enumerates `db process` as a one-liner). Worker verified `db process --help` text locally, confirmed `DEFAULT_THRESHOLD_SECONDS=720` resolves correctly, ran a clean `ohtv db process engagement --threshold 600` against a fresh `OHTV_DIR`, and **CI re-ran green** on the new commit (lint 4s / pytest 56s). PR #165 is now: `oA` history, ready, APPROVED, CI green (2/2), docs comment posted, 0 review threads — **gated only on manual test**.
+
+**Step 0 — Setup:** Fresh workspace. `uv tool install lxa ohtv` to `~/.local/bin` (system `pip install` still blocked by `/usr/local/lib/python3.13` permission per #164's notes — `uv tool` is the durable pattern). `gh` available via `GH_TOKEN=$github_token` shim (system `GITHUB_TOKEN` was empty again this cycle; `github_token` lowercase user secret was live — same pattern as 22:51Z cycle). `ohtv sync` skipped (state-gather done purely via `gh` + OH search API).
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`grep -A5 "## INSTRUCTION:" WORKLOG.md` showed only routine acknowledgments).
+
+**Step 2/3 — Active workers at cycle entry:** `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` filtered to `execution_status=running` returned only this orchestrator (`c0ad59b`, started 23:16:22Z, `trigger=automation`). Prior cycle's docs worker `88315ec` = `finished` (sandbox still `RUNNING` but execution terminal). All other recent worker conv IDs (`100f39c`, `266ba82`, `7e8bba8`, `c93653c`, `7567b60`) = `PAUSED`/`MISSING` with `execution_status=null`. **Both worker slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs:** **1** — PR #165 (`feat/engaged-human-minutes-163`, Issue #163), `oA` history, ready, APPROVED, CI green (lint ✅ 4s / pytest ✅ 56s), 0 review threads, 2 commits (`9b01669` impl + `1c83535` docs), `mergeable=UNKNOWN` (pending engine resolve, normal post-push state).
+  - **Docs check:** **Updated** — commit `1c83535` at 22:57:12Z, comment `## Documentation updated` posted at 23:00:00Z (detector hit). Files touched: `docs/guides/indexing.md`, `docs/guides/exploration.md`. README.md and `docs/reference/cli.md` intentionally skipped with documented reasoning.
+  - **Manual test check:** ❌ **No `## Manual Test Results` comment yet** — confirmed via `gh pr view 165 --comments` (only the docs comment present).
+  - Decision-tree row matched: *"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker"*.
+- **Issues needing expansion:** **0** (7th consecutive cycle).
+- **Ready + prioritized:** #163 (in flight as PR #165), #160, #161, #162 (all priority:medium).
+- **On hold:** #26, #90.
+
+**Step 6 — Decision tree:**
+- *Expansion slot:* `CAN_SPAWN_EXPANSION` ✓ + 0 issues need expansion → **slot idle**.
+- *PR slot:* `CAN_SPAWN_PR_WORKER` ✓ + PR exists, ready, CI green, docs updated, **no manual test results** → **spawn testing worker (initial)**.
+
+**Auto-disable counter:** **0** (productive cycle — worker spawned).
+
+**Action Taken:**
+- ✅ Spawned **testing worker** [`e85cba5`](https://app.all-hands.dev/conversations/e85cba5ae103485893f927365ea39c8b) for PR #165 (POST `/api/v1/app-conversations` returned job-id `ca20a99` at 23:19:26Z; new conv `e85cba5` provisioned at 23:19:34Z, `selected_repository=jpshackelford/ohtv`, `selected_branch=feat/engaged-human-minutes-163`, `sandbox=RUNNING`, model `litellm_proxy/claude-opus-4-7`). The prompt targets every documented surface in the docs comment: (1) `db process --help` text + `engagement` in stages block + `--threshold` default 720; (2) `ohtv db process engagement [--threshold N]` actual runs; (3) `ohtv show <id>` `Engaged:` stats line + JSON keys (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`); (4) `db process all` ordering; (5) migration 023 `conversation_engagement` table; (6) full `pytest` suite. Worker instructed to use `OHTV_DIR=/tmp/ohtv_pr165_test` for isolation, NOT to run a full cloud sync, NOT to touch review threads (PR is already APPROVED), NOT to switch to draft, and to FLAG (not fix) any doc/reality mismatches so the next cycle can spawn a review worker. Test report must use `## Manual Test Results` heading (orchestrator detector).
+- ⏸ Expansion slot deliberately idle (no issues need expansion — 7th consecutive cycle of clean backlog).
+
+**Cycle expectations for ~next-cycle (~30 min):**
+- **Most likely (~70%)**: testing worker `e85cba5` finished, `## Manual Test Results` posted with `PASS` / `READY TO MERGE`. Next cycle → spawn **merge worker** (no review threads, no significant code changes during review).
+- **Possible (~15%)**: testing worker `e85cba5` finished with `PARTIAL` or `FAIL` flagging doc/reality drift. Next cycle → spawn **review worker** to fix the discrepancy.
+- **Possible (~12%)**: testing worker still running — sustained-attention metric is non-trivial to test end-to-end (sync small batch + run engagement stage + verify output formats + run pytest). 30-50 min is realistic. Log quiet entry (counter 0 → 1).
+- **Less likely (~3%)**: worker stalled / errored → human attention.
+
+**Notes / follow-ups carried forward:**
+- **WORKLOG.md size:** 756 lines pre-entry → ~820 post. **8+ cycles overdue on truncation** (threshold 300). Per orchestrate skill the truncation should run on a quiet cycle — this isn't one (spawn action atomic). Next quiet cycle MUST invoke `/truncate-worklog` — promoting from "recommend" to "MUST" given consecutive deferrals.
+- **`pip` → `uv tool` for tool install:** Confirmed durable across two cycles now. System `pip install` permission-denied on `/usr/local/lib/python3.13/site-packages/`; `uv tool install` lands in `~/.local/bin`. Pattern stabilized.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Persists across cycles. Shim `export GH_TOKEN=$github_token` is now the durable pattern for `gh` invocations in this sandbox.
+- **Direct conv lookup endpoint mis-routes to HTML:** `GET /api/v1/app-conversations/{id}` (specific id) returns the SPA HTML shell, not JSON. Use `/api/v1/app-conversations/search?…` and `select(.id | startswith("…"))` for conv lookups. Add to carry-forward.
+- **Queue if PR #165 lands:** #160 → #161 → #162 (FIFO tiebreak by issue number; all priority:medium). #163 auto-closes when PR #165 squash-merges via "Fixes #163".
+
+EXIT per orchestrate skill — next cycle (~30 min) checks testing worker `e85cba5` and decides next PR-slot action.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
