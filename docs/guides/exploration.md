@@ -229,6 +229,54 @@ ohtv show abc123 -A -r -n 5
 | `-F, --format` | Output format: `text` (default), `markdown`, `json` |
 | `--file PATH` | Write output to file |
 
+### Stats output: the `Engaged:` line
+
+When the [`engagement` indexing stage](indexing.md#engagement-stage)
+has run for a conversation, `ohtv show` (default stats view, or `--stats`) adds an **`Engaged:`** line beneath `Duration:` reporting the sustained-attention metric introduced for [Issue #163](https://github.com/jpshackelford/ohtv/issues/163) — how long a human was actively monitoring/steering, plus how many attention periods that engagement broke into.
+
+Example `ohtv show <id>` (text format):
+
+```text
+Conversation: abc123def456
+Title:    Wire up engagement metric
+Status:   COMPLETED
+Started:  2026-06-03 09:12:04
+Ended:    2026-06-03 10:02:18
+Duration: 50m 14s
+Engaged:  4m 24s in 2 periods (8.8% of 50m total)   — new in #165
+
+Event Counts:
+  User messages:    7
+  Agent messages:   42
+  ...
+```
+
+Notes:
+
+- The `Engaged:` line is **omitted** (not shown as `N/A`) when no engagement row exists yet — run `ohtv db process engagement` to populate it.
+- The percentage is computed against the **event-derived** total duration (first event timestamp → last event timestamp), which can differ slightly from the `Duration:` line above (which uses `base_state.json`). See the [design doc](../design/conversation-metrics.md#engaged-human-minutes-sustained-attention-metric--issue-163) § "Reconciliation with the existing duration display."
+- The threshold used for the stored row defaults to **12 minutes**; re-run `ohtv db process engagement --threshold N --force` (in seconds) to recompute under a different `T`.
+
+**JSON output (`-F json`)** gains four new top-level keys when an engagement row is present:
+
+```json
+{
+  "id": "abc123def456",
+  "title": "Wire up engagement metric",
+  "started": "2026-06-03T09:12:04+00:00",
+  "ended": "2026-06-03T10:02:18+00:00",
+  "duration_seconds": 3014.0,
+  "counts": { "user_messages": 7, "agent_messages": 42 },
+  "total_events": 71,
+  "engaged_seconds": 264,
+  "attention_periods": 2,
+  "engagement_threshold_seconds": 720,
+  "total_duration_seconds": 3015
+}
+```
+
+Consumers should treat the four engagement keys as **optional** — they only appear when the `engagement` stage has run for that conversation.
+
 ---
 
 
