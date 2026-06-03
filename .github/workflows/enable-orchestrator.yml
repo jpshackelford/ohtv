@@ -1,0 +1,50 @@
+name: Enable OHTV Orchestrator on New Issue or PR
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, ready_for_review, reopened]
+  workflow_dispatch:
+
+jobs:
+  enable-orchestrator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check and enable orchestrator if disabled
+        env:
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+          AUTOMATION_ID: "c202ca20-60d5-4f5b-9d53-3d7308c1d95b"
+        run: |
+          set -euo pipefail
+
+          # Check current status. `-f` makes curl exit non-zero on HTTP 4xx/5xx
+          # so a transient API failure surfaces as a workflow failure instead
+          # of producing an empty $STATUS that we silently swallow below.
+          STATUS=$(curl -sf -H "Authorization: Bearer $OPENHANDS_API_KEY" \
+            "https://app.all-hands.dev/api/automation/v1/$AUTOMATION_ID" | jq -r '.enabled') || {
+            echo "Error: Failed to read orchestrator status from automation API."
+            exit 1
+          }
+
+          if [ "$STATUS" = "false" ]; then
+            echo "Orchestrator is disabled. Enabling..."
+            if curl -sf -X PATCH \
+              -H "Authorization: Bearer $OPENHANDS_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{"enabled": true}' \
+              "https://app.all-hands.dev/api/automation/v1/$AUTOMATION_ID" > /dev/null; then
+              echo "Orchestrator enabled!"
+            else
+              echo "Error: PATCH to enable orchestrator failed; it is still disabled."
+              exit 1
+            fi
+          elif [ "$STATUS" = "true" ]; then
+            echo "Orchestrator already enabled. Nothing to do."
+          else
+            # Unexpected payload (e.g. jq saw 'null' because the API returned
+            # an error object). Surface this as a failure rather than a 0-exit
+            # "could not determine status" log line that nobody reads.
+            echo "Error: Unexpected status from automation API: '$STATUS'"
+            exit 1
+          fi
