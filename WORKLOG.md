@@ -670,3 +670,57 @@ EXIT per orchestrate skill — next cycle (~30 min) checks implementation worker
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-03 22:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `88315ec` | docs | PR #165 — engagement metric | **NEW** (running) |
+
+**Big-picture event since last cycle (22:20Z):** 🎉 **PR #165 is up, approved, CI green** — the prior cycle's implementation worker `266ba82` (Issue #163) shipped. Worker opened PR #165 (`feat/engaged-human-minutes-163`) at 22:36:12Z, pr-review bot APPROVED with "🟢 Good taste" at 22:41:06Z, all 6 checks green (lint / pytest / pr-review / enable-orchestrator ×2). 8 files, 1 commit, mergeable=CLEAN, state=CLEAN. The new `enable-orchestrator` workflow (PR #164) **fired correctly** on the `ready_for_review` event — closing the bootstrap loop in production. 0 review threads, 0 review-requested-changes.
+
+**Step 0 — Setup:** Fresh workspace; `uv tool install` of `lxa` + `ohtv` (system `pip install` to `/usr/local` is now permission-blocked under Python 3.13 — switched to `uv tool install` which lands in `~/.local/bin`, exported on PATH). `gh` available via `GH_TOKEN=$github_token` shim (system `GITHUB_TOKEN` was empty this cycle; user-scoped `github_token` is the live one). `ohtv sync` skipped — soft-timeout at 30s indicates a long-running listing pass; orchestrator state-gather doesn't need it.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged.
+
+**Step 2/3 — Active workers at cycle entry:** `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` filtered to `execution_status=running` returned only this orchestrator (`100f39c`, started 22:46:18Z). Prior cycle's impl worker `266ba82` = `finished` (sandbox still `RUNNING` but execution terminal). All other recent worker conv IDs (`c93653c`, `7e8bba8`, `c2a4e33`, `7567b60`, …) = `PAUSED`/`MISSING` with `execution_status=null`. **Both worker slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs:** **1** — PR #165 (`feat/engaged-human-minutes-163`, Issue #163), `oA` history, ready, approved by pr-review, CI 6/6 green, 0 review threads, 0 comments, 1 commit (8 files, +1872/-8). Age 15m.
+  - **Docs check:** Diff includes `docs/design/conversation-metrics.md` (NEW design doc) but **none of**: README.md, `docs/guides/indexing.md`, `docs/guides/exploration.md`, `docs/reference/cli.md`. The PR adds user-facing surface: new `--threshold` flag on `ohtv db process`, new `engagement` stage option (not in the Available Stages table in `docs/guides/indexing.md`), new `Engaged:` line in `ohtv show <id>` stats output (text + markdown), new JSON keys `engaged_seconds` / `attention_periods` / `engagement_threshold_seconds` / `total_duration_seconds`. Per orchestrate skill *"Update README.md if the PR introduces ANY of: New CLI commands or subcommands, New flags or options, …"* → **docs update IS required**. (README.md itself is high-level — the actual updates land in `docs/guides/indexing.md` + `docs/guides/exploration.md`.)
+  - **Manual test check:** Not yet — gated on docs.
+- **Issues needing expansion:** **0** (6th consecutive cycle).
+- **Ready + prioritized:** #163 (in flight as PR #165), #160, #161, #162.
+- **On hold:** #26, #90.
+
+**Step 6 — Decision tree:**
+- *Expansion slot:* `CAN_SPAWN_EXPANSION` ✓ + 0 issues need expansion → **slot idle**.
+- *PR slot:* `CAN_SPAWN_PR_WORKER` ✓ + PR exists, ready, CI green, **README/guides not updated** for user-facing CLI surface → **spawn docs worker**.
+
+**Auto-disable counter:** **0** (productive cycle — worker spawned).
+
+**Action Taken:**
+- ✅ Spawned **docs worker** [`88315ec`](https://app.all-hands.dev/conversations/88315ec8b9b3437781f6f52294134a46) for PR #165. The prompt explicitly targets `docs/guides/indexing.md` (Available Stages table + `--threshold` option + new "Engagement stage" subsection mirroring the existing "Contributions stage" pattern), `docs/guides/exploration.md` for the new `Engaged:` stats line, and `docs/reference/cli.md` if it enumerates `db process` stages/flags. README.md is explicitly left alone (it just links to guides). Worker is told to NOT run manual tests (next-cycle's job), NOT touch review threads, and to use `chore(worklog):` prefix when committing the WORKLOG update. The required comment prefix `## Documentation updated` matches the orchestrator's detector regex.
+- ⏸ Expansion slot deliberately idle (no issues need expansion).
+
+**Worker prompt rationale:** The orchestrate skill's docs-worker template says "Update README.md" but ohtv's README is intentionally high-level (just a guide index). The actual user-facing docs live in `docs/guides/` and `docs/reference/`, so the prompt redirects there. The skill's intent (test what's documented) is preserved: testing worker on the next cycle will verify the documented `--threshold` and `Engaged:` line examples.
+
+**Cycle expectations for ~next-cycle (~30 min):**
+- **Most likely (~75%)**: docs worker `88315ec` still running. Reading the diff + design doc + writing 2-3 doc sections + verifying examples + posting comment ≈ 25-45 min. Log quiet entry (counter 0 → 1).
+- **Possible (~20%)**: docs worker finished, comment posted with `## Documentation updated`. Next cycle → spawn **testing worker** (initial) per the standard PR slot flow.
+- **Possible (~3%)**: docs worker decides exploration.md doesn't actually need an update (e.g. `ohtv show` stats output isn't currently shown there). They'll document the reasoning in the PR comment; next cycle still proceeds to testing.
+- **Less likely (~2%)**: worker stalled / errored → human attention or re-spawn.
+
+**Notes / follow-ups:**
+- **WORKLOG.md size:** 672 lines pre-entry → ~720 post. Over the 300-line truncation threshold (7+ cycles overdue). Per orchestrate skill, truncation should run on a quiet cycle — not appropriate this cycle (spawn action is atomic). Next quiet cycle (likely the one after testing finishes) should invoke `/truncate-worklog`.
+- **PR #164 enable-orchestrator workflow PROVED:** This is the first PR opened post-#164-merge. The workflow ran on `ready_for_review` and shows up twice in the CI rollup as `enable-orchestrator: SUCCESS`. Bootstrap loop confirmed closed.
+- **`pip` → `uv tool` for tool install:** Permission denied on system `pip install` under Python 3.13 (`/usr/local/lib/python3.13/site-packages/...`) at this sandbox version. `uv tool install` to `~/.local/bin` works and is now the recommended pattern. Add to carry-forward.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** This sandbox cycle had `GITHUB_TOKEN` unset but the lower-case user secret `github_token` (40 chars) was live. Shimmed via `export GH_TOKEN=$github_token`. Worth noting if it persists.
+- **`ohtv sync` soft-timeout:** Initial listing pass exceeded 30s soft timeout. Orchestrator gathered state purely via `gh` + the OH search API instead — no impact on decision but flagging it. If recurrent, `--quiet --since` may need a tighter window.
+- **Queue if PR #165 lands:** #160 → #161 → #162 (FIFO tiebreak by issue number; all priority:medium). #163 closes when PR #165 squash-merges.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks docs worker `88315ec` and decides whether to spawn the testing worker.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
