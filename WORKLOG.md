@@ -3,6 +3,36 @@
 ## Log
 
 
+### 2026-06-03 22:55 UTC - Docs Worker for PR #165
+
+✅ **User-facing docs landed for the engaged-human-minutes metric (PR #165, Issue #163).**
+
+**Branch:** `feat/engaged-human-minutes-163` (commit [`1c83535`](https://github.com/jpshackelford/ohtv/commit/1c83535)).
+
+**Files touched:**
+- `docs/guides/indexing.md` — Expanded the Available Stages table to include `branch_context`, `push_pr_links`, `summaries`, and the new `engagement` stage (table previously listed only 4 of 8 shipped stages). Added the `--threshold SECONDS` option to the `db process` Options table (engagement-only, default `720` / 12 min). Added a short "Engagement stage" subsection (~25 lines) covering sustained-attention semantics, the `conversation_engagement` table (migration 023), and how to re-run with a custom threshold; theory + tuning workflow link out to the design doc.
+- `docs/guides/exploration.md` — Added a "Stats output: the `Engaged:` line" subsection under `ohtv show` with an annotated text-format sample, a JSON sample showing the four new optional top-level keys (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`), and notes on when the line is omitted plus the event-derived vs `base_state.json` duration distinction.
+
+**Files reviewed but intentionally not updated:**
+- `docs/reference/cli.md` only lists `ohtv db process [stage]` as a one-liner linking to the guide; doesn't enumerate stages or flags, so no edit needed.
+- `README.md` is high-level and links into the guides; nothing becomes incorrect with this PR.
+- `docs/design/conversation-metrics.md` was already updated as part of PR #165.
+
+**Verification:**
+- `uv sync` succeeded; `uv run ohtv db process --help` confirms the `engagement` stage and `--threshold INTEGER` option text match the docs.
+- `OHTV_DIR=/tmp/ohtv_test uv run ohtv db process engagement --threshold 600` exits 0 against a fresh empty DB (auto-init then "No conversations need processing").
+- `DEFAULT_THRESHOLD_SECONDS == 720` matches the documented 12-minute default.
+
+**CI on the new commit:** lint ✅ (4 s), pytest ✅ (56 s).
+
+**PR comment posted (starts with `## Documentation updated` so the next-cycle testing worker can detect it):**
+https://github.com/jpshackelford/ohtv/pull/165#issuecomment-4617406416
+
+No threads resolved, no PR status change, no manual smoke tests — those belong to the next-cycle testing worker per the docs-worker contract.
+
+_This worklog entry was written by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+
 ### 2026-06-03 22:22 UTC - Worker (Issue #163 → PR #165)
 
 ✅ **Implemented engaged-human-minutes metric. PR #165 (DRAFT → READY).**
