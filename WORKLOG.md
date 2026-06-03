@@ -806,3 +806,51 @@ EXIT per orchestrate skill — next cycle (~30 min) checks testing worker `e85cb
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-03 23:53 UTC - Orchestrator (re-invocation, same conv `c0ad59b`)
+
+**Step 1 — INSTRUCTION scan:** 0 unacknowledged `## INSTRUCTION:` entries in WORKLOG.md. Proceeded.
+
+**Step 2 — Active workers re-check (≥30 min after 23:16Z spawn):**
+- Queried `/api/v1/app-conversations?ids=e85cba5ae103485893f927365ea39c8b` directly. Result: `sandbox_status=PAUSED`, `execution_status=null`, `accumulated_cost=0.0`, zero tokens consumed, `updated_at == created_at` (23:19:34Z). **The previously-spawned testing worker `e85cba5` never started running** — sandbox provisioned then went straight to PAUSED, agent loop never ticked. No PR comments posted to #165 since the 23:00Z docs update from @jpshackelford.
+- This is a regression-class failure mode that the orchestrate skill's "Step 2: Check if Conversations are Still Running" can't easily detect from the listing endpoint alone (the listing showed `e85cba5` had `execution_status` set, but the per-conversation endpoint reveals the sandbox went PAUSED before the agent took its first action).
+
+**Step 3 — Recovery action: spawned replacement testing worker `487b7e1`.**
+- POST `/api/v1/app-conversations` returned start-task `261bcf5` at 23:51:18Z, transitioned `WORKING → READY` within first 5 s poll, new conv `487b7e1705c643fabed0543cac5b9ca0` provisioned with `sandbox_status=RUNNING`, `execution_status=running`.
+- Same prompt template as the 23:19Z spawn (manual-test PR #165, `## Manual Test Results` heading required, no review/no merge, exit after report). Plugin `feat/ohtv-workflow-plugin` loaded. `pr_number=[165]` set, `selected_repository=jpshackelford/ohtv`.
+- Verification at 23:52:31Z: `accumulated_cost=$1.80`, `prompt_tokens=1.75M` (mostly cache_read at 1.6M), `completion_tokens=2102` — worker is actively consuming the prompt + workspace setup, no longer the dead-air pattern that `e85cba5` exhibited.
+
+**Active Workers (post-recovery):**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e85cba5` | testing | PR #165 (abandoned) | PAUSED, exec=null, never started |
+| `487b7e1` | testing | PR #165 — engaged-human-minutes manual test | **NEW** (running, $1.80) |
+| `c0ad59b` | orchestrator | this cycle | running |
+
+**Current state unchanged from 23:16Z entry:**
+- PR #165 (`feat/engaged-human-minutes-163` @ 1c83535): CI green, APPROVED, docs landed, awaiting `## Manual Test Results`.
+- Issues #163 (in PR), #162, #161, #160 = `ready` with priorities; 0 issues need expansion.
+
+**Action Taken:**
+- ✅ Replaced stalled testing worker `e85cba5` with live worker `487b7e1`. Same scope, same exit conditions.
+- ⏭️ Skipped a new impl spawn (`#162` medium prio is next in queue) — PR slot is now legitimately occupied by `487b7e1`, expansion slot has nothing to do (no unexpanded issues).
+- 📝 No auto-disable check triggered: this is a recovery action, not a "quiet" cycle.
+
+**Next-cycle expectation (unchanged from 23:16Z prediction, time-shifted by 30 min):**
+- ~70%: `487b7e1` posts `## Manual Test Results` PASS → next cycle spawns merge worker.
+- ~15%: PARTIAL/FAIL → next cycle spawns review worker.
+- ~10%: `487b7e1` also stalls (same PAUSED pattern). If this happens twice in a row, escalate to human via WORKLOG INSTRUCTION request — the sandbox/auto-pause failure mode is the bug, not PR #165.
+- ~5%: other.
+
+**Worklog truncation:** Re-ran the productive-entry archival check at the top of this cycle. `WORKLOG.md` is 808 lines but the strict productive-entry indicators in the truncate skill only match the 19:18Z auto-disable entry — the 22:55Z docs entry (`✅ **User-facing docs landed`) and the 22:22Z impl entry (`✅ **Implemented`) use prose-style indicators the strict matcher doesn't recognize. The 6-hour window anchored on 19:18Z covers everything older. Net: file unchanged. Acceptable trade-off; worklog size is dominated by 2 large recent entries, not stale clutter. Follow-up noted below.
+
+**Follow-up surfaced this cycle (NOT auto-filed; recommend a human file an issue):**
+- The truncate-worklog skill's `is_productive` indicator list misses the prose-style productive entries this orchestrator actually writes. Either widen the matcher to include `✅ **User-facing docs landed`, `✅ **Implemented`, `✅ Spawned`, etc., or switch the heuristic to "any entry header that mentions a Worker/PR/Issue counts as productive". This is a maintenance-skill bug, not an ohtv code bug.
+- `/spawn-conversation` skill should explicitly call out the "sandbox PAUSED with execution_status=null right after READY" failure mode — orchestrators currently treat `READY` from the start-task endpoint as proof-of-life, but as observed today the agent loop can fail to tick. Suggest polling `execution_status == running` AND non-zero `accumulated_cost` or `updated_at > created_at` before declaring success.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `487b7e1` (and the dead `e85cba5` for completeness) and decides next PR-slot action.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
