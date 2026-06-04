@@ -2429,3 +2429,36 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `84a32f4` (testing wo
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-06-04 09:55Z — Testing worker (PR #174 manual blackbox test)
+
+**Conversation:** testing worker spawned by the 09:50Z orchestrator cycle.
+
+**Task:** Initial manual test of PR #174 (`feat: add engagement to gen objs markdown output`, closes #169) — the docs worker landed `4ba37ec` at 09:27Z, CI is green, no prior manual test exists.
+
+**Work performed:**
+
+- Cloned `jpshackelford/ohtv` to `/tmp/ohtv-test`, checked out `feat/169-engagement-markdown`, ran `uv sync`.
+- Read PR diff (cli.py: new helper `_format_engaged_markdown_subbullet`, `_format_summary_markdown` integration, batch engagement-load consolidation; tests: 29 new in `tests/unit/test_cli_gen_objs_engagement_markdown.py`; docs: analysis.md + cli.md updates).
+- Synced 30 cloud conversations to get real engagement-stage data. All synced rows had `engaged_seconds=0` (cloud conversations were below the 720s default threshold), so seeded three rows directly in `~/.ohtv/index.db` for CLI-driven blackbox tests covering plural-periods / singular-period / zero / missing cases.
+- Ran 13 CLI-level blackbox tests covering: happy-path markdown rendering, regression (markdown flag-off), `diff` byte-stability (markdown on vs. off), singular/plural grammar, zero-engagement row, **missing row → silent omission**, sub-bullet ordering vs. refs/labels, indentation, table flag-off-vs-on byte-identical, JSON `--with-engagement` retains all five #172 fields, JSON without flag has no engagement keys, help text accuracy, and docs example structural accuracy.
+- Ran `uv run python -m pytest tests/unit -q` → **2353 passed, 2 skipped, 3 xfailed** in 35s. Targeted run of the new file → **29/29 passed** in 1.8s.
+
+**Verdict:** ✅ **ALL TESTS PASS.** Test report posted: https://github.com/jpshackelford/ohtv/pull/174#issuecomment-4621055211
+
+**Observations worth pinning for the next reviewer / merge worker:**
+
+- The `Engaged:` sub-bullet's parenthetical percentage uses `r["duration"]` (event-derived) as the denominator. With seeded test data where `engaged_seconds` exceeded the parent bullet's wall-clock duration, the output showed `(160.6%)` — visually surprising but mathematically consistent with the helper's documented formula. In production (engagement-stage output), both values derive from the same event window so `>100%` won't normally occur. Not a bug; flagging in case any reviewer reads the test report and wonders.
+- All four updated doc surfaces (`docs/guides/analysis.md` ~L210/L327/L354 + `docs/reference/cli.md` L52) are accurate and copy-pasteable. The example's `8.8%` figure is illustrative — consistent with `264 / 3000s` and not tied to any specific test fixture.
+- Single-conversation mode for `--with-engagement` is `--json` only (per the help text and the L327 docs row); markdown is multi-conversation only. Not directly tested via CLI in this cycle (single-conv markdown isn't a supported combination), but the help+docs are internally consistent.
+
+**PR status delta:**
+
+- PR #174 (Issue #169): docs landed → testing landed → next action is **code review** (or merge worker if reviewer is satisfied with the existing PR-author commentary).
+- Engagement-metric family: **#167 ✅ merged, #168 ✅ merged, #169 → PR #174 tested, awaiting review/merge, #170 next.** Same 2/4 done as last cycle; #169 expected to close in 1–2 cycles.
+
+**Local checkout note:** Testing was performed in `/tmp/ohtv-test` (PR branch). The worklog entry below was committed from a fresh clone at `main` HEAD `aff3f9f`. No code edits anywhere; WORKLOG.md only.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
