@@ -34,7 +34,7 @@ auto-generated flag list at any version.
 
 | Command | Purpose | Detailed docs |
 |---|---|---|
-| `ohtv list` | List conversations with filters (date, PR, repo, action, label). | [guides/exploration.md § list](../guides/exploration.md) |
+| `ohtv list` | List conversations with filters (date, PR, repo, action, label). Opt-in `--with-engagement` adds engagement columns (`Engaged` / `Periods` / `Eng%`) to the table and matching fields to JSON / CSV — requires the [`engagement` stage](../guides/indexing.md#engagement-stage). | [guides/exploration.md § list](../guides/exploration.md) |
 | `ohtv show <id>` | Show a single conversation's events, stats, or full transcript. | [guides/exploration.md § show](../guides/exploration.md) |
 | `ohtv refs [<id>]` | Extract repos / issues / PRs referenced by one or more conversations. | [guides/exploration.md § refs](../guides/exploration.md) |
 | `ohtv errors [<id>]` | Summarize agent/LLM errors in a conversation. | [guides/exploration.md § errors](../guides/exploration.md) |

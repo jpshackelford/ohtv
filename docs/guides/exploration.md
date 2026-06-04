@@ -88,6 +88,14 @@ ohtv list --idle 15               # Custom: 15 min threshold
 # Hide refs from title column
 ohtv list --no-refs               # Refs shown by default
 
+# Show engagement columns (Engaged / Periods / Eng%)
+# Requires the engagement stage: `ohtv db process all` (or
+# `ohtv db process engagement`). Rows without engagement data render `-`.
+ohtv list --with-engagement
+ohtv list --with-engagement --repo OpenPaw -A
+ohtv list --with-engagement -F json    # Adds 5 keys per row
+ohtv list --with-engagement -F csv     # Appends 5 columns
+
 # Roots-only by default (since #127 / v0.18.0):
 # rows represent root conversations; agent-delegated subs are hidden.
 ohtv list -A
@@ -133,6 +141,7 @@ ohtv list -A --include-sub-conversations
 | `--no-refs` | Hide git refs from title (refs shown by default) |
 | `-E, --with-errors` | Include error info column (agent/LLM errors) |
 | `--errors-only` | Show only conversations with agent/LLM errors |
+| `--with-engagement` | Include engagement columns (`Engaged`, `Periods`, `Eng%`) in the table, five fields in JSON, and five appended columns in CSV. Default off. Values come from the [`engagement` indexing stage](indexing.md#engagement-stage) — run `ohtv db process all` (or `ohtv db process engagement`) to populate them. Rows with no engagement row render dim `-` in the table and `null` / empty in JSON / CSV. Display-only: never filters rows out. See [Engagement columns](#engagement-columns--with-engagement) below. |
 | `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
 | `-v, --verbose` | Show debug output |
 
@@ -147,6 +156,55 @@ ohtv list -A --include-sub-conversations
 | `ci`, `checks` | `check-ci` |
 
 **Note:** PR, repo, action, and label filters require the database to be indexed. Run `ohtv db scan && ohtv db process all` first. Labels are stored from the cloud API during `ohtv sync`.
+
+<a id="engagement-columns--with-engagement"></a>
+
+### Engagement columns (`--with-engagement`)
+
+The `--with-engagement` flag (added in [#171](https://github.com/jpshackelford/ohtv/pull/171), tracks [#167](https://github.com/jpshackelford/ohtv/issues/167)) extends `ohtv list` with the sustained-attention metric that `ohtv show` reports per-conversation (see [Stats output: the `Engaged:` line](#stats-output-the-engaged-line) and [Issue #163](https://github.com/jpshackelford/ohtv/issues/163)) — surfaced here as a cross-conversation comparison view.
+
+**Prerequisite:** values come from the [`engagement` indexing stage](indexing.md#engagement-stage). Run `ohtv db process all` (or `ohtv db process engagement` for just this stage) after syncing. Without it the three table columns render dim `-` and JSON / CSV emit `null` / empty values — rows are **never** filtered out.
+
+**Table view** adds three right-aligned columns (`Engaged`, `Periods`, `Eng%`) after the existing `Events` column:
+
+```text
+$ ohtv list --repo OWNER/REPO --with-engagement -A
+┃ ID       ┃ Source ┃ Started          ┃ Duration ┃ Events ┃ Engaged ┃ Periods ┃ Eng%  ┃ Title             ┃
+│ a711cbbc │ cloud  │ 2026-05-30 14:02 │  2h 14m  │    312 │ 41m 0s  │      3 │ 30.6% │ Add deploy hooks  │
+│ 8f2e1c4d │ cloud  │ 2026-05-30 09:18 │     50m  │     94 │ 4m 24s  │      2 │  8.8% │ Fix flaky CI      │
+│ 1c0a5b3e │ local  │ 2026-05-29 22:45 │      8m  │     12 │    -   │    -   │   -   │ Quick repo poke   │
+```
+
+- **Engaged** — `engaged_seconds` formatted via the standard duration helper (`4m 24s`, `2h 14m`, `0s`).
+- **Periods** — bare `attention_periods` integer. A real `0` renders as `0`, not `-`.
+- **Eng%** — `engaged_seconds / total_duration_seconds * 100`, formatted as `XX.X%`. Renders dim `-` when total is `0` / `NULL` / missing.
+- Conversations with no engagement row render dim `-` in all three columns.
+
+**JSON view (`-F json`)** adds five fields per row (matching the schema [PR #165](https://github.com/jpshackelford/ohtv/pull/165) established on `ohtv show <id> -F json`, plus a computed `engagement_ratio`):
+
+```json
+{
+  "engaged_seconds": 2460,
+  "attention_periods": 3,
+  "engagement_threshold_seconds": 720,
+  "total_duration_seconds": 8040,
+  "engagement_ratio": 0.306
+}
+```
+
+Missing values emit JSON `null` so the schema stays stable across rows.
+
+**CSV view (`-F csv`)** appends five columns to the existing header:
+
+```
+engaged_seconds,attention_periods,engagement_threshold_seconds,total_duration_seconds,engagement_ratio
+```
+
+Empty strings for missing values; zeros are preserved as `0`.
+
+**Composes with other flags.** `--with-engagement` is purely a display switch — it adds columns / fields but never filters rows. It works alongside `--repo`, `--pr`, `--action`, `--label`, `--since` / `--until`, `--day` / `--week`, `--errors-only`, `--with-errors`, `--idle`, `--include-sub-conversations`, `--reverse`, `-n` / `-k`, `-A`, `--include-empty`, `--no-refs`, and any output format (`-F table|json|csv`).
+
+> **Filtering by engagement** (e.g. `--min-engaged-seconds`) is intentionally out of scope for this flag — it is display-only. See [Issue #167](https://github.com/jpshackelford/ohtv/issues/167) for the follow-ups (filtering, `report engagement`, charts).
 
 ---
 
