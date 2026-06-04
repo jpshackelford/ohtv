@@ -1371,3 +1371,77 @@ Test report posted: https://github.com/jpshackelford/ohtv/pull/175#issuecomment-
 Next: orchestrator should dispatch the review-handler worker (pr-review bot's inline comment is out of scope per the testing brief).
 
 ---
+
+### 2026-06-04 12:18 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e408d8c` | review | PR #175 — engagement filters (1 thread to resolve) | **NEW** (running, first poll) |
+
+**Step 0 — Setup:** Fresh workspace clone; `uv tool install` of both `lxa` and `ohtv` from GitHub succeeded (system `pip install --system` was blocked by perms — `uv tool` is the right pattern for this sandbox shape). Tools added to `PATH=/home/openhands/.local/bin:$PATH`. `lxa repo add jpshackelford/ohtv` no-op (already present). Skipped `ohtv sync` — `gh` + GraphQL covered every gating signal this cycle.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1373 lines** at entry (>300 threshold by ~4.6×). Prior cycle (11:20Z) explicitly deferred truncation as "first cycle since big truncation, counter 0". **Defer again this cycle** — only one productive entry has landed since the last truncation (testing worker 12:06Z), so the 6h productive-window guard would protect almost everything anyway. Counter at **1 cycle overdue**. Next orchestrator cycle should run `/truncate-worklog` unconditionally.
+
+**Step 1 — Human Instructions:** None. `grep -B1 -A5 "^## INSTRUCTION:" WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):** Polled `app-conversations/search?limit=50`:
+- Docs worker `ee9bfd9` (spawned 11:20Z): `exec=null, sandbox=PAUSED` → **finished** (commit `76828f8` at 11:28Z landed: README.md + docs/guides/{analysis,exploration}.md + docs/reference/cli.md).
+- Testing worker (12:06Z report) — not separately listed under a known ID but per the worklog entry it self-terminated after posting test report.
+- `cf15e8a` is `running` but `created_at=2026-06-04T12:15:46Z` → **this orchestrator conversation itself**, not a worker. Ignored.
+- → Both PR slot and expansion slot **free**.
+
+**Step 3 — State gathered:**
+- **PR #175 — `feat(filter): add engagement-level filters to list and gen subcommands`** (closes #170): branch `feat/170-engagement-filters`, HEAD `76828f8` (last commit 11:28:20Z), **ready** (not draft).
+- **PR #175 CI:** `lint` SUCCESS, `pytest` SUCCESS (statusCheckRollup).
+- **PR #175 docs status:** `README.md`, `docs/guides/analysis.md`, `docs/guides/exploration.md`, `docs/reference/cli.md` all in the diff. **Docs updated.** ✅
+- **PR #175 manual test status:** Testing worker posted 12:06Z (comment `4621960813`): **ALL PASS** against HEAD `76828f8`. 2492 unit tests pass. Test surface covered mutex / duration grammar / missing-row asymmetry / ratio+zero-duration / composition with `--repo`/`--pr`/`--since`/`-D`/`--include-empty`/`--errors-only` / format-independence (table/json/csv) / all 4 commands (`list`, `gen objs`, `gen titles`, `gen run`) / batched 1-IN-query SQL. Test results match current HEAD → **not outdated**. ✅
+- **Open review threads: 1** (`PRRT_kwDOR9seq86HDUYb`, unresolved, isOutdated=false). Author `github-actions` (pr-review bot), on `src/ohtv/cli.py:2318`, verdict 🟡 Acceptable. Suggests adding an "AND-composition" sentence to `--min-engaged` and `--min-engagement-ratio` help text. The pr-review bot's overall review body remains `state=COMMENTED` (not APPROVED), so `reviewDecision=""` — exactly the pattern cached in the prior worklog. Verdict tag in body is the source of truth.
+- **Open PRs:** 1 (PR #175). **Issues needing expansion:** 0. **Ready issues (4):** #170 (in flight via PR #175), #161 (priority:medium), #162 (priority:medium), #173 (priority:low). On hold: #26, #90.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+- PR slot: `PR exists, ready, CI green, test results valid, 💬 > 0` → **Spawn review worker.** ✅
+- Expansion slot: 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Review Worker**
+- PR: [#175 — feat(filter): engagement filters](https://github.com/jpshackelford/ohtv/pull/175)
+- Start task: `66782bfd` → `app_conversation_id = e408d8c85617488f80a612e44e86545c`
+- Conversation: [`e408d8c`](https://app.all-hands.dev/conversations/e408d8c85617488f80a612e44e86545c)
+- Polling timeline: posted at ~12:17Z, polled at ~12:18Z → `status=READY` on first poll (well under the typical 18s `WORKING→READY` window — task picker was warm).
+- Verify (T+~30s): `execution_status=running`, `sandbox_status=RUNNING`. **Confirmed actually executing.**
+- Plugin spec (unchanged, **15th successful spawn**): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract: `initial_message: {content: [{type:"text", text:"…"}], run: true}` (V1 — 15 in a row).
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:** undraft PR → accept the bot's suggestion (orchestrator's read: small, helpful, no scope creep) → add AND-composition sentence to BOTH `--min-engaged` and `--min-engagement-ratio` help text across all 4 commands where they appear → `uv run pytest -q && uv run ruff check src tests` → commit with `docs(cli):` subject (release-safe — won't compete with the PR's overall `feat:` squash subject) → push → wait CI green → reply to thread `PRRT_kwDOR9seq86HDUYb` with commit SHA + resolve via GraphQL → re-ready PR → WORKLOG entry on main → EXIT. **Explicit OUT-OF-SCOPE:** README/docs (already complete), manual re-test (help-text change is below the "significant changes" heuristic), squash/merge.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~12:48Z):** Most likely —
+  - ~55%: Review worker `e408d8c` still running (help-text edit is trivial but PR-undraft + GraphQL thread-resolve dance + waiting for CI takes a few minutes).
+  - ~30%: Review fix pushed, CI green, thread resolved, PR back to ready → spawn **merge worker** (help-text-only change → no re-test, no docs spot-check needed per the AGENTS-style heuristics).
+  - ~10%: pr-review bot files a follow-up round on the help-text wording → another review worker.
+  - ~5%: Worker mis-scopes (re-edits docs/tests) — minor noise, won't block.
+- **2 cycles out (~13:18Z):** PR #175 squash-merged → `ohtv-v0.26.0` (next minor, `feat:` subject) → engagement-metric family **4/4 done** 🎉 → ready queue shifts to #161/#162/#173.
+- **3 cycles out (~13:48Z):** Implementation worker for the highest-priority remaining ready issue. None are `priority:high` after #170 closes — #161/#162 are `priority:medium`, #173 is `priority:low`. Orchestrator will run `/assess-priority` inline if no `priority:high` lands by then.
+
+**Notes / follow-ups carried forward (cumulative):**
+- **`initial_message` spawn-payload contract** stays pinned. **15 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Plugin spec format unchanged.**
+- **Start-task polling endpoint:** `GET /api/v1/app-conversations/start-tasks/search` (the bare `start-task/{id}` path returns the SPA HTML — not an error, just the wrong endpoint). Cached so future cycles don't waste polls.
+- **`GH_TOKEN` shim:** `GH_TOKEN` was unset this cycle; `GITHUB_TOKEN` and `github_token` both populated. `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` worked. Shim keeps flipping between cycles; keep checking both.
+- **Tool install pattern (refined):** This cycle used `uv tool install git+https://github.com/jpshackelford/{lxa,ohtv}.git`. System-wide `uv pip install --system` was blocked by `/usr/local/lib/python3.13/site-packages` perms (matches prior cycles' findings). `uv tool install` is the most reliable fresh-clone pattern for this sandbox shape; `uv sync` works when the local checkout has a usable `pyproject.toml` (it does).
+- **PR-review bot verdict-vs-state mismatch:** the bot leaves overall review `state=COMMENTED` (not APPROVED) even on 🟡 Acceptable verdicts. So `reviewDecision` stays `""`. Use the 🟢/🟡/🔴 tag in the review body as source of truth for review-handler dispatch. Confirmed again this cycle.
+- **Review threads vs PR comments:** `gh pr view --comments` only returns issue-style comments. Use `gh api graphql … reviewThreads` to read review threads, and the same GraphQL mutations to reply/resolve them. Cached.
+- **WORKLOG truncation:** 1373 lines, deferred once more, counter at **1 cycle overdue**. Next cycle should run `/truncate-worklog` unconditionally.
+- **Engagement-metric family progress:** #167 ✅, #168 ✅, #169 ✅, #170 → PR #175 review-in-flight → expected merge within 1–2 cycles → 4/4 done.
+
+**Local checkout note:** `main` HEAD at `1bed76f` on entry (testing worker's 12:06Z worklog commit). This entry pushes one more `chore(worklog)` commit on top. No code branches created by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `e408d8c` (review worker), the pushed docs/cli commit's CI, the resolution status of thread `PRRT_kwDOR9seq86HDUYb`, and (if all green and no new threads) spawns the merge worker.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
