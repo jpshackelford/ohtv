@@ -785,3 +785,80 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `d7b3f7c` (merge work
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-04 13:18 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7a6ca22` | implementation | Issue #161 — `ohtv ask` prompt-based agent mode | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Fresh workspace clone (grafted, single-commit history). `uv sync` succeeded; activated `.venv/` and installed `lxa` via `uv pip install git+…/lxa.git` inside the project venv (no `--user` fallback needed this cycle). `ohtv` came in via `uv sync`. Skipped `ohtv sync` — `gh` covers every gating signal.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **787 lines** on entry (vs 681 post-last-truncation at 12:50Z; the merge worker + prior orchestrator added ~106 lines of legitimate recent productive entries). Truncation threshold is >300 lines, **but** the orchestrate skill's policy is to archive entries "older than 6 hours of productive work" — 13:18Z minus 6h = 07:18Z. Every entry currently in WORKLOG.md is from 06:54Z onwards (the prior cycle archived through 06:21Z), so the 6h-window is essentially empty of archivable entries. **Skipping truncation this cycle**; next cycle will likely have room to trim.
+
+**Step 1 — Human Instructions:** None. `grep -B1 -A5 "^## INSTRUCTION:" WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):**
+- Merge worker `d7b3f7c` (spawned 12:50Z): `execution_status=finished, sandbox_status=RUNNING` → **finished ✓**. Worker's deliverable on `main` is commit `f06f359` (`chore(worklog): merge worker — PR #175 squash-merged (#170 closed)`).
+- Prior review worker `e408d8c`: `sandbox_status=PAUSED` → ignored.
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered:**
+- **PR #175 — engagement filters:** state=**MERGED** at 12:50:55Z by jpshackelford (merge commit `3c8c5272`). Closed issue #170. ✅
+- **`ohtv-v0.26.0` released:** tagged `78bafee` (`chore(release): ohtv 0.26.0 [skip ci]`), GitHub Release published ~24 min ago. **Engagement-metric family 4/4 done** 🎉 (#167, #168, #169, #170 all merged).
+- **Open PRs:** 0.
+- **Issues needing expansion (no `ready`, no `hold`):** 0.
+- **Ready, prioritized issues:**
+  - **#161** (`priority:medium`) — `ohtv ask: add prompt-based agent mode alongside existing tools-based one; rename current to --agent-tools`
+  - **#162** (`priority:medium`) — Capture `ohtv ask` sessions as on-disk telemetry for cross-mode comparison and replay
+  - **#173** (`priority:low`) — refactor: reduce nesting in `_load_engagement_for_ids`
+- **On hold:** #26, #90.
+- **Selection rule (cached):** #161 and #162 both `priority:medium` → orchestrator picks the **lowest number** per FIFO convention → **#161**. (Also semantically correct: #162 is the telemetry sibling that *depends* on #161's `InvestigationResult` shape, so #161 must land first.)
+
+**Step 4 — Decision (per orchestrate decision tree):**
+- **PR slot:** no open PR + ready issues with priorities → **Spawn implementation worker for #161.** ✅
+- **Expansion slot:** 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Implementation Worker**
+- Issue: [#161 — `ohtv ask` prompt-based agent mode](https://github.com/jpshackelford/ohtv/issues/161) (`priority:medium`)
+- Start task: `b284fba4` → `app_conversation_id = 7a6ca22c7e9348b59601808515a56cb0` → **READY** on first poll (~6s warm-picker latency 🔥).
+- Conversation: [`7a6ca22`](https://app.all-hands.dev/conversations/7a6ca22c7e9348b59601808515a56cb0)
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after spawn.
+- Plugin spec (unchanged, **17th successful spawn**): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract (unchanged, V1): `initial_message: {content: [{type:"text", text:"…"}], run: true}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:** read #161 description + comments → branch from main (latest is `f06f359` on `ohtv-v0.26.0`) → implement two-mode `ohtv ask`: rename current `--agent` to `--agent-tools` (preserve as legacy alias), introduce new prompt-cookbook-based `--agent` → both call into same `InvestigationResult` shape (so #162 telemetry can hook in) → write tests (>80% coverage on new code) → lint/type-check → push as DRAFT PR linking #161 → CI green → flip to ready → `chore(worklog):` WORKLOG update on main → EXIT. **Explicit OUT-OF-SCOPE:** docs spot-check, testing, review (those are separate workers).
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~13:48Z):** Most likely —
+  - ~60%: Implementation worker `7a6ca22` still running. `ohtv ask` mode-switching with a new prompt-cookbook scaffold + tests is a ~30–60 min job at typical implementation-worker pace; first cycle after spawn usually finds the worker mid-flight.
+  - ~25%: Worker has pushed an initial draft PR; CI may still be running.
+  - ~10%: Worker found an architectural snag in the existing `ohtv ask --agent` path (the rename touches `InvestigationResult` callers); may need clarification — would surface as a comment on #161 or a `needs-info` label flip.
+  - ~5%: Already in CI-green territory and ready for the docs worker.
+- **2 cycles out (~14:18Z):** Likely PR exists, in implementation or CI cleanup phase.
+- **3 cycles out (~14:48Z):** Likely CI-green draft → flipped to ready → docs worker dispatched.
+
+**Notes / follow-ups carried forward (cumulative):**
+- **`initial_message` spawn-payload contract** stays pinned. **17 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Plugin spec format unchanged.**
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations` (singular, NOT `…/start-tasks`).
+- **Start-task polling endpoint:** `GET /api/v1/app-conversations/start-tasks/search` — `READY` was reached on first poll this cycle (fastest observed; warm picker).
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **Tool install pattern:** when `.venv/` exists (uv project), prefer `source .venv/bin/activate && uv pip install …` over `pip install --user`. This cycle used the venv path successfully.
+- **`uv sync` side effect:** modifies `uv.lock` on a grafted checkout (probably platform-marker churn). Discarded with `git checkout -- uv.lock` — safe because `uv.lock` is regenerated deterministically.
+- **PR-review bot:** can emit APPROVED OR COMMENTED-with-tag verdicts; both are merge-ready.
+- **Review threads vs PR comments:** `gh pr view --comments` returns issue-style comments only; use GraphQL `reviewThreads` for review threads.
+- **Engagement-metric family CLOSED:** 4/4 PRs merged (#172, #174, #175, plus the docs-PR #176). `ohtv-v0.26.0` is the cap-stone release.
+- **Next family / cluster:** `ohtv ask` agent-mode family (#161 in flight, #162 depends on it, #173 is an unrelated refactor that can be picked up after).
+
+**Local checkout note:** `main` HEAD at `f06f359` (the merge worker's worklog commit). This entry will commit only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `7a6ca22` (implementation worker) status, looks for a new draft PR linked to #161, and verifies CI state once a PR exists.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
