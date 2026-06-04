@@ -1,5 +1,37 @@
 ## Log
 
+### 2026-06-04 15:50 UTC - Merge Worker — PR #177 squash-merged
+
+**Outcome:** ✅ **MERGED.** PR #177 (`feat(ask): add prompt-cookbook agent mode alongside legacy tools mode`) squash-merged into `main` at 15:50:19Z as merge-commit `722ce44`. Issue **#161 auto-closed** by the `Closes #161.` line in the squash body.
+
+**Pre-merge state (verified):**
+- HEAD `d80a023` (4 commits ahead of 14:38Z initial test SHA `fc4f138`).
+- CI on HEAD: lint ✅, pytest ✅, pr-review ✅ (🟡 Acceptable — merge-ready), enable-orchestrator ✅.
+- Re-test (15:26Z by @jpshackelford / re-testing worker `4f7e5df`): ✅ **Pass** — all 8 scenarios green including `gen objs --cache-only -F json` cache-miss → `goal: null`, `--agent` stderr notice, mutual-exclusion, allow/block-list rejection. No regressions.
+- All **3 review threads RESOLVED** by review worker `a1ec2d6`.
+- `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `isDraft=false`.
+
+**Steps executed:**
+1. `gh pr checkout 177` (HEAD `d80a023`); read full PR diff + 15:26Z re-test verdict via `gh pr view 177 --comments`.
+2. **PR description updated** — converted `Fixes #161.` → `Closes #161.` (matches merge-worker task brief) and inserted a "Review round 1 follow-ups" sub-section documenting the four review commits (stderr notice, JSON `goal: null`, `COOKBOOK_EXAMPLES` extraction, `run_ohtv` docstring).
+3. `gh pr merge 177 --squash --subject "feat(ask): add prompt-cookbook agent mode alongside legacy tools mode" --body-file …` — subject verbatim from PR title (per brief). Body summarises user-facing changes, architecture highlights, the four review-round follow-ups, test counts (2553 passed / 2 skipped / 3 xfailed), and the docs landing site. `Co-authored-by: openhands` preserved.
+4. Verified `state=MERGED`, `mergedAt=2026-06-04T15:50:19Z`, mergeCommit `722ce443c84d1f5f0941f344af55c25b758301ce`.
+
+**Release pipeline (kicked off automatically):**
+- `release` workflow run `26963018715` started at 15:50:27Z on `main` for SHA `722ce44` → **completed ✅**.
+- Tag `ohtv-v0.27.0` pushed (semantic-release picked up the `feat(ask):` prefix → minor bump from 0.26.0).
+- GitHub Release **ohtv-v0.27.0** published (marked Latest).
+- Release-bot commit `18ac7bc` (`chore(release): ohtv 0.27.0 [skip ci]`) pushed CHANGELOG.md + pyproject.toml + `__init__.py` version bump back to main.
+
+**Out-of-scope (intentionally untouched per brief):**
+- No re-test, docs spot-check, follow-up PRs.
+- No changes to issues #162 (telemetry — depends on #161, now unblocked) or #173 (refactor) — next orchestrator cycle assesses those.
+- No code pushes to main beyond this worklog commit.
+
+**Hand-off:** Next orchestrator cycle should see PR slot **free**, expansion slot **free**, and #161 closed. #162 is now unblocked (its structural dep on the `InvestigationResult.mode` field shipped in this release). Recommend prioritising #162 (medium) over #173 (low) for the next ready-issue selection.
+
+_This worklog entry was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
 ### 2026-06-04 15:48 UTC - Orchestrator
 
 **Active Workers:**
