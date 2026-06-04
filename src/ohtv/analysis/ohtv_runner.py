@@ -223,10 +223,18 @@ def run_ohtv(
     Args:
         argv: The argv list, *excluding* the ``ohtv`` program name.
             E.g. ``["show", "abc123", "-F", "json"]``.
-        timeout_s: Soft per-call timeout. Click's CliRunner doesn't
-            interrupt running invocations; this value is recorded and
-            checked *after* the call returns. A hard timeout would
-            require threading; we deliberately keep this simple for v1.
+        timeout_s: Soft per-call timeout (logged but not enforced).
+            Click's :class:`~click.testing.CliRunner` does not support
+            interrupting a running invocation, so this value is checked
+            *after* the call completes — i.e. it can detect "this took
+            too long" but cannot abort an in-flight subcommand. A hard
+            timeout would require running the invocation on a worker
+            thread (and even then, Python code paths that don't yield
+            could not be interrupted), which is deliberately avoided
+            for v1 to keep the runner simple and dependency-free.
+            Runaway behaviour is bounded by the session-level
+            iteration cap enforced upstream in
+            :class:`~ohtv.analysis.investigator_cli.InvestigationAgentCli`.
         cli_obj: Optional Click command/group to invoke. Defaults to
             the :func:`ohtv.cli.main` group. Provided as a parameter so
             tests can pass a small isolated group.
