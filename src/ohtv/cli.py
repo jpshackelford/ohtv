@@ -4084,6 +4084,31 @@ def _load_engagement_for_conversations(
     return engagement_map
 
 
+def _validate_engagement_values(
+    engaged_seconds: int | float | None,
+    total_duration_seconds: int | float | None,
+) -> tuple[float, float] | None:
+    """Validate and convert engagement values to (engaged, total) floats.
+
+    Returns ``None`` when either value is missing, non-numeric, or
+    ``total`` is ``<= 0``. Centralises the validation shared by
+    ``_format_eng_pct`` and ``_engagement_ratio`` (PR #171 review).
+    """
+    if engaged_seconds is None or total_duration_seconds is None:
+        return None
+    try:
+        total = float(total_duration_seconds)
+    except (TypeError, ValueError):
+        return None
+    if total <= 0:
+        return None
+    try:
+        engaged = float(engaged_seconds)
+    except (TypeError, ValueError):
+        return None
+    return (engaged, total)
+
+
 def _format_eng_pct(
     engaged_seconds: int | float | None,
     total_duration_seconds: int | float | None,
@@ -4093,18 +4118,10 @@ def _format_eng_pct(
     Returns ``-`` when total is 0, NULL, or missing — matching the
     fallback semantics of ``_format_engaged_line``. Issue #167.
     """
-    if engaged_seconds is None or total_duration_seconds is None:
+    values = _validate_engagement_values(engaged_seconds, total_duration_seconds)
+    if values is None:
         return "-"
-    try:
-        total = float(total_duration_seconds)
-    except (TypeError, ValueError):
-        return "-"
-    if total <= 0:
-        return "-"
-    try:
-        engaged = float(engaged_seconds)
-    except (TypeError, ValueError):
-        return "-"
+    engaged, total = values
     return f"{(engaged / total) * 100:.1f}%"
 
 
@@ -4117,18 +4134,10 @@ def _engagement_ratio(
     Returns ``None`` when total is 0, NULL, or missing. Mirrors
     ``_format_eng_pct`` but emits a raw number for JSON/CSV.
     """
-    if engaged_seconds is None or total_duration_seconds is None:
+    values = _validate_engagement_values(engaged_seconds, total_duration_seconds)
+    if values is None:
         return None
-    try:
-        total = float(total_duration_seconds)
-    except (TypeError, ValueError):
-        return None
-    if total <= 0:
-        return None
-    try:
-        engaged = float(engaged_seconds)
-    except (TypeError, ValueError):
-        return None
+    engaged, total = values
     return round(engaged / total, 4)
 
 
@@ -4265,10 +4274,14 @@ def _format_list_csv(
                 # All five engagement columns blank.
                 row.extend(["", "", "", "", ""])
             else:
-                row.append(er.get("engaged_seconds") if er.get("engaged_seconds") is not None else "")
-                row.append(er.get("attention_periods") if er.get("attention_periods") is not None else "")
-                row.append(er.get("threshold_seconds") if er.get("threshold_seconds") is not None else "")
-                row.append(er.get("total_duration_seconds") if er.get("total_duration_seconds") is not None else "")
+                for field in (
+                    "engaged_seconds",
+                    "attention_periods",
+                    "threshold_seconds",
+                    "total_duration_seconds",
+                ):
+                    val = er.get(field)
+                    row.append(val if val is not None else "")
                 ratio = _engagement_ratio(
                     er.get("engaged_seconds"), er.get("total_duration_seconds")
                 )
