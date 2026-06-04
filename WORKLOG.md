@@ -2,6 +2,22 @@
 
 ## Log
 
+### 2026-06-04 03:35 UTC - Implementation Worker (Issue #167)
+
+✅ **Implemented Issue #167 — Add engagement columns to `ohtv list` output.**
+
+- Issue: [Add engagement columns to `ohtv list` output](https://github.com/jpshackelford/ohtv/issues/167)
+- PR: [feat: add engagement columns to ohtv list output #171](https://github.com/jpshackelford/ohtv/pull/171) — DRAFT → READY
+- Branch: `feat/list-engagement-columns-167`
+- Status: Ready for review; CI green (pytest, lint, enable-orchestrator all pass)
+- Scope: Opt-in `--with-engagement` flag on `ohtv list`. Table view adds `Engaged` / `Periods` / `Eng%` columns; JSON adds five fields matching the PR #165 schema on `ohtv show -F json`; CSV appends the same five columns. Missing rows render dim `-` in table, JSON `null`, empty in CSV — display-only, never filters. Performance: single batched SQL query (chunked at 900 IDs for SQLite's parameter ceiling).
+- Implementation: `_load_engagement_for_conversations` mirrors `_load_refs_for_conversations` pattern; `_format_eng_pct` / `_engagement_ratio` helpers for percent + ratio formatting. ID normalization for dashed LocalSource IDs per AGENTS.md item #14. No new schema, no migration, no new stage — pure display-layer change.
+- Tests: 36 new tests in `tests/unit/test_cli_list_engagement.py` covering formatters (zero/missing/negative-total cases), batch DB loader (empty input, missing DB, present/missing/normalized IDs, 1100-row chunking), JSON/CSV emitters (schema stability across rows), and rich table column rendering (with/without flag, idle composition). Full suite: 2351 passed, 2 skipped, 3 xfailed.
+- Next: review / merge are downstream conversations the orchestrator will spawn.
+
+---
+
+
 ### 2026-06-04 03:25 UTC - Expansion Worker (Issue #169)
 
 ✅ **Expanded Issue #169 — Add engagement to `gen objs` markdown output.**
