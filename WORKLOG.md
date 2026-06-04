@@ -1,5 +1,89 @@
 ## Log
 
+### 2026-06-04 20:51 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `66a5602` | testing | PR #182 — `--event-dates` manual blackbox tests | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Workspace had no `.venv` on entry. `uv venv .venv` + `uv pip install --python .venv/bin/python git+…/lxa.git git+…/ohtv.git` succeeded into project-local venv (same pattern as prior 9 cycles). `ohtv sync --since 4h` ran clean.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **2141 lines** on entry. **9th consecutive cycle** the truncation skill is overdue. Standing recommendation unchanged: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~900 lines in one commit. Deferring again per the established carry-forward.
+
+**Step 1 — Human Instructions:** None. `grep -A5 "## INSTRUCTION:" WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):** Per the most recent worklog entries:
+- Docs Worker (PR #182, `58fa6a5`, 20:30Z): **finished ✓** — README `## Event-date filtering` section added; PR comment posted (`Documentation updated for: --event-dates filter flag (6 commands)`).
+- Implementation Worker (Issue #180 → PR #182, `417d897`, 19:55Z): **finished ✓** — PR ready, CI green, 22 new tests, 6-command threading.
+- Expansion Worker (Issue #181, `1498695`, 19:55Z): **finished ✓** — `ready` label applied; Technical Approach comment posted.
+- API search for `execution_status=running` confirms the only ohtv-attributable running conv is this orchestrator (`beb4845`). The 19:46Z orchestrator's "~50%: both workers still running" prediction for this cycle landed in the 25% slice (both complete + docs worker has slotted in and out).
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered:**
+
+- **Open PRs:** **1** — [PR #182](https://github.com/jpshackelford/ohtv/pull/182) (`feat/event-dates-filter-180`).
+  - `lxa pr list`: `oAFc green ready` 💬1 (31m old, 21m since last commit).
+  - History decode: `o` = opened (impl worker, `417d897`) → `A` = approved (review bot, 20:22:25Z, `APPROVED`) → `F` = fixes pushed (docs commit `58fa6a5`, 20:25:46Z) → `c` = comment (docs worker's "Documentation updated" comment, 20:27:36Z).
+  - CI: `lint ✓` + `pytest ✓` (last commit `58fa6a5`, 20:25:46Z). `reviewDecision=APPROVED`, `mergeable=MERGEABLE`.
+  - 1 PR comment = docs worker's marker comment. **0 manual test results**. **0 unresolved review threads.**
+- **Issues needing expansion (no `ready`, no `hold`):** **0** 🎉 — Both #180 and #181 have been expanded; #180 has merged-track status (PR #182), #181 is `ready` awaiting prioritization.
+- **Ready issues (no `hold`):**
+  - #180 (`ready`, `priority:high`) — has PR #182 in flight.
+  - #181 (`ready`, no priority) — awaiting prioritization but blocked behind #180's merge per the expansion worker's documented dependency note (#181's `messages` command needs `list_by_event_date_range` on `main`).
+- **On hold:** #26 (mcp server), #90 (`ohtv label` batch) — unchanged.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+
+- **PR slot:** "PR exists, ready, CI green, docs updated, **no manual test results**" → **Spawn testing worker.** ✅
+  - Both docs markers satisfied (PR comment matches `Documentation updated` pattern; README.md is in the PR diff per `gh pr diff 182 --name-only`).
+  - The `reviewDecision=APPROVED` from the review bot does NOT short-circuit testing — per the orchestrate workflow's "Test What's Documented" principle, manual testing is a REQUIRED gate before merge regardless of review state.
+- **Expansion slot:** "No issues need expansion" → **Slot idle.** ✅
+  - #181 is already `ready`; no other open non-hold issues exist. Cannot spawn an impl worker for #181 because the PR slot is occupied by PR #182's testing phase (single-worker-per-slot rule).
+
+**Step 5 — Spawned: Testing Worker (PR #182)**
+
+- PR: [#182 — feat(filter): add --event-dates to filter by engagement timestamps](https://github.com/jpshackelford/ohtv/pull/182)
+- Branch: `feat/event-dates-filter-180`
+- Start task: `f1b422c96efc4b518dccc9ca95b80227` → `app_conversation_id = 66a56022c3d14defb82f2f4646489794` → **READY** on the 1st poll (~4s; warm-picker streak continues — 8th cycle).
+- Conversation: [`66a5602`](https://app.all-hands.dev/conversations/66a56022c3d14defb82f2f4646489794)
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after READY.
+- **Prompt scope:** clone + `uv sync` + `pytest` (re-confirm 2562 passing) → `ohtv sync` + `ohtv db process all` to populate `conversation_engagement` → 7 numbered tests (T1–T7) covering: baseline vs `--event-dates` on `list --since 7d`, `--day`/`--week` variants, bare-flag UsageError (AC6), the other 5 commands (`search` / `ask --no-temporal` / `gen objs --cache-only` / `gen titles --dry-run` / `gen run --dry-run`), `refs` excluded (T5 = unrecognized-option assertion), migration 024 indexes (`sqlite3 .schema conversation_engagement`), and the INNER-JOIN exclude-missing semantics (AC5) using a LEFT JOIN probe to find an unengagement-rowed conv → post structured `## Manual Test Results` PR comment via `/manual-test` skill → exit (NOT merge — separate worker).
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned, gating PR #182 toward merge). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~21:21Z):** Most likely —
+  - ~55%: Testing worker `66a5602` still running. T1–T7 across 6 commands is a ~25–40 min job; the orchestrator may catch it mid-run. Action: log status, no spawn.
+  - ~30%: Testing worker complete with `✅ READY FOR MERGE` verdict posted. PR #182 has manual test results + APPROVED + green CI + docs updated → **next orchestrator routes through "test results valid, good rating, docs valid" → spawn merge worker.** No re-test needed (no commits between docs commit and the test report). No docs spot-check needed (the docs commit IS the latest commit; nothing changed after it).
+  - ~10%: Testing worker complete with `❌ ISSUES FOUND`. Orchestrator routes to review worker (treats the test report as review feedback). Less likely given the PR is already bot-APPROVED and 22 unit tests pass.
+  - ~5%: Worker stall / network hiccup → log status, next cycle re-checks.
+- **2 cycles out (~21:51Z):** Likely PR #182 merge worker in flight (or just-merged). Issue #180 closes via `Fixes #180`. `feat:` subject triggers minor version bump → `ohtv-v0.29.0` tag + CHANGELOG entry per AGENTS.md release contract.
+- **3 cycles out (~22:21Z):** PR #182 merged. Issue #181 becomes the new PR-slot candidate. Orchestrator runs `/assess-priority` inline on #181 (sole `ready` issue → priority bookkeeping) and spawns an implementation worker for it. `list_by_event_date_range` is now on `main` and ready to be reused by the `messages` command per the expansion worker's documented seam.
+- **End-to-end #180 + #181 wall-clock:** still tracking the 19:46Z estimate of ~3–4 hours from spawn-time — currently ~1h25m in; on pace for #180 merge by ~21:51Z and #181 PR ready by ~22:51Z–23:21Z.
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** holds steady. **28 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY` (no `Bearer` prefix).
+- **Plugin spec format unchanged:** `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- **READY-on-1st-poll streak: 8 cycles** (this cycle's `66a5602` was READY in ~4s).
+- **PR-review bot streak (APPROVED without thread comments): 4 in a row** (PRs #175, #178, #179, #182). The COMMENTED+🟢-tag fallback path may now be safely retired; left in as a defensive branch for one more cycle.
+- **`reviewDecision=APPROVED` does NOT skip testing** — the orchestrate workflow explicitly states testing is required even after review begins, because docs/testing/review are sequenced separately. This cycle exercised exactly that branch; the decision tree handled it cleanly.
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **Tool install pattern stays project-local:** `.venv/bin/{ohtv,lxa}`; system-wide `--system` install still blocked by `/usr/local/lib/python3.13/site-packages` perms.
+- **WORKLOG truncation:** 9 consecutive cycles overdue. Standing recommendation unchanged. The 6h-productive-window matcher continues to defer truncation because most prior entries were within the matcher's "keep" radius until very recently — file should now have ~1200+ archivable lines if a human applies the `## INSTRUCTION:` route.
+
+**Local checkout note:** `main` HEAD on entry at `5a76d85` (the docs worker's worklog commit). This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `66a5602` status, looks for a `## Manual Test Results` PR comment on #182, and routes through the merge-or-review branches.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 20:30 UTC - Docs Worker (PR #182, `58fa6a5`)
 
 ✅ **README documentation added for `--event-dates` filter flag (Issue #180 / PR [#182](https://github.com/jpshackelford/ohtv/pull/182))** — `docs: document --event-dates filter flag in README`
