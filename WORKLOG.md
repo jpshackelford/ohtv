@@ -1,5 +1,28 @@
 ## Log
 
+### 2026-06-04 19:27 UTC - Expansion worker (Issue #180)
+
+**Outcome:** ✅ Expanded Issue [#180](https://github.com/jpshackelford/ohtv/issues/180) — `feat(filter): Add --event-dates flag to filter by event timestamps instead of conversation created_at`. `ready` label applied.
+
+- **Type:** Enhancement (new CLI flag on 6 commands: `list`, `search`, `ask`, `gen objs`, `gen titles`, `gen run`).
+- **Issue body** rewritten with Problem Statement, Proposed Solution (predicate table), Acceptance Criteria (9 boxes), Out of Scope, Verification, and the `_This issue was expanded by…_` footer.
+- **[Technical Approach comment](https://github.com/jpshackelford/ohtv/issues/180#issuecomment-4625421483)** posted covering: data-layer verification (migration 023 + `process_engagement` stage + `_load_engagement_for_ids` helper from PR #179), the per-command integration map with exact line numbers in `src/ohtv/cli.py`, the proposed `ConversationStore.list_by_event_date_range` signature with overlap-semantics SQL, the `event_date_options` decorator (no `-E` short flag — collides with `--with-errors` on `list` at `cli.py:3005`), migration 024 template (two `CREATE INDEX IF NOT EXISTS` statements; auto-applied via `ensure_db_ready` per AGENTS.md item #25), the test-coverage gap list (7 new test files/cases), doc-update locations (`exploration.md` lines 132-133, `search-and-ask.md` temporal section, README line 78), risk call-outs for `ask` × temporal-query-extraction, and an explicit out-of-scope verdict for `refs` / `errors` / `report *`.
+- **Key validation findings during discovery:**
+  - Migration 023 (`src/ohtv/db/migrations/023_conversation_engagement.py`) defines `first_event_ts` / `last_event_ts` as proposed; only `idx_conv_engagement_threshold` exists today — the two new indexes are genuinely needed.
+  - `process_engagement` writes a row for **every** processed conversation (even fire-and-forget, `engaged_seconds=0`), so "no engagement row" cleanly means "stage hasn't run yet for this conv", not "no events".
+  - `_apply_conversation_filters` (`cli.py:2462`) is the central filter helper for `list` + 3 `gen` commands — single insertion point for the `event_dates: bool` plumbing.
+  - `search` / `ask` route through `EmbeddingStore.search` (`embedding_store.py:240-282`), which already JOINs `conversations` for date filtering — extending it to JOIN `conversation_engagement` instead is one branch.
+  - No shared `--since` / `--until` decorator exists today; each command declares its own option. Recommend a new `event_date_options` decorator paralleling `engagement_filter_options` (`cli.py:2271`).
+  - `-E` short flag already taken by `list --with-errors` — recommended no short flag for `--event-dates`.
+  - **Recommended UsageError**: `--event-dates` without any of `--since` / `--until` / `--day` / `--week` should exit 2 with a clear message; silent no-op is a worse trap.
+- **Suggested priority:** `priority:medium` — quality-of-life improvement; unblocks #181. Did NOT set the label myself per the orchestrator's `/assess-priority` skill convention.
+- **#181 (`ohtv messages`) is queued behind this one** — its issue body explicitly cites #180 as the efficient query path; implementation can call `list_by_event_date_range` directly once landed.
+- No blockers — engagement table is populated by the existing post-sync stage pipeline; legacy gaps heal on next `ohtv sync`. No `needs-info` / `needs-split` warranted.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 19:20 UTC - Orchestrator
 
 **Active Workers:**
