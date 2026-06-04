@@ -78,9 +78,13 @@ ohtv db process refs -v
 | Stage | Description |
 |-------|-------------|
 | `refs` | Extract repository, issue, and PR references |
-| `actions` | Recognize actions (file edits, git ops, PRs, issues, Notion, etc.) |
-| `contributions` | Walk the action timeline to attribute PR creation/merge/push contributions to `change_refs` (depends on `actions`) |
+| `actions` | Recognize actions (file edits, git ops, PRs, issues, Notion, etc.) (depends on `refs`) |
+| `branch_context` | Track `git checkout` / `git switch` and create branch refs from `git push` events (depends on `actions`) |
+| `push_pr_links` | Correlate `git push` events with PRs via branch matching (depends on `actions`, `branch_context`) |
+| `summaries` | Extract conversation summaries from the LLM objective-analysis cache (populates `conversation_summaries`) |
 | `human_input` | Count human input events per conversation; preserves `initial_prompt_source` for future classification |
+| `contributions` | Walk the action timeline to attribute PR creation/merge/push contributions to `change_refs` (depends on `actions`) |
+| `engagement` | Sustained-attention metric — "engaged human minutes" and attention-period count per conversation. See [Engagement stage](#engagement-stage) below and [Issue #163](https://github.com/jpshackelford/ohtv/issues/163) / [design doc](../design/conversation-metrics.md#engaged-human-minutes-sustained-attention-metric--issue-163). |
 | `all` | Run all stages in sequence |
 
 Stage dependencies are respected when running `all` (e.g. `contributions` runs after `actions`). Running a stage individually before its dependencies have completed is allowed but produces no useful results — prefer `db process all` unless you know what you're doing.
@@ -90,6 +94,7 @@ Stage dependencies are respected when running `all` (e.g. `contributions` runs a
 |------|-------------|
 | `-f, --force` | Reprocess all conversations |
 | `-c, --conversation ID` | Process only this conversation |
+| `--threshold SECONDS` | Sustained-attention threshold `T`, in **seconds**. Only meaningful for the `engagement` stage (silently ignored for other stages). Default is `720` (12 minutes). When re-running engagement with a different threshold the stored row is rewritten under the new `T`. |
 | `-v, --verbose` | Show detailed output |
 
 ### Contributions stage
@@ -147,6 +152,38 @@ ohtv list --action pushed
 # as merged PRs. To split them, drop into the database and group by
 # change_refs.kind.
 ```
+
+### Engagement stage
+
+The `engagement` stage computes a per-conversation **engaged human
+minutes** metric — how long a person was actively monitoring/steering
+the conversation, inferred from the temporal gaps around each user
+message. Distinct from `human_input`, which counts *how much* the human
+said; engagement captures *how long the human was paying attention*.
+
+Each follow-up user message whose gap to the immediately preceding
+event is ≤ `T` (default **12 minutes** = 720 seconds) marks an
+**attended block**; adjacent blocks within `T` of each other are merged
+into a single **attention period**. Results land in the
+`conversation_engagement` table (one row per conversation, migration
+023) with columns `engaged_seconds`, `attention_periods`,
+`threshold_seconds`, and the event-derived
+`first_event_ts`/`last_event_ts`/`total_duration_seconds`.
+
+```bash
+# Run with the 12-minute default
+ohtv db process engagement
+
+# Re-run with a custom threshold (in seconds) — overwrites the stored row
+ohtv db process engagement --threshold 600 --force      # T = 10 min
+ohtv db process engagement --threshold 900 --force      # T = 15 min
+```
+
+To pick an empirically-grounded `T` for your corpus, use
+`scripts/engagement_threshold_sweep.py` (non-destructive — it computes
+in memory and writes CSV). See
+[docs/design/conversation-metrics.md#engaged-human-minutes-sustained-attention-metric--issue-163](../design/conversation-metrics.md#engaged-human-minutes-sustained-attention-metric--issue-163)
+for the algorithm, edge cases, and tuning workflow.
 
 ## `ohtv db reset` - Delete Database
 

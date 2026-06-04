@@ -482,3 +482,123 @@ ohtv report velocity --format csv > velocity.csv
    - `ohtv report velocity` - weekly PR count + LOC
    - `ohtv report efficiency` - human words per LOC ratio
    - CSV export for further analysis
+
+## Engaged Human Minutes (Sustained-Attention Metric — Issue #163)
+
+A per-conversation metric capturing **how long a human was actively
+monitoring/steering** the conversation, inferred from the temporal gaps
+around each user message. Distinct from `followup_word_count` (how
+*much* the human said) — engaged minutes captures how *long the human
+was paying attention*.
+
+### Definition
+
+Given a sustained-attention threshold `T` (default: **12 minutes**,
+configurable; see "Threshold tuning" below):
+
+1. Order events ascending by timestamp; find user-message indices `Uᵢ`.
+2. For each follow-up user message `Uᵢ` (i ≥ 1), look at the gap from
+   the immediately preceding event `Pᵢ` to `Uᵢ`. If `Uᵢ.ts - Pᵢ.ts ≤
+   T`, the human was here: record the **attended block**
+   `(Uᵢ₋₁.ts, Uᵢ.ts)`.
+3. Sort attended blocks ascending; merge any two adjacent blocks with
+   seam `≤ T` into a single **attention period**.
+4. `engaged_seconds = Σ (period.end - period.start)` over merged periods.
+5. `attention_periods` = number of merged periods.
+
+### Stored in `conversation_engagement` (migration 023)
+
+| Column                              | Notes                                       |
+|-------------------------------------|---------------------------------------------|
+| `conversation_id`                   | PK; FK → `conversations(id) ON DELETE CASCADE` |
+| `threshold_seconds`                 | `T` used for this row; lets the tuning sweep store distinguishable variants |
+| `first_event_ts` / `last_event_ts`  | ISO-8601, derived from event files (NOT `base_state.updated_at - created_at`) |
+| `total_duration_seconds`            | `last - first`, in whole seconds            |
+| `engaged_seconds`                   | The metric. `0` for fire-and-forget (not NULL) |
+| `attention_periods`                 | Count of merged periods. `0` for fire-and-forget |
+| `follow_up_user_message_count`      | Sanity check, also lets queries filter on "human actually steered" |
+| `attended_user_message_count`       | Count of follow-ups whose gap to prior event ≤ T |
+| `processed_at`                      | When this row was written                   |
+| `event_count`                       | Event count at processing time              |
+
+`idx_conv_engagement_threshold` is indexed for filtering during the
+tuning sweep.
+
+### Edge cases pinned by tests
+
+* **Fire-and-forget** (0 or 1 user message) → `engaged_seconds = 0`,
+  `attention_periods = 0`. Row is still written so downstream queries
+  do not need to `LEFT JOIN`.
+* **Tail handling** (events after the last user message) — under the
+  pseudocode the tail does NOT extend the attention period. See Open
+  Question #1 in the issue; a forward-extension follow-up may revisit
+  this.
+* **`T = 0`** → every gap unattended → `engaged_seconds = 0`.
+* **`T = ∞`** → every follow-up attended → single period spanning
+  first→last user message.
+* **Single-instant period** (follow-up off the initial prompt with
+  zero intermediate events) → 1 period of 0 seconds. The
+  `attention_periods` counter is the signal that "the user touched the
+  conversation."
+
+### Stage + CLI
+
+* Stage name: `engagement` (registered in `ohtv.db.stages.STAGES`
+  after `contributions`).
+* `ohtv db process engagement [--threshold N]` — `N` is **seconds**;
+  default 720 (12 min). Run with new `--threshold` to rewrite all rows
+  under a new `T` (the upsert replaces the row's `threshold_seconds`
+  field).
+* `ohtv show <id>` (the default no-content / `--stats` view) adds an
+  "Engaged" line alongside Duration when an engagement row is present:
+
+      Engaged:  4m 24s in 2 periods (8.8% of 50m total)
+
+* `ohtv show --format json` surfaces `engaged_seconds`,
+  `attention_periods`, `engagement_threshold_seconds`, and
+  `total_duration_seconds` keys.
+
+### Threshold tuning
+
+The strawman in the issue was `T = 8 min`; the user's updated guess
+was `T = 12 min` ("noticed the message → read response → composed
+reply"). The shipped initial default is 12 min per Issue #163 Open
+Question #3.
+
+To pick the empirically-grounded value, run
+`scripts/engagement_threshold_sweep.py`:
+
+```bash
+uv run python -m scripts.engagement_threshold_sweep \
+    --out engagement_totals.csv \
+    --gap-histogram engagement_gaps.csv
+```
+
+The default sweep covers `T ∈ {6, 8, 12, 14, 16, 18, 20, 22, 24, 26,
+28}` minutes. The `gap-histogram` CSV has one row per
+preceding-event → user-message gap; plotting a histogram of the
+`gap_seconds` column reveals the trough between the "human reaction
+time" mode and the "came back later" mode — that's the empirical `T`.
+
+The sweep is non-destructive: it never writes to
+`conversation_engagement`. To persist the chosen value, run `ohtv db
+process engagement --threshold <chosen-seconds> --force` afterward.
+
+### Reconciliation with the existing duration display
+
+The pre-existing `ConversationInfo.duration` property in
+`src/ohtv/sources/base.py` uses `updated_at - created_at` from
+`base_state.json`, which can drift from the true first/last event
+timestamps. The engagement row stores `total_duration_seconds` computed
+from `last_event_ts - first_event_ts` (the correct definition); the
+`Engaged: ... (X% of … total)` line in `ohtv show --stats` reports the
+percentage against the event-derived duration. Subsequent work may
+migrate the legacy `ConversationInfo.duration` to the same definition
+for consistency.
+
+### See also
+
+* Issue #163 — original design + worked example.
+* `src/ohtv/db/stages/engagement.py` — algorithm + DB write path.
+* `src/ohtv/db/migrations/023_conversation_engagement.py` — schema.
+* `scripts/engagement_threshold_sweep.py` — tuning sweep.

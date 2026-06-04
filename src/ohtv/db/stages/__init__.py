@@ -11,11 +11,13 @@ Stage ordering:
 5. summaries - Extract summaries from objective analysis cache
 6. human_input - Count human words/messages (initial prompt vs. follow-ups)
 7. contributions - Record PR contributions (created/pushed/merged) per conversation
+8. engagement - Sustained-attention metric (engaged human minutes, periods)
 """
 
 from ohtv.db.stages.actions import process_actions
 from ohtv.db.stages.branch_context import process_branch_context
 from ohtv.db.stages.contributions import process_contributions
+from ohtv.db.stages.engagement import process_engagement
 from ohtv.db.stages.human_input import process_human_input
 from ohtv.db.stages.push_pr_links import process_push_pr_links
 from ohtv.db.stages.refs import process_refs
@@ -31,6 +33,7 @@ STAGES = {
     "summaries": process_summaries,
     "human_input": process_human_input,
     "contributions": process_contributions,
+    "engagement": process_engagement,
 }
 
 __all__ = [
@@ -38,6 +41,7 @@ __all__ = [
     "process_actions",
     "process_branch_context",
     "process_contributions",
+    "process_engagement",
     "process_human_input",
     "process_push_pr_links",
     "process_refs",
