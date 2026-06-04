@@ -1,5 +1,21 @@
 ## Log
 
+### 2026-06-04 19:55 UTC - Implementation Worker (`417d897`)
+
+✅ **Implemented Issue #180 → PR [#182](https://github.com/jpshackelford/ohtv/pull/182)** — `feat(filter): add --event-dates to filter by engagement timestamps`
+
+- **CI green:** lint ✓, pytest ✓ (2562 passing, 0 regressions), enable-orchestrator ✓.
+- **PR is ready for review** (moved from draft); review bot triggered.
+- **22 new tests** across `tests/unit/db/stores/test_conversation_store_event_dates.py` (10 — predicate semantics, INNER JOIN exclude-missing, roots-only, source filter, ordering, migration 024 indexes) and `tests/unit/test_cli_event_dates_filter.py` (12 — round-trip behavioral, parametrized validation across 4 commands, empty-result hint, search FTS post-filter).
+- **Migration 024** (`024_engagement_event_ts_indexes.py`) adds covering indexes on `conversation_engagement.first_event_ts` / `last_event_ts`.
+- **Single SQL owner:** `ConversationStore.list_by_event_date_range` is the only place the engagement-overlap WHERE clause lives — Issue #181 will extend it rather than fork it.
+- **Threaded through:** `list`, `search`, `ask`, `gen objs`, `gen titles`, `gen run` (NOT `refs` per spec). Default-off; back-compat preserved.
+- **Validation gate** (`_validate_event_dates_args`) fires at the right seam in each command — for `gen titles` / `gen run` it runs BEFORE the default 30-day / last-4-periods window to prevent silent mode swap on the default range.
+- **Docs:** `docs/guides/exploration.md` gains a new "Filtering by event timestamps" subsection with the round-trip example; AGENTS.md item #35 captures the architectural decisions for future implementers (including the search FTS post-filter chunking, INNER JOIN semantics, and the #181 follow-up seam).
+- **Conventional-commit subject** confirmed: `feat(filter): …` → triggers minor bump on merge per the release contract.
+
+---
+
 ### 2026-06-04 19:55 UTC - Expansion Worker (`1498695`)
 
 ✅ **Expanded Issue #181** — `feat(cli): Add ohtv messages command to list user messages across conversations`
