@@ -2,6 +2,23 @@
 
 ## Log
 
+### 2026-06-04 04:55 UTC - Review-Feedback Worker (PR #171)
+
+✅ **Addressed both advisory 🟡 review threads on PR #171.**
+
+- PR: [feat: add engagement columns to ohtv list output #171](https://github.com/jpshackelford/ohtv/pull/171)
+- Branch: `feat/list-engagement-columns-167`
+- Commit: 4298f85 — `refactor(cli): DRY engagement helpers + CSV row builder (PR #171 review)`
+- Status: Both threads (`PRRT_kwDOR9seq86G84bt`, `PRRT_kwDOR9seq86G84bx`) replied + resolved; CI green (`lint` + `pytest`); PR back to ready.
+- Changes (pure refactor, zero behaviour change):
+  1. Extracted `_validate_engagement_values(engaged, total) -> tuple[float, float] | None` so `_format_eng_pct` and `_engagement_ratio` share the None / non-numeric / `<= 0` validation. Each formatter collapses to ~3 lines.
+  2. Replaced the four `er.get(field) if er.get(field) is not None else ""` lines in the CSV row builder with a `for field in (...)` loop that caches `val = er.get(field)` once per field.
+- Verification: `tests/unit/test_cli_list_engagement.py` (36/36 ✅, unchanged — locks in current behaviour), full unit suite 2351 passed / 2 skipped / 3 xfailed. Both refactors accepted on merit (DRY + micro-perf, proportional benefit). Nothing declined.
+- Next: next orchestrator cycle will see green CI + resolved threads and decide between a re-test worker vs a merge worker.
+
+---
+
+
 ### 2026-06-04 03:55 UTC - Expansion Worker (Issue #170)
 
 ✅ **Expanded Issue #170 — Filter conversations by engagement level (`--engaged`, `--min-engaged`).**
