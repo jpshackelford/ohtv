@@ -319,6 +319,8 @@ uv run ohtv show <id> -s -d -o         # Actions with details + outputs
 uv run ohtv refs <id>                  # Git references (rich display)
 uv run ohtv refs -D --prs-only -1      # Today's PRs, one per line
 uv run ohtv refs -W --format json      # This week's refs as JSON
+uv run ohtv messages -W                # User messages from this week
+uv run ohtv messages -D 7 -1           # Last 7 days, one tab-sep line per msg (pipe)
 uv run ohtv errors <id>                # Agent/LLM error summary
 uv run ohtv list --errors-only         # List conversations with errors
 uv run ohtv db status                  # Database statistics
