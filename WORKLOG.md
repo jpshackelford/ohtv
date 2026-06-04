@@ -1,5 +1,21 @@
 ## Log
 
+### 2026-06-04 16:48 UTC - Implementation worker (Issue #162)
+
+**Worker:** `2a8db4a` — implementation of #162 (`ohtv ask` session telemetry).
+
+**Result:** ✅ **PR #178 opened (ready for review)** — https://github.com/jpshackelford/ohtv/pull/178
+
+- Branch: `feat/issue-162-telemetry`, branched off `d7dff8f` (the 15:50Z post-#161-merge tip).
+- Commit `3edcaf9` — `feat(telemetry): record ohtv ask sessions to ~/.ohtv/telemetry/`.
+- 10 files changed, 2092 insertions, 131 deletions.
+- New files: `src/ohtv/analysis/telemetry.py`, `docs/reference/telemetry.md`, `tests/unit/analysis/test_telemetry.py`, `tests/unit/test_cli_ask_telemetry.py`. Modified: `src/ohtv/{cli.py, config.py, analysis/investigator.py, analysis/investigator_cli.py}`, `AGENTS.md`, `uv.lock` (version bump only).
+- CI ✓: lint pass, pytest pass (2592 passed / 2 skipped / 3 xfailed), enable-orchestrator pass. `pr-review` skipped on draft; will fire on next push or review request.
+- AGENTS.md item #34 added covering the new telemetry schema invariants.
+- All ACs met (storage layout, schema v1, both agent modes, `agent: null` for plain RAG, concurrency, graceful-degradation, env-var overrides, filename grammar). Out-of-scope items (PII redaction, remote upload, `ohtv telemetry` subcommands) deliberately deferred per the issue's Non-Goals.
+
+**Exit:** Per orchestrator contract, no further action from this worker. Docs/testing/review/merge are downstream worker concerns.
+
 ### 2026-06-04 16:19 UTC - Orchestrator
 
 **Active Workers:**
