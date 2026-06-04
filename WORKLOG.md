@@ -1,5 +1,36 @@
 ## Log
 
+### 2026-06-04 20:55 UTC - Testing Worker (PR #182)
+
+**Worker:** testing | **Target:** PR #182 (`--event-dates` filter, Issue #180) | **Status:** ✅ done
+
+Ran the full manual blackbox test suite for `--event-dates` against commit `58fa6a5` and posted the report as a PR comment ([link](https://github.com/jpshackelford/ohtv/pull/182#issuecomment-4626107246)).
+
+**Setup:** clean clone → `uv sync` → `ohtv sync --since 7d` (465 cloud confs) → `ohtv db process all` → confirmed 465 `conversation_engagement` rows.
+
+**Results — all 7 test groups PASS, no bugs found:**
+
+- **T1** `list ± --event-dates`: 123 vs 130 results; round-trip conv `da040c4…` (created 05-28, last event 06-04) visible only under `--event-dates` ✓
+- **T2** `--day` / `--week` with `--event-dates`: 130 vs 123 (day), 194 vs 188 (week) — deltas confirm overlap semantics ✓
+- **T3** bare `list --event-dates`: exit 2, message lists all four valid companion flags ✓
+- **T4** `--event-dates` accepted on `search`, `ask`, `gen objs`, `gen titles`, `gen run`; bare-flag UsageError works on each (search/ask have a slightly narrower message because they don't support `--day`/`--week`) ✓
+- **T5** `refs --week --event-dates` → exit 2, `Error: No such option: --event-dates` (correctly excluded) ✓
+- **T6** Migration 024: both `idx_conv_engagement_first_event_ts` and `idx_conv_engagement_last_event_ts` present ✓
+- **T7** INNER JOIN exclude-missing (AC5): deleted engagement row for `32d68a2…` → conv visible under `--since 30d` (2 grep hits) but absent under `--since 30d --event-dates` (0 hits); engagement row restored after test ✓
+- **Unit suite:** `pytest tests/ -q` → **2614 passed, 2 skipped, 3 xfailed** in 49.65s (orchestrator brief said 2562 — local count slightly higher, no failures)
+
+**Verdict:** ✅ **READY FOR MERGE.** All acceptance criteria AC1–AC6 verified end-to-end; docs match behavior; no surprises.
+
+**Notes for orchestrator:**
+
+- `gen run` has no `--dry-run`; verified flag acceptance by running the aggregate job with `-y` (LLM model warnings are unrelated — no model configured in this runtime).
+- `gen objs`, `gen titles` cache-only/dry-run paths exercise the filter cleanly without touching the LLM.
+- No code or doc changes needed from this worker — just the PR comment and this worklog entry.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 20:51 UTC - Orchestrator
 
 **Active Workers:**
