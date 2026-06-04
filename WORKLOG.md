@@ -1075,3 +1075,68 @@ EXIT per orchestrate skill — next cycle (~30 min) checks testing worker `fa9ab
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-04 02:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `d4dd587` | orchestrator | this cycle | running |
+| `fa9ab78` | testing | PR #166 — list_conversations agent tool | running (26m elapsed, healthy) |
+| `5539799` | expansion | Issue #167 — engagement columns for `ohtv list` | **NEW** (running, sandbox RUNNING, proof-of-life ~36s) |
+
+**Spawned: Expansion Worker (parallel slot)**
+- Issue: [#167 — Add engagement columns to `ohtv list` output](https://github.com/jpshackelford/ohtv/issues/167)
+- Conversation: [`5539799`](https://app.all-hands.dev/conversations/553979931dda4f61826bc2f390fd56f2)
+- Start task `df6e42a8` → READY in 1 poll (~6s); `execution_status=running`, `sandbox_status=RUNNING`. Proof-of-life delta `updated_at - created_at ≈ 36s` (well above the 5s carry-forward heuristic), confirming the worker is alive — not a dead-on-arrival ghost like `e85cba5`.
+
+**Step 0 — Setup:** `lxa` was already installed; `ohtv` needed re-install (`sudo uv pip install --system git+...`). Carry-forward note: this cycle the orchestrator shell was running as user `openhands` and *did* have system-Python access via `sudo`, contrary to the 01:52Z note recommending `pip install --user`. The durable pattern across cycles is: **try `which lxa && which ohtv` first; if either is missing, try `sudo uv pip install --system git+...` before falling back to `pip install --user`**. `lxa repo add jpshackelford/ohtv` was a no-op (re-add). `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 4h --quiet` completed silently in <2m. `GH_TOKEN=$github_token` shim works (system `GITHUB_TOKEN` is still empty, lowercase `github_token` secret remains the canonical source — stable across 5+ cycles now).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1077 lines** (>>300 threshold; **11 consecutive cycles overdue** on truncation). Truncation deferred again — this cycle's primary action is keeping work flowing in parallel by filling the expansion slot. Still flagged for human `## INSTRUCTION:` directive or `/truncate-worklog` matcher fix.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged. `grep -B1 -A5 "^## INSTRUCTION:" WORKLOG.md` returned no headings.
+
+**Step 2/3 — Active workers at cycle entry:**
+- `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` filtered to `execution_status=running` returned only `d4dd587` (this orchestrator) and `fa9ab78` (testing worker for PR #166). The testing worker was spawned at the 01:52Z cycle; `updated_at=02:18:06Z` (~26m elapsed from creation, ~12s before the API query) → healthy and still working, not stuck.
+- All other recent worker conv IDs returned `execution_status=null` (PAUSED post-success or never-started).
+- **Conclusion:** PR slot is OCCUPIED by `fa9ab78`; expansion slot is FREE.
+
+**Step 4 — State gather:**
+- **Open PRs (1):** [PR #166 — `feat: add list_conversations tool to ohtv ask --agent investigator`](https://github.com/jpshackelford/ohtv/pull/166)
+  - State unchanged from prior cycle: APPROVED, MERGEABLE, CI green, docs comment present, **no `## Manual Test Results` comment yet** (only the docs comment from 01:24:27Z survives in the comments tail). Testing worker `fa9ab78` is still running.
+- **Issues needing expansion (no `ready`, no `hold`): 2** — **#167** (engagement columns for `ohtv list`) and **#168** (engagement fields in `gen objs` JSON output). Both are new since the 01:52Z cycle, when there were 0 issues needing expansion. Sibling enhancements to PR #165's engagement metric work — the human has been adding follow-up issues.
+- **Ready + prioritized: 3** — #160 (PR #166 in flight), **#161** (prompt-based agent mode + `--agent-tools` rename), **#162** (telemetry capture for `ohtv ask` sessions). All `priority:medium`.
+- **On hold:** #26, #90 (unchanged).
+
+**Step 5 — Decisions:**
+- **PR slot** → **WAIT** (`fa9ab78` still testing PR #166). One PR worker at a time per the parallel-slots rule.
+- **Expansion slot** → **SPAWN expansion worker for #167** (oldest unexpanded; #167 < #168). Decision-tree row matched: *"`CAN_SPAWN_EXPANSION` + issues need expansion → Spawn expansion worker for oldest unexpanded issue"*.
+
+**Why #167 and not #168:** The orchestrate skill's expansion rule is "oldest unexpanded issue" — issue numbers are monotonic, so the smaller number is older. Both will get expanded in turn — #168 next cycle assuming expansion slot frees.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~02:51Z, ~30 min):** Most likely state —
+  - ~70%: `fa9ab78` still testing (typical 30–45m for full pytest + blackbox tests on PR #166's LLM-loop integration). `5539799` may have finished expansion of #167 (typical 10–25m) and posted `ready` label. If both: log `5539799` complete, log `fa9ab78` still running, and **spawn expansion worker for #168** to keep parallel slot occupied.
+  - ~20%: `fa9ab78` finished testing → spawn merge worker (PR #166 is APPROVED). `5539799` likely still working.
+  - ~10%: `fa9ab78` test report shows failures → spawn review/fix worker.
+- **2 cycles out (~03:21Z):** Likely PR #166 merged, queue advances to #161 (implementation worker). Both #167 and #168 should be expanded by then.
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **WORKLOG.md size: 1077 lines → ~1145 lines post-entry. 11 consecutive cycles overdue on truncation.** Needs either human `## INSTRUCTION: archive WORKLOG.md entries older than 12h` or a fix to `/truncate-worklog`'s `is_productive` regex.
+- **Tool install pattern (refined this cycle):** `sudo uv pip install --system git+...` works when shell has sudo; `pip install --user` is the fallback for no-sudo contexts. The "no venv at workspace root" case from 01:52Z is real but resolvable via `--system` with sudo before falling back to `--user`.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 5 consecutive cycles. `export GH_TOKEN=$github_token` shim is durable.
+- **`/spawn-conversation` proof-of-life heuristic:** `updated_at > created_at` by ≥5s within ~30s = alive. Confirmed again (`5539799`: 36s delta).
+- **PAUSED-post-success detection:** `updated_at - created_at > 30s` + visible artifacts = success. Pattern stable across 3+ observations now.
+- **`Manual Test` grep false positive (from 01:52Z):** Continue to use strict heading match (`^## Manual Test Results`) when detecting test-report comments — confirmed once more this cycle (the docs comment's body still contains "manual testing").
+- **Docs detection beyond README.md (from 01:52Z):** Detection rule needs widening to `grep -iE '(readme|docs/)'`. Open recommendation — applies to PR #166 where docs were added in `docs/guides/search-and-ask.md` (not README).
+- **Two issues entered expansion queue this cycle (#167, #168):** Sign that the human is actively triaging follow-ups from PR #165 (engagement metric). The expansion slot will be active for the next ~2 cycles (one issue per cycle).
+
+**Local checkout note:** `git pull origin main` at cycle entry was clean. Worklog entry written on `main`; will commit and push directly.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `fa9ab78` (testing PR #166) and `5539799` (expansion #167) status and decides next actions.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
