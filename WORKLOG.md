@@ -2,6 +2,18 @@
 
 ## Log
 
+### 2026-06-04 03:55 UTC - Expansion Worker (Issue #170)
+
+✅ **Expanded Issue #170 — Filter conversations by engagement level (`--engaged`, `--min-engaged`).**
+
+- Issue: [Filter conversations by engagement level](https://github.com/jpshackelford/ohtv/issues/170)
+- Type: Enhancement (filter surface, completes the engagement-metric family alongside #167–#169)
+- Status: Ready for implementation (`ready` label applied)
+- Approach: Four new flags on `ohtv list` and on `gen objs / titles / run` — `--engaged` / `--no-engaged` (mutually exclusive boolean pair) plus threshold flags `--min-engaged DURATION` and `--min-engagement-ratio PCT`. Mutual-exclusion validation raises `click.BadParameter` early (exit 2). Filter implementation reuses PR #171's `_load_engagement_for_conversations` batched DB loader — single `IN (?, ?, …)` query, in-memory predicate over the candidate set. Aligned on the field names PR #171 / Issue #167 publishes (`engaged_seconds`, `attention_periods`, `total_duration_seconds`, `engagement_ratio`). New duration parser `parse_duration_to_seconds` in `src/ohtv/filters.py` accepts `5m` / `30s` / `1h` / `1h30m` plus bare numbers (interpreted as minutes for backward UX continuity with original issue body). Missing-row handling explicit: `--engaged` / threshold flags exclude missing rows; `--no-engaged` includes them. Pure filter layer — no schema, no migration, no new stage. One naming divergence from original issue body called out for review: `--no-engaged` (Click idiom) vs `--unengaged` (issue body). `--max-engaged` and sort-by-engagement deferred as separate follow-ups. Complexity: small-to-medium (~150 LOC production + ~400 LOC tests).
+
+---
+
+
 ### 2026-06-04 03:35 UTC - Implementation Worker (Issue #167)
 
 ✅ **Implemented Issue #167 — Add engagement columns to `ohtv list` output.**
