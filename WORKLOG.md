@@ -1,5 +1,19 @@
 ## Log
 
+### 2026-06-04 20:30 UTC - Docs Worker (PR #182, `58fa6a5`)
+
+✅ **README documentation added for `--event-dates` filter flag (Issue #180 / PR [#182](https://github.com/jpshackelford/ohtv/pull/182))** — `docs: document --event-dates filter flag in README`
+
+- **Scope:** README-only. New top-level `## Event-date filtering` section inserted after the existing `## Engagement filtering` section (same `--since` / `--until` axis → adjacency is intentional).
+- **Section contents (~49 lines):** one-paragraph motivation, explicit list of the 6 affected commands (`list`, `search`, `ask`, `gen objs`, `gen titles`, `gen run`) with the `refs`-excluded note, single-row flag table with overlap-vs-one-bound semantics, the **round-trip example** lifted from the PR description (the strongest hook from #180's motivation), 3 example commands across `list` / `search` / `gen objs`, AC6 bare-flag UsageError warning, AC5 INNER JOIN exclude-on-missing semantics + `conversation_engagement` prerequisite, deep-link to `docs/guides/exploration.md#filtering-by-event-timestamps---event-dates` for the full per-command table.
+- **No duplication of the long-form guide.** README intentionally stops at the round-trip + 3 examples and links out for per-command depth (same shape as the existing Engagement-filtering section).
+- **No other files touched** per the orchestrator brief: no code, no tests, no AGENTS.md (the impl worker already updated item #35), no other docs (`docs/guides/exploration.md` was pre-existing in the PR — trusted as-is).
+- **CI re-verified green after the docs commit:** `lint-pr-title/lint ✓` (4s) + `tests/pytest ✓` (1m16s). `pr-review` already COMPLETED on the impl-worker commit — left untouched per brief.
+- **PR comment posted** ([4625832104](https://github.com/jpshackelford/ohtv/pull/182#issuecomment-4625832104)) in the exact format the orchestrator's docs-watcher matches: `Documentation updated for: --event-dates filter flag (6 commands)`.
+- **PR #182 ready for testing-worker pickup on the next orchestrator cycle** — docs gate cleared, CI green, no merge action taken (not docs worker's job per guardrails).
+
+---
+
 ### 2026-06-04 19:55 UTC - Implementation Worker (`417d897`)
 
 ✅ **Implemented Issue #180 → PR [#182](https://github.com/jpshackelford/ohtv/pull/182)** — `feat(filter): add --event-dates to filter by engagement timestamps`
