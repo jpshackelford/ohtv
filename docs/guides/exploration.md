@@ -142,6 +142,10 @@ ohtv list -A --include-sub-conversations
 | `-E, --with-errors` | Include error info column (agent/LLM errors) |
 | `--errors-only` | Show only conversations with agent/LLM errors |
 | `--with-engagement` | Include engagement columns (`Engaged`, `Periods`, `Eng%`) in the table, five fields in JSON, and five appended columns in CSV. Default off. Values come from the [`engagement` indexing stage](indexing.md#engagement-stage) — run `ohtv db process all` (or `ohtv db process engagement`) to populate them. Rows with no engagement row render dim `-` in the table and `null` / empty in JSON / CSV. Display-only: never filters rows out. See [Engagement columns](#engagement-columns--with-engagement) below. |
+| `--engaged` | Filter to conversations with `engaged_seconds > 0`. Missing engagement rows are excluded. Mutually exclusive with `--no-engaged`; composes silently with `--min-engaged` / `--min-engagement-ratio`. See [Engagement filters](#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio). |
+| `--no-engaged` | Filter to fire-and-forget conversations (`engaged_seconds == 0` **OR** the engagement row is missing). Only engagement flag that *includes* missing rows. Mutually exclusive with `--engaged`, `--min-engaged`, `--min-engagement-ratio`. |
+| `--min-engaged DURATION` | Filter to `engaged_seconds >= DURATION`. Accepts `30s` / `5m` / `1h` / `1h30m` (case-insensitive); a bare number is interpreted as **minutes** (`5` == `5m`). Negatives / nonsense raise `BadParameter` (exit 2). Missing engagement rows are excluded. |
+| `--min-engagement-ratio PCT` | Filter to `engaged_seconds / total_duration_seconds >= PCT / 100`. `PCT` is a float in `[0, 100]`. Rows with `total_duration_seconds == 0` / `NULL` / missing engagement data are excluded. |
 | `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
 | `-v, --verbose` | Show debug output |
 
@@ -204,7 +208,60 @@ Empty strings for missing values; zeros are preserved as `0`.
 
 **Composes with other flags.** `--with-engagement` is purely a display switch — it adds columns / fields but never filters rows. It works alongside `--repo`, `--pr`, `--action`, `--label`, `--since` / `--until`, `--day` / `--week`, `--errors-only`, `--with-errors`, `--idle`, `--include-sub-conversations`, `--reverse`, `-n` / `-k`, `-A`, `--include-empty`, `--no-refs`, and any output format (`-F table|json|csv`).
 
-> **Filtering by engagement** (e.g. `--min-engaged-seconds`) is intentionally out of scope for this flag — it is display-only. See [Issue #167](https://github.com/jpshackelford/ohtv/issues/167) for the follow-ups (filtering, `report engagement`, charts).
+> **Need to actually filter by engagement?** See the next subsection — `--engaged`, `--no-engaged`, `--min-engaged`, and `--min-engagement-ratio` were added in [#175](https://github.com/jpshackelford/ohtv/pull/175) (tracks [#170](https://github.com/jpshackelford/ohtv/issues/170)) and are orthogonal to `--with-engagement` (you can filter without displaying, or display without filtering, or both).
+
+<a id="engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio"></a>
+
+### Engagement filters (`--engaged` / `--no-engaged` / `--min-engaged` / `--min-engagement-ratio`)
+
+Added in [#175](https://github.com/jpshackelford/ohtv/pull/175) (tracks [#170](https://github.com/jpshackelford/ohtv/issues/170)). The same four flags are wired into `ohtv list`, `ohtv gen objs`, `ohtv gen titles`, and `ohtv gen run` — see [analysis guide § Engagement filters](analysis.md#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio) for the per-`gen` examples.
+
+**Prerequisite** (same as `--with-engagement` display): values come from the [`engagement` indexing stage](indexing.md#engagement-stage). Run `ohtv db process all` (or `ohtv db process engagement` for just this stage) after syncing — `ohtv sync` does this automatically.
+
+| Flag | Semantics | Missing engagement row |
+|------|-----------|------------------------|
+| `--engaged` | `engaged_seconds > 0` | **excluded** |
+| `--no-engaged` | `engaged_seconds == 0` OR row missing | **included** ← only flag that does this |
+| `--min-engaged DURATION` | `engaged_seconds >= DURATION` | **excluded** |
+| `--min-engagement-ratio PCT` | `engaged_seconds / total_duration_seconds >= PCT / 100` (PCT in `[0, 100]`) | **excluded** (also when `total_duration_seconds == 0` or `NULL`) |
+
+`--min-engaged` accepts the durations parsed by `parse_duration_to_seconds`:
+
+- `30s` / `5m` / `1h` / `1h30m` (case-insensitive, combinations welcome)
+- a bare integer or float interpreted as **minutes** — so `--min-engaged 5` is the same as `--min-engaged 5m`, *not* `5s` ← this matches the issue's UX rationale ([#170](https://github.com/jpshackelford/ohtv/issues/170))
+- negatives or unparseable strings raise `click.BadParameter` (exit code `2`) before any DB work
+
+**Mutual exclusion** (raises `BadParameter`, exit `2`, before any DB query):
+
+- `--engaged` ⊕ `--no-engaged`
+- `--no-engaged` ⊕ `--min-engaged`
+- `--no-engaged` ⊕ `--min-engagement-ratio`
+- `--engaged` **+** `--min-engaged` / `--min-engagement-ratio` composes silently (the threshold flag implies engaged; `--engaged` is absorbed with no warning).
+
+**Examples:**
+
+```bash
+# Productivity review: what did I actually steer this week?
+ohtv list --week --engaged --with-engagement
+
+# Automation candidates: ran unattended in OpenPaw over the last 30 days
+ohtv list --repo jpshackelford/OpenPaw --no-engaged -D 30
+
+# Deep-dive sessions: >= 30 min of real human attention, newest last
+ohtv list --min-engaged 30m --reverse
+
+# High-ratio conversations as CSV for spreadsheet analysis
+ohtv list --min-engagement-ratio 50 -F csv > engaged.csv
+
+# Filter + display: include the engagement columns alongside the filter
+ohtv list --min-engaged 5m --with-engagement
+```
+
+**Output-format independence.** The filter applies *before* formatting, so `-F table`, `-F json`, and `-F csv` see the same row set. The reported `Showing X of Y conversations` counts reflect the filter — `Y` is the post-filter total, not the unfiltered count.
+
+**Performance.** The filter uses the existing batched `_load_engagement_for_conversations` helper (single `WHERE conversation_id IN (?, ?, …)` query, chunked at 900 IDs). No per-row queries.
+
+**Note.** `--max-engaged` and `--sort engaged` are deferred (see [Issue #170 § Out of Scope](https://github.com/jpshackelford/ohtv/issues/170)).
 
 ---
 
