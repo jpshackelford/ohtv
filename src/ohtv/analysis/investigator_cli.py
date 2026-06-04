@@ -54,13 +54,12 @@ log = logging.getLogger("ohtv")
 
 # Issue #161 §"System prompt cookbook". The exact wording is unit-tested
 # via a string snapshot so behavioural drift is caught at PR review.
-COOKBOOK_PROMPT = """You investigate questions about software-development conversations using the local `ohtv` CLI.
-
-You have one investigation tool: `run_ohtv(argv)`. You may only invoke the subcommands listed below; anything else will be rejected with an explanation, and you should retry with an allowed command.
-
-Cookbook — the commands you will use most often:
-
-- Examine a conversation:
+#
+# The examples block is extracted so future prompt tuning can diff
+# the cookbook (commands) and the surrounding scaffolding (intro +
+# guidelines) independently. F-string interpolation preserves the
+# block as one logical unit at runtime.
+COOKBOOK_EXAMPLES = """- Examine a conversation:
     show <id> --messages --action-summaries -n 50
     show <id> -A           # everything, for deep dives
     show <id> -F json      # if you want structured output
@@ -81,7 +80,16 @@ Cookbook — the commands you will use most often:
     refs <id> -F json
 
 - Check for agent/LLM errors:
-    errors <id>
+    errors <id>"""
+
+
+COOKBOOK_PROMPT = f"""You investigate questions about software-development conversations using the local `ohtv` CLI.
+
+You have one investigation tool: `run_ohtv(argv)`. You may only invoke the subcommands listed below; anything else will be rejected with an explanation, and you should retry with an allowed command.
+
+Cookbook — the commands you will use most often:
+
+{COOKBOOK_EXAMPLES}
 
 Guidelines:
 1. Start by reading the initial answer and sources you were given.
