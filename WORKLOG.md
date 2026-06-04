@@ -1,5 +1,100 @@
 ## Log
 
+### 2026-06-04 22:52 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `05df98c` | docs | PR #183 — README for `ohtv messages` command | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Workspace had no pre-existing `.venv`. `uv venv .venv` + `uv pip install git+…/lxa.git git+…/ohtv.git` succeeded into the project-local venv (system-wide `--system` install still blocked by `/usr/local/lib/python3.13/site-packages` perms — known, 11th cycle of project-local pattern). `lxa repo add jpshackelford/ohtv` succeeded into a new `Unnamed Board 1` (sandbox is fresh per cycle; lxa state does not persist). `ohtv sync --since 4h` skipped (the `--quiet` invocation hung beyond the soft timeout; all orchestrator-level decisions are made via `gh` + the direct OH API anyway).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **2588 lines** on entry. **12th consecutive cycle** truncation is overdue. Same standing recommendation: human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~1500 lines in one commit, or a `/truncate-worklog` matcher fix to handle the reverse-chronological layout (new entries are now prepended after the `## Log` header, not appended at EOF — the existing matcher's 6h-productive-window logic doesn't account for this). **Deferring again** — PR slot has actionable work this cycle.
+
+**Step 1 — Human Instructions:** None. `grep "^## INSTRUCTION:" WORKLOG.md` → all matches are inside fenced code blocks in orchestrator commentary; no unacknowledged human entries.
+
+**Step 2 — Active Workers (pre-this-spawn):** Polled `app-conversations/search?limit=30` filtered to `execution_status=running OR sandbox_status=RUNNING`:
+
+- `cf011a0` — bare-id title → **this orchestrator conversation itself**, ignored.
+- `b68bb0d` — last cycle's impl worker (Issue #181 → PR #183): `execution_status=finished, sandbox_status=RUNNING` (post-finish lag), last update 22:40:24Z. → **finished ✓**, delivered the PR + the 22:38 UTC `Implementation Worker (Issue #181)` worklog entry at HEAD `4c6d30c` on `main`.
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — Gather State:**
+
+- **Open PRs:** **1** — [PR #183](https://github.com/jpshackelford/ohtv/pull/183) `feat(cli): add ohtv messages command to list user messages across conversations`. Branch `feat/messages-command-181`.
+  - `lxa pr list`: `oR green ready` 💬2, **13m old**, last commit ~6m ago.
+  - All checks SUCCESS: `pytest` (1m7s), `lint` (4s), `enable-orchestrator` (3s), `pr-review` (43s, finished 22:43:32Z).
+  - `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `isDraft=false`.
+  - `reviewDecision=""` — pr-review bot posted a **COMMENTED** review (verdict 🟡 **Acceptable**), not APPROVED. Two inline review threads (unresolved):
+    1. `src/ohtv/cli.py` — 🟠 **Important**: pagination condition uses wrong variable; `offset + shown < total_conversations` can show "Next" when there are no more conversations to query (real bug in the new command).
+    2. `src/ohtv/messages.py` — 🟡 Suggestion: duplicated `_extract_message_content` between `cli.py` and `messages.py`; non-blocking maintenance concern.
+  - **Files in PR:** `src/ohtv/cli.py`, `src/ohtv/messages.py` (NEW), `tests/unit/test_messages.py` (NEW), `tests/unit/test_cli_messages.py` (NEW). **README.md NOT in the diff.** The impl worker's own worklog entry explicitly flagged `README.md`, `docs/guides/exploration.md`, and `docs/guides/search-and-ask.md` as "TODO for the docs worker once CI is fully green".
+- **Issues needing expansion:** none (the only two unlabeled-as-ready issues, #26 `mcp-server` and #90 `ohtv label`, both carry the `hold` label).
+- **Ready issues:** **#181** (`ready` + `priority:medium`) — in flight as PR #183. No other ready issues.
+
+**Step 4 — Decision Tree (per orchestrate skill):**
+
+- **Expansion slot:** no issues need expansion → **idle**.
+- **PR slot:** PR exists, ready, CI green, **README not updated** AND changes affect CLI (brand-new top-level `ohtv messages` command) → **spawn docs worker**. The "Test What's Documented" principle gates testing on docs; the docs worker runs FIRST so the testing worker can verify documented examples end-to-end. The two unresolved pr-review bot threads (the 🟠 pagination bug + the 🟡 dedup suggestion) are deferred to the review worker, which fires **after** docs ✓ → test ✓ per the decision tree.
+  - Note: the pagination bug is real and will surface during manual testing (the testing worker exercises empty / single-page / multi-page paths per its standard rubric). That's the intended ordering — testing catches the bug, then the review worker addresses both the bot comment AND any test-driven findings in a single round. We do NOT short-circuit docs → review just because review comments already exist; doing so would land an undocumented command.
+
+**Step 5 — Spawn: Docs Worker (PR #183)**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `05df98c` | docs | PR #183 — README + AGENTS.md docs for `ohtv messages` | **NEW** |
+
+- **Conversation:** [`05df98c`](https://app.all-hands.dev/conversations/05df98c1a0ec41ae9e7965c1c6b3c588) (full ID `05df98c1a0ec41ae9e7965c1c6b3c588`).
+- **Start-task ID:** `e3ed893ffad14fa49882e1abaf63dc0c` — `READY` on 1st poll (~10s after POST). **11-cycle warm-picker streak holds.**
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after READY.
+- Plugin spec (unchanged, **31st successful spawn** in a row): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:**
+  1. `gh pr checkout 183` + `uv sync` + read PR diff (`cli.py` Click definition is the source of truth for flag names + defaults).
+  2. Update `README.md`:
+     - Add `messages` row to the `## Commands` table.
+     - Add a new `## Browsing messages by date` (or equivalent) section right after the existing `## Event-date filtering` block, since `messages` is the third sibling of `ask`/`search` and shares the `--event-dates` mechanism. Section must cover: date-range flag combinations (`--day` / `--week` / `--since` / `--until`), pagination (`-n` / `-k`), output formats (text/json/raw including the `-1` shorthand), `--full`, source/repo/label filters, and the `--event-dates` opt-in cross-linked to the existing section. Show the default text-mode output shape.
+  3. Optionally update the `## Testing` block in AGENTS.md with a `uv run ohtv messages -W` one-liner, only if it fits cleanly.
+  4. Commit as `docs: document ohtv messages command in README`; push; `gh pr checks 183 --watch`.
+  5. Post a PR comment summarising the sections added (with the standard `_This comment was created by an AI agent (OpenHands) on behalf of @jpshackelford._` footer).
+  6. Append `### YYYY-MM-DD HH:MM UTC - Docs Worker (PR #183)` to WORKLOG.md on `main` with subject `chore(worklog): docs worker for PR #183`.
+- **Guardrails:** README.md + AGENTS.md only on the PR branch; WORKLOG.md only on `main`. NO code edits to `src/ohtv/cli.py` or `src/ohtv/messages.py` (the pagination bug stays for the review worker). NO PR title/description change. NO `gh pr ready --undo` (PR stays ready).
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned, no quiet entry). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~23:20Z):** Most likely —
+  - ~70%: Docs worker `05df98c` complete. README + Commands-table updated, AGENTS.md possibly touched, docs-update comment posted, CI green (markdown-only commit). Orchestrator decision: PR ready, docs ✓, NO manual test results → **spawn testing worker** for PR #183. Standard test rubric (12 paths covering format dispatch, pagination edges, source/repo/label filters, `--event-dates`, empty result).
+  - ~20%: Docs worker still running (markdown-heavy section + multiple examples can stretch past one cycle if it sets up a local DB to verify output shapes). Quiet entry; PR slot blocked on docs.
+  - ~7%: Docs worker decides AGENTS.md is the wrong target and only edits README.md — that's fine, AGENTS.md update was explicitly optional in the prompt.
+  - ~3%: Docs worker discovers a documentation-blocking inconsistency in the CLI (e.g., a flag named differently from the issue spec) and bounces back to the review worker. Low-probability; the impl worker's own worklog explicitly named the docs files as TODO.
+- **2 cycles out (~23:50Z):** Likely testing worker running (12-test rubric usually 25–45 min). The 🟠 pagination bug WILL surface here — testing will produce a `FAIL` row on the multi-page pagination path. Worklog will show test results.
+- **3 cycles out (~00:20Z+1):** Most likely testing worker complete with FAIL on the pagination path; orchestrator routes to **review worker** to address both the 🟠 inline thread AND the test-driven pagination fix in one round. Less likely (~20%): testing passes (the bot's analysis is wrong / the off-by-one is benign on the cases tested) → review worker addresses 🟠 + 🟡 threads as documented review feedback.
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** stays pinned. **31 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY` (header name; no `Bearer` prefix).
+- **Plugin spec format unchanged:** `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations`. Polling: `GET /api/v1/app-conversations/start-tasks/search`. **READY on 1st poll for 11 cycles running.**
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **`ohtv sync` hang:** the `ohtv sync --since … --quiet` call hung past the soft timeout this cycle. Workaround: skip the sync at orchestrator entry — all decisions are off `gh` + OH API directly, the sync is only useful for `ohtv list --repo ohtv --idle` worker-activity sweeps which I haven't needed lately. If the hang recurs across cycles, file as a follow-up issue for the impl-worker side.
+- **Tool install pattern stays project-local:** `.venv/bin/{ohtv,lxa}`; system-wide `--system` install still blocked by `/usr/local/lib/python3.13/site-packages` perms (12th cycle).
+- **PR-review bot streak update:** PR #183 broke the COMMENTED-with-non-blocking-suggestions pattern with a **🟠 Important** rating on a real pagination bug — the bot's heuristic detected the off-by-one on the `offset + shown < total_conversations` boundary. This is the first 🟠 (vs 🟡 / no inline) review in the recent streak. Defensive: the review worker will need to verify the bot's bug claim against actual failing test output before applying the suggested fix.
+- **WORKLOG truncation:** **12 consecutive cycles overdue.** Standing recommendation unchanged.
+- **Reverse-chronological WORKLOG layout:** confirmed across the last several cycles — new entries are prepended after the `## Log` header, not appended at EOF. Truncation matcher needs to handle this when (if) it's rerun.
+- **Idle queue context after #181:** Only `hold`-labeled issues remain (#26 mcp-server, #90 `ohtv label`). Auto-disable horizon shifts out to whenever #181 merges + 2 consecutive quiet cycles thereafter.
+
+**Local checkout note:** `main` HEAD on entry at `4c6d30c` (impl worker's worklog commit for #183). This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `05df98c` status, looks for a `docs:` commit on `feat/messages-command-181` + the docs-update PR comment, and (if green) dispatches the testing worker for PR #183.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 22:38 UTC - Implementation Worker (Issue #181)
 
 **Scope:** Implemented [Issue #181](https://github.com/jpshackelford/ohtv/issues/181) — `feat(cli): Add ohtv messages command to list user messages across conversations`. Opened [PR #183](https://github.com/jpshackelford/ohtv/pull/183) (`feat/messages-command-181`).
