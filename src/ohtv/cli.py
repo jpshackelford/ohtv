@@ -2296,8 +2296,9 @@ def engagement_filter_options(func):
             "wall-clock'). Rows with total_duration_seconds == 0 or "
             "missing engagement data are excluded. Data comes from "
             "the 'engagement' processing stage; run 'ohtv db process "
-            "all' or 'ohtv sync' to populate it. Mutually exclusive "
-            "with --no-engaged."
+            "all' or 'ohtv sync' to populate it. When combined with "
+            "--min-engaged, both thresholds must be satisfied. "
+            "Mutually exclusive with --no-engaged."
         ),
     )(func)
     func = click.option(
@@ -2312,8 +2313,9 @@ def engagement_filter_options(func):
             "number (interpreted as minutes — '5' means 5 minutes). "
             "Missing engagement data excludes the row. Data comes "
             "from the 'engagement' processing stage; run 'ohtv db "
-            "process all' or 'ohtv sync' to populate it. Mutually "
-            "exclusive with --no-engaged."
+            "process all' or 'ohtv sync' to populate it. When "
+            "combined with --min-engagement-ratio, both thresholds "
+            "must be satisfied. Mutually exclusive with --no-engaged."
         ),
     )(func)
     func = click.option(
