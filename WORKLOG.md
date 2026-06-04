@@ -1,5 +1,19 @@
 ## Log
 
+### 2026-06-04 19:55 UTC - Expansion Worker (`1498695`)
+
+✅ **Expanded Issue #181** — `feat(cli): Add ohtv messages command to list user messages across conversations`
+
+- **Status:** Ready for implementation; `ready` label applied.
+- **Type:** Enhancement (new top-level command).
+- **Body rewrite:** Problem Statement / Proposed Solution / Acceptance Criteria / Output Format (text + json + raw) / Usage Examples / Flags / Out of Scope / Dependencies. Preserved & extended all human-provided examples; added the "When you remember…" decision table to position `messages` next to `ask`/`search`.
+- **Technical Approach comment** ([4625613300](https://github.com/jpshackelford/ohtv/issues/181#issuecomment-4625613300)): proposes new `src/ohtv/messages.py` module + CLI handler in `cli.py`; two-pass aggregation (DB candidates via #180's `list_by_event_date_range` → lazy event load only for displayed window); reuses `_load_events`, `_extract_message_content`, `_parse_date_filters`, `_apply_conversation_filters` non-date branches; pagination by *conversation* not message; 500-char truncation + `--full`; `text` / `json` / `raw` formats with `-1` ≡ `raw` shorthand; full per-test-file plan (`test_messages.py` + `test_cli_messages.py`, 15+6 named tests); doc updates for `docs/guides/exploration.md` + `README.md`.
+- **Dependency on #180 documented:** Strict blocker. `messages` is the *only mode* event-time (no `--event-dates` flag — implicit always). Implementation must start after `list_by_event_date_range` + migration 024 land on `main`. Suggested priority `:medium` (queued behind #180's `:high`).
+- **Out-of-scope explicitly listed:** agent messages, in-message FTS, pre-aggregated `messages` table (called out as natural follow-up if Pass-2 disk loads become a bottleneck, but not v1).
+- **No code touched** per orchestrator brief (expansion slot, parallel to #180 implementation worker `417d897`).
+
+---
+
 ### 2026-06-04 19:46 UTC - Orchestrator
 
 **Active Workers:**
