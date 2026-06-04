@@ -2834,3 +2834,52 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `e4b66bb` status, loo
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-04 23:50 UTC - Testing Worker (PR #183)
+
+**Subject:** Manual blackbox test for `ohtv messages` — verify README/AGENTS.md contract.
+
+**Branch tested:** `feat/messages-command-181` @ `c50f3a8b77c12fea2f710631e89f6e251f0cb236` (HEAD matched expected).
+
+**Setup:**
+- `gh pr checkout 183` + `uv sync` clean.
+- Fresh `~/.ohtv/`; bootstrapped corpus with `ohtv sync --since 2026-05-28 --quiet` (≈10 min) + auto-process pass — 579 cloud conversations, 0 local, 0 sub-convs, all 579 with `conversation_engagement` rows, 82 of 579 with user messages, date range 2026-05-28 → 2026-06-04, top repo `jpshackelford/ohtv` (148) and `jpshackelford/voice-relay` (74).
+
+**Test paths covered:** all 12 from the spawn prompt.
+
+| Path | Verdict |
+|---|---|
+| 1. Default cap 10 (text) | ✅ — feeds into §12 wart |
+| 2. `-D/-W` shortcuts vs `--since/--until` cross-check | ✅ identical counts |
+| 3. Pagination `-n`, `-A`, `-k` | ✅ within-conv messages render in full |
+| 4. JSON shape / `-1` raw / `--full` | ✅ all keys match README; truncation toggle measurable in `wc -c` (2 760 → 8 818 on `-n 10`) |
+| 5. `--source` / `--repo` / `-L` filters | ✅ mechanism; corpus has 0 local + automation-only labels (no human input there) |
+| 6. `--include-sub-conversations` | ⚠️ skip — 0 parent-bearing rows in corpus, flag accepted |
+| 7. Engagement INNER JOIN dropout | ✅ deleted+restored engagement row for `7b73fedd…`, count fell 82→81 then recovered |
+| 8. `total_messages` footer | ✅ counts displayed convs only (13 = sum of per-conv message counts in JSON) |
+| 9. Unit tests | ✅ `test_messages.py + test_cli_messages.py` = **46 passed**; full `tests/unit -q` = **2608 passed, 2 skipped, 3 xfailed** (the documented sync-behavioural harness) |
+| 10. Empty / conflicting date flags | ✅ empty exits 0; `-D 7 --since 2024-01-01` silently lets `--since` win (acceptable, undocumented) |
+| 11. README examples (8 verbatim) | ✅ all ran, output shape matches |
+| 12. PR-bot pagination UX wart (`src/ohtv/cli.py:6384` thread) | ✅ reproduced 3 ways (Next link past end at `-k 80/-k 90`; default `-n 10` shows "2 of 579"; engagement hint misfires on empty paginated pages) |
+
+**Posted comment:** https://github.com/jpshackelford/ohtv/pull/183#issuecomment-4626936801
+
+**Rating:** 🟡 acceptable-with-notes. Every documented behaviour reproduces correctly. The pagination wart the github-actions COMMENTED review flagged is real (and amplified by the engagement hint misfiring on paginated empty pages), but it is a UX-clarity issue, not a correctness bug. Engagement INNER JOIN dropout, JSON/raw shapes, `--full` toggle, footer accounting, all date-window shortcuts, source/repo/label filter composition all match the README contract.
+
+**Guardrails honoured:**
+- No edits to `src/ohtv/cli.py`, `src/ohtv/messages.py`, or any module under test.
+- No docs edits.
+- No PR title/description changes; PR remained ready.
+- Engagement-table mutation (path #7) was on the local `~/.ohtv/index.db` and reverted via `INSERT` of the backed-up row tuple; no source-tree side effects.
+
+**Notes for downstream workers:**
+- **Pagination wart sequencing for the review worker:** the bot's suggested fix `(offset + limit) < total_conversations` is correct for the off-by-one but does NOT fix the deeper UX issue — the `total_conversations` number itself is the engagement-joined candidate pool (579), not the messages-bearing pool (82). A real fix would either (a) precompute `messages_bearing_conversations` and use that as the footer denominator, or (b) re-word the footer to be honest about the two-pool model. Either way it is a one-file change in `src/ohtv/cli.py` and likely touches the `No user messages in range.` hint string in `src/ohtv/messages.py` too. Leaving for the review worker.
+- **No local-source / sub-conversation coverage** in this corpus. If review-round CI flakes on those two paths and you need real-world evidence, the testing harness in `tests/unit/test_cli_messages.py::TestSourceFilter` + `::TestSubConversations` already exercises the wiring; manual coverage would need either (a) a CLI session that creates a local conversation, or (b) a corpus with delegated agents. Both are out-of-scope for this PR.
+- **PR-review bot streak:** PR #183's 🟡 COMMENTED review held up — this manual test report agrees with the bot's pagination flag, disagrees that it is severe enough to block. Streak interpretation unchanged from the docs worker's read.
+
+**Local checkout state on exit:** on `main` @ `2320b91` post-fetch (docs worker's WORKLOG commit). PR branch checkout stashed via `git stash -u`; the only post-test mutation is this WORKLOG.md entry on `main`.
+
+EXIT per manual-test skill — orchestrator's next cycle picks up the test comment + this worklog entry and routes through the review-worker pipeline.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
