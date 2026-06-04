@@ -1,5 +1,77 @@
 ## Log
 
+### 2026-06-04 11:50 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `325ebc8` | testing | PR #175 — engagement filters manual test | **NEW** (running, first poll) |
+
+**Step 0 — Setup:** `pip install --user git+…/lxa.git git+…/ohtv.git` (system Python had `~/.local/bin` writable this cycle — neither `uv venv` nor `uv tool install` needed). Added `~/.local/bin` to PATH. `lxa repo add` was a fresh add (cosmetic board creation, no behavior impact). `ohtv sync` skipped this cycle — `gh pr list` + `gh issue list` + `lxa pr list` cover all state-gating needs.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1270 lines** at cycle entry (last truncation 10:20Z, 1.5h ago). Still inside the 6-hour productive window for every entry (10:22 merge → 10:50 spawn → 11:20 orchestrator → 11:25 impl → 11:35 docs). **Defer truncation one more cycle** — aggressive truncation would preserve all current entries anyway, so no urgency, and this cycle is already productive (spawning testing worker). Will re-evaluate next cycle once the 10:22Z merge entry ages past the cutoff.
+
+**Step 1 — Human Instructions:** None pending. `awk` over WORKLOG.md (excluding fenced code blocks) for `^## INSTRUCTION:` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):** Prior cycle's docs worker `ee9bfd9` reports `execution_status=finished, sandbox_status=RUNNING` → **finished**. PR slot is **free** for the next handoff. Expansion slot has been idle for many cycles.
+
+**Step 3 — State gathered:**
+- **PR #175 — `feat(filter): add engagement-level filters to list and gen subcommands`** (closes #170): branch `feat/170-engagement-filters`, last commit `76828f8` (docs commit) at 11:28Z, ready (not draft).
+- **PR #175 status:** `oRF green ready` — opened, **R**eviewed (🟡 by `pr-review` bot earlier, one minor inline), **F**ixes pushed (docs commit), CI green (`lint` SUCCESS @ 11:28:34Z, `pytest` SUCCESS @ 11:29:38Z). `mergeable=UNKNOWN`/`mergeStateStatus=UNKNOWN` (GitHub-side cache lag — `statusCheckRollup` is the source of truth, cached learning carries forward).
+- **PR #175 changed files (post-docs commit):** `README.md`, `docs/guides/analysis.md`, `docs/guides/exploration.md`, `docs/reference/cli.md`, `src/ohtv/cli.py`, `src/ohtv/filters.py`, 4 new test files, `uv.lock`. **README.md present in diff** — docs gap closed.
+- **PR comment confirms docs:** `jpshackelford` (the docs worker pushed under that identity) posted **"Documentation updated for PR #175."** at 11:30:06Z, summarizing the 4 edited doc files.
+- **Manual test results scan:** `gh pr view 175 --json comments --jq '.comments[] | select(.body | test("Manual Test Results"; "i"))'` → empty. **No manual test results yet.**
+- **Open PRs:** 1 (PR #175). **Issues needing expansion:** 0. **Ready issues (4):** #170 (in flight via PR #175), #161 (priority:medium), #162 (priority:medium), #173 (priority:low). On hold: #26, #90.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+- PR slot: `PR exists, ready, CI green, docs updated, **no manual test results**` → **Spawn testing worker.** ✅ Even though `pr-review` bot already left a 🟡 inline comment, per the orchestrate skill explicitly: *"Testing step is NOT skipped just because review started. CI must be green to test."* — and CI is green on the docs head commit.
+- Expansion slot: 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Testing Worker**
+- PR: [#175 — feat(filter): add engagement-level filters](https://github.com/jpshackelford/ohtv/pull/175) (closes #170)
+- Start task: `456f43e2` → `app_conversation_id = 325ebc8107c149248fffb92b06490188`
+- Conversation: [`325ebc8`](https://app.all-hands.dev/conversations/325ebc8107c149248fffb92b06490188)
+- Polling timeline: `STARTING_CONVERSATION` (T+7s) → `READY` (T+14s). **2-poll spawn — second-fastest observed.** First-attempt success.
+- Verify (T+~20s): `execution_status=running`, `sandbox_status=RUNNING`. **Confirmed actually executing.**
+- Plugin spec (unchanged, **15th successful spawn**): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract: `initial_message: {content: [{type:"text", text:"…"}], run: true}` (V1 — 15 in a row).
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- Prompt scope: clone + `gh pr checkout 175` → `uv sync` → run on a real populated `OHTV_DIR` (ensure `ohtv db process all` covers the `engagement` stage) → execute the enumerated blackbox checks (mutual-exclusion exit code 2, duration grammar incl. `5` ≡ `5m`, invalid-duration BEFORE-DB rejection, asymmetric missing-row semantics for `--no-engaged` vs all other flags, composition with `--repo`/`--pr`/`--since`/`-D N`/`--errors-only`/`--include-empty`, zero-duration ratio handling, cross-command surface on all 4 commands, performance non-regression vs batched `_load_engagement_for_conversations`) → `uv run pytest -q` for unit-test count → post `## Manual Test Results` PR comment with AI-agent disclosure → WORKLOG entry on `main` → EXIT. Explicit OUT-OF-SCOPE: pr-review bot's inline comment, code changes, doc changes.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned + docs-worker completion confirmed). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~12:20Z):** Most likely —
+  - ~55%: Testing worker `325ebc8` still running. Real-data testing on `~/.ohtv/` with the full engagement stage processed + 9 enumerated checks + 2 443+ unit tests is real work. Expect 25–60 min.
+  - ~25%: Test report posted (ALL PASS or PARTIAL PASS) → PR has both reviews AND test results → spawn **review worker** to address the pr-review bot's minor inline comment.
+  - ~10%: Test report surfaces a real bug → wait for next orchestrator cycle to decide between review-handler or implementation-fix worker.
+  - ~5%: Worker hits an infra issue (cloud sync stall, etc.) and exits without a report → re-spawn next cycle.
+  - ~5%: Worker overruns into the review-handler scope.
+- **2 cycles out (~12:50Z):** Review handler addresses the 🟡 inline comment, PR ready for merge.
+- **3 cycles out (~13:20Z):** PR #175 squash-merged → `ohtv-v0.26.0` (`feat:` subject auto-bumps minor) → engagement-metric family **4/4 done** 🎉 → ready queue shifts to #161/#162/#173. Expansion slot still idle (0 issues need expansion).
+
+**Notes / follow-ups carried forward (cumulative):**
+- **`initial_message` spawn-payload contract** stays pinned. **15 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`. Never use deprecated `initial_user_msg`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY`. Other endpoints accept `Authorization: Bearer $OPENHANDS_API_KEY` — both work.
+- **Plugin spec format unchanged:** 15th successful spawn — `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- **`GH_TOKEN` shim:** This cycle `GH_TOKEN` was unset; `GITHUB_TOKEN` populated, `github_token` populated. `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` worked. The shim keeps flipping between cycles — check both, always.
+- **Tool install pattern (cycle-dependent):** This cycle `pip install --user …` worked because `~/.local/bin` was writable. Previous cycles used `uv venv .venv` (10:20Z), `uv tool install` (10:50Z), or `uv sync` (11:20Z). Try plain `pip install --user` first — fastest path when it works.
+- **`ohtv sync` can stall >30s** on cold runs even with `--since 4h --quiet`. Don't gate decisions on it — `gh pr list` + `lxa pr list` + `gh issue list` cover state independently. Skipped this cycle.
+- **`pr-review` bot leaves verdicts as `state=COMMENTED` (not `APPROVED`)** when verdict is 🟡 Acceptable with inline suggestions → `reviewDecision` stays empty even when review is positive. Use the verdict tag (🟢/🟡/🔴) as the source of truth for review-handler dispatch.
+- **`gh pr view --comments` only returns issue-style comments, not review-thread comments.** Use `gh pr view --json reviews` (or GraphQL `pullRequest.reviewThreads`) for review content. Cached.
+- **Engagement-metric family progress:** #167 ✅, #168 ✅, #169 ✅, #170 → PR #175 testing-in-flight → expected merge within 2 cycles → **4/4 done** 🎉.
+- **`statusCheckRollup` remains the source of truth for "is CI green?"** Both `lint` and `pytest` SUCCESS on the head commit `76828f8` (docs commit) of `feat/170-engagement-filters`.
+- **Worklog truncation policy:** prefer to defer when the productive 6h window still covers all entries (aggressive truncation preserves them anyway); run when the file is both >1500 lines AND the cycle is otherwise non-productive.
+
+**Local checkout note:** `main` HEAD at `4077c70` on entry (the docs worker's worklog commit, which is also the only ref the shallow grafted clone has). This entry pushes one more chore(worklog) commit on top. No code branches created by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `325ebc8` (testing worker), the PR #175 comments for a `## Manual Test Results` entry, and (if a clean test report exists) spawns the review-handler worker to address the pr-review bot's 🟡 inline comment.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 11:35 UTC - Docs Worker (PR #175)
 
 ✅ **Documentation landed for PR [#175](https://github.com/jpshackelford/ohtv/pull/175) before manual testing.** Pushed `76828f8` to `feat/170-engagement-filters`; both CI checks (lint + pytest) green.
