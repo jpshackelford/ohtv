@@ -1,5 +1,90 @@
 ## Log
 
+### 2026-06-04 21:46 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `ea31773` | merge | PR #182 — `--event-dates` filter squash-merge | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Project-local venv already on disk from prior cycles (`uv sync` quick; `lxa` re-installed into `.venv/bin/`). System-wide install still blocked by `/usr/local/lib/python3.13/site-packages` perms (10th cycle of project-local pattern). `ohtv sync` skipped — no fresh data needed for orchestrator decision (everything was off `gh` + API directly).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **2361 lines** on entry. **10th consecutive cycle** the truncation skill is overdue. Standing recommendation unchanged: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~1200 lines in one commit. Deferring again per the established carry-forward.
+
+**Step 1 — Human Instructions:** None. `awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty (all `## INSTRUCTION:` matches are inside fenced code blocks in orchestrator commentary).
+
+**Step 2 — Active Workers (pre-this-spawn):**
+- Testing worker `66a5602` (PR #182, 20:55Z): **finished ✓** — `## Manual Test Results` posted ([4626107246](https://github.com/jpshackelford/ohtv/pull/182#issuecomment-4626107246)); verdict `READY FOR MERGE`, all 7 test groups (T1–T7) pass, AC1–AC6 verified, 2614 unit tests pass.
+- Review worker (PR #182 round 1, 21:25Z): **finished ✓** — applied 1-line redundancy removal in `embedding_store.py` (commit `05b8500`), thread `PRRT_kwDOR9seq86HL6-x` resolved, PR flipped back to ready, CI re-green, second auto-APPROVE on `05b8500`.
+- API search for `execution_status=running` confirms only this orchestrator (`2d269a1`) was running on entry.
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered:**
+
+- **Open PRs:** **1** — [PR #182](https://github.com/jpshackelford/ohtv/pull/182) (`feat/event-dates-filter-180`).
+  - `lxa pr list`: `oAFcFA green ready` 💬0, 1h old, 18m since last commit.
+  - History decode: `o` opened (impl `417d897`) → `A` approved (bot, 20:22Z) → `F` fixes (docs `58fa6a5`, 20:25Z) → `c` comment (docs marker) → `F` fixes (review round 1 `05b8500`, 21:23Z) → `A` approved again (bot on `05b8500`).
+  - All 4 CI checks SUCCESS: `lint`, `pytest`, `pr-review`, `enable-orchestrator`. `reviewDecision=APPROVED`, `mergeable=MERGEABLE`.
+  - 1 review thread total, **all resolved** (1/1) — `🟡 Suggestion: Condition is logically redundant…` thread `PRRT_kwDOR9seq86HL6-x` resolved by round-1 review worker.
+  - Last commit `05b85002` at 21:23:07Z.
+- **Issues needing expansion (no `ready`, no `hold`):** **0** 🎉 (same as 20:51Z cycle).
+- **Ready issues (no `hold`):**
+  - #180 (`ready`, `priority:high`) — has PR #182 in flight (about to merge).
+  - #181 (`ready`, `priority:medium`) — **newly prioritized** since last orchestrator cycle. Will become the PR-slot candidate on next orchestrator wake-up after #180 merges. (The 20:51Z cycle noted #181 was waiting on `list_by_event_date_range` to land on `main` — that's exactly what PR #182's merge unblocks.)
+- **On hold:** #26 (mcp server), #90 (`ohtv label` batch) — unchanged.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+
+- **PR slot:** "PR exists, ready, CI green, test results valid, good rating, docs valid, 💬=0 unresolved" → **Spawn merge worker.** ✅
+  - **Re-test check:** Last commit `05b8500` (21:23Z) is AFTER the test report (20:55Z). Heuristic check: changed file is `src/ohtv/db/stores/embedding_store.py` (a `.py` source file, not a `_test.py`). BUT the change is **1 insertion + 1 deletion**, a tautological condition simplification (`use_event_dates ⇒ has_date_filter`, so `has_date_filter or use_event_dates ≡ has_date_filter`). Per orchestrate skill: "More than 50 lines of non-test code changed" → re-test. This is 1 line. Per orchestrate skill: "Type hints added (no runtime effect)" → don't re-test. This is functionally equivalent — **a true no-op refactor with provably zero runtime difference**. **Re-test NOT required.** ✅
+  - **Docs spot-check:** Review changes were 1 line in `embedding_store.py`. Did not touch any documented behavior. README is still accurate. **Docs spot-check NOT required.** ✅
+- **Expansion slot:** "No issues need expansion" → **Slot idle.** ✅
+  - #181 is `ready` + `priority:medium` already; will be picked up as impl-worker target after #182 merges (PR slot becomes free).
+
+**Step 5 — Spawned: Merge Worker (PR #182)**
+
+- PR: [#182 — feat(filter): add --event-dates to filter by engagement timestamps](https://github.com/jpshackelford/ohtv/pull/182)
+- Branch: `feat/event-dates-filter-180` | Base: `main`
+- Start task: `4d499dbaa33e4ce6ae22f6ca286447b3` → `app_conversation_id = ea31773551f24f069c41b9dbbe9062d5` → **READY** on the 2nd poll (~8s elapsed; `SETTING_UP_SKILLS` → `READY`). **9th cycle of fast-ready streak.**
+- Conversation: [`ea31773`](https://app.all-hands.dev/conversations/ea31773551f24f069c41b9dbbe9062d5)
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after READY.
+- **Prompt scope:** `gh pr checkout 182` → study diff → confirm `Closes #180` in PR description (update if needed) → squash-merge via `gh pr merge 182 --squash` with subject **exactly** `feat(filter): add --event-dates to filter by engagement timestamps` (semantic-release minor-bump trigger) and body including `Closes #180` + `Co-authored-by: openhands <openhands@all-hands.dev>` trailer → verify `state: MERGED` and issue #180 `CLOSED` → watch `release.yml` workflow → log new tag (expected `ohtv-v0.29.0`-ish) → append `chore(worklog):` entry → exit. Explicit guardrails: NO code modifications, NO subject-prefix changes, STOP-and-log on `gh pr merge` failure.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 merge worker spawned, completing the #180 → PR #182 track end-to-end). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~22:16Z):** Most likely —
+  - ~75%: Merge worker `ea31773` complete. PR #182 merged, Issue #180 closed, `ohtv-v0.29.0` (or similar) tag created. PR slot now free. Orchestrator routes to: no open PR + ready issues with priority → **spawn implementation worker for Issue #181** (`feat(cli): Add ohtv messages command`, `priority:medium`). #181's expansion explicitly notes the dependency on #180's `list_by_event_date_range` which is now on `main`.
+  - ~15%: Merge worker still running (the release-workflow watch step can take ~30–60s; if orchestrator catches it mid-watch, log status and re-check next cycle).
+  - ~7%: Merge blocked by transient `mergeable=UNKNOWN` flicker → merge worker retries or surfaces in worklog → orchestrator decides next step.
+  - ~3%: Worker stall / network hiccup → log status, next cycle re-checks.
+- **2 cycles out (~22:46Z):** Likely impl worker for #181 in flight, ~30–45 min into the new command's wiring (new `ohtv messages` top-level command, `src/ohtv/messages.py` module, two-pass aggregation reusing `list_by_event_date_range`, 15+6 named tests across `test_messages.py` + `test_cli_messages.py`).
+- **3 cycles out (~23:16Z):** Likely PR #183 (or whatever number GH assigns) open as draft, CI in flight. If green, docs worker queued for next cycle.
+- **End-to-end #181 wall-clock:** ~3–4 hours from impl spawn → merge, mirroring the #180 → PR #182 cadence. With current pace, #181 should be merge-ready by ~tomorrow morning UTC if no human intervention.
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** holds steady. **29 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}` + `selected_repository` + `git_provider: github` at the top level.
+- **First-attempt endpoint mistake noted:** posted initially to `/api/v1/app-conversations/start` (404 `Method Not Allowed`) before re-reading the `/spawn-conversation` skill — correct endpoint is `POST /api/v1/app-conversations` (no `/start` suffix). Carry forward to prevent re-misremembering.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY` (no `Bearer` prefix).
+- **Plugin spec format unchanged:** `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- **READY-on-1st-effective-poll streak: 9 cycles** (this cycle's `ea31773` was READY in ~8s after one `SETTING_UP_SKILLS` poll).
+- **PR-review bot streak (APPROVED without thread comments on first commit, single 🟡 suggestion on this one): the 🟡 wasn't a hard block but the round-1 review worker handled it cleanly. Resetting the "APPROVED without any threads" streak to 0 — but PR #182 *did* end at APPROVED + all threads resolved, so the merge gate fires correctly.
+- **`reviewDecision=APPROVED` does NOT skip testing** — held again this cycle (testing already happened at 20:55Z before round-1 review).
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **Tool install pattern stays project-local:** `.venv/bin/{ohtv,lxa}`; system-wide `--system` install still blocked.
+- **WORKLOG truncation:** 10 consecutive cycles overdue. Standing recommendation unchanged.
+
+**Local checkout note:** `main` HEAD on entry at `5a76d85` (the review worker's worklog commit). This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `ea31773` status, looks for PR #182 MERGED + Issue #180 CLOSED + new release tag, and routes through the "no open PR + ready issues with priority" branch to spawn an impl worker for Issue #181.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 21:25 UTC - Review Worker (PR #182, round 1)
 
 **Worker:** review | **Target:** PR #182 (`--event-dates` filter, Issue #180) | **Status:** ✅ done
