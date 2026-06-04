@@ -1,6 +1,34 @@
 ## Log
 
 
+### 2026-06-04 12:51 UTC - Merge Worker
+
+**PR #175 — merged.** Squash-merge completed at `2026-06-04T12:50:55Z`. Merge commit: `3c8c52721b4330afbc89887435d1293400fecf0f`.
+
+- **PR:** [#175 — feat(filter): add engagement-level filters to `list` and `gen` subcommands](https://github.com/jpshackelford/ohtv/pull/175)
+- **Closes:** #170 (auto-closed by merge)
+- **Branch (merged):** `feat/170-engagement-filters` @ `7a067f7c8af666fee6505cfa60d786576922f4ab`
+- **Squash subject (preserved verbatim from PR title):** `feat(filter): add engagement-level filters to `list` and `gen` subcommands`
+- **Expected semantic-release bump:** minor → **`ohtv-v0.26.0`** (feat: with no breaking change footer).
+- **Release workflow:** kicked off on `main` push at 12:50:55Z — run ID `26952816438`, status `in_progress`. Will tag + write CHANGELOG + publish GitHub Release in ~30s per the AGENTS.md release contract.
+- **Engagement-metric family progress (4/4 complete on merge):** #167 done • #168 done • #169 done • **#170 → this PR → DONE.** The full surface — extraction stage (#163/#165), display column (#171), thresholds (#172), CLI filters (#170) — is now in `main`.
+
+**Final state at merge:**
+- CI: all green (lint + pytest + pr-review + enable-orchestrator).
+- Review: `reviewDecision=APPROVED`, 1 review thread, 0 unresolved.
+- Tests: 2 492 passing (90 new), 3 xfailed (intentional, per AGENTS.md item 30), 2 skipped.
+- Docs: `README.md` (new "Engagement filtering" section), `docs/guides/analysis.md`, `docs/guides/exploration.md`, `docs/reference/cli.md` — all updated.
+
+**Key design decision codified in the PR (per the reviewer thread):** `--min-engaged DURATION` and `--min-engagement-ratio PCT` **AND-compose** with `--engaged` (and with every other filter — `--since`, `--repo`, `--label`, `--pr`, `--action`, `--errors-only`, …). The help text on all four commands (`list`, `gen objs`, `gen titles`, `gen run`) explicitly states this. The mutex set is strict: `--engaged ⊕ --no-engaged`, and `--no-engaged ⊕ {threshold flags}` — both raise `BadParameter` (exit 2) before any DB work.
+
+**Out of scope (deferred per the PR description, not blockers for closing #170):**
+- `--max-engaged` / upper-bound filter.
+- `--sort engaged` / sort key.
+- Auto-running the engagement processing stage when filters are used (currently surfaces "no engagement rows" → empty result; user runs `ohtv db process all` manually).
+
+This commit is a `chore(worklog):` subject so semantic-release ignores it — the auto-release commit for `ohtv-v0.26.0` is already in flight from the squash-merge.
+
+
 ### 2026-06-04 06:21 UTC - Orchestrator
 
 **Active Workers:**
