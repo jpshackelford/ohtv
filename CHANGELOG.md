@@ -1,6 +1,97 @@
 # CHANGELOG
 
 
+## v0.27.0 (2026-06-04)
+
+### Chores
+
+- **worklog**: Implementation worker — PR #177 opened (issue #161)
+  ([`d4aa8df`](https://github.com/jpshackelford/ohtv/commit/d4aa8dfb68448c43753be1752b34babd46401278))
+
+- **worklog**: Merge worker — PR #175 squash-merged (#170 closed)
+  ([`f06f359`](https://github.com/jpshackelford/ohtv/commit/f06f35969fa6ea2473d2dd58c50e63cc95f56dbc))
+
+Engagement-metric family 4/4 complete. Release workflow in flight for ohtv-v0.26.0 (run
+  26952816438).
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 13:18Z — spawn impl worker for #161 (ohtv ask agent mode)
+  ([`1e30dee`](https://github.com/jpshackelford/ohtv/commit/1e30dee1666184d0c2c51289ea435c1a28f2c20e))
+
+- **worklog**: Orchestrator 13:51Z — PR #177 opened by impl worker, waiting on completion
+  ([`333f99c`](https://github.com/jpshackelford/ohtv/commit/333f99c6339b52f61631926c75ae76654d5a9d0e))
+
+- **worklog**: Orchestrator 14:20Z — spawned testing worker for PR #177
+  ([`407df00`](https://github.com/jpshackelford/ohtv/commit/407df0047f83ab6ebb0e990ef4e18b1e72d49b3d))
+
+- **worklog**: Orchestrator 14:50Z — spawned review worker for PR #177
+  ([`a2291f3`](https://github.com/jpshackelford/ohtv/commit/a2291f3f912c74223971cd208ea53d46057c72ce))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 15:18Z — spawned re-testing worker for PR #177
+  ([`39956b1`](https://github.com/jpshackelford/ohtv/commit/39956b1fc863e3b5944eb0c745e165a6e58e60d3))
+
+- **worklog**: Orchestrator cycle 12:50Z — spawn merge worker for PR #175 + truncate worklog
+  ([`bc7076a`](https://github.com/jpshackelford/ohtv/commit/bc7076abd71892b753b45fa85f70f55890f8c438))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- **ask**: Add prompt-cookbook agent mode alongside legacy tools mode
+  ([`722ce44`](https://github.com/jpshackelford/ohtv/commit/722ce443c84d1f5f0941f344af55c25b758301ce))
+
+Closes #161.
+
+Adds a second multi-turn investigation path for `ohtv ask` that runs side-by-side with the existing
+  custom-tools agent, so we can A/B compare prompt-cookbook vs bespoke-tool approaches before
+  retiring either. Issue #162 will hang telemetry off the new `InvestigationResult.mode` field.
+
+User-facing changes:
+
+* `--agent` now selects the prompt-cookbook agent (`cli` mode) and emits a one-line stderr notice
+  pointing scripted callers at `--agent-tools` if they want the original 4-tool behaviour. Stdout /
+  JSON pipes are undisturbed. * `--agent-tools` preserves the legacy 4-tool custom-tools agent
+  (#51). * The two flags are mutually exclusive (Click `UsageError`). * `--max-steps 0`
+  short-circuits both modes to single-turn RAG. * `ohtv gen objs --cache-only` is promoted to a
+  first-class CLI flag that returns cached analyses without invoking the LLM. The runner also
+  auto-injects `--cache-only` on any `gen objs` invocation so the agent can never trigger fresh
+  analyses. * `gen objs --cache-only -F json` now emits top-level `goal: null` on cache miss instead
+  of the human-readable placeholder string, so JSON consumers get a real null to branch on.
+
+Architecture highlights:
+
+* New `InvestigationResult.mode: Literal["tools", "cli"]` (defaults to `"tools"` for back-compat
+  with existing fixtures). Both modes return identically-shaped results, verified in
+  `tests/integration/test_ask_dual_mode.py`. * `src/ohtv/analysis/ohtv_runner.py` runs `ohtv`
+  in-process via Click 8.3's `CliRunner` with disjoint allow- and block-lists (enforced by unit
+  test). Block-list rejections are surfaced as structured observations so the agent can self-correct
+  in one turn. * `src/ohtv/analysis/investigator_cli.py` wires `InvestigationAgentCli` with the
+  cookbook prompt; `COOKBOOK_EXAMPLES` is extracted from `COOKBOOK_PROMPT` for easier reuse /
+  testing. The cookbook is snapshot-tested so it cannot drift from the runner allow-list. *
+  `conversations_examined` is populated by both modes via observation hooks (tools) or argv ID
+  extraction (cli), matching AGENTS.md #14.
+
+Review-round follow-ups squashed into this PR:
+
+* QA: `gen objs --cache-only -F json` cache-miss → `goal: null` fix. * DX: stderr behavioural-change
+  notice for `--agent`. * Refactor: extract `COOKBOOK_EXAMPLES` from `COOKBOOK_PROMPT`. * Docs:
+  `run_ohtv` docstring clarifies soft-timeout semantics (logged but not enforced; bounded by the
+  upstream session iteration cap).
+
+Tests: 2553 passed, 2 skipped, 3 xfailed (no regressions; all xfails pre-date this PR). 61 new tests
+  across 6 files cover allow/block-list, cache-only injection, ID extraction, mode banner, flag
+  parsing, mutual exclusion, dual-mode integration, and the cookbook snapshot.
+
+Docs: `docs/guides/search-and-ask.md` §"Investigation Mode" updated with full user-facing reference
+  for both modes; `AGENTS.md` item #33 adds architectural notes for future agents touching the
+  dispatch / runner / cookbook.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+
 ## v0.26.0 (2026-06-04)
 
 ### Chores
