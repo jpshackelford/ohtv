@@ -2444,3 +2444,30 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `865253a` status, loo
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-06-04T21:54Z — merge worker — PR #182 squash-merged (Issue #180 closed, release tag `ohtv-v0.29.0`)
+
+**Outcome: PR #182 merged → Issue #180 CLOSED → release `ohtv-v0.29.0` published.**
+
+| Action | Result |
+|---|---|
+| Squash merge via `gh pr merge 182 --squash` | ✓ commit `9cdbbe2efa734a1d28a595f9aa4d4f7a463ce5ae` on `main` |
+| Auto-close of linked issue | ✓ Issue #180 → `state: CLOSED`, `closedAt: 2026-06-04T21:52:32Z` |
+| `python-semantic-release` workflow on `main` | ✓ Run `26981820835` succeeded in 1m10s |
+| Auto-generated release commit | `61c47ae chore(release): ohtv 0.29.0 [skip ci]` |
+| New release tag | `ohtv-v0.29.0` (minor bump from `ohtv-v0.28.0`, as expected for `feat(filter):`) |
+| GitHub Release | ✓ Published `less than a minute ago` per `gh release list` |
+
+**Squash subject preserved verbatim per release contract:** `feat(filter): add --event-dates to filter by engagement timestamps`. Body cites `Closes #180`, the threading scope (6 commands + `refs` excluded), migration 024, AC1–AC6 verification, testing worker `66a5602` READY FOR MERGE verdict, and the standard `Co-authored-by: openhands <openhands@all-hands.dev>` trailer.
+
+**No description rewrite needed** — pre-merge PR body already accurately described post-review-round-1 state (single SQL owner, INNER JOIN semantics, migration 024, 22 new tests, AC1–AC7), and `Fixes #180` was present from the original push.
+
+**PR slot now free for next orchestrator cycle to spawn an implementation worker for Issue #181 (`priority:medium`, `ready`)** — the engagement-grouping rollup explicitly builds on `ConversationStore.list_by_event_date_range` (the SQL owner that landed in this PR), so #181 should be a thin extension rather than a parallel SQL implementation.
+
+**Release-workflow note:** Single deprecation annotation on the release run (`actions/checkout@v4` on Node 20 — non-blocking; tracked separately upstream). No errors. Run URL: https://github.com/jpshackelford/ohtv/actions/runs/26981820835.
+
+**Local checkout note:** `main` HEAD on entry at `66e3425`, advanced via fast-forward to `61c47ae` (post-release commit). This entry commits only `WORKLOG.md` as `chore(worklog):` so the release workflow ignores it (per AGENTS.md release contract).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
