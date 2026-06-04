@@ -49,7 +49,7 @@ auto-generated flag list at any version.
 
 | Command | Purpose | Detailed docs |
 |---|---|---|
-| `ohtv gen objs` | Extract user objectives per conversation. | [guides/analysis.md § gen objs](../guides/analysis.md) |
+| `ohtv gen objs` | Extract user objectives per conversation. Opt-in `--with-engagement` adds five engagement fields to JSON output (single-conversation and batch modes); no effect on `-F table` / `-F markdown`. Requires the [`engagement` stage](../guides/indexing.md#engagement-stage). | [guides/analysis.md § gen objs](../guides/analysis.md) |
 | `ohtv gen titles` | Auto-rename placeholder-titled cloud conversations from cached `gen objs` analyses. Takes the `$OHTV_DIR/sync.lock` writer mutex (it PATCHes cloud titles and writes back to the manifest + DB); pass `--lock-timeout=N` to wait (default `0` = fail-fast). | [guides/analysis.md § gen titles](../guides/analysis.md) |
 | `ohtv gen run <job>` | Run a periodic or aggregate analysis job (weekly report, theme discovery, …). | [guides/analysis.md § gen run](../guides/analysis.md) |
 | `ohtv prompts list` | List shipped + customized prompts. | [guides/customizing-prompts.md](../guides/customizing-prompts.md) |

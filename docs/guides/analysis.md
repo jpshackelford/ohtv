@@ -203,6 +203,110 @@ Showing 2 of 150 (2/2 cached)
 | `goal` | Extracted goal description |
 | `labels` | Cloud-sourced labels/tags as key-value pairs (if present) |
 
+<a id="engagement-fields--with-engagement"></a>
+
+### Engagement fields (`--with-engagement`)
+
+The `--with-engagement` flag (added in [#172](https://github.com/jpshackelford/ohtv/pull/172), tracks [#168](https://github.com/jpshackelford/ohtv/issues/168)) extends `ohtv gen objs` JSON output with the sustained-attention metric, mirroring the pattern established for `ohtv list --with-engagement` in [#171](https://github.com/jpshackelford/ohtv/pull/171) (see [`docs/guides/exploration.md` § Engagement columns](exploration.md#engagement-columns--with-engagement)) and `ohtv show -F json` in [#165](https://github.com/jpshackelford/ohtv/pull/165).
+
+**JSON-only.** The flag is a no-op for `-F table` and `-F markdown` — both display formats are unchanged. (Markdown engagement output is tracked separately in [#169](https://github.com/jpshackelford/ohtv/issues/169).) Works in both single-conversation (`ohtv gen objs <id> --json --with-engagement`) and multi-conversation (`ohtv gen objs -F json --with-engagement`) modes.
+
+**Prerequisite:** values come from the [`engagement` indexing stage](indexing.md#engagement-stage). Run `ohtv db process all` (or `ohtv db process engagement`) after syncing. Without it the five fields render as `null` — rows are **never** filtered out and the JSON schema stays stable across rows.
+
+**Examples:**
+
+```bash
+# Multi-conversation: 5 engagement fields per item in the JSON array
+ohtv gen objs -F json --with-engagement --week
+
+# Single-conversation: 5 engagement fields at the top level
+ohtv gen objs abc123 --json --with-engagement
+
+# Composes with every existing filter and flag
+ohtv gen objs -F json --with-engagement --repo OpenPaw -A
+```
+
+**Multi-conversation example (`-F json --with-engagement`).** Each item in the JSON array gains the same five keys appended after the existing fields:
+
+```json
+[
+  {
+    "id": "a711cbbc61f04bd2a1c0f3e8d5b9c2d4",
+    "source": "cloud",
+    "created_at": "2026-05-30T14:02:00+00:00",
+    "start_time": "14:02",
+    "duration_seconds": 8040,
+    "event_count": 312,
+    "goal": "Add staging deploy hooks to the pipeline.",
+    "engaged_seconds": 2460,
+    "attention_periods": 3,
+    "engagement_threshold_seconds": 720,
+    "total_duration_seconds": 8040,
+    "engagement_ratio": 0.306
+  },
+  {
+    "id": "1c0a5b3e2f9d4e7a8b1c0d3e5f7a9b2c",
+    "source": "local",
+    "created_at": "2026-05-29T22:45:00+00:00",
+    "start_time": "22:45",
+    "duration_seconds": 480,
+    "event_count": 12,
+    "goal": "Quick repo poke.",
+    "engaged_seconds": null,
+    "attention_periods": null,
+    "engagement_threshold_seconds": null,
+    "total_duration_seconds": null,
+    "engagement_ratio": null
+  }
+]
+```
+
+The first item has an engagement row from `ohtv db process engagement`; the second does not. Both items carry **all five keys** — missing rows emit JSON `null` so the schema is stable. Consumers can rely on `engagement_ratio` being either a float in `[0.0, 1.0]` rounded to 4 decimals or `null`.
+
+**Single-conversation example (`--json --with-engagement`).** The five fields are merged into the top level of the analysis payload:
+
+```json
+{
+  "goal": "Add staging deploy hooks to the pipeline.",
+  "primary_outcomes": ["Wired post-deploy smoke test", "Documented runbook"],
+  "secondary_outcomes": [],
+  "engaged_seconds": 2460,
+  "attention_periods": 3,
+  "engagement_threshold_seconds": 720,
+  "total_duration_seconds": 8040,
+  "engagement_ratio": 0.306
+}
+```
+
+When no engagement row exists for the conversation, the analysis payload still gains all five keys with `null` values:
+
+```json
+{
+  "goal": "Quick repo poke.",
+  "primary_outcomes": [],
+  "secondary_outcomes": [],
+  "engaged_seconds": null,
+  "attention_periods": null,
+  "engagement_threshold_seconds": null,
+  "total_duration_seconds": null,
+  "engagement_ratio": null
+}
+```
+
+**Field reference** (identical schema to `ohtv list --with-engagement -F json` and `ohtv show -F json`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `engaged_seconds` | int \| null | Seconds the user was actively monitoring/steering (sum of attention periods). |
+| `attention_periods` | int \| null | Count of distinct attention windows. A real `0` is preserved as `0`, not `null`. |
+| `engagement_threshold_seconds` | int \| null | The `T` threshold used to compute this row (default `720` = 12 min). Re-run `ohtv db process engagement --threshold N --force` to recompute. |
+| `total_duration_seconds` | int \| null | Total conversation duration (denominator for the ratio). |
+| `engagement_ratio` | float \| null | `engaged_seconds / total_duration_seconds`, rounded to 4 decimals. `null` when the denominator is `0`, missing, or either input is `null`. |
+
+**Composes with other flags.** `--with-engagement` is purely a display switch — it adds JSON keys but never filters rows or changes which conversations are analyzed. It works alongside `--variant`, `--context`, `--refresh`, `--model`, `--repo`, `--pr`, `--action`, `--label`, `--since` / `--until`, `--day` / `--week`, `-n` / `-k`, `-A`, `--reverse`, `--include-sub-conversations`, `--quiet`, and the JSON output toggles (`--json` for single-conversation mode, `-F json` for multi-conversation mode).
+
+> **Filtering by engagement** (e.g. `--min-engaged-seconds`) is intentionally out of scope for this flag — it is display-only. See [Issue #170](https://github.com/jpshackelford/ohtv/issues/170) for the engagement-filter follow-up and [Issue #169](https://github.com/jpshackelford/ohtv/issues/169) for markdown engagement output.
+
 **Markdown Output (`-F markdown`):**
 ```markdown
 - **abc1234** (2024-03-15, 10:42 AM, 35 mins, 46 steps): Refactor authentication...
@@ -220,6 +324,7 @@ Showing 2 of 150 (2/2 cached)
 | `-m, --model` | LLM model to use |
 | `--json` | Output as JSON |
 | `--no-outputs` | Don't show outputs (repos, PRs, issues) |
+| `--with-engagement` | Include engagement metrics (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`, `engagement_ratio`) at the top level of the JSON payload. Requires the [`engagement` indexing stage](indexing.md#engagement-stage). No effect for non-JSON output. See [Engagement fields](#engagement-fields--with-engagement). |
 | `--verbose` | Show debug output |
 
 **Options (Multi-Conversation Mode):**
@@ -246,6 +351,7 @@ Showing 2 of 150 (2/2 cached)
 | `-y, --yes` | Skip confirmation for large result sets (>20 conversations) |
 | `-q, --quiet` | Generate/cache summaries without displaying output |
 | `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
+| `--with-engagement` | Include engagement metrics (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`, `engagement_ratio`) per item in the JSON array. Requires the [`engagement` indexing stage](indexing.md#engagement-stage). No effect for `-F table` or `-F markdown`. See [Engagement fields](#engagement-fields--with-engagement). |
 | `--verbose` | Show debug output |
 
 ### Context levels (`gen objs --c` flag)
