@@ -2196,3 +2196,72 @@ EXIT — impl worker for #173 will be spawned by orchestrator after the #169 →
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-06-04 08:51Z — Orchestrator cycle (PR #174 docs worker spawned, expansion idle)
+
+**Step 0 — Setup:** `uv tool install` for `lxa` and `ohtv` again (carry-forward pattern — bare environment, system pip blocked). `lxa repo add jpshackelford/ohtv` re-created a fresh "Unnamed Board 1" since no prior state persisted (non-blocking). Both binaries reachable at `/home/openhands/.local/bin/`.
+
+**Step 0.5 — Housekeeping (deferred, 21st consecutive cycle):** WORKLOG.md at **2198 lines** on entry. Productive cycle (1 worker spawned) → defer per skill rule. Carry-forward recommendation unchanged: human `## INSTRUCTION: archive WORKLOG.md entries older than 12h`, or a widening of `/truncate-worklog`'s `is_productive` regex to recognize the prose-style `## YYYY-MM-DD HH:MMZ — …` headers in addition to the table-style `### YYYY-MM-DD HH:MM UTC - Orchestrator` template the skill currently parses.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged. `awk` over WORKLOG.md (excluding fenced code blocks) for `^## INSTRUCTION:` → empty.
+
+**Step 2 — Slot scan:**
+- Previous-cycle workers `4c8fea3` (impl #169) and `81a1c32` (expansion #173) both **terminal** — `4c8fea3` `execution_status=finished`, `81a1c32` `execution_status=null` (paused/done with its own worklog entry at 08:23Z confirming `ready` label applied to #173).
+- `/app-conversations/search?execution_status=running` returned only this orchestrator (`e34fd6c`) for this repo before spawn.
+- **Both worker slots free at cycle entry.**
+
+**Step 3 — State gather:**
+- **Open PRs: 1.** [PR #174](https://github.com/jpshackelford/ohtv/pull/174) — `feat: add engagement to gen objs markdown output` — opened by impl worker `4c8fea3` at 08:28:54Z. Status: `oA green ready 18m 14m ago` (history `oA` = opened + Approved). All 4 checks pass: `enable-orchestrator`, `lint`, `pr-review` (auto-approved by `github-actions`), `pytest`. Single commit `93f5aa5`. Closes #169. PR diff touches only `src/ohtv/cli.py` and `tests/unit/test_cli_gen_objs_engagement_markdown.py` — **zero docs/README changes**. 0 human review threads, 0 comments.
+- **Ready + prioritized (4):** **#170** `priority:high` (engagement filters), **#161** `priority:medium`, **#162** `priority:medium`, **#173** `priority:low` (refactor — newly expanded last cycle by `81a1c32`).
+- **Needs expansion: 0.** All 7 open issues are `ready` (5) or `hold` (2 — #26, #90). **7th consecutive cycle with the expansion queue exhausted.**
+
+**Step 4 — Docs-precede-testing rule fires (Decision-tree match):**
+- Decision-tree row matched: *"PR exists, ready, CI green, **README not updated** → Spawn **docs worker**"*.
+- Critical staleness in existing docs (more than just a missing README mention):
+  - `docs/guides/analysis.md:212` reads **"JSON-only. The flag is a no-op for `-F table` and `-F markdown` — both display formats are unchanged. (Markdown engagement output is tracked separately in #169.)"** → PR #174 is the implementation of #169 closing this gap, so the entire "JSON-only" claim is now false.
+  - `docs/guides/analysis.md:354` (batch-mode flag table) — same staleness.
+  - `docs/reference/cli.md:52` (`ohtv gen objs` row) — same staleness ("no effect on `-F table` / `-F markdown`").
+  - `README.md` — confirmed via grep, does **not** currently mention `--with-engagement` for `gen objs`, so docs worker is instructed NOT to invent a new README section.
+- **PR slot → Docs worker for PR #174** spawned. Conv ID `8be5fa5`, task `0b7e75e9`. Plugin spec unchanged: `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`. Worker prompt is unusually long (~5KB / ~70 lines) because docs staleness is multi-site and the precise current-vs-desired-state has to be pinned to avoid hallucinated examples. Hard constraints in the prompt: no `.py` edits, no separate PR, no example invention without verifying against `tests/unit/test_cli_gen_objs_engagement_markdown.py`, no #170/#173 documentation, no PR draft/ready toggling, no README new-section unless correcting an existing stale statement.
+- **Expansion slot → IDLE** (7th consecutive cycle). All 7 open issues are `ready` or `hold`.
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `8be5fa5` | docs | PR #174 — `gen objs --with-engagement` markdown docs | **NEW** (idle → running) |
+
+**Spawned: Docs Worker**
+- PR: [#174 — feat: add engagement to gen objs markdown output](https://github.com/jpshackelford/ohtv/pull/174) (closes #169)
+- Conversation: [`8be5fa5`](https://app.all-hands.dev/conversations/8be5fa5)
+- Start task: `0b7e75e9` (POST succeeded first try with no-trailing-slash endpoint variant; the trailing-slash variant returned 405 Method Not Allowed this cycle — see notes).
+
+**Step 5 — Quiet-cycle check:** Productive cycle (1 worker spawned, PR slot freshly filled). Auto-disable counter resets to **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~09:20Z):** Likely outcomes —
+  - ~60%: `8be5fa5` finished, 3 doc files updated and pushed to `feat/169-engagement-markdown`, CI green, "Documentation updated" comment posted → spawn **testing worker**.
+  - ~25%: `8be5fa5` still running (docs work is 3-site and includes a verify-against-tests step, can span the cycle).
+  - ~10%: Worker opened a separate docs PR instead of pushing to the existing branch (despite the explicit constraint) — would unwind and re-spawn.
+  - ~5%: Worker hits CI flake on docs-only commit.
+- **2 cycles out (~09:50Z):** PR #174 likely in manual-test or review cycle. If approved-by-bot stays the only review, the cycle is **docs → test → merge** (no review round needed).
+- **3 cycles out (~10:20Z):** PR #174 likely merged, PR slot opens for **#170** (`priority:high`, last in the engagement-metric family).
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **OpenHands Cloud API gotcha noted this cycle:** `POST /api/v1/app-conversations/` (with trailing slash) → `405 Method Not Allowed`. `POST /api/v1/app-conversations` (no trailing slash) → 200 OK with start-task envelope. Prior cycles used the no-slash variant successfully; the slash variant appears recently added or behavior changed. Carry-forward: always use no trailing slash for the spawn POST.
+- **Task-id polling gotcha:** `GET /api/v1/app-conversations/{task_id}` returns the React app HTML (HTML 200), not JSON — the task ID is not directly addressable on the API. The conversation ID surfaces via `search?execution_status=running` (or `?limit=N`) ~5–10s after the POST. Carry-forward: poll search, not the task endpoint.
+- **Tool install pattern (stable, 3rd consecutive cycle):** `uv tool install <git-url>` + PATH export. System pip + `--user` + `uv pip install --system` all blocked.
+- **WORKLOG.md size: 2198 → ~2285 lines post-entry. 21 consecutive cycles overdue on truncation.**
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 14 consecutive cycles. `export GH_TOKEN=${GITHUB_TOKEN:-$github_token}` shim continues to work; passed through to the docs worker prompt.
+- **Engagement-metric family progress:** **#167 ✅ merged, #168 ✅ merged, #169 → PR #174 in docs cycle, #170 next in queue.** 2/4 of the high-priority family done; #169 effectively done pending docs+test+merge.
+- **Plugin spec format unchanged:** 10th successful spawn in this orchestrator instance using this exact shape.
+- **PR #174 already approved by pr-review-bot (`github-actions`) with `🟢 Good taste — LOW risk`.** The implementation worker `4c8fea3` opened the PR as ready (not draft), CI ran, bot reviewed and approved, all within ~3m of the PR opening. This is the second consecutive PR (after #172) where the bot approval landed during the same cycle as the spawn — pattern worth tracking.
+- **Worklog-write gap from prior cycle:** The previous orchestrator entry (08:20Z) noted that testing/merge workers for PR #172 ran without writing worklog entries. PR #174 has the same risk surface; docs worker prompt explicitly requires a worklog update on `main` before exit.
+
+**Local checkout note:** `main` at `23fd17a`. `git fetch origin main` clean (already up to date). No stray edits to discard. Worklog entry committed directly to `main` per skill rule.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `8be5fa5` (docs worker) and decides next actions (likely testing worker if docs commit landed + CI green).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
