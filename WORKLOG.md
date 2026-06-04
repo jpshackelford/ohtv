@@ -2727,3 +2727,110 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-04 23:22 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e4b66bb` | testing | PR #183 — `feat(cli): add ohtv messages command to list user messages across conversations` | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Fresh workspace clone (grafted, single-commit history at `93c7c97`). `uv venv .venv` + `uv pip install git+…/lxa.git` + `uv pip install -e .` succeeded into the project-local venv. `which lxa` / `which ohtv` both resolve under `.venv/bin/`. Skipped `ohtv sync` — `gh` covers every gating signal this cycle.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **2729 lines** on entry. **12th consecutive cycle** truncation is overdue. Standing recommendation unchanged: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~1000+ lines in one commit. Deferring once more — PR slot has actionable manual-test work this cycle.
+
+**Step 1 — Human Instructions:** None. `grep "^## INSTRUCTION:" WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):** Polled `app-conversations/search?limit=30` filtered to `execution_status=running`:
+
+- `1dcc429e` — bare-id title (`Conversation 1dcc429e…`) → **this orchestrator conversation itself**, ignored.
+- → **PR slot free**; **expansion slot free**.
+
+The previous cycle's impl worker `b68bb0d` (Issue #181) is **finished** (created PR #183, pushed the impl commit at 22:35Z). The 22:58Z docs worker is also **finished** (pushed `c50f3a8` docs commit at 22:55Z and posted PR comment at 22:57Z).
+
+**Step 3 — Gather State:**
+
+- **Open PR:** [`#183`](https://github.com/jpshackelford/ohtv/pull/183) — `oRFc green ready` 💬2 (per `lxa pr list`)
+  - Branch: `feat/messages-command-181` | HEAD: `c50f3a8`
+  - CI: ✅ `lint` 3s + ✅ `pytest` 1m14s (run `26984530436` / `26984530441`)
+  - reviewDecision: `null` (no APPROVAL yet; one COMMENTED review from `github-actions` at 22:43:14Z rated **🟡 Acceptable** with a flagged pagination UX issue)
+  - Docs: ✅ `c50f3a8` updates README + AGENTS.md; docs worker comment at 22:57:58Z confirms scope (`Updated README.md and AGENTS.md ahead of manual QA…`)
+  - Manual test results: ❌ **none yet** — `gh pr view 183 --comments | grep -i "Manual Test Results"` returns empty
+- **Issues needing expansion:** none (all open issues either `ready` or `hold`)
+- **Ready issues:** none with priority (only #181 was queued, now in flight as PR #183)
+- **Hold-only issues remaining:** #26 (mcp-server), #90 (`ohtv label`)
+
+**Step 4 — Decision:**
+
+PR slot decision tree:
+- PR exists ✓
+- Ready (not draft) ✓
+- CI green ✓
+- Docs updated ✓ (commit `c50f3a8` + docs-comment)
+- **No manual test results** → **Spawn testing worker** (per orchestrate skill: "PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker")
+- Note: there IS a COMMENTED review (💬), but the skill explicitly says: "Review comments (💬 > 0) but NO manual test results → Spawn testing worker (docs first if missing)". Docs are present, so testing is the gate.
+
+Expansion slot: idle (no issues need expansion).
+
+**Step 5 — Spawn: Testing Worker (PR #183)**
+
+- **Conversation:** [`e4b66bb`](https://app.all-hands.dev/conversations/e4b66bbde2254a33a1c9414262629513) (full ID `e4b66bbde2254a33a1c9414262629513`).
+- **Start-task ID:** `9e0ed8060c73489fa77db0d25e692819` — `READY` on 1st poll (~12s after POST). **12-cycle warm-picker streak holds.**
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after READY (sandbox `5DXcllGpUB4QgYfseaqusj`).
+- Plugin spec (unchanged, **32nd successful spawn** in a row): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- Spawn payload contract holds: top-level `selected_repository` + `git_provider` + `initial_message.content[].type=text` + `initial_message.run=true`.
+- **Prompt scope (12 test paths):**
+  1. Default invocation (cap-at-10 + per-conv full message rendering + footer `total_messages`).
+  2. Date-range shortcuts `-D` / `-D N` / `-W` / `-W N`, cross-checked against equivalent `--since/--until`.
+  3. Pagination by conversation (`-n`, `-A`, `-k`); explicit verification that `-n` caps conv count NOT message rows within a displayed conv.
+  4. Output formats: `-F json` keys, `-1` (`--format raw` shorthand, tab-separated), `--full` (500-char truncation disable).
+  5. `--source local|cloud`, `--repo OWNER/NAME`, `-L key=value` filters.
+  6. `--include-sub-conversations` adds sub-conv messages (cross-refs AGENTS.md items #31/#32).
+  7. Engagement INNER JOIN dropout — confirm un-engaged convs are excluded (gotcha box).
+  8. `total_messages` semantics — confirm counts displayed convs only (gotcha box).
+  9. `tests/unit/test_messages.py` + `tests/unit/test_cli_messages.py` + `tests/unit -q` full-suite.
+  10. Edge cases: empty window (e.g. `--since 2050-01-01` → empty render, exit 0); conflicting date flags behaviour documented.
+  11. README example sanity — verbatim copy-paste of ≥3 examples.
+  12. Cross-check the github-actions pr-review bot's flagged pagination UX issue; reproduce but DO NOT fix.
+- **Guardrails encoded in prompt:**
+  - NO code edits to `src/ohtv/cli.py` or `src/ohtv/messages.py` (bugs in test report, not fixes — that's the review worker's job).
+  - NO README/AGENTS.md edits (docs worker / review worker territory).
+  - NO PR title/description changes. NO `gh pr ready --undo`.
+  - WORKLOG.md updates ONLY on `main`, never on the PR branch.
+  - EXIT after posting one structured test comment + WORKLOG entry.
+- **Expected output:** Single PR comment using the `/manual-test` skill format (env, DB stats, 12 path results with pass/fail/skip, unit-test summary, 🟢/🟡/🔴 rating, verbatim bug repros, AI-disclosure footer).
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned, no quiet entry). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~23:52Z):** Most likely —
+  - ~65%: Testing worker `e4b66bb` still running. 12 test paths + full unit-test suite + a structured PR comment typically eats 30–60 min, especially if the worker needs to sync/process the index DB from scratch. Quiet entry; PR slot occupied.
+  - ~25%: Testing worker complete with a 🟢 or 🟡 rating posted to PR #183. Orchestrator decision: 💬 reviews exist (the pre-existing github-actions COMMENTED review + the test comment) → **spawn review worker** to address the pagination UX flag. Review worker will set draft, push fixes, set ready.
+  - ~7%: Testing worker discovers a 🔴 blocker (e.g., a Click flag definition mismatch with the README docs that the docs worker missed) → posts blocker comment, orchestrator escalates to a review worker for a code fix. Lower probability since both docs and impl workers cross-referenced the Click definition.
+  - ~3%: Testing worker hits a sandbox or auth issue mid-DB-build → posts blocker, orchestrator considers re-spawn or human flag.
+- **2 cycles out (~00:22Z+1):** Likely test results posted, review worker addressing the pagination UX + any docs-vs-impl drift flagged by the test report.
+- **3 cycles out (~00:52Z+1):** Likely review round 1 complete; orchestrator decides between re-test (significant changes) or merge prep (minor changes).
+- **End-to-end #181 wall-clock projection:** Still ~3–4 hours from impl spawn (22:21Z) → merge, mirroring #180 → PR #182 cadence. Targeting merge-readiness by ~02:00–03:00Z+1.
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** stays pinned. **32 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}` + top-level `selected_repository` + `git_provider: github`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY` (header name; no `Bearer` prefix). Search/list polls use the same header.
+- **Plugin spec format unchanged.** Same `{source, repo_path, ref}` triple for every worker.
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations`. Polling: `GET /api/v1/app-conversations/start-tasks/search`. **READY on 1st poll for 12 cycles running.**
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again. The skill-injected `$github_token` provider token continues to satisfy `gh` calls.
+- **Tool install pattern stays project-local:** `.venv/bin/{ohtv,lxa}` via `uv venv .venv` + `uv pip install …`; system-wide `--system` install still blocked by `/usr/local/lib/python3.13/site-packages` perms (recurring; not a regression).
+- **PR-review bot streak update:** PR #183 received a COMMENTED 🟡 verdict (pagination UX flag), breaking a 5-cycle APPROVED streak. This is a substantive review, not a rubber stamp — the bot is doing its job. Worth tracking whether subsequent PRs in the `ohtv messages` style (new top-level commands with bespoke pagination) trigger similar UX flags.
+- **WORKLOG truncation:** **12 consecutive cycles overdue.** Standing recommendation unchanged.
+- **Idle queue context:** After #181/#183 ships, only `hold`-labeled issues remain (#26 mcp-server, #90 `ohtv label`). The auto-disable horizon shifts out to whenever #183 merges + 2 consecutive quiet cycles thereafter.
+- **Docs-before-test discipline observed:** This is the 2nd PR in a row where the orchestrate skill's "test what's documented" sequence was honoured cleanly — impl → docs → testing. The docs worker's PR comment explicitly framed the README updates as "ahead of manual QA so testers verify documented behaviour", which is the contract the testing worker is now consuming.
+
+**Local checkout note:** `main` HEAD on entry at `93c7c97` (the 22:58Z docs-worker WORKLOG commit). This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `e4b66bb` status, looks for a manual-test PR comment on #183, and routes through the review → merge pipeline as the docs+test gates close out.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
