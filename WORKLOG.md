@@ -2,6 +2,17 @@
 
 ## Log
 
+### 2026-06-04 02:25 UTC - Expansion Worker (Issue #167)
+
+✅ **Expanded Issue #167 — Add engagement columns to `ohtv list` output.**
+
+- Issue: [Add engagement columns to `ohtv list` output](https://github.com/jpshackelford/ohtv/issues/167)
+- Type: Enhancement (display-layer surface for the PR #165 engagement metric)
+- Status: Ready for implementation (`ready` label applied)
+- Approach: Opt-in `--with-engagement` flag adds three table columns (`Engaged`, `Periods`, `Eng%`) and five raw fields to JSON / CSV. Data already lives in `conversation_engagement` (migration 023, PR #165), populated by the `engagement` stage that runs as part of `db process all` / `ohtv sync`. New batched DB loader mirrors `_load_refs_for_conversations` — single `IN (...)` query per page, no event-file reads, no new migration. Pure display-layer change in `src/ohtv/cli.py`. Filtering by engagement, default-on columns, and aggregate reporting are explicitly out of scope (deferred to follow-up issues). Complexity: small.
+
+---
+
 
 ### 2026-06-03 22:55 UTC - Docs Worker for PR #165
 
