@@ -1,5 +1,86 @@
 ## Log
 
+### 2026-06-04 16:19 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `2a8db4a` | implementation | Issue #162 — `ohtv ask` session telemetry | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Fresh grafted clone at `d7dff8f` (15:50Z merge-worker's worklog commit, plus the fetched-shallow predecessors `3873696` / `18ac7bc` / `722ce44` / `39956b1`). `uv sync` populated `.venv/`; `lxa` installed inside the project venv via `uv pip install git+…/lxa.git`; `ohtv` came in via `uv sync`. Skipped `ohtv sync` — `gh` covers every gating signal. Discarded the `uv.lock` churn that `uv sync` emits on grafted checkouts.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **1335 lines** on entry (vs 1221 at 15:48Z; the 15:50Z merge worker added a 100-line entry on top). Oldest entry still **06:21Z** (≈10h old). The `/truncate-worklog` skill's 6h-productive-window matcher still keeps yielding <50 lines of archivable content. **Deferring again** — same recommendation carried forward 4 cycles now: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would let us reclaim ~500 lines. The skill itself needs a reverse-chrono-aware fix; that's out-of-scope for an orchestrator wake-up.
+
+**Step 1 — Human Instructions:** None. `grep -B1 -A5 "^## INSTRUCTION:" WORKLOG.md` → empty (matches the 15:48Z, 15:18Z, 14:50Z, 14:20Z runs).
+
+**Step 2 — Active Workers (pre-this-spawn):**
+- Merge worker `1cc846c` (spawned 15:48Z): `sandbox_status=PAUSED`, last update 15:50Z — **finished ✓**, deliverable on `main` is the worklog commit `d7dff8f` + the squash-merge `722ce44` + the release-bot `18ac7bc`.
+- Implementation worker `7a6ca22` (spawned 13:18Z for #161): `sandbox_status=PAUSED`, last update 13:48Z — **finished ✓** (long since superseded by PR #177's merge).
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered:**
+
+- **PR #177 — `feat(ask): add prompt-cookbook agent mode alongside legacy tools mode`:** ✅ **MERGED** at 15:50:19Z (squash-commit `722ce443`). Issue **#161 auto-closed** by the `Closes #161.` line. Released as **`ohtv-v0.27.0`** (semantic-release minor bump from `feat(ask):` prefix). GitHub Release published.
+- **Open PRs:** 0.
+- **Issues needing expansion (no `ready`, no `hold`):** 0.
+- **Ready, prioritized issues:**
+  - **#162** (`priority:medium`) — Capture `ohtv ask` sessions as on-disk telemetry for cross-mode comparison and replay. **Structural dep on #161 just landed in `ohtv-v0.27.0`** → fully unblocked.
+  - **#173** (`priority:low`) — refactor: reduce nesting in `_load_engagement_for_ids`.
+- **On hold:** #26 (mcp server), #90 (`ohtv label` batch).
+- **Selection:** #162 (`medium`) > #173 (`low`) → **#162** wins. Also semantically correct: #162 is the natural follow-up to #161 (the `InvestigationResult.mode` seam #162 plugs into shipped in `ohtv-v0.27.0`), and the 15:48Z orchestrator's "next cycle expectation" cached this exact choice.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+
+- **PR slot:** no open PR + ready issues with priorities → **Spawn implementation worker for #162.** ✅
+- **Expansion slot:** 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Implementation Worker**
+
+- Issue: [#162 — Capture ohtv ask sessions as on-disk telemetry](https://github.com/jpshackelford/ohtv/issues/162) (`priority:medium`)
+- Start task: `e6af3b8e` → `app_conversation_id = 2a8db4ae29ce4180a11e8399f6489dd6` → **READY** on the 3rd poll (~15s; SETTING_UP_SKILLS → STARTING_CONVERSATION → READY).
+- Conversation: [`2a8db4a`](https://app.all-hands.dev/conversations/2a8db4ae29ce4180a11e8399f6489dd6)
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after spawn.
+- Plugin spec (unchanged, **22nd successful spawn** in a row): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract (unchanged, V1): `initial_message: {content: [{type:"text", text:"…"}], run: true}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:** read #162 description + comment → skim PR #177 for `InvestigationResult.mode` / `InvestigationAgent` / `InvestigationAgentCli` / `ask` handler shape → branch from `main` (HEAD `d7dff8f`) → implement per the issue comment's contract: new `src/ohtv/analysis/telemetry.py` (`SessionRecorder`, `StepRecorder`), `get_telemetry_dir()` in `config.py`, recorder kwarg into both investigators, CLI try/finally in the `ask` handler (graceful-degradation AC), atomic per-session blob + append-only `sessions.jsonl` index, `OHTV_TELEMETRY_DIR` + `OHTV_TELEMETRY_ENABLED=0` env vars, `agent: null` (not key omission) for RAG-only sessions, ISO-8601-hyphen filename grammar → tests (>80% coverage, plus concurrency + graceful-degradation cases) → lint + `uv run pytest -q` → draft PR with `Closes #162.` → CI green → flip to ready → `chore(worklog):` WORKLOG update on main → EXIT. **Explicit OUT-OF-SCOPE:** docs spot-check, testing, review, merge, `ohtv telemetry` inspection subcommand, PII redaction, remote-storage path, full vector capture in `retrieved_chunks`, any widening of `ConversationStore.update_metadata`.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~16:49Z):** Most likely —
+  - ~65%: Implementation worker `2a8db4a` still running. Telemetry recorder + both-mode wiring + concurrency tests is a moderately-sized job (~45–75 min typical); first post-spawn check usually finds the worker mid-flight.
+  - ~20%: Worker has pushed an initial draft PR; CI may still be running.
+  - ~10%: Worker found an edge case in the `InvestigationAgentCli` step-recording hook (the cookbook prompt's `RunOhtvTool` argv-extraction pathway is fresh as of `ohtv-v0.27.0` — minor surprises possible). Would surface as a needs-info comment on #162 or a draft-PR comment.
+  - ~5%: Already in CI-green territory and ready for the docs worker.
+- **2 cycles out (~17:18Z):** Likely draft PR exists for #162, in implementation finalization or CI cleanup phase.
+- **3 cycles out (~17:48Z):** Likely CI-green draft → flipped to ready → docs worker dispatched (or docs-not-required if `docs/guides/search-and-ask.md` is the only doc surface — same precedent as #161/PR #177).
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** stays pinned. **22 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Plugin spec format unchanged.**
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations`. Polling: `GET /api/v1/app-conversations/start-tasks/search`. Today's spawn went WORKING → SETTING_UP_SKILLS → STARTING_CONVERSATION → READY in 3 polls (~15s — warm picker again).
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **Tool install pattern:** `uv sync` (populates `.venv/`) → `source .venv/bin/activate` → `uv pip install git+…/lxa.git`. Fastest path in this repo.
+- **`uv sync` side effect:** still touches `uv.lock` on grafted checkouts. Discarded with `git checkout -- uv.lock` before any commits.
+- **PR-review bot:** APPROVED OR COMMENTED-with-tag both merge-ready (cached).
+- **Review threads vs PR comments:** GraphQL `reviewThreads` is the canonical signal (cached).
+- **README vs `docs/guides/` precedent:** When `docs/guides/*.md` carries the CLI flag detail and README is pitch-only, no docs-worker spawn is needed pre-test (cached from #177).
+- **`ohtv ask` agent-mode family progress:** #161 ✅ shipped as `ohtv-v0.27.0` 16:00Z-ish. #162 (telemetry) → impl worker spawned this cycle. #173 (refactor) waits.
+- **WORKLOG truncation:** **4 consecutive cycles overdue** on truncation. The skill's 6h-productive-window matcher hits an oldest-entry → 10h-old wall but the matcher only releases entries that are *both* older than 6h AND in the "non-productive" bucket. Recommend: human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` to manually unblock, or a follow-up fix to `/truncate-worklog` that switches to a hard line-count target (e.g. trim to <500 lines, oldest-first) when the productive-window heuristic stalls.
+
+**Local checkout note:** `main` HEAD on entry at `d7dff8f`. This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `2a8db4a` (implementation worker) status, looks for a new draft PR linked to #162, and verifies CI state once a PR exists.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 15:50 UTC - Merge Worker — PR #177 squash-merged
 
 **Outcome:** ✅ **MERGED.** PR #177 (`feat(ask): add prompt-cookbook agent mode alongside legacy tools mode`) squash-merged into `main` at 15:50:19Z as merge-commit `722ce44`. Issue **#161 auto-closed** by the `Closes #161.` line in the squash body.
