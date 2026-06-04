@@ -2,6 +2,36 @@
 
 
 
+### 2026-06-04 08:20 UTC - Implementation Worker (Issue #169, PR #174)
+
+**Task:** Issue #169 - Add engagement to gen objs markdown output (below Duration). Priority: high. Predecessors PR #171 (#167, list columns) and PR #172 (#168, JSON output) already merged on main at ae22b4d.
+
+**Branch:** feat/169-engagement-markdown from origin/main@9c92e8b.
+
+**Implementation (3 surgical edits to src/ohtv/cli.py, ~80 LOC):**
+1. New helper `_format_engaged_markdown_subbullet(engagement, duration)` next to `_format_engaged_line` - same data + precision, drops the `of <duration> total` suffix because the parent bullet already shows duration inline.
+2. Hoisted the engagement batch-load out of the JSON branch in `_run_batch_objectives_analysis` so it runs ONCE before the format dispatch and attaches each row to `r["engagement"]`. Both JSON (#168) and markdown (#169) formatters now read from the same dict. Single SQL query (chunked at 900 IDs by the pre-existing `_load_engagement_for_ids`).
+3. `_format_summary_markdown` reads `r.get("engagement")` / `r.get("duration")` and inserts the `Engaged:` sub-bullet between the parent bullet and the existing refs / labels. Public signature `(results, *, include_outputs)` unchanged.
+4. Updated `--with-engagement` help text to mention the markdown rendering effect.
+
+**Tests:** New file `tests/unit/test_cli_gen_objs_engagement_markdown.py` - 29 tests covering helper (12) + formatter integration (8) + CLI via CliRunner (6) + help-text surface (1) + signature-stability regression (1) + ID-normalization (dashed caller, dashless DB row). All AC bullets from the issue have a corresponding test.
+
+**Verification:**
+- `uv run pytest tests/unit -q` -> 2353 passed, 2 skipped, 3 xfailed (38s). Zero regressions in the existing 86 engagement-stage tests (test_cli_engagement_display.py, test_cli_list_engagement.py, test_cli_gen_objs_engagement.py).
+- `uv run ruff check src tests` -> 168 errors total, identical to main (verified with git stash round-trip). Zero new lint errors in my changes.
+- CI on PR #174: lint pass 5s, pytest pass 1m5s, enable-orchestrator pass 2s, pr-review skipping (will run on ready). All green at 08:18Z.
+
+**PR:** [#174](https://github.com/jpshackelford/ohtv/pull/174) - `feat: add engagement to gen objs markdown output`. Opened as draft, flipped to ready-for-review at 08:19Z (triggers pr-review bot). `Fixes #169` in description. Title is a valid Conventional-Commit subject so the python-semantic-release squash flow will minor-bump on merge.
+
+**Out-of-scope (honored per orchestrator brief):**
+- #173 (refactor `_load_engagement_for_ids` nesting) - separate issue, not in this PR.
+- Docs update - docs worker will handle after CI green.
+- Default-on `--with-engagement` - explicit follow-up once metric beds in (matches #167 / #168 rationale).
+
+**Worker exits.** Docs / review / QA / merge are separate orchestrator-spawned conversations.
+
+---
+
 ### 2026-06-04 07:50 UTC - Orchestrator
 
 **Active Workers (at cycle exit):**
