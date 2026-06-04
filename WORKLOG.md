@@ -1834,3 +1834,57 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `2fc1f83` (testing wo
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-04 18:52 UTC - Merge Worker (PR #179)
+
+**Worker Type:** `merge`
+**PR:** [#179 — `refactor: extract _process_engagement_rows helper from _load_engagement_for_ids`](https://github.com/jpshackelford/ohtv/pull/179)
+**Issue:** [#173 — `refactor: reduce nesting in _load_engagement_for_ids`](https://github.com/jpshackelford/ohtv/issues/173)
+**Status:** ✅ **MERGED**
+
+**Merge details:**
+
+- Squash-merge commit: [`fa4056d`](https://github.com/jpshackelford/ohtv/commit/fa4056d92304bf739f581e750f2b43b18613026b) on `main` at 2026-06-04T18:50:46Z.
+- Subject: `refactor: extract _process_engagement_rows helper from _load_engagement_for_ids` (PR title used verbatim — valid conventional-commit subject).
+- Body references #173 and the load-bearing `test_chunk_query_count` invariant (1100 ids → 2 SELECTs across the `BATCH_SIZE=900` chunk boundary).
+- Issue #173 **auto-closed** at 2026-06-04T18:50:48Z via the `Closes #173` footer.
+- PR description was refreshed before merge to consolidate the manual-test summary + load-bearing test mention + invariants list.
+
+**Release workflow correctly no-op'd:**
+
+- Run [`26972604387`](https://github.com/jpshackelford/ohtv/actions/runs/26972604387) on the merge commit completed in 1m3s.
+- `release` job ✓ green; `Publish GitHub Release` step **skipped** (no version bump triggered).
+- Latest tag remains `ohtv-v0.28.0` at `abda5b6` (pre-merge). **No `ohtv-v0.28.1` / `ohtv-v0.29.0` tag created.**
+- No `chore(release): ohtv X.Y.Z [skip ci]` commit appended to `main`.
+- This matches the AGENTS.md release contract: `refactor:` subjects bump nothing and produce no CHANGELOG entry.
+
+**Merge criteria confirmation (all met before merge):**
+
+- CI green (pytest, lint, enable-orchestrator, pr-review). Last commit `ecf99c7` at 17:51:54Z.
+- Review APPROVED by the pr-review bot, no inline threads (3rd consecutive `APPROVED` verdict — #175 / #178 / #179).
+- Manual test results posted at 18:27:42Z by `2fc1f83` (testing worker), 12/12 PASS including `test_chunk_query_count`.
+- No new commits between manual-test post and merge (freshness invariant held).
+- Pure internal refactor — README update correctly skipped per the `orchestrate` skill "internal refactoring" carve-out.
+- Mergeable: `MERGEABLE`, not draft, ready.
+
+**Diff scope (final):**
+
+- 1 file (`src/ohtv/cli.py`), +43 / -18 LOC.
+- New helper `_process_engagement_rows(rows, normalized_to_original, engagement_map) -> None` lifted from the chunk loop.
+- `typing.Any` and `typing.Iterable` added to the existing `from typing import …` line.
+- Nested-block depth inside `_load_engagement_for_ids` reduced from 5 → 3 (outer `try` → `with` → `for chunk`).
+
+**Notes for orchestrator's next cycle (~19:20Z):**
+
+- Ready queue empties with PR #179 merged. No open PRs. No open issues with `ready` label (modulo whatever orchestrator finds on next wake).
+- **First all-quiet cycle** of this idle phase is likely at ~19:20Z; **auto-disable counter → 1**. If the next-next cycle (~19:50Z) is also quiet, auto-disable fires.
+- The "refactor-only PR → impl → ✅ test → merge in 3 cycles, no review round" pattern observed last cycle is now confirmed: PR #179 followed exactly that path, end-to-end ~1h05m wall-clock from impl spawn to merge.
+
+**Files touched by this worker:**
+
+- `WORKLOG.md` only (this entry). Commit subject `chore(worklog): …` so the release workflow ignores it (no version bump from a worklog commit).
+- No code, no `pyproject.toml`, no `src/ohtv/__init__.py`, no `CHANGELOG.md` — semantic-release owns those and `refactor:` correctly skipped them.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
