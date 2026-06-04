@@ -28,6 +28,7 @@ from ohtv.db.utils import generate_unique_source_names
 from ohtv.locks import SyncLockTimeout, sync_lock
 
 if TYPE_CHECKING:
+    from ohtv.messages import ConversationMessages
     from ohtv.prompts import DisplaySchema
 
 log = logging.getLogger("ohtv")
@@ -6296,6 +6297,309 @@ def _print_error_detail(err) -> None:
         if len(msg) > 200:
             msg = msg[:200] + "..."
         console.print(f"       Detail: {msg}")
+
+
+# ---------------------------------------------------------------------------
+# Issue #181: ``ohtv messages`` — browse-what-you-said command.
+# ---------------------------------------------------------------------------
+
+
+def _format_messages_short_id(conv_id: str) -> str:
+    """Render the first 8 hex chars of a conversation id for headers."""
+    return conv_id.replace("-", "")[:8]
+
+
+def _format_messages_iso(dt: datetime | None) -> str | None:
+    """Render a datetime as a stable, dashless ISO 8601 ``Z`` string.
+
+    JSON / raw modes need a machine-readable, timezone-stable form.
+    Naive datetimes are assumed UTC (consistent with how events are
+    stored on disk — see :func:`_parse_event_datetime`).
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _render_messages_text(
+    groups: list["ConversationMessages"],
+    *,
+    total_conversations: int,
+    total_messages: int,
+    offset: int,
+    limit: int | None,
+    full: bool,
+) -> None:
+    """Render messages in the human-readable ``text`` format.
+
+    Uses rich styling (dim rule lines, cyan conversation ids) to match
+    the rest of the CLI. Each conversation gets a header + an indented
+    list of timestamped messages, with the 500-char truncation applied
+    when ``full`` is False.
+    """
+    from ohtv.messages import TEXT_TRUNCATION_CHARS, truncate_text
+
+    rule = "─" * 65
+
+    for group in groups:
+        console.print(f"[dim]{rule}[/dim]")
+        short_id = _format_messages_short_id(group.conv.id)
+        title = group.conv.title or "(untitled)"
+        # Truncate long titles so the header stays on one line.
+        if len(title) > 60:
+            title = title[:57] + "..."
+        console.print(
+            f'[bold]Conversation:[/bold] [cyan]{short_id}[/cyan] — "{title}"'
+        )
+
+        created = (
+            group.conv.created_at.strftime("%Y-%m-%d %H:%M UTC")
+            if group.conv.created_at
+            else "(unknown)"
+        )
+        ev_count = group.conv.event_count if group.conv.event_count is not None else 0
+        console.print(
+            f"[dim]Created: {created} | Events: {ev_count}[/dim]"
+        )
+        console.print()
+
+        for msg in group.messages:
+            ts_str = msg.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            text = msg.text if full else truncate_text(
+                msg.text, TEXT_TRUNCATION_CHARS
+            )
+            console.print(f"[dim]\\[{ts_str}][/dim] {text}")
+            console.print()
+
+    console.print(f"[dim]{rule}[/dim]")
+
+    # Footer — only the text renderer carries it.
+    shown = len(groups)
+    parts = [
+        f"Showing {shown} of {total_conversations} conversations",
+        f"({total_messages} messages)",
+    ]
+    if limit is not None and (offset + shown) < total_conversations:
+        parts.append(f"Next: --offset {offset + limit}")
+    console.print("[dim]" + " | ".join(parts) + "[/dim]")
+
+
+def _render_messages_json(
+    groups: list["ConversationMessages"],
+    *,
+    total_conversations: int,
+    total_messages: int,
+    offset: int,
+    limit: int | None,
+) -> str:
+    """Render messages as a single JSON object matching the AC shape.
+
+    Top-level keys: ``total_conversations``, ``total_messages``,
+    ``offset``, ``limit``, ``conversations``. Per-conversation keys:
+    ``id`` (dashless), ``title``, ``created_at`` (ISO Z),
+    ``source``, ``event_count``, ``messages`` (list of
+    ``{timestamp, text}``). Always carries the full message text
+    (truncation is text-mode-only per AC).
+    """
+    out = {
+        "total_conversations": total_conversations,
+        "total_messages": total_messages,
+        "offset": offset,
+        "limit": limit,
+        "conversations": [
+            {
+                "id": group.conv.id.replace("-", ""),
+                "title": group.conv.title,
+                "created_at": _format_messages_iso(group.conv.created_at),
+                "source": group.conv.source,
+                "event_count": group.conv.event_count,
+                "messages": [
+                    {
+                        "timestamp": _format_messages_iso(m.timestamp),
+                        "text": m.text,
+                    }
+                    for m in group.messages
+                ],
+            }
+            for group in groups
+        ],
+    }
+    return json.dumps(out, indent=2)
+
+
+def _render_messages_raw(groups: list["ConversationMessages"]) -> str:
+    """Render messages in the ``raw`` (``-1``) line-per-message format.
+
+    One tab-separated line per message::
+
+        <conv_id_short>\\t<ISO_timestamp>\\t<single_line_message>
+
+    Newlines in the message body collapse to ``⏎``; literal tabs
+    collapse to four spaces — both via
+    :func:`ohtv.messages.collapse_to_single_line` — so downstream
+    ``grep`` / ``awk`` pipelines see uniform columns.
+    """
+    from ohtv.messages import collapse_to_single_line
+
+    lines = []
+    for group in groups:
+        short_id = _format_messages_short_id(group.conv.id)
+        for msg in group.messages:
+            ts = _format_messages_iso(msg.timestamp)
+            text = collapse_to_single_line(msg.text)
+            lines.append(f"{short_id}\t{ts}\t{text}")
+    return "\n".join(lines)
+
+
+@main.command("messages")
+@click.option("--since", "-S", "since_date",
+              help="Show messages with event timestamp >= DATE")
+@click.option("--until", "-U", "until_date",
+              help="Show messages with event timestamp < DATE")
+@click.option("--day", "-D", "day_date", is_flag=False, flag_value="today",
+              default=None,
+              help="Filter by day: -D (today), -D DATE, or -D N (last N days)")
+@click.option("--week", "-W", "week_date", is_flag=False, flag_value="today",
+              default=None,
+              help="Filter by week: -W (this week), -W DATE, or -W N (last N weeks)")
+@click.option("--max", "-n", "limit", type=int, default=10,
+              help="Limit to N conversations (default: 10)")
+@click.option("--all", "-A", "show_all", is_flag=True,
+              help="Show all matching conversations (no cap)")
+@click.option("--offset", "-k", type=int, default=0,
+              help="Skip first N conversations (matches `list` semantics)")
+@click.option("--format", "-F", "fmt",
+              type=click.Choice(["text", "json", "raw"]),
+              default="text",
+              help="Output format (default: text)")
+@click.option("-1", "one_per_line", is_flag=True,
+              help="Shorthand for --format raw (one message per line)")
+@click.option("--full", "full_messages", is_flag=True,
+              help="Disable 500-char truncation in text mode")
+@click.option("--source", "source_filter",
+              type=click.Choice(["local", "cloud"]), default=None,
+              help="Filter by source: local or cloud")
+@click.option("--repo", "repo_filter", default=None,
+              help="Filter to conversations linked to a repository")
+@click.option("--label", "-L", "label_filter", default=None,
+              help="Filter by label (key=value)")
+@click.option("--include-sub-conversations", "include_subs",
+              is_flag=True, default=False,
+              help=(
+                  "Include agent-delegated sub-conversation messages "
+                  "(default off, matches #127)"
+              ))
+@logging_options
+def messages_cmd(
+    since_date: str | None,
+    until_date: str | None,
+    day_date: str | None,
+    week_date: str | None,
+    limit: int,
+    show_all: bool,
+    offset: int,
+    fmt: str,
+    one_per_line: bool,
+    full_messages: bool,
+    source_filter: str | None,
+    repo_filter: str | None,
+    label_filter: str | None,
+    include_subs: bool,
+) -> None:
+    """List user messages across conversations, grouped by conversation.
+
+    \b
+    The "what did I say last week?" browse surface — complements
+    ``ohtv ask`` (semantic RAG) and ``ohtv search`` (FTS5) when you
+    only remember roughly *when* you said something.
+
+    \b
+    Date filtering uses **event timestamps**, not ``conversations.created_at``
+    — a conversation created two months ago that received a user
+    message yesterday surfaces under ``--since yesterday``. This is
+    the same column-swap mechanism #180 introduced for ``--event-dates``,
+    but here event-time is the only mode (see #181 "Out of Scope").
+
+    \b
+    Examples:
+      ohtv messages --since 7d              # Last 7 days, default 10 convs
+      ohtv messages --day --all             # Today, no cap
+      ohtv messages --week -F json          # Scripting
+      ohtv messages -D 30 -1 | grep -i auth # One per line + grep
+    """
+    init_logging_from_cli()
+    config = Config.from_env()
+
+    # ``-1`` is the shorthand for ``--format raw`` (matches ``ohtv refs -1``).
+    if one_per_line:
+        fmt = "raw"
+
+    # Resolve date shortcuts (``-D`` / ``-W``) into (since, until).
+    since, until = _parse_date_filters(
+        since_date, until_date, day_date, week_date,
+    )
+
+    # ``--all`` disables the cap; otherwise honour ``--max``.
+    effective_limit: int | None = None if show_all else limit
+
+    from ohtv.messages import collect_messages
+
+    groups, total_convs, total_msgs = collect_messages(
+        config,
+        since=since,
+        until=until,
+        source=source_filter,
+        repo=repo_filter,
+        label=label_filter,
+        include_subs=include_subs,
+        limit=effective_limit,
+        offset=offset,
+    )
+
+    # Empty-result hint per AC. Mention the engagement-stage caveat
+    # (the engagement-table INNER JOIN in ``list_by_event_date_range``
+    # silently drops convs that haven't been processed yet).
+    if not groups:
+        if fmt == "text":
+            console.print("No user messages in range.")
+            console.print(
+                "[dim]Hint: if you recently synced, run "
+                "'ohtv db process engagement' (or 'ohtv sync') to "
+                "populate event timestamps.[/dim]"
+            )
+        elif fmt == "json":
+            print(_render_messages_json(
+                [],
+                total_conversations=total_convs,
+                total_messages=total_msgs,
+                offset=offset,
+                limit=effective_limit,
+            ))
+        # ``raw`` mode on empty result prints nothing — designed for
+        # pipelines where empty input is a non-event.
+        return
+
+    if fmt == "text":
+        _render_messages_text(
+            groups,
+            total_conversations=total_convs,
+            total_messages=total_msgs,
+            offset=offset,
+            limit=effective_limit,
+            full=full_messages,
+        )
+    elif fmt == "json":
+        print(_render_messages_json(
+            groups,
+            total_conversations=total_convs,
+            total_messages=total_msgs,
+            offset=offset,
+            limit=effective_limit,
+        ))
+    else:  # ``raw``
+        print(_render_messages_raw(groups))
 
 
 @main.command()
