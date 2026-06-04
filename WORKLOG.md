@@ -2681,3 +2681,49 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `b68bb0d` status, loo
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-04 22:58 UTC - Docs Worker (PR #183)
+
+**Commit:** [`c50f3a8`](https://github.com/jpshackelford/ohtv/commit/c50f3a8) on `feat/messages-command-181` (docs-only; subject `docs:` — non-release-bumping per AGENTS.md release contract).
+
+**Scope:** README + AGENTS.md updates ahead of manual QA so the test worker validates *documented* behaviour, not whatever happens to be in the code (orchestrate-skill "Test What's Documented" principle).
+
+**README.md changes**
+- `## Commands` table: added `messages` to the **Search & ask** row (alongside `search` / `ask`).
+- New `## Listing user messages` section inserted right after `## Event-date filtering`. Covers:
+  - "Third way to find a conversation by what you said" framing (RAG → `ask`, FTS5 → `search`, date-grouped → `messages`).
+  - Default-window behaviour (no `--since`/`--until` ⇒ all engaged convs, capped at `-n 10`).
+  - `-D` / `-D N` / `-W` / `-W N` / `--since YYYY-MM-DD --until YYYY-MM-DD` examples.
+  - Pagination `-n` / `-A` / `-k` (by conversation; within a displayed conversation every matching user message renders).
+  - Output formats: `-F json`, `-1` (`--format raw` shorthand, tab-separated, pipe-friendly), `--full` (disables 500-char text-mode truncation).
+  - Filters: `--source local|cloud`, `--repo OWNER/NAME`, `-L key=value`, `--include-sub-conversations`.
+  - Event-time semantics + cross-link to `## Event-date filtering` — explicitly notes `messages` has **no** `--event-dates` flag (event-time is the only mode per #181 "Out of Scope"), so I did not invent that flag in any example.
+  - Default text-mode output shape sketch (rule line + header + indented `[ts] msg` rows + footer) + JSON top-level shape + two gotchas (engagement INNER JOIN drops un-processed convs; `total_messages` counts displayed convs only).
+
+**AGENTS.md changes**
+- `## Testing` block: appended two `uv run ohtv messages …` manual-test one-liners (`-W` for this week, `-D 7 -1` for piping). Slotted next to the existing `refs` examples since the flag mechanism is identical.
+
+**Verification before commit**
+- Every flag in every README example was verified against the `messages_cmd` Click definition in `src/ohtv/cli.py` (lines ~6459–6500). No invented flags.
+- Default `-n/--max = 10` confirmed in cli.py and matches the #181 spec.
+- `--since 7d` deliberately *not* used — `_parse_date_option` routes through `click.DateTime()` which only takes ISO formats; relative shortcuts go through `-D N` / `-W N`. The PR docstring's `--since 7d` example is inaccurate; README uses `-D 7` instead.
+- `-1` confirmed as a bare-flag in Click (`@click.option("-1", "one_per_line", ...)`) — copy-paste safe.
+
+**CI** ✅ — both `lint` (3s) and `pytest` (1m14s) green on commit `c50f3a8`. Docs-only diff (85 lines added, 1 modified); no code in `src/` touched.
+
+**PR comment** posted ([comment #4626713775](https://github.com/jpshackelford/ohtv/pull/183#issuecomment-4626713775)) summarising sections updated + handoff to the testing worker.
+
+**Out-of-scope / left for other workers** — per orchestrator guardrails:
+- Did **not** run manual tests (testing worker's job, next cycle).
+- Did **not** touch the existing `pr-review` bot's pagination-bug inline comment (review worker's responsibility).
+- Did **not** modify `src/ohtv/cli.py` or `src/ohtv/messages.py`.
+- Did **not** flip PR status (it was already `ready`; stayed `ready`).
+- Did **not** edit `docs/reference/cli.md`, `docs/guides/search-and-ask.md`, or any other in-repo doc — guardrails limit this worker to `README.md` + `AGENTS.md` on the PR branch.
+
+**Notes for next cycle**
+- README's new section is now the contract the testing worker should validate end-to-end. If a documented example fails, that's a bug in either the docs or the implementation — the test worker decides which.
+- The `--since`-takes-only-ISO observation may be worth raising as a follow-up issue (or rolling into #181's PR as a docstring fix) since the cli.py docstring example `--since 7d` is misleading. Not in scope here — flagging for the review worker.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
