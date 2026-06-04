@@ -550,3 +550,293 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 EXIT per orchestrate skill — next cycle (~30 min) checks `55ec09b` (docs PR #171) and `21d93ba` (expansion #170) and decides next actions (likely testing worker for PR #171).
 
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-06-04 03:55 UTC - Expansion Worker (Issue #170)
+
+✅ **Expanded Issue #170 — Filter conversations by engagement level (`--engaged`, `--min-engaged`).**
+
+- Issue: [Filter conversations by engagement level](https://github.com/jpshackelford/ohtv/issues/170)
+- Type: Enhancement (filter surface, completes the engagement-metric family alongside #167–#169)
+- Status: Ready for implementation (`ready` label applied)
+- Approach: Four new flags on `ohtv list` and on `gen objs / titles / run` — `--engaged` / `--no-engaged` (mutually exclusive boolean pair) plus threshold flags `--min-engaged DURATION` and `--min-engagement-ratio PCT`. Mutual-exclusion validation raises `click.BadParameter` early (exit 2). Filter implementation reuses PR #171's `_load_engagement_for_conversations` batched DB loader — single `IN (?, ?, …)` query, in-memory predicate over the candidate set. Aligned on the field names PR #171 / Issue #167 publishes (`engaged_seconds`, `attention_periods`, `total_duration_seconds`, `engagement_ratio`). New duration parser `parse_duration_to_seconds` in `src/ohtv/filters.py` accepts `5m` / `30s` / `1h` / `1h30m` plus bare numbers (interpreted as minutes for backward UX continuity with original issue body). Missing-row handling explicit: `--engaged` / threshold flags exclude missing rows; `--no-engaged` includes them. Pure filter layer — no schema, no migration, no new stage. One naming divergence from original issue body called out for review: `--no-engaged` (Click idiom) vs `--unengaged` (issue body). `--max-engaged` and sort-by-engagement deferred as separate follow-ups. Complexity: small-to-medium (~150 LOC production + ~400 LOC tests).
+
+---
+### 2026-06-04 04:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `55ec09b` | docs | PR #171 — docs/guides/exploration.md + docs/reference/cli.md | finished ✓ (updated 03:58:21Z) |
+| `21d93ba` | expansion | Issue #170 — engagement filter flags | finished ✓ (updated 03:59:52Z) |
+| `d591078` | testing | PR #171 — manual test against docs | **NEW** (running) |
+
+**Spawned: Testing Worker for PR #171**
+- PR: [#171 — feat: add engagement columns to ohtv list output](https://github.com/jpshackelford/ohtv/pull/171)
+- Conversation: [`d591078`](https://app.all-hands.dev/conversations/d591078adab5438090308d4ce852c9ae)
+- Start task `2d6900bf` → READY in 1 poll (~5s); proof-of-life delta ~29s.
+
+**Current State:**
+- [PR #171](https://github.com/jpshackelford/ohtv/pull/171): `state=OPEN, isDraft=false, reviewDecision=APPROVED, mergeable=MERGEABLE, mergeStateStatus=CLEAN`. CI: `lint=SUCCESS`, `pytest=SUCCESS`. 2 unresolved 🟡 advisory review threads (non-blocking). Last commit at 03:56:40Z (the docs commit `eef14bf`).
+- **Docs updated:** Files changed on PR now include `docs/guides/exploration.md` (new `Engagement columns (--with-engagement)` subsection + examples block + options row) and `docs/reference/cli.md` (row update). Docs comment posted on PR at 03:56:40Z explicitly ends with "Ready for manual testing."
+- **No manual test results comment yet.** Decision-tree row matched: *"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker."*
+- **Issues:** All 6 open non-hold issues now `ready`. **Zero issues need expansion.** Queue: #167 (in flight as PR #171), #168, #169, #170 (all `priority:high`), #161, #162 (both `priority:medium`). On hold: #26, #90.
+
+**Step 0 — Setup:** `uv venv` not present on the conversation sandbox → `uv pip install` fell back to `pip install` to `/home/openhands/.local`. `PATH="/home/openhands/.local/bin:$PATH"` shim required for `lxa` and `ohtv`. **Variation from prior cycles** (which worked inside `/workspace/project/ohtv`'s project venv via `uv sync`): this conversation's working dir is the same, but `uv sync` succeeds only when invoked from inside the project — the fresh setup pattern at the orchestrator's entry must source `uv sync` THEN re-activate to keep `uv pip install` cheap. Documenting for the next cycle's setup: try `uv sync` first, fall back to `pip install --user` if no venv. `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 4h --quiet` succeeded silently.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1446 lines** at cycle entry (>>300; **15 consecutive cycles overdue** on truncation). Deferred again — productive cycle. Recommendation unchanged: human `## INSTRUCTION: archive WORKLOG.md entries older than 12h` or `/truncate-worklog` matcher fix.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged. `grep -n "^## INSTRUCTION:" WORKLOG.md` returned no headings.
+
+**Step 2/3 — Worker status check at cycle entry:**
+- `55ec09b` (docs PR #171): `sandbox=RUNNING, exec=finished, created=03:51:42Z, updated=03:58:21Z, lifetime≈6m 39s`. Pushed docs commit `eef14bf` to PR #171 branch + posted "Documentation Update" PR comment. Clean exit — **`exec=finished, sandbox=RUNNING` variant** (3rd consecutive observation: `20df5c1` two cycles ago, `3dbea4a` + `c13e86c` last cycle, now `55ec09b` + `21d93ba`).
+- `21d93ba` (expansion #169 #170): `sandbox=RUNNING, exec=finished, created=03:51:43Z, updated=03:59:52Z, lifetime≈8m 9s`. Issue #170 now has labels `enhancement, ready, priority:high` and a 10,927-char body (was minimal). Clean exit.
+- **Both slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:** as in Current State above. PR #171 file list confirmed via `gh pr diff 171 --name-only`: `docs/guides/exploration.md`, `docs/reference/cli.md`, `src/ohtv/cli.py`, `tests/unit/test_cli_list_engagement.py`, `uv.lock`. The two `docs/*` paths satisfy the widened docs-detection rule (`grep -iE '(readme|docs/)'`).
+
+**Step 5 — Decisions:**
+- **PR slot** → Spawn **testing worker for PR #171** (`d591078`). Prompt explicitly instructs the worker to test the documented examples verbatim (the testing principle for this PR is *verify documented behavior matches actual behavior*, since the docs worker just landed). Coverage: default-off invariance, opt-in table mode, JSON mode, CSV mode, pre-stage state, post-stage state, composition with other flags, full unit suite, advisory-thread note. Worker is told NOT to address the 2 advisory `🟡` threads — that's a separate review worker's call later.
+- **Expansion slot** → **IDLE.** All 8 open issues are `ready` (6) or `hold` (2). First time the expansion slot has been empty for *this* reason ("queue exhausted") in several cycles. The engagement-metric family triage is fully closed out: #167 (in flight), #168, #169, #170 all expanded with `priority:high`.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~04:51Z):** Likely outcomes —
+  - ~70%: `d591078` DONE (typical testing worker: 8-20m for clone + sync + design + run + report). If green: spawn **review worker** for PR #171 (to address the 2 advisory `🟡` threads + final pass) OR **merge worker** (if testing worker also reports the advisory threads as low-priority). Probably the former, since the advisory threads ARE unresolved — review worker will decide whether to address or document-and-resolve.
+  - ~20%: `d591078` still running.
+  - ~10%: `d591078` reports test failure or doc-mismatch — would spawn a doc-fix or impl-fix worker.
+  - Expansion slot stays idle.
+- **2 cycles out (~05:21Z):** PR #171 likely in review or merge phase. Expansion slot still idle. Once #171 merges, implementation slot opens for **#168 (high)**, which becomes the next PR.
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **WORKLOG.md size: 1446 → ~1520 lines post-entry. 15 consecutive cycles overdue on truncation.** Same recommendation.
+- **Tool install pattern variation:** This cycle used `pip install --user` (no project venv at cwd) — both `lxa` and `ohtv` installed to `/home/openhands/.local/bin`. PATH shim required. The 4-cycle `uv sync + uv pip install` pattern only works when launched from inside the project repo with `.venv` materialized. **Action for next cycle:** orchestrator setup should try `uv sync` THEN `uv pip install`, falling back to `pip install --user` + PATH shim.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 9 consecutive cycles. `export GH_TOKEN=$github_token` shim is durable.
+- **`exec=finished, sandbox=RUNNING` clean-exit variant:** Now observed across 3 consecutive cycles. Treat identically to `exec=null, sandbox=PAUSED`.
+- **Docs detection widening confirmed valid:** `docs/guides/exploration.md` + `docs/reference/cli.md` correctly counted as a docs update (no `README.md` change needed). The widened rule `gh pr diff --name-only | grep -iE '(readme|docs/)'` is the operative check.
+- **Engagement-metric family:** Closing phase. PR #171 → testing now. Next PR target post-merge: **#168 (high) → #169 (high) → #170 (high) → #161 (medium) → #162 (medium)**.
+- **Plugin spec format reminder:** `plugins: [{"source": "github:owner/repo", "repo_path": "...", "ref": "..."}]`. Brief example in orchestrate skill uses the human-readable form; API requires this object form.
+- **API param-array gotcha:** `start-tasks?ids=A&ids=B` (NOT `?ids=A,B`).
+
+**Local checkout note:** `main` at `a5d28f4`. `git pull --ff-only` clean. Worklog entry committed directly to `main` per skill rule.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `d591078` (testing PR #171) and decides next actions (likely review worker for the 2 advisory threads OR merge worker).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-06-04 04:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `6951ef0` | orchestrator | this cycle | running |
+| `d591078` | testing | PR #171 — manual test (DONE — 15/15 PASS, full suite 2351 passed) | finished, sandbox RUNNING |
+| `8be2f9e` | review | PR #171 — address 2 advisory 🟡 threads in `src/ohtv/cli.py` | **NEW** (running, sandbox RUNNING, proof-of-life ~58s) |
+
+**Spawned: Review Worker for PR #171**
+- PR: [#171 — feat: add engagement columns to ohtv list output](https://github.com/jpshackelford/ohtv/pull/171) (Issue [#167](https://github.com/jpshackelford/ohtv/issues/167))
+- Conversation: [`8be2f9e`](https://app.all-hands.dev/conversations/8be2f9e4f0044255b0f89bf785cc4605)
+- Start task `daae028d` → READY in 1 poll (~30s); proof-of-life delta ~58s.
+
+**Step 0 — Setup:** `lxa` + `ohtv` missing on fresh sandbox. `uv venv` not present at the orchestrator's CWD → fell back to `pip install --user` from PyPI git URLs. `PATH="/home/openhands/.local/bin:$PATH"` shim required (persisted to `~/.bashrc`). **Setup pattern variation confirmed:** this cycle's environment lacked a project venv at entry, so `pip install --user` (NOT `uv pip install`) was the working install path. Documented for next cycle: try `uv sync` from inside `/workspace/project/ohtv` first; if `.venv` is absent, fall back to `pip install --user` + PATH shim. `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 4h --quiet` initially rejected `4h` format → re-ran with `$(date -u -d '4 hours ago' +%Y-%m-%dT%H:%M:%S)`, completed silently. `GH_TOKEN=$github_token` shim continues working (9 consecutive cycles).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1510 lines** at cycle entry (>>300; **16 consecutive cycles overdue** on truncation). Deferred again — productive cycle filling the PR slot. Recommendation unchanged: human `## INSTRUCTION: archive WORKLOG.md entries older than 12h` or `/truncate-worklog` matcher fix.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged. `grep -n "^## INSTRUCTION:" WORKLOG.md` returned no headings.
+
+**Step 2/3 — Worker status check at cycle entry:**
+- `d591078` (testing PR #171): `sandbox=RUNNING, exec=finished, created=04:20:13Z, updated=04:28:22Z, lifetime≈8m 8s`. Posted "Manual Test Results" PR comment at 04:28:20Z covering **15 documented scenarios — all 15 PASS** + full unit-test suite **2351 passed, 2 skipped, 3 xfailed**. Clean exit — **`exec=finished, sandbox=RUNNING` variant** (4th consecutive cycle: `20df5c1`, `3dbea4a` + `c13e86c`, `55ec09b` + `21d93ba`, now `d591078`).
+- Search `selected_repository=jpshackelford/ohtv` showed only the new orchestrator (`6951ef0`) as `execution_status=running` at cycle entry. All previously-spawned workers `null` or `finished`.
+- **Both slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs (1):** [PR #171 — `feat: add engagement columns to ohtv list output`](https://github.com/jpshackelford/ohtv/pull/171):
+  - `state=OPEN, isDraft=false, reviewDecision=APPROVED, mergeable=MERGEABLE, mergeStateStatus=CLEAN`.
+  - CI: `lint=SUCCESS`, `pytest=SUCCESS`, last commit at 03:56:40Z (the docs commit `eef14bf` — no new commits since).
+  - PR comments: 1 docs-update comment (03:58:11Z), 1 manual-test-results comment (04:28:20Z, 15/15 PASS).
+  - **2 unresolved review threads** — both `🟡` advisory suggestions from `github-actions` bot, both in `src/ohtv/cli.py`:
+    1. `PRRT_kwDOR9seq86G84bt` (line ~4268): CSV row-builder calls `er.get(field)` twice per field — cache in `val` local or loop over field names.
+    2. `PRRT_kwDOR9seq86G84bx` (line ~4132): `_format_eng_pct` + `_engagement_ratio` duplicate validation logic — extract `_validate_engagement_values` helper. Reviewer self-notes *"Not critical - current code works fine and is well-tested."*
+  - **Decision-tree row matched:** *"PR exists, ready, CI green, test results valid, 💬 > 0 → Spawn **review worker**"*. Tests are fresh (04:28Z), docs are fresh (03:58Z), threads are unresolved.
+- **Issue census:**
+  - **Needs expansion (no `ready`, no `hold`): 0** — first cycle with the expansion queue fully exhausted (2nd consecutive). 🎉
+  - **Ready + prioritized: 6** — **#167** (in flight as PR #171), **#168**, **#169**, **#170** (all `priority:high`), **#161**, **#162** (both `priority:medium`).
+  - **On hold:** #26, #90.
+
+**Step 5 — Decisions:**
+- **PR slot** → Spawn **review worker for PR #171** (`8be2f9e`). Worker prompt:
+  - Pinned the 2 thread IDs and code-line locations explicitly.
+  - Granted full discretion to **accept both / accept one / decline both** per the orchestrate skill's review-handling guidance, with documented reasoning.
+  - Required `gh pr ready 171 --undo` immediately (back to draft) before any edits.
+  - Forbade touching docs, the test suite, or anything outside the 2 threads.
+  - Required CI green + local `pytest -x -q` clean before final push.
+  - Required `gh pr ready 171` (back to ready) + summary PR comment with AI disclosure + reply-and-resolve via GraphQL on both threads + WORKLOG update on `main`.
+- **Expansion slot** → **IDLE** (2nd consecutive cycle). All 8 open issues are `ready` (6) or `hold` (2). Expansion queue stays empty until the engagement family closes out and new issues arrive. Confirmed no work to spawn — the slot is intentionally empty, not stalled.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned, PR slot filled). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~05:21Z):** Likely outcomes —
+  - ~65%: `8be2f9e` DONE (typical review worker: 15-30m for 2 mild refactors + CI + thread replies + resolve). If green: spawn **re-testing worker** (per "Re-Testing" decision tree — refactors touch `src/ohtv/cli.py`, which the heuristic flags as "code changes after last test, source `.py` excluding `_test.py`, >0 LOC"). Alternatively, if review worker decided to decline both threads (very small chance), spawn **merge worker**.
+  - ~25%: `8be2f9e` still running (refactor + CI cycle).
+  - ~10%: `8be2f9e` reports test failure or thread complications — would spawn a fix worker or escalate.
+  - Expansion slot stays idle.
+- **2 cycles out (~05:51Z):** PR #171 likely re-tested green → merge worker. Once merged, queue: **#168 (high) → #169 (high) → #170 (high) → #161 (medium) → #162 (medium)**. Next implementation worker probably picks **#168**.
+- **3 cycles out (~06:21Z):** PR #168 likely in flight (impl worker or draft PR opened). Engagement-metric family closing: 1 of 4 merged, 3 in queue.
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **WORKLOG.md size: 1510 → ~1595 lines post-entry. 16 consecutive cycles overdue on truncation.** Same recommendation.
+- **Setup pattern variation:** This cycle confirmed `pip install --user` is the operative install path when no project venv exists at orchestrator entry. The 4-cycle `uv sync + uv pip install` pattern only works when the orchestrator launches from inside a repo with `.venv`. **Next cycle's setup should try `uv sync` first, fall back to `pip install --user` + PATH shim if the venv is missing.**
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 9 consecutive cycles. `export GH_TOKEN=$github_token` shim is durable.
+- **`exec=finished, sandbox=RUNNING` clean-exit variant:** Observed across 4 consecutive cycles. Treat identically to `exec=null, sandbox=PAUSED`.
+- **Docs detection widening confirmed valid (2nd cycle):** `gh pr diff --name-only | grep -iE '(readme|docs/)'` correctly flagged PR #171's docs commit. Use as the operative check going forward.
+- **Engagement-metric family in closing phase:** PR #171 in review → re-test → merge cycle (2-3 cycles out). 3 remaining issues queued (#168, #169, #170 — all `priority:high`).
+- **Plugin spec format reminder:** `plugins: [{"source": "github:owner/repo", "repo_path": "...", "ref": "..."}]`. Brief example in orchestrate skill uses the human-readable form; API requires this object form. Verified by 3rd successful spawn this orchestrator instance.
+- **API param-array gotcha:** `start-tasks?ids=A&ids=B` (NOT `?ids=A,B`).
+- **`ohtv sync --since` format gotcha:** Bare `4h` rejected; require ISO datetime via `$(date -u -d '4 hours ago' +%Y-%m-%dT%H:%M:%S)`.
+- **Review-handling decision:** The 2 advisory `🟡` threads are mild DRY/micro-optimization suggestions, both legitimately addressable. Delegated full accept/decline discretion to the worker with documented-reasoning requirement; orchestrator does not pre-decide.
+
+**Local checkout note:** `main` at the HEAD of last cycle's worklog commit. `git pull --ff-only` clean. No uv.lock churn this cycle (no `uv pip install` against the project venv — install was `pip install --user`). Worklog entry committed directly to `main` per skill rule.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `8be2f9e` (review PR #171) and decides next actions (likely re-testing worker, then merge worker).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-06-04 04:55 UTC - Review-Feedback Worker (PR #171)
+
+✅ **Addressed both advisory 🟡 review threads on PR #171.**
+
+- PR: [feat: add engagement columns to ohtv list output #171](https://github.com/jpshackelford/ohtv/pull/171)
+- Branch: `feat/list-engagement-columns-167`
+- Commit: 4298f85 — `refactor(cli): DRY engagement helpers + CSV row builder (PR #171 review)`
+- Status: Both threads (`PRRT_kwDOR9seq86G84bt`, `PRRT_kwDOR9seq86G84bx`) replied + resolved; CI green (`lint` + `pytest`); PR back to ready.
+- Changes (pure refactor, zero behaviour change):
+  1. Extracted `_validate_engagement_values(engaged, total) -> tuple[float, float] | None` so `_format_eng_pct` and `_engagement_ratio` share the None / non-numeric / `<= 0` validation. Each formatter collapses to ~3 lines.
+  2. Replaced the four `er.get(field) if er.get(field) is not None else ""` lines in the CSV row builder with a `for field in (...)` loop that caches `val = er.get(field)` once per field.
+- Verification: `tests/unit/test_cli_list_engagement.py` (36/36 ✅, unchanged — locks in current behaviour), full unit suite 2351 passed / 2 skipped / 3 xfailed. Both refactors accepted on merit (DRY + micro-perf, proportional benefit). Nothing declined.
+- Next: next orchestrator cycle will see green CI + resolved threads and decide between a re-test worker vs a merge worker.
+
+---
+### 2026-06-04 05:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID   | Type    | Working On                                                      | Status |
+|-----------|---------|-----------------------------------------------------------------|--------|
+| `414d420` | re-test | PR #171 — re-test after post-test refactor (04:53:53Z) | **NEW** |
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+
+**Step 2 — Slot scan:** Latest worker entry (Review-Feedback Worker, 04:55Z) had already exited. No `running` conversations on the API for this repo at scan time. Both slots free.
+
+**Step 3 — State gather:**
+- Open PRs: **1**
+  - [PR #171 — feat: add engagement columns to ohtv list output](https://github.com/jpshackelford/ohtv/pull/171)
+    - Branch: `feat/list-engagement-columns-167` @ `4298f85`
+    - Reviews: **APPROVED** (review threads `PRRT_kwDOR9seq86G84bt` + `PRRT_kwDOR9seq86G84bx` both `isResolved: true`)
+    - CI: ✅ `lint` / `pytest` / `pr-review` / `enable-orchestrator` all pass on `4298f85`
+    - Docs: ✅ updated 03:56:40Z (`docs: document --with-engagement flag for ohtv list`) + comment 03:58:11Z
+    - Initial manual test: ✅ posted 04:28:20Z
+    - **Post-test commit:** 04:53:53Z `refactor(cli): DRY engagement helpers + CSV row builder (PR #171 review)` — touches `src/ohtv/cli.py` (production .py)
+- Issues by label:
+  - Needs expansion (no `ready`, no `hold`): **0**
+  - Ready + priority:high: **#170**, **#169**, **#168** (blocked by PR slot)
+  - Ready + priority:medium: #162, #161
+  - On `hold`: #90, #26
+
+**Step 4 — Decision (PR slot):** Per orchestrate decision tree row *"PR exists, ready, CI green, test results outdated → re-testing worker"*. The 04:53:53Z refactor commit lands after the 04:28:20Z manual test, and the strict heuristic (`Source files changed (.py excluding test_*)`) triggers re-test. The previous worker documented zero behavior change and unchanged unit tests passing, so risk is genuinely low — but the contract is clear and the cost of a quick re-test is small. **Spawned re-testing worker.**
+
+**Step 4 — Decision (expansion slot):** Idle. No issues lack the `ready`/`hold` labels. Three priority:high ready issues exist (#168, #169, #170) but those need the PR slot, which is occupied by the re-test → merge sequence for #171.
+
+**Spawned: Re-Testing Worker**
+- Conversation: [`414d420`](https://app.all-hands.dev/conversations/414d42069adc497aa4acef193e9bbff2)
+- Start-task: `dabc3797…` reached `READY` in ~10s; `execution_status: running`, `sandbox_status: RUNNING`
+- Scope handed to the worker: re-verify `ohtv list --with-engagement` table/JSON/CSV surfaces that the DRY refactor touched, plus full unit suite (expect 2351/2/3). Post a NEW test report (do not edit the 04:28Z one). Exit without merging — next orchestrator cycle will spawn the merge worker if the re-test is clean.
+
+**Step 0.5 — Housekeeping (deferred):** WORKLOG.md is **1606 lines** at cycle entry (>>300; **14 consecutive cycles overdue** on truncation). Deferred again — this is a productive cycle (re-test spawned). The carry-forward recommendation from prior cycles stands: either (a) a human posts `## INSTRUCTION: archive WORKLOG.md entries older than 12h` so the next orchestrator cycle executes it manually, or (b) someone widens the `/truncate-worklog` skill's `is_productive` regex so it matches the prose-style entries this orchestrator writes.
+
+**Next check:** ~30 min. Expected state: re-test worker posted a fresh test report ⇒ spawn merge worker (PR slot stays occupied through merge). After merge, PR slot frees and one of #168/#169/#170 can be implemented.
+
+---
+### 2026-06-04 05:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID   | Type   | Working On                                                          | Status              |
+|-----------|--------|---------------------------------------------------------------------|---------------------|
+| `ce2fa77` | orchestrator | this cycle                                                    | running             |
+| `8be2f9e` | review | PR #171 — addressed 2 advisory 🟡 threads (DRY refactor)            | finished, PAUSED    |
+| `414d420` | re-test | PR #171 — re-test after refactor `4298f85` (15/15 PASS)            | finished, sandbox RUNNING |
+| `062c740` | merge  | PR #171 — squash-merge                                              | **NEW** (running, sandbox RUNNING, proof-of-life ~40s) |
+
+**Spawned: Merge Worker for PR #171**
+- PR: [#171 — feat: add engagement columns to ohtv list output](https://github.com/jpshackelford/ohtv/pull/171) (Issue [#167](https://github.com/jpshackelford/ohtv/issues/167))
+- Conversation: [`062c740`](https://app.all-hands.dev/conversations/062c74005dd6456d94158632cf9c5bbe)
+- Start task `8afa9198` → READY in 1 poll (~5s); proof-of-life delta ~40s.
+
+**Step 0 — Setup:** Tools already present in `/workspace/project/ohtv/.venv` from prior orchestrator session — `uv venv .venv` + `uv pip install git+...lxa` + `git+...ohtv` re-confirmed the pattern. `lxa repo add` re-created cosmetic "Unnamed Board 1". `ohtv sync --since 4h` was interrupted (likely the recurring `--quiet` hang signal observed in earlier dormant cycles); proceeded with direct `gh`/API queries — no state lost since the decision is wholly readable from GitHub.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1647 lines** at cycle entry (>>300; **17 consecutive cycles overdue** on truncation). Deferred again — productive cycle (merge worker spawned). Recommendation unchanged: human `## INSTRUCTION: archive WORKLOG.md entries older than 12h` or `/truncate-worklog` matcher fix.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+
+**Step 2/3 — Worker status check at cycle entry:**
+- `8be2f9e` (review PR #171): `sandbox=PAUSED, exec=null` (reaped). Pushed refactor commit `4298f852` at 04:53:53Z, posted "Review feedback addressed" PR comment at 04:55:56Z, replied-and-resolved both threads `PRRT_kwDOR9seq86G84bt` + `PRRT_kwDOR9seq86G84bx` via GraphQL.
+- `414d420` (re-test PR #171): `sandbox=RUNNING, exec=finished, updated=05:29:23Z`. Posted "Manual Test Results — Re-test after refactor (round 2)" PR comment at 05:29:22Z — **15/15 scenarios still PASS** + full suite **2351 passed, 2 skipped, 3 xfailed**. Clean exit — **`exec=finished, sandbox=RUNNING` variant** (5th consecutive cycle observation).
+- Search `selected_repository=jpshackelford/ohtv` showed only the new orchestrator (`ce2fa77`) as `execution_status=running` at cycle entry. All other recent worker conv IDs `null`/PAUSED/MISSING.
+- **Both slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs (1):** [PR #171 — `feat: add engagement columns to ohtv list output`](https://github.com/jpshackelford/ohtv/pull/171):
+  - `state=OPEN, isDraft=false, reviewDecision=APPROVED, mergeable=MERGEABLE, mergeStateStatus=CLEAN`.
+  - Head: `4298f852d54476c98d2c482018376f0a6387b1ee` (no new commits since the 04:53Z refactor).
+  - CI: `lint=SUCCESS`, `pytest=SUCCESS`, `pr-review=SUCCESS`, `enable-orchestrator=SUCCESS`.
+  - Comments: 1 docs-update (03:58Z), 1 initial test (04:28Z), 1 feedback-addressed (04:55Z), 1 re-test (05:29Z).
+  - Review threads: 2/2 RESOLVED ✓.
+- **Issue census:**
+  - **Needs expansion (no `ready`, no `hold`): 0** — 3rd consecutive cycle with the expansion queue fully exhausted.
+  - **Ready + prioritized: 6** — **#167** (in flight as PR #171), **#168**, **#169**, **#170** (all `priority:high`), **#161**, **#162** (both `priority:medium`).
+  - **On hold:** #26, #90.
+
+**Step 5 — Decisions:**
+- **PR slot** → Spawn **merge worker for PR #171** (`062c740`). Decision-tree row matched: *"PR exists, ready, CI green, test results valid, good rating, docs valid → Spawn merge worker"*. Justification for skipping docs spot-check: the only post-test commit (`4298f852`) is a **pure-internal DRY refactor** of `_validate_engagement_values` and the CSV row builder in `src/ohtv/cli.py` — zero user-facing surface change. Re-test confirms identical behavior (15/15 PASS). The `docs/guides/exploration.md` and `docs/reference/cli.md` updates from 03:56Z remain accurate. Worker prompt pins `headRefOid=4298f852…` as a safety check: if HEAD changed, the worker exits without merging.
+- **Expansion slot** → **IDLE** (4th consecutive cycle). All 8 open issues are `ready` (6) or `hold` (2). Expansion queue stays empty until the engagement-metric family closes out and new issues arrive.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned, PR slot filled). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~06:21Z):** Likely outcomes —
+  - ~75%: `062c740` DONE (typical merge worker: 3-8m for diff review + squash + worklog). PR merged + `ohtv-v0.23.0` released. PR slot frees → spawn **implementation worker for #168** (next `priority:high` in queue).
+  - ~15%: `062c740` still running (rare unless GH-API or release workflow stall).
+  - ~5%: `062c740` reports `headRefOid` drift — would re-evaluate as review worker.
+  - ~5%: Merge succeeds but release workflow misfires — would log and continue.
+  - Expansion slot stays idle.
+- **2 cycles out (~06:51Z):** PR #168 likely in flight (impl worker or draft PR open). PR slot occupied through next docs/test cycle.
+- **3 cycles out (~07:21Z):** PR #168 likely in docs/test or review phase. Engagement-metric family: 1 merged, 3 in queue.
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **WORKLOG.md size: 1647 → ~1730 lines post-entry. 17 consecutive cycles overdue on truncation.** Same recommendation.
+- **Tool install pattern:** This cycle's setup found `.venv` pre-existing from the prior orchestrator's setup — `uv pip install` against the project venv worked first try. Next cycle's setup: try `uv sync` from `/workspace/project/ohtv` first; fall back to `pip install --user` + PATH shim if `.venv` is missing.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 10 consecutive cycles. `export GH_TOKEN=$github_token` shim is durable.
+- **`exec=finished, sandbox=RUNNING` clean-exit variant:** 5 consecutive cycles. Treat identically to `exec=null, sandbox=PAUSED`.
+- **`ohtv sync --since 4h --quiet` hang:** Recurred this cycle. Direct `gh`/API queries are the reliable workaround when sync hangs.
+- **Engagement-metric family closing now:** PR #171 entering merge. Next PR target post-merge: **#168 (high) → #169 (high) → #170 (high) → #161 (medium) → #162 (medium)**.
+- **Plugin spec format reminder:** `plugins: [{"source": "github:owner/repo", "repo_path": "...", "ref": "..."}]`. Verified by 4th successful spawn in this orchestrator instance.
+- **Stale-HEAD safety check in merge worker prompts:** This cycle pinned the expected `headRefOid` in the merge worker prompt; if `gh pr view` reports drift, the worker is instructed to STOP without merging. Adopt as standard for future merge spawns.
+
+**Local checkout note:** `main` at `c437c87`. `git pull --ff-only` clean. No `uv.lock` churn (no `uv pip install` against the project venv — `.venv` already had `lxa`/`ohtv`). Worklog entry committed directly to `main` per skill rule.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `062c740` (merge PR #171) and decides next actions (likely implementation worker for #168 once PR #171 is merged and `ohtv-v0.23.0` is released).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-06-04 05:53 UTC - Merge Worker (PR #171)
+
+✅ Squash-merged PR #171.
+- Merge commit: fe476c776d3fda7e7deade9eb7cb9ef7a5c7b4c6
+- Auto-release: ohtv-v0.23.0 (expected — verify with `gh release view ohtv-v0.23.0 --repo jpshackelford/ohtv` in ~30s)
+- Issue #167 closed by squash commit.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
