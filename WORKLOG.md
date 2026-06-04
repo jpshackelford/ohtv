@@ -1,5 +1,52 @@
 ## Log
 
+### 2026-06-04 11:25 UTC - Implementation Worker (Issue #170 → PR #175)
+
+✅ **Opened PR [#175](https://github.com/jpshackelford/ohtv/pull/175) — `feat(filter): add engagement-level filters to list and gen subcommands` (Closes [#170](https://github.com/jpshackelford/ohtv/issues/170)).**
+
+- Branch: `feat/170-engagement-filters` off `main @ 5124eec` (post-#174 merge).
+- CI: lint ✓ · pytest ✓ · enable-orchestrator ✓ (1m4s).
+- PR marked ready for review.
+
+**What shipped:**
+- Four new flags on `ohtv list`, `gen objs`, `gen titles`, `gen run`:
+  - `--engaged` — keep rows with `engaged_seconds > 0`.
+  - `--no-engaged` — fire-and-forget (missing row OR `engaged_seconds == 0`). Only flag that treats a missing engagement row as *include*.
+  - `--min-engaged DURATION` — accepts `5m` / `30s` / `1h` / `1h30m` (case-insensitive) / bare int|float interpreted as minutes (`5` == `5m`).
+  - `--min-engagement-ratio PCT` — float `[0, 100]`. Rows with `total_duration_seconds == 0` or NULL excluded.
+- Shared decorator `engagement_filter_options` + shared validator `_validate_engagement_filter_args` — both consumed by `_apply_conversation_filters`, so the four call sites share one error path (`click.BadParameter`, exit 2) **before any DB work**.
+- New `ohtv.filters.parse_duration_to_seconds(value: str) -> int` — reusable for any future duration parsing.
+- Engagement lookup reuses **PR #171's batched** `_load_engagement_for_conversations` — single `WHERE conversation_id IN (?, ?, …)` chunked at 900 IDs. **Zero per-row queries.**
+- Engagement filter runs last in `_apply_conversation_filters` (after `--errors-only`), so it composes cleanly with every existing filter (`--repo`, `--pr`, `--action`, `--label`, `--since`, `--until`, `--errors-only`) and every existing display knob (`--with-engagement`, `--reverse`, `--max`, `--include-empty`, `--no-refs`, `--idle`).
+
+**Key decisions (recorded for future readers):**
+1. **Bare numeric = minutes, not seconds.** `parse_duration_to_seconds("5") == 300`. Matches the issue body's UX intuition ("`--min-engaged 5` == `--min-engaged 5m`"). Cross-referenced in the helper docstring and locked in by an explicit test (`test_bare_integer_is_minutes`).
+2. **Missing-row semantics asymmetric.** `--no-engaged` includes never-processed conversations (fire-and-forget intent); `--engaged` / `--min-engaged` / `--min-engagement-ratio` exclude them ("no data → cannot prove threshold"). Mirrors PR #171's display behavior of rendering `-` for missing rows, but for filtering we have to collapse the tri-state into a binary include/exclude.
+3. **Ratio threshold and zero-duration rows.** A row with `total_duration_seconds == 0` or NULL cannot have a defined ratio and is excluded under threshold flags — not silently treated as 0%. Tested explicitly.
+4. **`--engaged + --min-engaged` permitted (not an error).** The threshold flag implies engagement; `--engaged` is silently absorbed. Only `--engaged + --no-engaged` and `--no-engaged + threshold flag` raise `BadParameter`.
+
+**Test coverage:**
+- 90 new unit + integration tests across four files:
+  - `tests/unit/test_filters_duration.py` — 39 unit tests for `parse_duration_to_seconds` (h/m/s combos, bare numerics, case-insensitivity, rejection of negatives / nonsense).
+  - `tests/unit/test_cli_engagement_filter.py` — 22 unit tests for the validator + `_filter_by_engagement` per-flag semantics + missing-row table.
+  - `tests/unit/test_cli_list_engagement_filter.py` — 19 end-to-end `CliRunner` tests against a seeded SQLite DB (every flag's row set, every composition, mutual-exclusion + duration-parse errors, `--help` text).
+  - `tests/unit/test_cli_gen_engagement_filter.py` — 10 integration tests verifying the same flag surface is wired into `gen objs`, `gen titles`, `gen run` (mutual-exclusion + invalid-duration paths + `gen objs --min-engaged 5m` actually shrinks the analysis batch).
+- Total: **2 443 unit tests pass**, 2 skipped, 3 xfailed (the cloud-sync behavioral harness xfails per AGENTS.md "Testing" section).
+
+**Out of scope (deferred per the issue body):**
+- `--max-engaged DURATION` — easy follow-up if a use case emerges.
+- `--sort engaged` — orthogonal to filtering; needs its own issue.
+- Auto-running the engagement stage when rows are missing — explicitly out of scope; users should run `ohtv db process all` (or `ohtv sync`, which runs all stages).
+- Engagement schema or stage-algorithm changes — Issue #163 / PR #165 territory.
+
+**Engagement-metric family progress:**
+- #167 ✅ merged (engagement processing stage + DB column)
+- #168 ✅ merged (`--with-engagement` JSON output via PR #172)
+- #169 ✅ merged (markdown sub-bullet via PR #174)
+- **#170 → PR [#175](https://github.com/jpshackelford/ohtv/pull/175) (this PR) — ready for review.**
+
+---
+
 ### 2026-06-04 10:22 UTC - Merge Worker (PR #174)
 
 ✅ **Squash-merged PR #174 — `feat: add engagement to gen objs markdown output (#169)`.**
