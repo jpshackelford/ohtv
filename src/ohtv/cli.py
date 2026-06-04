@@ -4002,30 +4002,28 @@ def _load_refs_for_conversations(
     return refs_map
 
 
-def _load_engagement_for_conversations(
-    conversations: list[ConversationInfo],
+def _load_engagement_for_ids(
+    conversation_ids: list[str],
 ) -> dict[str, dict]:
-    """Batch-load ``conversation_engagement`` rows for a list of conversations.
+    """Batch-load ``conversation_engagement`` rows for a list of conversation IDs.
 
-    Returns a dict mapping the **original** conversation id (as stored on
-    ``ConversationInfo.id``, potentially with dashes) to the engagement
-    row as a dict. Missing rows are simply absent from the dict — callers
-    treat absence as "no engagement data, render as '-'".
+    Returns a dict mapping the **original** caller id (potentially with
+    dashes) to the engagement row as a dict. Missing rows are simply
+    absent from the dict — callers treat absence as "no engagement data".
 
     The lookup is a single batched SQL query (``WHERE conversation_id IN
-    (?, ?, ...)``) to avoid the N+1 trap when called from ``ohtv list``
-    on large datasets. SQLite limits ``IN (...)`` clauses to ~999
-    parameters by default, so we chunk into batches of 900 to stay well
-    under the limit.
+    (?, ?, ...)``) to avoid the N+1 trap when called on large datasets.
+    SQLite limits ``IN (...)`` clauses to ~999 parameters by default, so
+    we chunk into batches of 900 to stay well under the limit.
 
-    Issue #167: display-layer only. Never raises — returns an empty dict
-    on any unexpected failure (missing DB, schema mismatch, etc.) so the
-    list path can always render.
+    Issues #167 / #168: display-layer only. Never raises — returns an
+    empty dict on any unexpected failure (missing DB, schema mismatch,
+    etc.) so the calling path can always render.
     """
     from ohtv.filters import normalize_conversation_id
 
     engagement_map: dict[str, dict] = {}
-    if not conversations:
+    if not conversation_ids:
         return engagement_map
 
     try:
@@ -4041,11 +4039,11 @@ def _load_engagement_for_conversations(
     # mapped back to the caller's id form (LocalSource returns dashed
     # ids; the DB stores dashless — AGENTS.md item #14).
     normalized_to_original: dict[str, str] = {}
-    for conv in conversations:
-        normalized = normalize_conversation_id(conv.id)
-        # If two convs in the page normalize to the same id we keep the
+    for cid in conversation_ids:
+        normalized = normalize_conversation_id(cid)
+        # If two ids in the page normalize to the same id we keep the
         # first encounter; in practice they would be the same row.
-        normalized_to_original.setdefault(normalized, conv.id)
+        normalized_to_original.setdefault(normalized, cid)
 
     BATCH_SIZE = 900  # well below SQLite's default ~999 param ceiling
     ids = list(normalized_to_original.keys())
@@ -4082,6 +4080,22 @@ def _load_engagement_for_conversations(
         return engagement_map
 
     return engagement_map
+
+
+def _load_engagement_for_conversations(
+    conversations: list[ConversationInfo],
+) -> dict[str, dict]:
+    """Batch-load ``conversation_engagement`` rows for a list of conversations.
+
+    Thin wrapper over :func:`_load_engagement_for_ids` that extracts the
+    ``id`` from each :class:`ConversationInfo`. Issue #167 kept this
+    signature for the ``ohtv list`` call site; Issue #168 added the
+    ID-based sibling for the ``ohtv gen objs`` call site which has
+    result dicts rather than ConversationInfo objects.
+    """
+    if not conversations:
+        return {}
+    return _load_engagement_for_ids([conv.id for conv in conversations])
 
 
 def _validate_engagement_values(
@@ -4139,6 +4153,39 @@ def _engagement_ratio(
         return None
     engaged, total = values
     return round(engaged / total, 4)
+
+
+def _engagement_json_fields(row: dict | None) -> dict[str, int | float | None]:
+    """Produce the five-key engagement-fields dict for JSON output (Issue #168).
+
+    Shape matches what ``ohtv show -F json`` (PR #165) and
+    ``ohtv list --with-engagement -F json`` (PR #171) emit, so a
+    downstream consumer that already knows those schemas does not learn
+    a new one.
+
+    When ``row`` is ``None`` (engagement stage has not run for this
+    conversation, or the DB row is otherwise missing) every value is
+    ``None``. The five keys are **always** present so the JSON schema is
+    stable across rows in one payload.
+    """
+    if row is None:
+        return {
+            "engaged_seconds": None,
+            "attention_periods": None,
+            "engagement_threshold_seconds": None,
+            "total_duration_seconds": None,
+            "engagement_ratio": None,
+        }
+    return {
+        "engaged_seconds": row.get("engaged_seconds"),
+        "attention_periods": row.get("attention_periods"),
+        "engagement_threshold_seconds": row.get("threshold_seconds"),
+        "total_duration_seconds": row.get("total_duration_seconds"),
+        "engagement_ratio": _engagement_ratio(
+            row.get("engaged_seconds"),
+            row.get("total_duration_seconds"),
+        ),
+    }
 
 
 def _format_list_output(
@@ -9401,6 +9448,19 @@ def gen() -> None:
     default=False,
     help="Include sub-conversations created by agent delegation (default: roots only)",
 )
+@click.option(
+    "--with-engagement",
+    "with_engagement",
+    is_flag=True,
+    default=False,
+    help=(
+        "Include engagement metrics (engaged_seconds, attention_periods, "
+        "engagement_threshold_seconds, total_duration_seconds, "
+        "engagement_ratio) in JSON output. Data is produced by the "
+        "engagement processing stage; missing values render as null. "
+        "No effect for -F table or -F markdown."
+    ),
+)
 def gen_objs_cmd(
     conversation_id: str | None,
     variant: str | None,
@@ -9427,6 +9487,7 @@ def gen_objs_cmd(
     yes: bool,
     quiet: bool,
     include_sub_conversations: bool,
+    with_engagement: bool,
 ) -> None:
     """Identify what the user hopes to achieve in a conversation.
 
@@ -9521,6 +9582,7 @@ def gen_objs_cmd(
             yes=yes,
             quiet=quiet,
             include_sub_conversations=include_sub_conversations,
+            with_engagement=with_engagement,
         )
     else:
         # Single-conversation mode - use --json for JSON output
@@ -9533,6 +9595,7 @@ def gen_objs_cmd(
             no_outputs=no_outputs,
             json_output=json_output,
             verbose=verbose,
+            with_engagement=with_engagement,
         )
 
 
@@ -9560,6 +9623,7 @@ def _run_batch_objectives_analysis(
     yes: bool = False,
     quiet: bool = False,
     include_sub_conversations: bool = False,
+    with_engagement: bool = False,
 ) -> None:
     """Run objectives analysis on multiple conversations.
 
@@ -9973,6 +10037,13 @@ def _run_batch_objectives_analysis(
 
     # Output results
     if fmt == "json":
+        # Issue #168: when --with-engagement, batch-load engagement rows
+        # for the current page so the per-item JSON can include the
+        # five engagement fields without an N+1 query.
+        engagement_map: dict[str, dict] = {}
+        if with_engagement:
+            engagement_map = _load_engagement_for_ids([r["id"] for r in results])
+
         json_results = []
         for r in results:
             # Calculate duration_seconds from timedelta
@@ -10013,6 +10084,11 @@ def _run_batch_objectives_analysis(
             # Include labels if present
             if r.get("labels"):
                 item["labels"] = r["labels"]
+            # Issue #168: merge the five engagement fields into every
+            # item when the flag is set. Missing rows render as JSON
+            # null so the schema is stable across rows.
+            if with_engagement:
+                item.update(_engagement_json_fields(engagement_map.get(r["id"])))
             json_results.append(item)
         print(json.dumps(json_results, indent=2))
     elif fmt == "markdown":
@@ -10050,6 +10126,7 @@ def _run_objectives_analysis(
     verbose: bool = False,
     detail: str | None = None,
     assess: bool | None = None,
+    with_engagement: bool = False,
 ) -> None:
     """Shared implementation for objectives analysis.
     
@@ -10067,6 +10144,9 @@ def _run_objectives_analysis(
         verbose: Show debug output
         detail: Detail level (legacy interface: brief, standard, detailed)
         assess: Add assessment (legacy interface)
+        with_engagement: Issue #168 — include the five engagement fields
+            from ``conversation_engagement`` at the top level of the JSON
+            payload. No-op for the non-JSON display path.
     """
     _init_logging(verbose=verbose)
     config = Config.from_env()
@@ -10187,7 +10267,16 @@ def _run_objectives_analysis(
     
     # Display results
     if json_output:
-        console.print(analysis.model_dump_json(indent=2))
+        if with_engagement:
+            # Issue #168: merge the five engagement fields into the
+            # top level of the analysis payload. Missing rows render
+            # as JSON null. ``default=str`` mirrors how
+            # ``model_dump_json`` handles ``ObjectiveStatus`` enums.
+            payload = analysis.model_dump()
+            payload.update(_engagement_json_fields(_load_engagement_row(conv_id)))
+            console.print(json.dumps(payload, indent=2, default=str))
+        else:
+            console.print(analysis.model_dump_json(indent=2))
     else:
         _display_objectives(conv_id, title, analysis)
         
