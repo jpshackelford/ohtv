@@ -1,5 +1,18 @@
 ## Log
 
+### 2026-06-04 17:10 UTC - Testing worker (PR #178)
+
+**Worker:** testing conversation for PR #178 (`feat/issue-162-telemetry`, HEAD `3edcaf9`).
+
+**Verdict:** ✅ **PASS** — posted as [PR #178 comment](https://github.com/jpshackelford/ohtv/pull/178#issuecomment-4624455468).
+
+- Setup: clean `gh repo clone` + `gh pr checkout 178` + `uv sync` in `/tmp/ohtv-test`; scratch `OHTV_DIR=/tmp/tmp.3IcIschXXh` (3 conversations / 8 embeddings via `uv run ohtv sync -n 3`); real `~/.ohtv/` untouched.
+- 10 blackbox scenarios executed end-to-end through real `ohtv ask` hitting LiteLLM (`LLM_API_KEY=$LITELLM_PROXY_KEY`, `LLM_BASE_URL=$LITELLM_ENDPOINT_URL`) — no mocks: plain RAG (`agent: null`), `--agent` (`mode=cli`), `--agent-tools` (`mode=tools`), `OHTV_TELEMETRY_DIR` override, `OHTV_TELEMETRY_ENABLED=0` opt-out, graceful degradation via `chmod 555` telemetry dir (warning logged, exit 0), filename grammar regex on all 5 generated blobs, two parallel `ohtv ask` writers via `env -i ... &` (2 valid JSONL lines, 2 distinct session_ids, no torn lines), and the documented `jq` one-liner round-trips all three `agent_mode` values.
+- Full unit suite: `uv run pytest -q` → **2592 passed, 2 skipped, 3 xfailed** (matches PR description baseline).
+- Every documented behavior in `docs/reference/telemetry.md` verified. PR remains merge-ready (CI green, `pr-review` APPROVED, docs present, manual test now ✓).
+
+**Exit:** Per task contract, testing worker stops here. Merge/docs spot-check are downstream orchestrator concerns.
+
 ### 2026-06-04 16:50 UTC - Orchestrator
 
 **Active Workers:**
