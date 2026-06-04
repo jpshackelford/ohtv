@@ -2471,3 +2471,85 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-04 22:21 UTC - Orchestrator
+
+**Step 0 — Setup:** workspace had NO `.venv` pre-existing. `uv venv .venv` + `uv pip install git+…/lxa.git git+…/ohtv.git` succeeded into the project-local venv. `ohtv sync --since 4h` clean. (System-wide `--system` install still blocked by `/usr/local/lib/python3.13/site-packages` perms — known.)
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **2473 lines** on entry. **11th consecutive cycle** truncation is overdue. Same standing recommendation: human `## INSTRUCTION: archive WORKLOG.md entries older than 10h`. **Deferring once more** — PR slot has actionable work this cycle.
+
+**Step 1 — Human Instructions:** None. `grep "^## INSTRUCTION:" WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):** Polled `app-conversations/search?limit=30` filtered to running+RUNNING:
+
+- `55f3bef` — bare-id title (`Conversation 55f3bef…`) → **this orchestrator conversation itself**, ignored.
+- `9dfbd1e` — `👔 Review PR #14650 Comments by jpshackelford` → OpenHands core repo, not ohtv. Ignored.
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — Gather State:**
+
+- **Open PRs:** none. PR #182 (`feat(filter): add --event-dates`) was squash-merged at 21:52:32Z (commit `9cdbbe2`); Issue #180 auto-closed; release `ohtv-v0.29.0` published (run `26981820835`).
+- **Issues needing expansion:** none. The two unlabelled-as-ready issues (`#26` mcp-server, `#90` `ohtv label`) carry the `hold` label and are skipped per the decision tree.
+- **Ready issues:** **[#181](https://github.com/jpshackelford/ohtv/issues/181)** — `ready` + `priority:medium`. Dependency `#180` is now MERGED (`9cdbbe2` on `main`), so `ConversationStore.list_by_event_date_range` is available as the SQL owner. Technical-Approach comment from @jpshackelford at 19:55Z proposes `src/ohtv/messages.py` as a sibling of `errors.py` / `actions.py`.
+
+**Step 4 — Decision Tree:**
+
+- **Expansion slot:** no issues need expansion → idle.
+- **PR slot:** no open PR + ready issues with priority → `Ready issues exist? YES → Prioritized? YES → Spawn impl (highest prio)`. Only one ready issue (#181, `priority:medium`) — spawn implementation worker for it.
+
+**Step 5 — Spawn: Implementation Worker**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `b68bb0d` | implementation | Issue #181 — `ohtv messages` command | **NEW** |
+
+- **Conversation:** [`b68bb0d`](https://app.all-hands.dev/conversations/b68bb0de90434480abfcf8914363b57f) (full id `b68bb0de90434480abfcf8914363b57f`).
+- **Start-task ID:** `61623d00b13b4cb899c9be5b34551646` — `READY` on 1st poll (~5s after POST), **10-cycle warm-picker streak holds**.
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after READY.
+- Plugin spec (unchanged, **30th successful spawn** in a row): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:**
+  1. Read issue #181 body + technical-approach comment as the dual contract.
+  2. Skim AGENTS.md items #14 (ID normalization), #32 (root-conversation grain), #35 (`--event-dates` predicate ownership — `list_by_event_date_range` is THE single SQL owner; do NOT duplicate the engagement-table JOIN).
+  3. Branch: `feat/messages-command-181` off `main` (which now has #180 merged).
+  4. Create `src/ohtv/messages.py` (sibling of `errors.py` / `actions.py` / `fetch_loc.py`) — `UserMessage` dataclass, message extraction, on-demand event loading from disk, 500-char truncation. Wire `ohtv messages` Click command in `cli.py` with the full flag set per the AC table (`--since/-S`, `--until/-U`, `--day/-D`, `--week/-W`, `--max/-n` default 10, `--all/-A`, `--offset/-k`, `--format/-F` text|json|raw, `-1` raw shorthand, `--full`, `--source`, `--repo`, `--label/-L`, `--include-sub-conversations`).
+  5. Default pagination: 10 conversations; pagination is BY CONVERSATION not message; within a shown conversation ALL matching user messages render.
+  6. Tests under `tests/unit/test_messages.py` + `tests/unit/test_cli_messages.py` (target >80% on new code; build in-memory SQLite DB via `get_ready_connection()` — DO NOT mock `list_by_event_date_range`).
+  7. `uv run pytest -q` → expect ~2614 baseline + new tests.
+  8. PR title: `feat(cli): add ohtv messages command to list user messages across conversations` (squash subject; triggers minor bump per AGENTS.md release contract — anticipated next release: `ohtv-v0.30.0`).
+  9. DRAFT PR → `gh pr checks --watch` → green → `gh pr ready` (triggers pr-review bot).
+  10. Append `### YYYY-MM-DD HH:MM UTC - Implementation Worker (Issue #181)` to WORKLOG.md on `main` with `chore(worklog):` subject + AI-disclosure footer.
+- **Guardrails:** no docs touch (README is the docs worker's job AFTER `gh pr ready`); no `pyproject.toml` / `src/ohtv/__init__.py` / `CHANGELOG.md` (semantic-release owns those); reuse existing `_parse_date_filters` + `_apply_conversation_filters`; default `--include-sub-conversations=False` per #127 plumbing; PR title MUST match `feat(cli):` (or `feat:`) for the conventional-commits gate.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned, no quiet entry). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~22:50Z):** Most likely —
+  - ~65%: Impl worker `b68bb0d` still running. Implementation + tests + CI watch typically 30–60 min for a new top-level command with ~20 unit tests + ~10 CLI tests. Quiet entry; PR slot occupied.
+  - ~25%: Impl worker has pushed a DRAFT PR (numbered `#183` by sequence) and is mid-CI-watch. Orchestrator sees a draft PR + running worker → quiet entry.
+  - ~7%: Impl worker has flipped to ready already. Orchestrator's decision tree: `PR exists, ready, CI green, README not updated → spawn docs worker`. The new `ohtv messages` command is a user-facing addition, so docs MUST update before testing per the orchestrate skill's "Test What's Documented" principle.
+  - ~3%: Impl worker hit a wall on the event-loading code (events are on-disk per AGENTS.md item #12 separation) — would post a blocker comment on #181 and exit. Orchestrator would re-spawn or back off.
+- **2 cycles out (~23:20Z):** Likely a draft PR exists; impl worker finishing tests + CI. If lucky, ready PR + docs worker spawned.
+- **3 cycles out (~23:50Z):** Likely docs worker complete → testing worker. End-to-end timeline to merge: typical 4–6 cycles for a new top-level command with this much surface area.
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** stays pinned. **30 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY` (header name; no `Bearer` prefix).
+- **Plugin spec format unchanged.**
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations`. Polling: `GET /api/v1/app-conversations/start-tasks/search`. **READY on 1st poll for 10 cycles running.**
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **Tool install pattern stays project-local:** `.venv/bin/{ohtv,lxa}`; system-wide `--system` install still blocked.
+- **PR-review bot streak update:** PR #182 closed with APPROVED + 1 inline suggestion (the redundant disjunction collapsed in round 1). 5th consecutive APPROVED verdict on the bot. Defensive COMMENTED+🟢-tag fallback path stays one more cycle.
+- **WORKLOG truncation:** **11 consecutive cycles overdue.** Standing recommendation unchanged.
+- **#181 unlocks cleanly:** The `#180 → #181` dependency chain is the first the orchestrator has seen where the unblocking PR landed in the same cycle session as the dependent issue's impl spawn. Worth noting as a baseline for future dependency chains. The technical-approach comment correctly identified `list_by_event_date_range` (the #180 SQL owner) as the call surface — no design coordination needed across the boundary.
+- **Idle queue context:** After #181 ships, only `hold`-labeled issues remain (#26 mcp-server, #90 `ohtv label`). The auto-disable horizon shifts out to whenever #181 merges + 2 consecutive quiet cycles thereafter.
+
+**Local checkout note:** `main` HEAD on entry at `52facbd` (last cycle's merge-worker worklog commit). This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `b68bb0d` status, looks for a draft PR on `feat/messages-command-181`, and routes through the docs → test → review → merge pipeline as #181 progresses.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
