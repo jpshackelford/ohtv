@@ -2,6 +2,52 @@
 
 ## Log
 
+### 2026-06-04 07:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID   | Type    | Working On                                                              | Status   |
+|-----------|---------|-------------------------------------------------------------------------|----------|
+| `98fabf1` | testing | PR #172 — manual test `gen objs --with-engagement` JSON                 | **NEW**  |
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+
+**Step 2 — Slot scan:**
+- Re-test worker `414d420` (spawned 05:20Z) is `null/PAUSED` — finished.
+- Worklog gap noticed: two intermediate orchestrator cycles ran (`062c740` @ 05:51Z, `4f5a012` @ 06:19Z, plus a docs worker `5a0f995` @ 06:49Z) and spawned the implementation-then-docs sequence for Issue #168 → PR #172 without writing log entries. Reconstructed from `app-conversations/search` history. Both slots free at this cycle entry.
+
+**Step 3 — State gather:**
+- PR #171 (`feat: add engagement columns to ohtv list output`): **merged** @ 05:53:21Z by @jpshackelford (squash, commit `fe476c7`). Re-test report posted 05:29:22Z (round 2 ✅).
+- Open PRs: **1**
+  - [PR #172 — feat: add --with-engagement flag to gen objs JSON output](https://github.com/jpshackelford/ohtv/pull/172)
+    - Branch: `feat/issue-168-gen-objs-engagement` @ `cabd1775`
+    - State: ready (not draft), `MERGEABLE`
+    - CI: ✅ `tests/pytest` + `lint-pr-title/lint` both pass on `cabd177`
+    - Review threads: **0 open / 0 total**
+    - Auto-review (`github-actions` @ 06:37:51Z): `COMMENTED` — verdict 🟡 *Acceptable, worth merging*. One advisory nit: 5-level nesting in `_load_engagement_for_ids` (suggested helper extraction). No blocking changes.
+    - Docs: ✅ commit `cabd177` @ 06:52:50Z (`docs: document gen objs --with-engagement (issue #168)`), confirmed by docs comment @ 06:54:36Z.
+    - Manual test results: ❌ **none yet**.
+- Issues by label:
+  - Needs expansion (no `ready`, no `hold`): **0**
+  - Ready + priority:high: **#169**, **#170** (#168 is now PR #172 in-flight)
+  - Ready + priority:medium: #162, #161
+  - On `hold`: #90, #26
+
+**Step 4 — Decision (PR slot):** Per decision tree row *"PR exists, ready, CI green, docs updated, no manual test results → spawn **testing worker**"*. The advisory `COMMENTED` review does not block testing; with 0 open review threads and 0 commits since the docs push, the test results we capture now will remain valid through to merge. **Spawned testing worker.**
+
+**Step 4 — Decision (expansion slot):** Idle. Zero issues lack the `ready`/`hold` labels; #169 and #170 are queued behind the PR slot.
+
+**Spawned: Testing Worker**
+- PR: [#172 — gen objs --with-engagement JSON](https://github.com/jpshackelford/ohtv/pull/172)
+- Conversation: [`98fabf1`](https://app.all-hands.dev/conversations/98fabf12a4a74ca5805df5786183ef16)
+- Start-task: `1fedcafe…` reached `READY` in ~10s; `execution_status: running`, `sandbox_status: RUNNING`.
+- Scope handed to the worker: blackbox the `gen objs --with-engagement` JSON surface against the docs in `docs/guides/analysis.md` + `docs/reference/cli.md`, exercise the missing-engagement / opt-in-default / non-JSON-format edges, sanity-check the batched `_load_engagement_for_ids` loader on a >50-conv selection, run the full unit suite (expect 2351+ passed plus ~22 new tests from `test_cli_gen_objs_engagement.py`), and post a `## Manual Test Results` PR comment. Explicitly NOT addressing the advisory nesting nit — leave that judgement call for the merge worker.
+
+**Step 0.5 — Housekeeping (deferred again):** WORKLOG.md is **1906 lines** at cycle entry (>>300; **15 consecutive cycles overdue** on truncation). Deferred — this is a productive cycle (testing worker spawned). The standing recommendation from prior cycles still applies: a human `## INSTRUCTION: archive WORKLOG.md entries older than 12h` or a widening of the `/truncate-worklog` skill's `is_productive` regex would unblock this.
+
+**Next check:** ~30 min. Expected state: testing worker posted a `Manual Test Results` PR comment ⇒ spawn merge worker (PR slot stays occupied through merge). After merge, PR slot frees and one of #169/#170 moves to implementation.
+
+---
+
 ### 2026-06-04 05:20 UTC - Orchestrator
 
 **Active Workers:**
