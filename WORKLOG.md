@@ -1,5 +1,52 @@
 ## Log
 
+### 2026-06-04 10:22 UTC - Merge Worker (PR #174)
+
+✅ **Squash-merged PR #174 — `feat: add engagement to gen objs markdown output (#169)`.**
+
+- Conv ID: `002934f` (this conversation)
+- PR: [#174](https://github.com/jpshackelford/ohtv/pull/174) → state `MERGED`, merged at `2026-06-04T10:22:23Z`
+- Merge commit: [`f140744`](https://github.com/jpshackelford/ohtv/commit/f140744e5199f30f94d326a0dfbc19c746941a2d)
+- Closes: [#169 — Add engagement to `gen objs` markdown output (below Duration)](https://github.com/jpshackelford/ohtv/issues/169)
+- Branch deleted by `gh pr merge --squash` (default).
+
+**What shipped (holistic diff review):**
+- `_format_engaged_markdown_subbullet` helper in `src/ohtv/cli.py` — mirrors `_format_engaged_line` precision (`XX.X%`) and grammar (singular `period` / plural `periods`) but drops the redundant `of <duration> total` suffix since the parent bullet already shows duration inline. Returns `None` on missing rows so the caller can silently omit the sub-bullet.
+- `_run_batch_objectives_analysis` now batch-loads engagement rows **once** before format dispatch, then attaches `r["engagement"]` for both the JSON formatter (#168) and the markdown formatter (#169). Consolidates the prior #168-only load — single SQL query (chunked at 900 IDs by `_load_engagement_for_ids`), no N+1 in either format path.
+- `_format_summary_markdown` reads `r.get("engagement")` / `r.get("duration")` and renders `  - Engaged: <duration> in N period[s] (X.X%)` between the parent bullet and the existing refs / labels sub-bullets. Public signature `(results, *, include_outputs)` unchanged — regression-tested.
+- `--with-engagement` help text updated to mention both `-F markdown` and `-F json` effects.
+- Docs touched: `docs/guides/analysis.md` (3 examples updated), `docs/reference/cli.md` (one help-text row).
+
+**Key decisions (recorded for future readers):**
+1. **Silent omission on missing rows.** Returns `None` from the helper and the caller skips the sub-bullet; no `Engaged: -` placeholder. Matches the AC and parallels the `_format_engaged_line` zero-duration handling.
+2. **Singular/plural grammar.** `1 period` vs `N periods` — covered by an explicit helper test (`test_singular_period`). No `1 periods` ever.
+3. **Percentage uses event-window duration, not `total_duration_seconds`.** The `(X.X%)` parenthetical divides by `r["duration"]` (carried on the result from the event window) rather than the engagement row's stored total. End-to-end flow keeps these identical; only synthetic seeding (as in the manual blackbox test) can drift them. Documented inline in the source comment and called out in the manual test report.
+
+**Test coverage:**
+- 29 new unit tests in `tests/unit/test_cli_gen_objs_engagement_markdown.py` (helper + formatter + CLI + help-text + signature-stability).
+- Total: 2353 unit tests pass (2 skipped, 3 xfailed — the cloud-sync behavioral harness xfails per AGENTS.md "Testing" section).
+- Manual blackbox: **15/15 scenarios pass** — comment [#4621055211](https://github.com/jpshackelford/ohtv/pull/174#issuecomment-4621055211). Highlights: byte-stable diff vs. flag-off (only the three new `Engaged:` lines differ), sub-bullet ordering before refs/labels, indentation parity, table-format no-op confirmed, JSON flag (#172) unaffected.
+
+**PR description updated** prior to merge: appended a `## Verification (final state)` section linking the manual test comment, the CI status, and the review decision; added a `## Percentage derivation note` paragraph clarifying the `r["duration"]` vs `total_duration_seconds` distinction for future readers tripping over `>100%` values in synthetic test fixtures.
+
+**Squash subject** (release-workflow-visible): `feat: add engagement to gen objs markdown output (#169)`. Per AGENTS.md "Releases & Commit Contract", this is a `feat:` subject → triggers a **minor version bump** and a new `Features` section in `CHANGELOG.md` on the next release-workflow run on `main` (expected within ~30s of this merge commit hitting `main`). Tag to watch: `ohtv-v0.25.0`.
+
+**Engagement-metric family progress:**
+- #167 ✅ merged (engagement processing stage + DB column)
+- #168 ✅ merged (`--with-engagement` JSON output via PR #172)
+- **#169 ✅ merged now (this PR — markdown sub-bullet)**
+- #170 → next implementation target (`priority:high`, `ready`, expanded body — `Filter conversations by engagement level` via `--engaged` / `--min-engaged` / `--min-engagement-ratio`)
+
+**Follow-ups noted in PR body (out of scope for #169):**
+- #173 — refactor `_load_engagement_for_ids` for shared use (engagement family + future callers).
+- Default-on `--with-engagement` — explicit follow-up once the metric beds in. Matches the rationale in #167 / #168.
+- Schema-driven engagement column in `-F table` — explicit follow-up.
+
+**Exit:** Merge worker done. Orchestrator's next cycle will pick up #170 implementation per the engagement-metric family progression.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-06-04 03:55 UTC - Expansion Worker (Issue #170)
 
 ✅ **Expanded Issue #170 — Filter conversations by engagement level (`--engaged`, `--min-engaged`).**
