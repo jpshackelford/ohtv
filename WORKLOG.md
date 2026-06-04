@@ -1,5 +1,26 @@
 ## Log
 
+### 2026-06-04 21:25 UTC - Review Worker (PR #182, round 1)
+
+**Worker:** review | **Target:** PR #182 (`--event-dates` filter, Issue #180) | **Status:** ✅ done
+
+Addressed the single unresolved pr-review-bot suggestion on PR #182: collapse the redundant `if has_date_filter or use_event_dates:` to `if has_date_filter:` in `src/ohtv/db/stores/embedding_store.py` (line 261). Justification: `use_event_dates = event_dates and has_date_filter`, so `use_event_dates ⇒ has_date_filter` and the disjunction reduces to `has_date_filter`. Purely a redundancy removal — no semantic change to the JOIN behavior.
+
+**Sequence:**
+
+1. `gh pr ready 182 --undo` → flipped PR to draft.
+2. Located the call site via `git grep` (one hit each for `use_event_dates = event_dates and has_date_filter` and `has_date_filter or use_event_dates`, both in `embedding_store.py`).
+3. Applied the suggestion via a single-line edit (1 insertion, 1 deletion).
+4. Ran the full suite: `uv run pytest -q` → **2614 passed, 2 skipped, 3 xfailed** in 52.60s (matches the manual-test baseline from PR #182).
+5. Committed (`05b8500`) with subject `refactor: simplify date-filter JOIN condition per review` and the SDK Co-authored-by trailer; pushed to `feat/event-dates-filter-180`.
+6. `gh pr checks 182 --watch` → both `lint` (5s) and `pytest` (1m13s) green on the new commit.
+7. Posted a reply to thread `PRRT_kwDOR9seq86HL6-x` referencing SHA `05b8500` + the implication explanation + AI-agent disclosure, then `resolveReviewThread` returned `isResolved: true`.
+8. `gh pr ready 182` → flipped back to ready for review.
+
+**Outcome:** PR #182 is once again APPROVED + CI-green + all review threads resolved. Ready for the next orchestrator cycle to pick up the squash-merge.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
 ### 2026-06-04 20:55 UTC - Testing Worker (PR #182)
 
 **Worker:** testing | **Target:** PR #182 (`--event-dates` filter, Issue #180) | **Status:** ✅ done
