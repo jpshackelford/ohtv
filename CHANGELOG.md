@@ -1,6 +1,90 @@
 # CHANGELOG
 
 
+## v0.26.0 (2026-06-04)
+
+### Chores
+
+- **worklog**: Docs worker — PR #175 docs landed (README + 2 guides + cli.md ref)
+  ([`4077c70`](https://github.com/jpshackelford/ohtv/commit/4077c70ea7cb001ae5d8619d08b1a239c2144997))
+
+- **worklog**: Orchestrator 2026-06-04 10:50 UTC — spawn impl worker for #170 after #174 merge
+  ([`25bd77a`](https://github.com/jpshackelford/ohtv/commit/25bd77a4d12e90de4557f551ec278657eb844efa))
+
+- **worklog**: Orchestrator 2026-06-04T12:21Z — spawned review worker for PR #175
+  ([`7736ba5`](https://github.com/jpshackelford/ohtv/commit/7736ba5841c1ebe44bac2ffd1825b4673d474538))
+
+- **worklog**: Orchestrator — spawned testing worker for PR #175
+  ([`9ab54ae`](https://github.com/jpshackelford/ohtv/commit/9ab54ae32978c1c566ba420bdd8995ce318a58ef))
+
+Conv: 325ebc8 (Manual Test, PR #175 engagement filters)
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Pr #175 review round 1 — single thread resolved (7a067f7)
+  ([`71b2942`](https://github.com/jpshackelford/ohtv/commit/71b2942df61f535e64f69012c10a32795979a76d))
+
+- **worklog**: Record PR #175 (Issue #170 engagement filters)
+  ([`2a8eab0`](https://github.com/jpshackelford/ohtv/commit/2a8eab0264e1573238f5946c20c4ad5ff593719d))
+
+- **worklog**: Spawn docs worker for PR #175 (engagement filters)
+  ([`c291836`](https://github.com/jpshackelford/ohtv/commit/c291836281860daa5b586f59e03ddac5c353053a))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Testing worker — PR #175 manual blackbox (ALL PASS)
+  ([`1bed76f`](https://github.com/jpshackelford/ohtv/commit/1bed76f8f5e024e6f9f3bf2bc40bb1437d8f4f76))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Documentation
+
+- Add engagement threshold empirical tuning analysis
+  ([#176](https://github.com/jpshackelford/ohtv/pull/176),
+  [`86c3750`](https://github.com/jpshackelford/ohtv/commit/86c37508fc99d7c27889f43fa7a621828129e1d6))
+
+This adds the findings from an empirical analysis of the engagement threshold (T) parameter
+  introduced in PR #165. The analysis processed 4,791 conversations with 9,935 follow-up user
+  message gaps.
+
+Key findings: - ~70% of follow-up messages occur within 30 seconds - 96.1% occur within 12 minutes -
+  Content analysis shows ~65% of 8-12 min gaps are likely inattention - The 12-minute default is
+  reasonable; 10 min slightly more defensible
+
+New files: - docs/design/engagement-threshold-analysis.md: Full findings document -
+  scripts/analyze_engagement.py: Basic gap distribution analysis -
+  scripts/analyze_gaps_with_content.py: Content-aware gap analysis
+
+Related: #163, #165, #167, #168, #169, #170
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- **filter**: Add engagement-level filters to `list` and `gen` subcommands
+  ([`3c8c527`](https://github.com/jpshackelford/ohtv/commit/3c8c52721b4330afbc89887435d1293400fecf0f))
+
+Adds four engagement-metric filters — `--engaged`, `--no-engaged`, `--min-engaged DURATION`,
+  `--min-engagement-ratio PCT` — to `ohtv list`, `gen objs`, `gen titles`, and `gen run`. All four
+  call sites share one decorator + validator, so mutex/range/parse errors exit with code 2 before
+  any DB work.
+
+The threshold flags (`--min-engaged`, `--min-engagement-ratio`) AND-compose with both `--engaged`
+  and every other existing filter (`--since`, `--repo`, `--label`, `--pr`, `--action`,
+  `--errors-only`, …). Missing-row semantics follow the issue truth table — only `--no-engaged`
+  treats a missing `conversation_engagement` row as "include". Engagement rows are loaded via the
+  existing batched `_load_engagement_for_conversations` helper (single query, chunked at 900 IDs —
+  zero per-row queries).
+
+Also exposes `ohtv.filters.parse_duration_to_seconds` (accepts `Ns`/`Nm`/`Nh`/combinations like
+  `1h30m`, bare numbers = minutes, case-insensitive).
+
+Test coverage: 2492 unit tests pass (90 new). Documentation updated across README.md,
+  docs/guides/analysis.md, docs/guides/exploration.md, and docs/reference/cli.md.
+
+Closes #170.
+
+
 ## v0.25.0 (2026-06-04)
 
 ### Chores
