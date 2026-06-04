@@ -918,3 +918,39 @@ EXIT per orchestrate skill — next cycle (~30 min) checks impl worker `8fe6274`
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-04 00:59 UTC - Worker (Issue #160 → PR #166)
+
+✅ **Implemented `list_conversations` agent tool. PR #166 (DRAFT → READY).**
+
+**Issue:** [#160 — `ohtv ask --agent`: add `list_conversations` tool for metadata-based browsing](https://github.com/jpshackelford/ohtv/issues/160) (`enhancement`, `ready`, `priority:medium`).
+
+**PR:** https://github.com/jpshackelford/ohtv/pull/166 (marked ready for review at end of cycle; CI green: `lint`, `pytest 58s`, `enable-orchestrator` all pass).
+
+**What shipped:**
+- New `ListConversationsTool` / `Action` / `Observation` / `Executor` + `ConversationSummary` model in `src/ohtv/analysis/agent_tools.py`. Filter surface mirrors `ohtv gen objs` multi-conv mode (`since`/`until`/`day`/`week`/`repo`/`pr`/`action`/`label`/`limit`/`include_sub_conversations`).
+- Executor delegates filtering to `cli._apply_conversation_filters` (no duplicated filter logic, per AC) and pulls the cached **brief** gen-objs variant via `load_all_analyses` + `make_cache_key(context="minimal", detail="brief", assess=False)`. Reads-only: no `analyze_objectives` call on cache miss — `goal=None` is the agent's signal to fall back to `show_conversation`.
+- Defaults match Issue #125: `include_sub_conversations=False` (roots only). `limit` hard-capped at 50 to keep observations inside the prompt budget (~4 KB for 20 rows).
+- `InvestigationAgent.__init__` gains an optional `config` kwarg; `cli.py:3582` passes it on the `ohtv ask --agent` path. When `config is None` the new tool is silently skipped — existing three tools still work.
+- System prompt extended with the issue's prescribed "When to prefer browse vs. search" cues (temporal / enumerative / verifying-a-negative).
+
+**Tests:** 35 new tests in `tests/unit/analysis/test_list_conversations_tool.py` + 3 wiring tests in `tests/unit/analysis/test_investigator.py`. Full suite: **2266 passed, 2 skipped, 3 xfailed** (no new lint errors — verified by diffing against `main`).
+
+**Acceptance-criteria reflection:** All 8 boxes from the issue body are checked off in the PR description. The "integration test demonstrates the agent picking `list_conversations` for a temporal question" criterion is interpreted as the system-prompt + wiring test; a full LLM-loop integration test would require live API access and was deferred.
+
+**Open questions called out for the reviewer (deliberately deferred, all from the issue body):**
+1. Cache-miss → fast-path summary builder (returned `goal=None` instead; agent prompted to use `show_conversation`).
+2. Free-text `query` parameter for metadata + FTS5 hybrid.
+3. `errors_only` filter axis — `ohtv list --errors-only` exists; cheap to add later.
+
+**Non-obvious decisions surfaced in the PR description:**
+- `since`/`until` use `ohtv.filters.parse_date_filter` (supports `7d`/`2w`/`yesterday`) rather than `cli._parse_date_option` (today + ISO only). The CLI uses the latter because it composes with Click; the agent doesn't.
+- Sort key normalizes naive vs aware datetimes (`_normalize_for_sort`) so local-CLI (naive) + cloud (aware) conversations sort together — matches AGENTS.md item #29's UTC-bin convention.
+- Refs intentionally omitted from `ConversationSummary` — the agent has `get_refs(id)` for that, and adding refs would cost an extra DB roundtrip per row and bloat each summary past the 200-byte target.
+
+Exiting — docs / testing / review / merge are separate cycles.
+
+_This worklog entry was written by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
