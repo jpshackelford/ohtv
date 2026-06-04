@@ -275,6 +275,21 @@ These decisions explain WHY the code is structured as it is. See [`docs/guides/`
     - **No PII redaction**: ohtv has no remote storage path; telemetry stays local. If/when remote upload appears, that's a different issue.
     - **Files**: new `src/ohtv/analysis/telemetry.py` (`SessionRecorder`, `StepRecorder`, `build_*_record` helpers); `get_telemetry_dir` in `src/ohtv/config.py`; recorder hook into `InvestigationAgent.investigate(..., recorder=None)` / `InvestigationAgentCli.investigate(..., recorder=None)`; `ask` handler builds + finalises the recorder with a `try/finally`. The agent-loop bodies use `from ohtv.analysis.telemetry import maybe_step` to keep the loop body single-branch.
 
+35. **`--event-dates` column-swap filter (Issue #180)**: A boolean flag wired through `list`, `search`, `ask`, `gen objs`, `gen titles`, and `gen run` that swaps the date predicate from `conversations.created_at` to `conversation_engagement.first_event_ts` / `last_event_ts`. Default-off; back-compat preserved. The flag is **not** added to `refs` (refs are intrinsically tied to action timestamps).
+    - **Single owner of the SQL**: `ConversationStore.list_by_event_date_range(*, since, until, source, include_subs)` is the only place the engagement-overlap WHERE clause lives. `_get_conversations_from_db` dispatches to it when `event_dates=True`, otherwise falls through to the existing `list_by_date_range` (the canonical `created_at` path). Predicate shape:
+      - `since` only → `last_event_ts >= since`
+      - `until` only → `first_event_ts <= until`
+      - both → interval overlap (`first <= until AND last >= since`)
+    - **INNER JOIN semantics**: conversations without a `conversation_engagement` row are *excluded* under `--event-dates`. This is the deliberate counterpart to `--engaged`'s exclude-on-missing rule (item #14 conventions). The empty-result hint in the `list` CLI surfaces the most common cause ("run `ohtv db process engagement`").
+    - **Cross-flag validation** lives in `_validate_event_dates_args(*, event_dates, since, until)` in `cli.py`. Called from the validation seam in `_apply_conversation_filters` AND from `gen titles` / `gen run` BEFORE their default 30-day / last-4-periods windows kick in — without the early gate `gen run --event-dates` would silently get the engagement-event interpretation of the default window. `search` and `ask` raise their own UsageError inline (search has no `--day` / `--week`; ask additionally must not let auto-extracted temporal filters from the question text satisfy the gate).
+    - **Filesystem fallback removed when `event_dates=True`**: `_get_conversations_from_db` raises if the DB is unavailable under `--event-dates`. Engagement timestamps are a DB-only concept; pretending otherwise would silently turn `--event-dates --since` into a no-op on fresh installs. Plain `--since` keeps the FS fallback for back-compat.
+    - **Migration 024** (`024_engagement_event_ts_indexes.py`) adds `idx_conv_engagement_last_event_ts` and `idx_conv_engagement_first_event_ts`. These are covering indexes on a column that's already in many existing JOINs; the schema bloat is trivial and the JOIN cost drops to O(log N) per predicate.
+    - **Search FTS path**: `--exact --event-dates` cannot push the date filter into FTS5 (no native date integration), so the search body runs an inline `SELECT conversation_id FROM conversation_engagement WHERE last_event_ts >= ?` post-filter — chunked at 900 ids to stay under SQLite's default `SQLITE_MAX_VARIABLE_NUMBER=999`. The semantic path pushes the filter into the `EmbeddingStore.search_conversations(..., event_dates=True)` SQL, which JOINs against `conversation_engagement` directly.
+    - **Ask telemetry**: `flags.event_dates` is captured in the `ohtv ask` session-record blob (Issue #162) so future analytical work can correlate retrieval quality with the date-predicate mode.
+    - **Issue #181 builds on this**: the engagement-grouping rollup proposed in #181 sits on top of the same engagement-table JOIN — keeping a single owner (`list_by_event_date_range`) for the predicate makes #181 a thin extension rather than a parallel SQL implementation.
+
+
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input

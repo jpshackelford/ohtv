@@ -146,6 +146,7 @@ ohtv list -A --include-sub-conversations
 | `--no-engaged` | Filter to fire-and-forget conversations (`engaged_seconds == 0` **OR** the engagement row is missing). Only engagement flag that *includes* missing rows. Mutually exclusive with `--engaged`, `--min-engaged`, `--min-engagement-ratio`. |
 | `--min-engaged DURATION` | Filter to `engaged_seconds >= DURATION`. Accepts `30s` / `5m` / `1h` / `1h30m` (case-insensitive); a bare number is interpreted as **minutes** (`5` == `5m`). Negatives / nonsense raise `BadParameter` (exit 2). Missing engagement rows are excluded. |
 | `--min-engagement-ratio PCT` | Filter to `engaged_seconds / total_duration_seconds >= PCT / 100`. `PCT` is a float in `[0, 100]`. Rows with `total_duration_seconds == 0` / `NULL` / missing engagement data are excluded. |
+| `--event-dates` | Interpret `--since` / `--until` / `-D` / `-W` against `conversation_engagement.first_event_ts` / `last_event_ts` instead of `conversations.created_at`. Useful for finding conversations whose **engagement happened** in the date range, regardless of when they were originally started. Conversations without an engagement row are excluded (INNER JOIN). Requires at least one date filter — using `--event-dates` alone raises a `UsageError`. Available on `list`, `search`, `ask`, `gen objs`, `gen titles`, and `gen run`. See [Filtering by event timestamps](#filtering-by-event-timestamps---event-dates) below. |
 | `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
 | `-v, --verbose` | Show debug output |
 
@@ -343,6 +344,58 @@ ohtv show abc123 -A -r -n 5
 | `-k, --offset N` | Skip first N events |
 | `-F, --format` | Output format: `text` (default), `markdown`, `json` |
 | `--file PATH` | Write output to file |
+
+<a id="filtering-by-event-timestamps---event-dates"></a>
+
+### Filtering by event timestamps (`--event-dates`)
+
+Added in [#180](https://github.com/jpshackelford/ohtv/issues/180). By
+default, `--since` / `--until` / `-D` / `-W` filter against
+`conversations.created_at` — the moment the conversation was *first*
+started. That works for "what did we start this week?" but misses the
+case where a conversation was created weeks ago and then re-engaged
+recently. `--event-dates` swaps the column under the predicate to
+`conversation_engagement.first_event_ts` / `last_event_ts` so the
+same flags now mean "what was *touched* in the window".
+
+**Round-trip example.** A conversation created `T₀-30d` whose last
+event landed at `T₀` would not appear under `--since T₀-7d`, but it
+*will* appear under `--event-dates --since T₀-7d`:
+
+```bash
+# Conversations started in the last 7 days (default):
+ohtv list --since 7d
+
+# Conversations re-engaged in the last 7 days (Issue #180):
+ohtv list --event-dates --since 7d
+```
+
+**Predicate semantics.** With both bounds, the flag uses interval
+overlap: a conversation matches if `[first_event_ts, last_event_ts]`
+overlaps `[since, until]`. With only one bound:
+
+- `--event-dates --since X` includes rows where `last_event_ts >= X`.
+- `--event-dates --until Y` includes rows where `first_event_ts <= Y`.
+
+**Hard requirements.**
+
+- Requires at least one of `--since` / `--until` / `-D` / `-W`. Using
+  `--event-dates` on its own raises a `UsageError` (exit 2) — it has
+  no defined meaning without a date filter.
+- INNER JOIN semantics: conversations without an engagement row are
+  silently excluded. Run `ohtv db process engagement` (or
+  `ohtv sync`, which now runs all processing stages) to populate
+  engagement data for indexed conversations. The empty-result hint
+  surfaces this when no rows match.
+- Available on `list`, `search`, `ask`, `gen objs`, `gen titles`, and
+  `gen run`. **Not** available on `refs` (refs are intrinsically tied
+  to action timestamps already).
+
+**Performance.** Migration 024 adds covering indexes
+(`idx_conv_engagement_last_event_ts`,
+`idx_conv_engagement_first_event_ts`) so the JOIN is O(log N) per
+predicate. On a 5,000-conversation DB the swap adds <10 ms to `ohtv
+list` (microbenchmark vs the plain `created_at` path).
 
 ### Stats output: the `Engaged:` line
 

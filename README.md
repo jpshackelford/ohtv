@@ -122,6 +122,55 @@ Full details and per-command flag tables:
 [exploration](docs/guides/exploration.md#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio)
 · [analysis](docs/guides/analysis.md#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio).
 
+## Event-date filtering
+
+By default, `--since` / `--until` / `-D` / `-W` filter against
+`conversations.created_at` — when a conversation was *started*. That misses the
+conversation you re-opened yesterday but kicked off three weeks ago. The
+`--event-dates` flag ([#180](https://github.com/jpshackelford/ohtv/issues/180))
+swaps the column under the predicate to `conversation_engagement.first_event_ts`
+/ `last_event_ts`, so the same date flags now mean "what was *touched* in the
+window."
+
+Available on `list`, `search`, `ask`, `gen objs`, `gen titles`, and `gen run`
+(not `refs` — refs are intrinsically action-timestamped).
+
+| Flag | Semantics |
+|------|-----------|
+| `--event-dates` | Re-interpret existing `--since` / `--until` / `-D` / `-W` against engagement timestamps. With both bounds: interval overlap (`first_event_ts <= until AND last_event_ts >= since`). With one bound: `last_event_ts >= since` or `first_event_ts <= until`. Conversations without an engagement row are **excluded** (INNER JOIN). |
+
+**Round-trip example.** A conversation created `T₀-30d` whose last event landed
+at `T₀`:
+
+| Filter | Plain | `--event-dates` |
+|---|---|---|
+| `--since T₀-7d` | ❌ excluded (created out of range) | ✅ included (last_event_ts in range) |
+
+**Examples:**
+
+```bash
+# Conversations re-engaged this week (regardless of when started)
+ohtv list --event-dates --week
+
+# Semantic search restricted to recently-touched conversations
+ohtv search "auth bug" --event-dates --since 7d
+
+# Regenerate objectives for anything I actually touched in the last month
+ohtv gen objs --event-dates --since 1m
+```
+
+**Gotchas:**
+
+- `--event-dates` on its own (no date filter) raises `UsageError` (exit 2) — it
+  has no defined meaning without `--since` / `--until` / `-D` / `-W`.
+- **Prerequisite:** populated `conversation_engagement` rows from the
+  `engagement` indexing stage (same as `--engaged` family above). Run `ohtv db
+  process engagement` (or `ohtv sync`, which runs all stages). Conversations
+  without an engagement row are silently dropped by the INNER JOIN.
+
+Full per-command flag table:
+[exploration](docs/guides/exploration.md#filtering-by-event-timestamps---event-dates).
+
 ## Configuration
 
 The most common variables:

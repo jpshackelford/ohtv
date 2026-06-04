@@ -220,6 +220,7 @@ class EmbeddingStore:
         embed_types: list[EmbedType] | None = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        event_dates: bool = False,
     ) -> list[SearchResult]:
         """Search for similar embeddings using cosine similarity.
         
@@ -232,6 +233,12 @@ class EmbeddingStore:
             embed_types: Filter by embedding types (None = all types)
             start_date: Only include conversations created on or after this date
             end_date: Only include conversations created on or before this date
+            event_dates: Issue #180. When True, ``start_date`` / ``end_date``
+                filter on ``conversation_engagement.last_event_ts`` /
+                ``first_event_ts`` instead of ``conversations.created_at``.
+                Triggers an extra INNER JOIN against
+                ``conversation_engagement``, which excludes conversations
+                without an engagement row.
         
         Returns:
             List of SearchResult ordered by score descending
@@ -245,15 +252,27 @@ class EmbeddingStore:
         
         # Build query with optional filters
         has_date_filter = start_date is not None or end_date is not None
-        
+        # Issue #180: --event-dates routes the date predicate through
+        # ``conversation_engagement``. The ``conversations`` JOIN is
+        # kept for source/title metadata in case future filters reuse
+        # it, but the date columns now come off ``ce``.
+        use_event_dates = event_dates and has_date_filter
+
         if has_date_filter:
             # JOIN with conversations table for date filtering
             base_query = """
                 SELECT e.conversation_id, e.embed_type, e.chunk_index, e.embedding, e.source_text
                 FROM embeddings e
                 JOIN conversations c ON e.conversation_id = c.id
-                WHERE e.dimensions = ?
             """
+            if use_event_dates:
+                # INNER JOIN: missing engagement row == exclude (matches
+                # ConversationStore.list_by_event_date_range semantics).
+                base_query += (
+                    "JOIN conversation_engagement ce "
+                    "ON ce.conversation_id = c.id\n"
+                )
+            base_query += "WHERE e.dimensions = ?"
         else:
             base_query = """
                 SELECT conversation_id, embed_type, chunk_index, embedding, source_text
@@ -274,11 +293,21 @@ class EmbeddingStore:
         
         # Add date filters
         if start_date is not None:
-            base_query += " AND c.created_at >= ?"
+            if use_event_dates:
+                # last_event_ts >= since: conversation was still active at
+                # or after ``since``.
+                base_query += " AND ce.last_event_ts >= ?"
+            else:
+                base_query += " AND c.created_at >= ?"
             params.append(start_date.isoformat())
-        
+
         if end_date is not None:
-            base_query += " AND c.created_at <= ?"
+            if use_event_dates:
+                # first_event_ts <= until: conversation had already started
+                # by ``until``.
+                base_query += " AND ce.first_event_ts <= ?"
+            else:
+                base_query += " AND c.created_at <= ?"
             params.append(end_date.isoformat())
         
         cursor = self.conn.execute(base_query, params)
@@ -342,6 +371,7 @@ class EmbeddingStore:
         embed_types: list[EmbedType] | None = None,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        event_dates: bool = False,
     ) -> list[ConversationSearchResult]:
         """Search for similar conversations, aggregating by best match.
         
@@ -354,6 +384,9 @@ class EmbeddingStore:
             embed_types: Filter by embedding types (None = all types)
             start_date: Only include conversations created on or after this date
             end_date: Only include conversations created on or before this date
+            event_dates: Issue #180. Forwarded to :meth:`search` — swaps
+                the date predicate from ``created_at`` to
+                ``conversation_engagement`` timestamps.
         
         Returns:
             List of ConversationSearchResult ordered by score descending
@@ -366,6 +399,7 @@ class EmbeddingStore:
             embed_types=embed_types,
             start_date=start_date,
             end_date=end_date,
+            event_dates=event_dates,
         )
         
         # Aggregate by conversation - keep best match and all matches
@@ -403,6 +437,7 @@ class EmbeddingStore:
         min_score: float = 0.3,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        event_dates: bool = False,
     ) -> list[SearchResult]:
         """Get relevant context chunks for RAG.
         
@@ -414,6 +449,9 @@ class EmbeddingStore:
             min_score: Minimum similarity score
             start_date: Only include conversations created on or after this date
             end_date: Only include conversations created on or before this date
+            event_dates: Issue #180. Forwarded to :meth:`search` — swaps
+                the date predicate from ``created_at`` to
+                ``conversation_engagement`` timestamps.
         
         Returns:
             List of SearchResult with source_text populated
@@ -424,6 +462,7 @@ class EmbeddingStore:
             min_score=min_score,
             start_date=start_date,
             end_date=end_date,
+            event_dates=event_dates,
         )
         # Filter to only results with source text
         return [r for r in results if r.source_text]

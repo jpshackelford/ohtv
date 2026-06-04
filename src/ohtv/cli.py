@@ -2350,6 +2350,45 @@ def engagement_filter_options(func):
     return func
 
 
+def event_date_options(func):
+    """Adds the ``--event-dates`` flag (Issue #180).
+
+    Applied to commands that already declare ``--since`` / ``--until``
+    (and the ``-D`` / ``-W`` shortcuts that feed them). ``--event-dates``
+    is a column-swap toggle: when set, the date predicate runs against
+    ``conversation_engagement.last_event_ts`` / ``first_event_ts``
+    instead of ``conversations.created_at``.
+
+    Cross-validation (``--event-dates`` requires at least one of
+    ``--since`` / ``--until`` / ``--day`` / ``--week``) happens in
+    :func:`_validate_event_dates_args`, called from
+    :func:`_apply_conversation_filters`. Keeping the decorator
+    dependency-free means every command (``list`` / ``search`` /
+    ``ask`` / ``gen objs`` / ``gen titles`` / ``gen run``) shares the
+    same error path.
+
+    No short flag: ``-E`` is already taken by ``--with-errors`` on
+    ``list``; ``--event-dates`` is descriptive enough that the long
+    form suffices.
+    """
+    return click.option(
+        "--event-dates",
+        "event_dates",
+        is_flag=True,
+        default=False,
+        help=(
+            "Interpret --since / --until against conversation_engagement "
+            "timestamps (first_event_ts / last_event_ts) instead of "
+            "conversations.created_at. An old conversation with recent "
+            "events appears under --event-dates --since DATE but not "
+            "under plain --since DATE. Conversations without an "
+            "engagement row are excluded — run 'ohtv db process "
+            "engagement' (or 'ohtv sync') to populate. Requires at "
+            "least one of --since, --until, --day, --week."
+        ),
+    )(func)
+
+
 def _validate_engagement_filter_args(
     *,
     engaged: bool,
@@ -2375,6 +2414,32 @@ def _validate_engagement_filter_args(
         raise click.BadParameter(
             "--no-engaged cannot be combined with --min-engaged or "
             "--min-engagement-ratio (they require positive engagement)."
+        )
+
+
+def _validate_event_dates_args(
+    *,
+    event_dates: bool,
+    since: datetime | None,
+    until: datetime | None,
+) -> None:
+    """Validate ``--event-dates`` requires at least one date filter (Issue #180).
+
+    ``--event-dates`` is a column-swap toggle on ``--since`` /
+    ``--until`` (which the CLI also feeds from ``-D`` / ``-W``). On its
+    own it is unambiguously a user mistake — no filter narrows the
+    result — so we surface a fast :class:`click.UsageError` (exit 2)
+    rather than silently no-op.
+
+    Called from :func:`_apply_conversation_filters` AFTER
+    :func:`_parse_date_filters` has resolved ``--day`` / ``--week`` /
+    ``--since`` / ``--until`` into the canonical ``(since, until)``
+    tuple, so ``ohtv list --event-dates --week`` is accepted.
+    """
+    if event_dates and since is None and until is None:
+        raise click.UsageError(
+            "--event-dates requires at least one of --since, --until, "
+            "--day, or --week. On its own --event-dates is a no-op."
         )
 
 
@@ -2476,6 +2541,7 @@ def _apply_conversation_filters(
     no_engaged: bool = False,
     min_engaged_seconds: int | None = None,
     min_engagement_ratio: float | None = None,
+    event_dates: bool = False,
 ) -> FilterResult:
     """Apply all conversation filters and return filtered results.
 
@@ -2508,6 +2574,13 @@ def _apply_conversation_filters(
         min_engagement_ratio: Issue #170. Keep only rows with
             ``engaged_seconds / total_duration_seconds >=
             min_engagement_ratio / 100``. ``None`` disables.
+        event_dates: Issue #180. When True, ``since`` / ``until`` filter
+            on ``conversation_engagement.last_event_ts`` /
+            ``first_event_ts`` instead of ``conversations.created_at``.
+            Requires at least one of ``since`` / ``until`` to be set —
+            the caller is responsible for raising a ``UsageError`` if
+            ``event_dates`` is set alone (validated in
+            :func:`_validate_event_dates_args`).
 
     Returns:
         FilterResult with filtered conversations and metadata
@@ -2518,6 +2591,11 @@ def _apply_conversation_filters(
         no_engaged=no_engaged,
         min_engaged_seconds=min_engaged_seconds,
         min_engagement_ratio=min_engagement_ratio,
+    )
+
+    # Issue #180: validate --event-dates needs a date filter.
+    _validate_event_dates_args(
+        event_dates=event_dates, since=since, until=until
     )
 
     show_all = initial_show_all
@@ -2537,6 +2615,7 @@ def _apply_conversation_filters(
         since=since,
         until=until,
         include_subs=include_sub_conversations,
+        event_dates=event_dates,
     )
     
     # Filter out empty conversations unless requested
@@ -3024,6 +3103,7 @@ def _populate_error_info(
     help="Include sub-conversations created by agent delegation (default: roots only)",
 )
 @engagement_filter_options
+@event_date_options
 @logging_options
 @click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def list_conversations(
@@ -3052,6 +3132,7 @@ def list_conversations(
     no_engaged: bool,
     min_engaged: int | None,
     min_engagement_ratio: float | None,
+    event_dates: bool,
     verbose: bool,
 ) -> None:
     """List available conversations from local and cloud sources.
@@ -3087,6 +3168,7 @@ def list_conversations(
         no_engaged=no_engaged,
         min_engaged_seconds=min_engaged,
         min_engagement_ratio=min_engagement_ratio,
+        event_dates=event_dates,
     )
 
     conversations = filter_result.conversations
@@ -3096,6 +3178,19 @@ def list_conversations(
     total_count = len(conversations)
     local_count = sum(1 for c in conversations if c.source == "local")
     cloud_count = total_count - local_count
+
+    # Issue #180: empty result under --event-dates likely means the
+    # engagement stage has not yet run for the candidate conversations.
+    # Surface a one-line hint so the user knows where to look — the
+    # INNER JOIN in ``list_by_event_date_range`` silently filters out
+    # rows missing a ``conversation_engagement`` entry.
+    if event_dates and total_count == 0:
+        console.print(
+            "[dim]No conversations match --event-dates with the current "
+            "filters. If you expected matches, run "
+            "'ohtv db process engagement' (or 'ohtv sync') to populate "
+            "engagement data.[/dim]"
+        )
 
     # Sort by created_at (newest first by default)
     conversations = sorted(
@@ -3175,6 +3270,7 @@ def list_conversations(
     default="table",
     help="Output format (default: table)",
 )
+@event_date_options
 @logging_options
 @click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def search(
@@ -3184,6 +3280,7 @@ def search(
     since_date: str | None,
     min_score: float,
     fmt: str,
+    event_dates: bool,
     verbose: bool,
 ) -> None:
     """Search conversations semantically or by keyword.
@@ -3228,8 +3325,22 @@ def search(
             console.print("[dim]Or use --exact for keyword search.[/dim]")
             raise SystemExit(1)
         
+        # Parse the date filter once (Issue #180 validation needs it
+        # before we dispatch to the embed store).
+        since_dt: datetime | None = None
+        if since_date:
+            since_dt = _parse_date_option(since_date)
+
+        # Issue #180: --event-dates requires --since (search has no
+        # --until / --day / --week today). Validate eagerly so the
+        # user gets a fast UsageError rather than silent no-op.
+        if event_dates and since_dt is None:
+            raise click.UsageError(
+                "--event-dates requires --since."
+            )
+
         start_time = time.perf_counter()
-        
+
         if exact:
             # FTS5 keyword search.
             # Issue #128: over-fetch so the root-dedup below has
@@ -3257,30 +3368,76 @@ def search(
                 console.print(f"[red]Error:[/red] {e}")
                 console.print("[dim]Make sure LLM_API_KEY is set.[/dim]")
                 raise SystemExit(1)
-            
+
             # Use aggregated search (best match per conversation).
             # Issue #128: over-fetch so the post-aggregation root-dedup
             # below has headroom to collapse subtree siblings while
             # still hitting the requested ``limit`` after dedup.
+            # Issue #180: when --event-dates is set, push the date
+            # predicate down to the embed store so the column swap
+            # (created_at → last_event_ts/first_event_ts) happens in
+            # SQL. Otherwise we still post-filter against
+            # ``c.created_at`` below for back-compat.
             results = embed_store.search_conversations(
                 query_embedding,
                 limit=limit * 3,
                 min_score=min_score,
+                start_date=since_dt if event_dates else None,
+                event_dates=event_dates,
             )
             search_type = "semantic"
 
         search_time = time.perf_counter() - start_time
 
-        # Filter by date if specified
-        if since_date:
-            since = _parse_date_option(since_date)
-            if since:
-                filtered_results = []
-                for r in results:
-                    conv = conv_store.get(r.conversation_id)
-                    if conv and conv.created_at and conv.created_at >= since:
-                        filtered_results.append(r)
-                results = filtered_results
+        # Filter by date if specified.
+        # * Plain --since: post-filter the result list against
+        #   ``conversations.created_at`` (works for both FTS and
+        #   semantic — semantic doesn't push this down today).
+        # * --event-dates --since (semantic path): the column swap
+        #   already happened in SQL above (``event_dates=True`` on
+        #   ``search_conversations``), so this loop is bypassed.
+        # * --event-dates --since (FTS / --exact path): post-filter
+        #   here against ``conversation_engagement.last_event_ts`` —
+        #   FTS5 has no date-filter integration today, so the engagement
+        #   lookup falls back to ``_load_engagement_for_ids`` (Issue
+        #   #170 batched chunked query).
+        if since_dt and event_dates and exact:
+            # Inline lookup against ``conversation_engagement.last_event_ts``
+            # for the FTS path. Mirrors the INNER-JOIN semantics in
+            # ``ConversationStore.list_by_event_date_range``: rows
+            # missing an engagement entry are excluded.
+            from ohtv.filters import normalize_conversation_id
+
+            since_iso = since_dt.isoformat()
+            candidate_ids = [r.conversation_id for r in results]
+            normalized = [normalize_conversation_id(i) for i in candidate_ids]
+            # Map normalized id → original id (preserve dashes for display).
+            norm_to_orig = dict(zip(normalized, candidate_ids))
+            allowed: set[str] = set()
+            if normalized:
+                # SQLite max-host-parameters defaults to 999; chunk at 900.
+                CHUNK = 900
+                for start in range(0, len(normalized), CHUNK):
+                    chunk = normalized[start : start + CHUNK]
+                    placeholders = ",".join("?" * len(chunk))
+                    cur = conn.execute(
+                        "SELECT conversation_id FROM conversation_engagement "
+                        f"WHERE conversation_id IN ({placeholders}) "
+                        "AND last_event_ts >= ?",
+                        (*chunk, since_iso),
+                    )
+                    for (norm_id,) in cur.fetchall():
+                        original = norm_to_orig.get(norm_id)
+                        if original is not None:
+                            allowed.add(original)
+            results = [r for r in results if r.conversation_id in allowed]
+        elif since_dt and not event_dates:
+            filtered_results = []
+            for r in results:
+                conv = conv_store.get(r.conversation_id)
+                if conv and conv.created_at and conv.created_at >= since_dt:
+                    filtered_results.append(r)
+            results = filtered_results
 
         # Issue #128: dedup the ranked result list by root_conversation_id
         # so users see one row per user-intent unit, not per
@@ -3653,6 +3810,7 @@ def _display_retrieval_breakdown(
     ),
 )
 @click.option("--max-steps", type=int, default=5, help="Max investigation steps (applies to both --agent and --agent-tools)")
+@event_date_options
 @logging_options
 @click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def ask(
@@ -3669,6 +3827,7 @@ def ask(
     agent: bool,
     agent_tools: bool,
     max_steps: int,
+    event_dates: bool,
     verbose: bool,
 ) -> None:
     """Ask a question about your conversations (RAG).
@@ -3778,7 +3937,19 @@ def ask(
             console.print(f"[red]Invalid --until format: {until}[/red]")
             console.print("[dim]Use YYYY-MM-DD format[/dim]")
             raise SystemExit(1)
-    
+
+    # Issue #180: --event-dates must compose with at least one explicit
+    # date filter (--since / --until). Auto-extracted temporal filters
+    # apply on top of the column swap, but they happen inside the RAG
+    # layer; surfacing a UsageError here keeps the contract symmetric
+    # with ``list`` / ``gen objs`` (see _validate_event_dates_args).
+    if event_dates and start_date is None and end_date is None:
+        raise click.UsageError(
+            "--event-dates requires at least one of --since, --until. "
+            "(Auto-extracted temporal filters from the question text "
+            "do not satisfy this check — pass an explicit date.)"
+        )
+
     # Get cloud base URL from config
     config = Config.from_env()
     cloud_base_url = config.cloud_api_url
@@ -3829,6 +4000,7 @@ def ask(
                     min_score=min_score,
                     start_date=start_date,
                     end_date=end_date,
+                    event_dates=event_dates,
                 )
             except ValueError as e:
                 console.print(f"[yellow]{e}[/yellow]")
@@ -3888,6 +4060,10 @@ def ask(
                     "explain": explain,
                     "explain_only": explain_only,
                     "show_context": show_context,
+                    # Issue #180: capture the column-swap flag so #162
+                    # telemetry can correlate retrieval quality with
+                    # the date-predicate mode.
+                    "event_dates": event_dates,
                 }
                 recorder = SessionRecorder.start(
                     invocation=build_invocation_record(
@@ -3910,6 +4086,7 @@ def ask(
                 min_score=min_score,
                 start_date=start_date,
                 end_date=end_date,
+                event_dates=event_dates,
             )
         except ValueError as e:
             console.print(f"[yellow]{e}[/yellow]")
@@ -4304,6 +4481,7 @@ def _load_all_conversations(
     since: datetime | None = None,
     until: datetime | None = None,
     include_subs: bool = False,
+    event_dates: bool = False,
 ) -> list[ConversationInfo]:
     """Load conversations from local, cloud, and extra directories.
 
@@ -4319,6 +4497,12 @@ def _load_all_conversations(
             agent-delegated sub-conversations on the DB path. On the
             filesystem fallback this is a no-op (FS has no parent/root
             metadata) — see :func:`ohtv.conversations.get_conversations`.
+        event_dates: Issue #180. When True, interpret ``since`` / ``until``
+            against ``conversation_engagement.last_event_ts`` /
+            ``first_event_ts`` instead of ``conversations.created_at``.
+            Conversations without an engagement row are excluded on the
+            DB path; the FS fallback logs a warning and degrades to
+            ``created_at`` semantics.
     """
     # Try database-first approach
     try:
@@ -4332,6 +4516,7 @@ def _load_all_conversations(
                 until=until,
                 use_db=True,
                 include_subs=include_subs,
+                event_dates=event_dates,
             )
             log.debug("Loaded %d conversations from database (fast path)", len(conversations))
             return conversations
@@ -9969,6 +10154,7 @@ def gen() -> None:
     ),
 )
 @engagement_filter_options
+@event_date_options
 def gen_objs_cmd(
     conversation_id: str | None,
     variant: str | None,
@@ -10001,6 +10187,7 @@ def gen_objs_cmd(
     no_engaged: bool,
     min_engaged: int | None,
     min_engagement_ratio: float | None,
+    event_dates: bool,
 ) -> None:
     """Identify what the user hopes to achieve in a conversation.
 
@@ -10106,9 +10293,18 @@ def gen_objs_cmd(
             no_engaged=no_engaged,
             min_engaged_seconds=min_engaged,
             min_engagement_ratio=min_engagement_ratio,
+            event_dates=event_dates,
         )
     else:
         # Single-conversation mode - use --json for JSON output
+        # Issue #180: --event-dates is meaningless for a single-conversation
+        # invocation (we already know exactly which conversation to act on),
+        # but we still want a fast error rather than silent acceptance.
+        if event_dates:
+            raise click.UsageError(
+                "--event-dates only applies to multi-conversation mode "
+                "(no conversation_id argument)."
+            )
         _run_objectives_analysis(
             conversation_id=conversation_id,
             variant=variant,
@@ -10153,6 +10349,7 @@ def _run_batch_objectives_analysis(
     no_engaged: bool = False,
     min_engaged_seconds: int | None = None,
     min_engagement_ratio: float | None = None,
+    event_dates: bool = False,
 ) -> None:
     """Run objectives analysis on multiple conversations.
 
@@ -10194,11 +10391,22 @@ def _run_batch_objectives_analysis(
         no_engaged=no_engaged,
         min_engaged_seconds=min_engaged_seconds,
         min_engagement_ratio=min_engagement_ratio,
+        event_dates=event_dates,
     )
-    
+
     conversations = filter_result.conversations
     show_all = filter_result.show_all
     total_count = len(conversations)
+
+    # Issue #180: surface a hint when --event-dates produces an empty
+    # candidate set — likely the engagement stage hasn't run yet.
+    if event_dates and total_count == 0:
+        console.print(
+            "[dim]No conversations match --event-dates with the current "
+            "filters. If you expected matches, run "
+            "'ohtv db process engagement' (or 'ohtv sync') to populate "
+            "engagement data.[/dim]"
+        )
 
     # Sort by created_at (newest first by default)
     conversations = sorted(
@@ -10901,6 +11109,7 @@ def _run_objectives_analysis(
     help="Include sub-conversations created by agent delegation (default: roots only)",
 )
 @engagement_filter_options
+@event_date_options
 def gen_titles_cmd(
     limit: int | None,
     show_all: bool,
@@ -10926,6 +11135,7 @@ def gen_titles_cmd(
     no_engaged: bool,
     min_engaged: int | None,
     min_engagement_ratio: float | None,
+    event_dates: bool,
 ) -> None:
     """Auto-rename placeholder-titled cloud conversations using cached ``gen objs`` analyses.
 
@@ -10985,6 +11195,7 @@ def gen_titles_cmd(
                 no_engaged=no_engaged,
                 min_engaged_seconds=min_engaged,
                 min_engagement_ratio=min_engagement_ratio,
+                event_dates=event_dates,
             )
     except SyncLockTimeout as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -11015,6 +11226,7 @@ def _run_gen_titles(
     no_engaged: bool = False,
     min_engaged_seconds: int | None = None,
     min_engagement_ratio: float | None = None,
+    event_dates: bool = False,
     # Injection hooks (used by tests to bypass the live LLM + cloud client)
     llm_call=None,
     cloud_client=None,
@@ -11044,6 +11256,19 @@ def _run_gen_titles(
     if workers > 50:
         raise click.UsageError("--workers must be <= 50")
 
+    # Issue #180: validate ``--event-dates`` requires at least one date
+    # filter BEFORE the API-key check, so misuse of the flag surfaces
+    # as a UsageError rather than silently being masked by a "missing
+    # API key" error on environments without one configured. We have
+    # to resolve --day / --week through _parse_date_filters first so
+    # the validator sees the canonical (since, until) tuple.
+    since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
+    _validate_event_dates_args(
+        event_dates=event_dates,
+        since=since,
+        until=until,
+    )
+
     if not config.api_key:
         console.print(
             "[red]Error:[/red] Cloud API key not set. Export OPENHANDS_API_KEY or OH_API_KEY."
@@ -11051,7 +11276,6 @@ def _run_gen_titles(
         raise SystemExit(1)
 
     # ----- 1. Select conversations using the gen objs filter surface ------
-    since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
     filter_result = _apply_conversation_filters(
         config,
         since=since,
@@ -11067,6 +11291,7 @@ def _run_gen_titles(
         no_engaged=no_engaged,
         min_engaged_seconds=min_engaged_seconds,
         min_engagement_ratio=min_engagement_ratio,
+        event_dates=event_dates,
     )
     conversations = sorted(
         filter_result.conversations,
@@ -11706,6 +11931,7 @@ def _apply_local_title_writeback(
     help="Include sub-conversations created by agent delegation (default: roots only)",
 )
 @engagement_filter_options
+@event_date_options
 def gen_run_cmd(
     job_id: str,
     model: str | None,
@@ -11725,6 +11951,7 @@ def gen_run_cmd(
     no_engaged: bool,
     min_engaged: int | None,
     min_engagement_ratio: float | None,
+    event_dates: bool,
 ) -> None:
     """Run an analysis job by ID (supports both single and aggregate modes).
 
@@ -11799,6 +12026,7 @@ def gen_run_cmd(
             no_engaged=no_engaged,
             min_engaged_seconds=min_engaged,
             min_engagement_ratio=min_engagement_ratio,
+            event_dates=event_dates,
         )
     else:
         # For single-trajectory jobs, defer to gen objs logic
@@ -11827,6 +12055,7 @@ def _run_aggregate_job(
     no_engaged: bool = False,
     min_engaged_seconds: int | None = None,
     min_engagement_ratio: float | None = None,
+    event_dates: bool = False,
 ) -> None:
     """Run an aggregate analysis job.
 
@@ -11869,6 +12098,18 @@ def _run_aggregate_job(
     
     # Parse date range
     since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
+
+    # Issue #180: validate ``--event-dates`` AFTER the explicit
+    # ``--since`` / ``--until`` / ``--day`` / ``--week`` flags are
+    # resolved into the canonical (since, until) tuple, but BEFORE the
+    # default 30-day / last-4-periods window kicks in below. Without
+    # this check, ``gen run --event-dates`` would silently get the
+    # engagement-event interpretation of the default window.
+    _validate_event_dates_args(
+        event_dates=event_dates,
+        since=since,
+        until=until,
+    )
     
     # Determine periods to process (None represents non-period aggregate)
     periods: list[PeriodInfo | None] = []
@@ -11910,6 +12151,7 @@ def _run_aggregate_job(
         no_engaged=no_engaged,
         min_engaged_seconds=min_engaged_seconds,
         min_engagement_ratio=min_engagement_ratio,
+        event_dates=event_dates,
     )
     
     conversations = filter_result.conversations
