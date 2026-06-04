@@ -1,5 +1,24 @@
 ## Log
 
+### 2026-06-04 17:55 UTC - Implementation worker (Issue #173)
+
+Conversation: spawned by orchestrator `871fa09` at 17:48Z.
+
+**Outcome:** ✅ Draft PR opened, CI green, flipped to ready.
+
+- PR: [#179 — refactor: extract `_process_engagement_rows` helper from `_load_engagement_for_ids`](https://github.com/jpshackelford/ohtv/pull/179) (`Closes #173`).
+- Branch: `refactor/issue-173-engagement-rows`. Commit: `ecf99c7`.
+- Diff: `src/ohtv/cli.py` only, **+43 / −18 LOC** (one file changed). Helper inserted immediately above `_load_engagement_for_ids` per the technical-approach comment; chunk loop body now 4 lines (build `batch`, build `placeholders`, `conn.execute(...)`, helper call). Outer `try`/`except Exception: return engagement_map` guard preserved verbatim (never-raise contract from #167 / #168). `typing.Any` + `typing.Iterable` added to the existing import line.
+- **CI:** `pytest` ✅ 1m14s · `lint` ✅ 4s · `enable-orchestrator` ✅ 3s · `pr-review` skipped while draft → triggered by ready-flip.
+- **Local verification before push:**
+  - `uv run pytest -q tests/unit/test_cli_gen_objs_engagement.py tests/unit/test_cli_list_engagement.py tests/unit/test_cli_engagement_display.py` → **86 passed** (includes `test_chunk_query_count` — the load-bearing 1100-ids-⇒-two-SELECTs regression).
+  - `uv run pytest -q` → **2592 passed, 2 skipped, 3 xfailed** in 48s.
+  - `uv run ruff check src/ohtv/cli.py` → no new errors vs. `main` baseline (164 existing errors unchanged).
+- **Out-of-scope adherence:** `_load_engagement_for_conversations` untouched, JSON schema unchanged, CLI flag surface unchanged, `BATCH_SIZE = 900` verbatim, dashless ↔ dashed translation (AGENTS.md item #14) unchanged, README untouched.
+- Skipped the optional `_process_engagement_rows` direct unit test per the comment's "skip unless the impl worker wants belt-and-braces" — `test_chunk_query_count` + the chunking/dashed-id tests cover the helper transitively.
+- PR title is `refactor:` → release workflow will skip on merge (no version bump, no CHANGELOG entry — exactly the intent for an internal refactor).
+- Ready-flip triggers `pr-review-bot`; addressing its comments (if any) is the next worker's job.
+
 ### 2026-06-04 17:48 UTC - Orchestrator
 
 **Active Workers:**
