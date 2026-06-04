@@ -1444,3 +1444,67 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `55ec09b` (docs PR #1
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-04 04:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `55ec09b` | docs | PR #171 — docs/guides/exploration.md + docs/reference/cli.md | finished ✓ (updated 03:58:21Z) |
+| `21d93ba` | expansion | Issue #170 — engagement filter flags | finished ✓ (updated 03:59:52Z) |
+| `d591078` | testing | PR #171 — manual test against docs | **NEW** (running) |
+
+**Spawned: Testing Worker for PR #171**
+- PR: [#171 — feat: add engagement columns to ohtv list output](https://github.com/jpshackelford/ohtv/pull/171)
+- Conversation: [`d591078`](https://app.all-hands.dev/conversations/d591078adab5438090308d4ce852c9ae)
+- Start task `2d6900bf` → READY in 1 poll (~5s); proof-of-life delta ~29s.
+
+**Current State:**
+- [PR #171](https://github.com/jpshackelford/ohtv/pull/171): `state=OPEN, isDraft=false, reviewDecision=APPROVED, mergeable=MERGEABLE, mergeStateStatus=CLEAN`. CI: `lint=SUCCESS`, `pytest=SUCCESS`. 2 unresolved 🟡 advisory review threads (non-blocking). Last commit at 03:56:40Z (the docs commit `eef14bf`).
+- **Docs updated:** Files changed on PR now include `docs/guides/exploration.md` (new `Engagement columns (--with-engagement)` subsection + examples block + options row) and `docs/reference/cli.md` (row update). Docs comment posted on PR at 03:56:40Z explicitly ends with "Ready for manual testing."
+- **No manual test results comment yet.** Decision-tree row matched: *"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker."*
+- **Issues:** All 6 open non-hold issues now `ready`. **Zero issues need expansion.** Queue: #167 (in flight as PR #171), #168, #169, #170 (all `priority:high`), #161, #162 (both `priority:medium`). On hold: #26, #90.
+
+**Step 0 — Setup:** `uv venv` not present on the conversation sandbox → `uv pip install` fell back to `pip install` to `/home/openhands/.local`. `PATH="/home/openhands/.local/bin:$PATH"` shim required for `lxa` and `ohtv`. **Variation from prior cycles** (which worked inside `/workspace/project/ohtv`'s project venv via `uv sync`): this conversation's working dir is the same, but `uv sync` succeeds only when invoked from inside the project — the fresh setup pattern at the orchestrator's entry must source `uv sync` THEN re-activate to keep `uv pip install` cheap. Documenting for the next cycle's setup: try `uv sync` first, fall back to `pip install --user` if no venv. `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 4h --quiet` succeeded silently.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1446 lines** at cycle entry (>>300; **15 consecutive cycles overdue** on truncation). Deferred again — productive cycle. Recommendation unchanged: human `## INSTRUCTION: archive WORKLOG.md entries older than 12h` or `/truncate-worklog` matcher fix.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged. `grep -n "^## INSTRUCTION:" WORKLOG.md` returned no headings.
+
+**Step 2/3 — Worker status check at cycle entry:**
+- `55ec09b` (docs PR #171): `sandbox=RUNNING, exec=finished, created=03:51:42Z, updated=03:58:21Z, lifetime≈6m 39s`. Pushed docs commit `eef14bf` to PR #171 branch + posted "Documentation Update" PR comment. Clean exit — **`exec=finished, sandbox=RUNNING` variant** (3rd consecutive observation: `20df5c1` two cycles ago, `3dbea4a` + `c13e86c` last cycle, now `55ec09b` + `21d93ba`).
+- `21d93ba` (expansion #169 #170): `sandbox=RUNNING, exec=finished, created=03:51:43Z, updated=03:59:52Z, lifetime≈8m 9s`. Issue #170 now has labels `enhancement, ready, priority:high` and a 10,927-char body (was minimal). Clean exit.
+- **Both slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:** as in Current State above. PR #171 file list confirmed via `gh pr diff 171 --name-only`: `docs/guides/exploration.md`, `docs/reference/cli.md`, `src/ohtv/cli.py`, `tests/unit/test_cli_list_engagement.py`, `uv.lock`. The two `docs/*` paths satisfy the widened docs-detection rule (`grep -iE '(readme|docs/)'`).
+
+**Step 5 — Decisions:**
+- **PR slot** → Spawn **testing worker for PR #171** (`d591078`). Prompt explicitly instructs the worker to test the documented examples verbatim (the testing principle for this PR is *verify documented behavior matches actual behavior*, since the docs worker just landed). Coverage: default-off invariance, opt-in table mode, JSON mode, CSV mode, pre-stage state, post-stage state, composition with other flags, full unit suite, advisory-thread note. Worker is told NOT to address the 2 advisory `🟡` threads — that's a separate review worker's call later.
+- **Expansion slot** → **IDLE.** All 8 open issues are `ready` (6) or `hold` (2). First time the expansion slot has been empty for *this* reason ("queue exhausted") in several cycles. The engagement-metric family triage is fully closed out: #167 (in flight), #168, #169, #170 all expanded with `priority:high`.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~04:51Z):** Likely outcomes —
+  - ~70%: `d591078` DONE (typical testing worker: 8-20m for clone + sync + design + run + report). If green: spawn **review worker** for PR #171 (to address the 2 advisory `🟡` threads + final pass) OR **merge worker** (if testing worker also reports the advisory threads as low-priority). Probably the former, since the advisory threads ARE unresolved — review worker will decide whether to address or document-and-resolve.
+  - ~20%: `d591078` still running.
+  - ~10%: `d591078` reports test failure or doc-mismatch — would spawn a doc-fix or impl-fix worker.
+  - Expansion slot stays idle.
+- **2 cycles out (~05:21Z):** PR #171 likely in review or merge phase. Expansion slot still idle. Once #171 merges, implementation slot opens for **#168 (high)**, which becomes the next PR.
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **WORKLOG.md size: 1446 → ~1520 lines post-entry. 15 consecutive cycles overdue on truncation.** Same recommendation.
+- **Tool install pattern variation:** This cycle used `pip install --user` (no project venv at cwd) — both `lxa` and `ohtv` installed to `/home/openhands/.local/bin`. PATH shim required. The 4-cycle `uv sync + uv pip install` pattern only works when launched from inside the project repo with `.venv` materialized. **Action for next cycle:** orchestrator setup should try `uv sync` THEN `uv pip install`, falling back to `pip install --user` + PATH shim.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 9 consecutive cycles. `export GH_TOKEN=$github_token` shim is durable.
+- **`exec=finished, sandbox=RUNNING` clean-exit variant:** Now observed across 3 consecutive cycles. Treat identically to `exec=null, sandbox=PAUSED`.
+- **Docs detection widening confirmed valid:** `docs/guides/exploration.md` + `docs/reference/cli.md` correctly counted as a docs update (no `README.md` change needed). The widened rule `gh pr diff --name-only | grep -iE '(readme|docs/)'` is the operative check.
+- **Engagement-metric family:** Closing phase. PR #171 → testing now. Next PR target post-merge: **#168 (high) → #169 (high) → #170 (high) → #161 (medium) → #162 (medium)**.
+- **Plugin spec format reminder:** `plugins: [{"source": "github:owner/repo", "repo_path": "...", "ref": "..."}]`. Brief example in orchestrate skill uses the human-readable form; API requires this object form.
+- **API param-array gotcha:** `start-tasks?ids=A&ids=B` (NOT `?ids=A,B`).
+
+**Local checkout note:** `main` at `a5d28f4`. `git pull --ff-only` clean. Worklog entry committed directly to `main` per skill rule.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `d591078` (testing PR #171) and decides next actions (likely review worker for the 2 advisory threads OR merge worker).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
