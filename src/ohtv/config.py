@@ -244,6 +244,20 @@ def get_analysis_cache_dir() -> Path:
     return get_ohtv_dir() / "cache" / "analysis"
 
 
+def get_telemetry_dir() -> Path:
+    """Get the telemetry directory (~/.ohtv/telemetry).
+
+    Per-session telemetry blobs from ``ohtv ask`` (Issue #162) live here,
+    alongside an append-only ``sessions.jsonl`` index. Override with
+    ``OHTV_TELEMETRY_DIR``. The directory is created lazily on the first
+    successful write — readers should not assume it exists.
+    """
+    env_dir = os.environ.get("OHTV_TELEMETRY_DIR")
+    if env_dir:
+        return Path(env_dir).expanduser()
+    return get_ohtv_dir() / "telemetry"
+
+
 def save_config_value(key: str, value: str) -> None:
     """Save a configuration value to the config file.
     

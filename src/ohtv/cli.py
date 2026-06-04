@@ -3850,15 +3850,59 @@ def ask(
         
         # Use RAGAnswerer for context retrieval and answer generation
         answerer = RAGAnswerer(
-            embed_store, conv_store, 
-            model=model, 
+            embed_store, conv_store,
+            model=model,
             enable_temporal_filter=enable_temporal,
             link_store=link_store,
             ref_store=ref_store,
             repo_store=repo_store,
             cloud_base_url=cloud_base_url,
         )
-        
+
+        # Telemetry recorder (Issue #162). Captures the invocation +
+        # environment up-front; ``record_rag`` / ``record_agent`` /
+        # ``finalize`` are called below. ``OHTV_TELEMETRY_ENABLED=0``
+        # opts out entirely (no recorder constructed → zero overhead).
+        # The recorder is finalised in a ``finally`` block so an
+        # investigator exception still produces a session record with
+        # ``agent.finished_normally=false``.
+        recorder = None
+        try:
+            from ohtv.analysis.telemetry import (
+                SessionRecorder,
+                build_environment_record,
+                build_invocation_record,
+                is_enabled as telemetry_is_enabled,
+            )
+
+            if telemetry_is_enabled():
+                flags_record = {
+                    "context": context,
+                    "min_score": min_score,
+                    "model": model,
+                    "agent_mode": investigation_mode,  # "cli" | "tools" | None
+                    "max_steps": max_steps,
+                    "since": since,
+                    "until": until,
+                    "no_temporal": no_temporal,
+                    "explain": explain,
+                    "explain_only": explain_only,
+                    "show_context": show_context,
+                }
+                recorder = SessionRecorder.start(
+                    invocation=build_invocation_record(
+                        question=question, flags=flags_record
+                    ),
+                    environment=build_environment_record(
+                        embed_store=embed_store,
+                        conv_store=conv_store,
+                        conn=conn,
+                    ),
+                )
+        except Exception:  # noqa: BLE001 - best-effort
+            log.warning("telemetry: recorder construction failed", exc_info=True)
+            recorder = None
+
         try:
             result = answerer.answer_question(
                 question,
@@ -3870,11 +3914,18 @@ def ask(
         except ValueError as e:
             console.print(f"[yellow]{e}[/yellow]")
             console.print("[dim]Try lowering --min-score or building more embeddings.[/dim]")
+            _maybe_finalize_telemetry(recorder)
             raise SystemExit(1)
         except RuntimeError as e:
             console.print(f"[red]Error:[/red] {e}")
             console.print("[dim]Make sure LLM_API_KEY is set.[/dim]")
+            _maybe_finalize_telemetry(recorder)
             raise SystemExit(1)
+
+        # Record the RAG block as soon as the answer is in. The agent
+        # block is added below in the investigation branch.
+        if recorder is not None:
+            recorder.record_rag(result)
         
         # Show retrieval breakdown if --explain
         if explain:
@@ -3929,7 +3980,9 @@ def ask(
                         max_iterations=max_steps,
                         console=console,
                     )
-                    investigation_result = investigator.investigate(question, result)
+                    investigation_result = investigator.investigate(
+                        question, result, recorder=recorder
+                    )
                 else:
                     from ohtv.analysis.investigator import InvestigationAgent
                     investigator_tools = InvestigationAgent(
@@ -3944,7 +3997,9 @@ def ask(
                         max_iterations=max_steps,
                         console=console,
                     )
-                    investigation_result = investigator_tools.investigate(question, result)
+                    investigation_result = investigator_tools.investigate(
+                        question, result, recorder=recorder
+                    )
 
                 if investigation_result.error:
                     console.print(f"[yellow]Investigation error: {investigation_result.error}[/yellow]")
@@ -4218,6 +4273,30 @@ def ask(
         if investigation_result and not investigation_result.error:
             timing_parts.append("🔍 agent")
         console.print(f"\n[dim]{' | '.join(timing_parts)}[/dim]")
+
+        # Finalise telemetry (Issue #162). Best-effort: a failure here
+        # must NOT propagate (the user already got their answer).
+        if recorder is not None:
+            recorder.record_agent(investigation_result)
+            _maybe_finalize_telemetry(recorder)
+
+
+def _maybe_finalize_telemetry(recorder) -> None:
+    """Write the session blob + index line; swallow + log on failure.
+
+    Called from the ``ask`` handler's success path and from every
+    early-exit branch (``ValueError`` / ``RuntimeError`` after the RAG
+    answer call). Idempotent guard: a ``None`` recorder short-circuits.
+    The graceful-degradation AC requires this to never re-raise — the
+    user's answer has already been printed by the time we reach here.
+    """
+    if recorder is None:
+        return
+    try:
+        session_path = recorder.finalize()
+        log.debug("telemetry session written: %s", session_path)
+    except Exception:  # noqa: BLE001 - per #162 graceful-degradation AC
+        log.warning("telemetry write failed", exc_info=True)
 
 
 def _load_all_conversations(
