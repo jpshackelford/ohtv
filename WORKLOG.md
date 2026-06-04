@@ -1053,3 +1053,77 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `002934f` (merge work
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-04 10:50 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `1f83ee2` | implementation | Issue #170 — engagement filters | **NEW** (running, first poll) |
+
+**Step 0 — Setup:** `uv tool install` for `lxa` + `ohtv` (system `site-packages` read-only again — same pattern as 10:20Z cycle, just used `uv tool install` instead of `uv venv` this time, equivalent outcome). `lxa repo add` idempotent. `ohtv sync` ran clean (no output).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1055 lines** at cycle entry. Just truncated last cycle (10:20Z dropped from 2464 → 943). Productive cycle (1 worker spawned). **Defer truncation** — next cutoff will naturally drop the 10:20Z entry once it ages past the 6h window. Counter reset to "0 cycles overdue" after the 10:20Z truncation.
+
+**Step 1 — Human Instructions:** None pending. `awk` over WORKLOG.md (excluding fenced code blocks) for `^## INSTRUCTION:` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):** Prior cycle's merge worker `002934f` is `execution_status=null, sandbox_status=PAUSED` → **finished**. PR slot is **free**. Expansion slot has been idle for many cycles.
+
+**Step 3 — State gathered:**
+- **PR #174 — MERGED at 2026-06-04T10:22:23Z** (squash commit `f140744`). Closed Issue #169. **Engagement-metric family progress: 3/4 done** (#167 ✅, #168 ✅, #169 ✅, #170 next).
+- **Release: `ohtv-v0.25.0` tagged** (auto-release ran on the squash-merge subject `feat: add engagement to gen objs markdown output (#169)`). `main` at `5124eec` (chore(release): ohtv 0.25.0 [skip ci]).
+- **Open PRs:** 0. PR slot fully open.
+- **Issues needing expansion:** 0 (`{ready, hold}` ∪ closed covers all 6 open issues).
+- **Ready issues (4):**
+  - **#170** — priority:**high** — Filter conversations by engagement level (`--engaged`, `--min-engaged`) ⬅ picked
+  - #161 — priority:medium — `ohtv ask`: prompt-based agent mode + `--agent-tools` rename
+  - #162 — priority:medium — Capture `ohtv ask` sessions as on-disk telemetry
+  - #173 — priority:low — refactor: reduce nesting in `_load_engagement_for_ids`
+- **On hold (2):** #26 (mcp server), #90 (`ohtv label` batch).
+
+**Step 4 — Decision (per orchestrate decision tree):**
+- PR slot: `No open PR + ready issues with priority` → **Spawn implementation worker for highest priority (#170, priority:high).** ✅
+- Expansion slot: 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Implementation Worker**
+- Issue: [#170 — Filter conversations by engagement level](https://github.com/jpshackelford/ohtv/issues/170) (priority:high)
+- Start task: `08cc30b0` → `app_conversation_id = 1f83ee25fdc14a199f89b53e96bf138e`
+- Conversation: [`1f83ee2`](https://app.all-hands.dev/conversations/1f83ee25fdc14a199f89b53e96bf138e)
+- Polling timeline: `WORKING` (T+0s) → `READY` (T+5s). **Fastest spawn-task transition observed this run — single 5s poll.** First-attempt success.
+- Verify (T+13s): `execution_status=running`, `sandbox_status=RUNNING`. ✅ Confirmed executing.
+- Plugin spec (unchanged, **13th successful spawn**): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract: `initial_message: {content: [{type:"text", text:"…"}], run: true}` (V1 — verified yet again, 13th in a row).
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY` (per `/spawn-conversation` skill).
+- Prompt scope: read issue body & comments → branch `feat/170-engagement-filters` from `origin/main` (now at 5124eec, post-#174-release) → implement `parse_duration_to_seconds` + `_filter_by_engagement` reusing PR #171's batched `_load_engagement_for_conversations` → wire `--engaged` / `--no-engaged` / `--min-engaged DURATION` / `--min-engagement-ratio PCT` into `_apply_conversation_filters` (covers `list`, `gen objs`, `gen titles`, `gen run` in one shot) → mutual-exclusion validation → tests per the issue's enumerated AC list → draft PR with `Closes #170` → CI green → ready → WORKLOG entry → EXIT.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned + PR #174 merge confirmed + release recorded). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~11:20Z):** Most likely —
+  - ~55%: Implementation worker `1f83ee2` still running. The #170 surface area is non-trivial (4 flags × 4 commands × mutual-exclusion + duration parser + missing-row semantics + ~12 test cases). Expect 30–75 min of real work.
+  - ~30%: Worker finished with a draft PR #175 pushed; CI may or may not be green yet. → Wait (PR worker is the implementation worker still finalizing) OR spawn nothing if PR is ready+green.
+  - ~10%: Worker finished, PR ready, CI green, **README not updated** → spawn **docs worker** (high priority — #170 adds 4 new CLI flags × 4 commands = the canonical "user-facing change" trigger).
+  - ~5%: Worker hit an unexpected blocker.
+- **2 cycles out (~11:50Z):** Most likely PR #175 in the docs → testing pipeline.
+- **3 cycles out (~12:20Z):** Testing landed; review or merge in flight; #170 close to merge → engagement family **4/4 done** 🎉.
+
+**Notes / follow-ups carried forward (cumulative):**
+- **`initial_message` spawn-payload contract** remains the high-priority pin. **13 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`. Deprecated `initial_user_msg` still never used.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY` (the `/spawn-conversation` skill's documented header). Other endpoints accept `Authorization: Bearer …` — both work against the same key.
+- **OpenHands Cloud API gotchas:** `POST /api/v1/app-conversations` (no trailing slash); `start-tasks/search` returns `{"items": […]}`; poll start-task by `id` from the POST response.
+- **Tool install pattern:** `uv tool install git+https://github.com/jpshackelford/lxa.git` + same for `ohtv` works cleanly when `site-packages` is read-only — adds `/home/openhands/.local/bin` to PATH. Either `uv venv .venv` (10:20Z) or `uv tool install` (this cycle) gets it done; tool install is slightly cleaner because no venv to source.
+- **Engagement-metric family progress: 3/4 done** after this cycle's merge confirmation. #170 implementation in flight → expect 4/4 within 2–3 cycles. Then #161/#162/#173 take over the ready queue.
+- **GitHub CLI `--json merged` is not a field.** Use `state == "MERGED"` (and `mergedAt`, `mergeCommit`) instead. Cached.
+- **`GH_TOKEN` vs `github_token`:** `GH_TOKEN` was unset, `github_token` was the populated one. `export GH_TOKEN="$github_token"` works. (Inverse of the 10:20Z cycle's "GITHUB_TOKEN populated" note — the available shim flips between cycles; check both.)
+- **Release workflow confirmation:** `feat:` squash-merge subject for PR #174 triggered `ohtv-v0.25.0` tag as designed. End-to-end ~2 min from merge to tagged release. No manual intervention.
+- **`statusCheckRollup` is the source of truth for "is CI green?"** — `mergeable`/`mergeStateStatus` may show `UNKNOWN` due to GitHub-side cache lag (observed in 10:20Z cycle; not re-triggered this cycle since the PR is now closed).
+- **Plugin spec format unchanged:** 13th successful spawn — `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+
+**Local checkout note:** `main` HEAD at `5124eec` on entry (ohtv-v0.25.0 release commit). This entry pushes one more commit on top. No code branches created by the orchestrator — implementation worker `1f83ee2` will create `feat/170-engagement-filters` in its own sandbox.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `1f83ee2` (implementation worker) and any draft/ready PR #175 it has pushed.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
