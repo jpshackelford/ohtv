@@ -2348,3 +2348,15 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `78967e5` (docs worke
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-06-04 09:27Z — Docs worker (PR #174 markdown engagement)
+
+**Conversation:** this worker (retry of failed `8be5fa5` from prior cycle).
+
+**Task:** Update stale `--with-engagement` claims in docs/ to reflect the markdown sub-bullet added by PR #174.
+
+**Work performed:** Edited docs/guides/analysis.md (lines ~210, ~327, ~354) and docs/reference/cli.md (line 52). Commit `4ba37ec` pushed to feat/169-engagement-markdown. CI green. PR comment posted.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
