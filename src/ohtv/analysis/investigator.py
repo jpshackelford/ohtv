@@ -7,10 +7,8 @@ single-turn RAG.
 
 import logging
 import os
-from dataclasses import dataclass, field
-from datetime import datetime
-from pathlib import Path
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import SecretStr
 from rich.console import Console
@@ -46,7 +44,14 @@ DEFAULT_MAX_ITERATIONS = 5
 
 @dataclass
 class InvestigationResult:
-    """Result of a multi-turn investigation."""
+    """Result of a multi-turn investigation.
+
+    The ``mode`` field is recorded so downstream telemetry (Issue #162)
+    can stamp each session with which investigator path produced it.
+    Default is ``"tools"`` to preserve backwards compatibility with the
+    legacy ``InvestigationAgent`` constructor and existing tests that
+    build results directly.
+    """
 
     final_answer: str
     initial_answer: str
@@ -59,6 +64,7 @@ class InvestigationResult:
     elapsed_seconds: float
     finished_normally: bool = True
     error: str | None = None
+    mode: Literal["tools", "cli"] = "tools"
 
 
 def get_investigation_system_prompt() -> str:
@@ -313,6 +319,7 @@ class InvestigationAgent:
             elapsed_seconds=elapsed,
             finished_normally=finished_normally,
             error=error,
+            mode="tools",
         )
 
     def _build_tool_map(
@@ -484,7 +491,7 @@ class InvestigationAgent:
             # Handled separately in the loop
             pass
         elif tool_name == "finish":
-            self.console.print(f"[dim]✅ Finalizing answer...[/dim]")
+            self.console.print("[dim]✅ Finalizing answer...[/dim]")
         else:
             self.console.print(f"[dim]🔧 {tool_name}...[/dim]")
 

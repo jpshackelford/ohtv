@@ -168,17 +168,58 @@ This is useful for:
 - **Identifying noisy conversations** - Some may flood results with low-quality matches
 - **Comparing embedding types** - Which types work best for different query types?
 
-## Investigation Mode (`--agent`)
+## Investigation Mode (`--agent` / `--agent-tools`)
 
-When `--agent` is enabled, the answer is enhanced through multi-turn investigation. An AI agent can use tools to examine specific conversations in detail, search for related context, and retrieve git references (PRs, issues, repos).
+When an investigation flag is enabled, the answer is enhanced through a multi-turn agent loop. **Issue #161** introduced two modes that run side-by-side so we can compare them with telemetry:
 
-**Available tools in investigation mode:**
+| Flag             | Mode | What it does |
+|------------------|------|--------------|
+| `--agent`        | `cli`   | **Prompt-cookbook agent (default)**. Exposes a single `run_ohtv(argv)` tool that invokes the local `ohtv` CLI in-process. The cookbook teaches the agent which subcommands to use and when. |
+| `--agent-tools`  | `tools` | **Legacy custom-tools agent (#51)**. Four bespoke Python tools (`show_conversation`, `search_conversations`, `get_refs`, `list_conversations`). |
+| _(neither flag)_ | —    | Single-turn RAG; no investigation. |
+
+`--agent` and `--agent-tools` are mutually exclusive (Click `UsageError` if both are given). `--max-steps` applies to both modes; `--max-steps 0` short-circuits to single-turn RAG even if a flag is set. A `[dim]Investigation mode: cli|tools[/dim]` banner is printed once per invocation so the active mode is visible.
+
+### `--agent` (prompt-cookbook, #161)
+
+Single tool: `run_ohtv(argv)`. The agent learns the CLI grammar from a [cookbook prompt](#cookbook-prompt) and invokes the local `ohtv` binary in-process — no subprocess fork, no `litellm` re-import per call.
+
+**Allow-list** (anything else is rejected with a structured observation):
+
+| Allowed     | Purpose |
+|-------------|---------|
+| `show`      | Examine a specific conversation. |
+| `refs`      | List git references (PRs, issues, repos) for a conversation. |
+| `search`    | Semantic / FTS search across conversations. |
+| `list`      | Browse conversations by metadata. |
+| `errors`    | Inspect agent/LLM error events. |
+| `gen objs`  | **Cache-only**. The runner auto-injects `--cache-only` so the agent can browse cached objectives without paying for fresh LLM analyses. Cache misses yield `goal: null` in JSON output (treat as "no analysis yet", not "no goal"). |
+
+**Blocked** (write-side commands, surfaced in rejection observations so the agent can self-correct):
+`sync`, `db scan/process/embed/migrate-cache/reset`, `fetch-loc`, `gen titles`, `gen run`, `classify`, `config`.
+
+**`gen objs --cache-only`** is a power-user-friendly first-class flag in the CLI, not a runner-only convenience: anyone can run `ohtv gen objs --cache-only -F json` to dump cached objectives without firing the LLM.
+
+### `--agent-tools` (legacy custom tools, #51)
+
+Available tools:
 - `show_conversation` - Load and examine a specific conversation transcript
 - `search_conversations` - Search for related conversations by semantic similarity
 - `list_conversations` - Enumerate conversations by metadata (date / repo / PR / action / label)
 - `get_refs` - Get git references (repos, PRs, issues) for a conversation
 
-### `list_conversations` — metadata-driven enumeration
+The `list_conversations` tool is the only browse primitive in this mode; the prompt-cookbook mode reaches the same data through `ohtv list -F json` and `ohtv gen objs -F json --cache-only`. The duplication is intentional — once #162 telemetry shows which mode wins on cost/quality, the loser gets retired.
+
+### Browse vs search
+
+Both modes encode the same heuristic: prefer **browse** (`list` / `gen objs`) for temporal or enumerative questions, **search** for conceptual ones. Vector search returns the *most-similar* matches; it cannot reliably enumerate, count, or prove absence.
+
+- **Temporal**: _"what did we work on yesterday?"_, _"every conv from last week"_
+- **Enumerative**: _"list all conversations that touched repo X"_, _"every PR we opened"_
+- **Aggregative**: _"how many conversations landed merges in May?"_
+- **Verifying a negative**: _"did we work on the auth refactor at all?"_
+
+### `list_conversations` — metadata-driven enumeration (legacy `--agent-tools` only)
 
 `list_conversations` complements `search_conversations`. Use it whenever the question is anchored to *what / when* rather than *similar to*:
 
