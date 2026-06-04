@@ -2,6 +2,31 @@
 
 ## Log
 
+### 2026-06-04 07:52 UTC - Merge worker (PR #172)
+
+**Action:** Squash-merged [PR #172](https://github.com/jpshackelford/ohtv/pull/172) — `feat: add --with-engagement flag to gen objs JSON output` — closing Issue #168.
+
+**Pre-merge gate check:**
+- Pinned HEAD `cabd1775babd41867c5fc0b5efd353d7292c3209` matched live `headRefOid` ✅
+- `mergeable: MERGEABLE`, `mergeStateStatus: CLEAN`, `isDraft: false` ✅
+- CI green (lint ✅ + pytest 2373 passed / 2 skipped / 3 xfailed) ✅
+- Manual test report posted 07:42Z: 🟢 Ready to merge (8/8 scenarios) ✅
+- pr-review-bot: 🟡 Acceptable — nesting advisory deferred per worker guidance ✅
+- 0 review threads, 0 unresolved comments ✅
+
+**Squash merge:** commit `01b4e7fd3607f9b67f9a6d88b0ec98b395cbd40f` on `main`.
+- Subject: `feat: add --with-engagement flag to gen objs JSON output`
+- `Co-authored-by: openhands <openhands@all-hands.dev>` (only distinct author on `main..HEAD`).
+- `Fixes #168` → Issue #168 auto-closed @ 07:51:34Z.
+
+**Release:** semantic-release published [`ohtv-v0.24.0`](https://github.com/jpshackelford/ohtv/releases/tag/ohtv-v0.24.0) @ 07:53:01Z (minor bump from `feat:`). `pyproject.toml` and `src/ohtv/__init__.py` on `main` both read `0.24.0`.
+
+**Deferred refactor follow-up:** Filed [Issue #173 — refactor: reduce nesting in `_load_engagement_for_ids`](https://github.com/jpshackelford/ohtv/issues/173) with `enhancement` + `priority:low` labels (no `ready` — expansion worker picks it up). References pr-review-bot's nesting advisory and the proposed `_process_engagement_rows` extraction.
+
+**Slot freed:** merge worker `00000000` (this conv) exits clean. PR #172 + Issue #168 + tag `ohtv-v0.24.0` is the engagement-metric trilogy complete (after PR #165 for `show`, PR #171 for `list`). Next orchestrator cycle has one new follow-up issue (#173) in the queue plus whatever existed pre-merge.
+
+
+
 ### 2026-06-04 07:20 UTC - Orchestrator
 
 **Active Workers:**
