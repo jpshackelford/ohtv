@@ -2058,3 +2058,79 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `5a0f995` (docs worke
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-06-04 08:20Z — Orchestrator cycle (PR #172 merged, 2 parallel workers spawned)
+
+**Step 0 — Setup:** `uv tool install` for `lxa`/`ohtv` again (carry-forward pattern from prior cycles — bare environment, system pip blocked, `--user` rejected, `uv pip install --system` blocked). Worked first try. `lxa repo add` created a fresh board ("Unnamed Board 1") since no prior board state persisted — non-blocking.
+
+**Step 0.5 — Housekeeping (deferred, 20th consecutive cycle):** WORKLOG.md at **2060 lines** on entry (>>300). Productive cycle (2 workers spawned) → defer per skill rule. Carry-forward recommendation unchanged: human `## INSTRUCTION: archive WORKLOG.md entries older than 12h` OR a widening of `/truncate-worklog`'s `is_productive` regex to match prose-style "## YYYY-MM-DD HH:MMZ — Orchestrator cycle" headers (not just the table-style "### YYYY-MM-DD HH:MM UTC - Orchestrator" template the skill currently recognizes).
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged. `awk` over `WORKLOG.md` (excluding fenced code blocks) for `^## INSTRUCTION:` → empty.
+
+**Step 2 — Slot scan:**
+- Previous-cycle docs worker `5a0f995` (PR #172) finished cleanly (status=null/PAUSED, last update 06:54Z).
+- Worklog gap noticed: testing-then-merge sequence ran without writing log entries — `06076811` (07:53Z, finished) and `b0cb5e52` (07:46Z) are the most plausible candidates for testing + merge workers. Both terminal by cycle entry.
+- `/app-conversations/search?execution_status=running` returned only `1dda6427` (this orchestrator) for this repo.
+- **Both worker slots free at cycle entry.**
+
+**Step 3 — State gather:**
+- **Open PRs: 0.** PR #172 (`feat: add --with-engagement flag to gen objs JSON output`) merged at **07:51:33Z** as commit `01b4e7f`. Closed #168. Docs + manual-test comments both present on the merged PR (06:54Z and 07:42Z respectively) → the full sequence Implementation → CI → Docs → Manual Test → Review → Merge completed in the ~3 cycles since 04:55Z. Engagement-metric family progress: **#167 (PR #171) ✅, #168 (PR #172) ✅, #169 next, #170 after**.
+- **Ready + prioritized (4):** **#169** `priority:high` (Add engagement to `gen objs` markdown output), **#170** `priority:high` (Filter conversations by engagement level), **#161** `priority:medium`, **#162** `priority:medium`.
+- **Needs expansion (1):** **#173** `priority:low` (`refactor: reduce nesting in _load_engagement_for_ids`) — auto-filed during PR #172's merge worker as a follow-up to the pr-review-bot deferred-refactor suggestion. Body is already well-structured (Context / Proposed change / Scope / Out of scope / References) but lacks the `🔧 Technical Approach` comment + `ready` label.
+- **On hold (2):** #26, #90.
+
+**Step 4 — Decisions (both slots filled):**
+- **PR slot → Implementation worker for #169** (`4c8fea3`).
+  - Decision-tree row: *"No open PR + ready issues with priority → Spawn impl worker for highest priority"*.
+  - #169 vs #170: same priority, tie-broken by issue number (older first). #169 is also more contained — pure display-layer change on top of PR #172's already-merged `_load_engagement_for_ids` helper. #170 is filter logic that may touch more surface.
+  - Worker prompt pinned: read existing Technical Approach comment, mirror tone from PR #171's engagement column rendering, branch from `9c92e8b`, use `feat:` conventional-commit subject (semantic-release will minor-bump), do NOT refactor `_load_engagement_for_ids` (that's #173's territory), do NOT touch docs (docs worker handles that next cycle).
+- **Expansion slot → Expansion worker for #173** (`81a1c32`).
+  - Decision-tree row: *"CAN_SPAWN_EXPANSION + issues need expansion → Spawn expansion worker"*.
+  - First non-empty expansion queue in **6 cycles**. Pure refactor; expansion worker's job is to write the Technical Approach comment (helper signature, step-by-step refactor, files affected, acceptance criteria) and add `ready` label.
+  - Worker prompt pinned: read current `_load_engagement_for_ids` on main (post-`01b4e7f`), preserve dashless↔dashed id contract (AGENTS.md #14), mirror #169's expansion-comment style, NO code changes, NO branches, NO PRs. If the function isn't actually as nested as the bot claimed, label `needs-info` instead of `ready`.
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `4c8fea3` | implementation | Issue #169 — `gen objs` markdown engagement | **NEW** (running) |
+| `81a1c32` | expansion | Issue #173 — refactor `_load_engagement_for_ids` | **NEW** (running) |
+
+**Spawned: 2 Workers (parallel)**
+
+1. **Implementation Worker**
+   - Issue: [#169 — Add engagement to `gen objs` markdown output](https://github.com/jpshackelford/ohtv/issues/169) (`priority:high`)
+   - Conversation: [`4c8fea3`](https://app.all-hands.dev/conversations/4c8fea311524465d8d97ed7e2e9b2ca2)
+   - Start task: `0028f7c2` (READY in 1 poll, ~5s)
+
+2. **Expansion Worker**
+   - Issue: [#173 — refactor: reduce nesting in `_load_engagement_for_ids`](https://github.com/jpshackelford/ohtv/issues/173) (`priority:low`)
+   - Conversation: [`81a1c32`](https://app.all-hands.dev/conversations/81a1c320f10242f2923b3e4bca9ebe8d)
+   - Start task: `723e39e2` (READY in 1 poll, ~5s)
+
+**Step 5 — Quiet-cycle check:** Productive cycle (2 workers spawned, both slots filled). Auto-disable counter resets to **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~08:50Z):** Likely outcomes —
+  - ~50%: `4c8fea3` opened a draft PR for #169, CI in progress or green. `81a1c32` finished, #173 has Technical Approach comment + `ready` label.
+  - ~30%: One or both workers still running; impl in particular often spans 30–60m through CI cycle.
+  - ~15%: `81a1c32` finished as expected; impl worker opened a draft PR with red CI → no action this cycle, waits.
+  - ~5%: Expansion worker hit issue body inconsistency, labeled `needs-info` instead of `ready`. PR slot still progressing.
+- **2 cycles out (~09:20Z):** PR for #169 likely ready (not draft), CI green → docs worker spawned. #173 likely sitting `ready+priority:low`.
+- **3 cycles out (~09:50Z):** PR for #169 in manual-test → review cycle. #173 may move from `priority:low` to a higher priority if pr-review-bot loops back on #169 with similar refactor suggestions worth bundling.
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **Tool install pattern (stable):** `uv tool install <git-url>` for bare environments. Now 2 consecutive cycles confirming this.
+- **WORKLOG.md size: 2060 → ~2155 lines post-entry. 20 consecutive cycles overdue on truncation.** Still safe (worklog growth is bounded by entry rate, not pathological), but the gap between recommended (300 lines) and actual (~7×) is now well-documented.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 13 consecutive cycles. Shim `export GH_TOKEN=${GITHUB_TOKEN:-$github_token}` durable, passed through to both spawned worker prompts.
+- **Engagement-metric family progress this cycle:** **#167 ✅ merged, #168 ✅ merged, #169 → impl in flight, #170 next in queue.** 4-issue family now 2/4 done. Then medium-priority pair #161 / #162. Then any new issues that arrive.
+- **Plugin spec format unchanged:** `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`. 8th + 9th successful spawn in this orchestrator instance.
+- **Cycle gap behavior observed:** Several intermediate cycles (testing worker spawn + merge worker spawn around 07:00–07:55Z) ran without writing worklog entries. State was reconstructable from the API + PR comments. Not a blocker but suggests some worker prompts may be exiting before the worklog commit step on `main`. Carry-forward: worth tightening worker prompts to confirm `WORKLOG.md` was pushed to `main` before exit.
+
+**Local checkout note:** `main` at `9c92e8b` (chore(worklog) from prior cycle). `git fetch origin main` clean. No stray edits to discard. Worklog entry committed directly to `main` per skill rule.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `4c8fea3` (impl) and `81a1c32` (expansion) and decides next actions.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
