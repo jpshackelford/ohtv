@@ -312,7 +312,37 @@ When no engagement row exists for the conversation, the analysis payload still g
 
 **Composes with other flags.** `--with-engagement` is purely a display switch — it adds JSON keys but never filters rows or changes which conversations are analyzed. It works alongside `--variant`, `--context`, `--refresh`, `--model`, `--repo`, `--pr`, `--action`, `--label`, `--since` / `--until`, `--day` / `--week`, `-n` / `-k`, `-A`, `--reverse`, `--include-sub-conversations`, `--quiet`, and the JSON output toggles (`--json` for single-conversation mode, `-F json` for multi-conversation mode).
 
-> **Filtering by engagement** (e.g. `--min-engaged-seconds`) is intentionally out of scope for this flag — it is display-only. See [Issue #170](https://github.com/jpshackelford/ohtv/issues/170) for the engagement-filter follow-up and [Issue #169](https://github.com/jpshackelford/ohtv/issues/169) for markdown engagement output.
+> **Want to actually filter by engagement?** See [Engagement filters](#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio) below — `--engaged`, `--no-engaged`, `--min-engaged`, `--min-engagement-ratio` landed in [#175](https://github.com/jpshackelford/ohtv/pull/175) and are orthogonal to `--with-engagement`.
+
+<a id="engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio"></a>
+
+### Engagement filters (`--engaged` / `--no-engaged` / `--min-engaged` / `--min-engagement-ratio`)
+
+Added in [#175](https://github.com/jpshackelford/ohtv/pull/175) (tracks [#170](https://github.com/jpshackelford/ohtv/issues/170)). The same four flags are wired into `ohtv list`, `ohtv gen objs` (batch mode), `ohtv gen titles`, and `ohtv gen run` — the validator and decorator are shared, so every command exits with the same `BadParameter` / exit-code-2 path on misuse. The semantics, mutual-exclusion rules, missing-row policy, and `--min-engaged` duration grammar are documented once in [exploration guide § Engagement filters](exploration.md#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio); this section covers the `gen`-specific examples.
+
+**Prerequisite:** populate the [`engagement` indexing stage](indexing.md#engagement-stage) — `ohtv db process all` (or `ohtv db process engagement`), or just let `ohtv sync` run the pipeline. Without engagement data, `--engaged` / `--min-engaged` / `--min-engagement-ratio` exclude every conversation (no data ⇒ cannot prove a threshold is met); `--no-engaged` includes every conversation (no data ⇒ conservatively assumed un-engaged).
+
+**Note for `gen` commands:** these flags filter the *batch* before any LLM work runs, so they directly reduce token spend and wall-clock time. They are **not** available on single-conversation `gen objs <id>` (single mode has nothing to filter).
+
+```bash
+# Re-run objective analysis only for steered conversations from the last week
+ohtv gen objs --week --min-engaged 5m
+
+# JSON output for high-engagement conversations
+ohtv gen objs --min-engagement-ratio 25 --label priority:high -F json
+
+# Auto-title only conversations the agent ran unattended
+ohtv gen titles --no-engaged --week --dry-run
+
+# Aggregate weekly report built from steered conversations only
+ohtv gen run reports.weekly --last 4 --engaged
+```
+
+> **Filter + display combo.** Compose `--with-engagement` with any of the four filter flags to get both the filter AND the engagement columns / JSON fields on the surviving rows:
+>
+> ```bash
+> ohtv gen objs --min-engaged 5m --with-engagement -F json
+> ```
 
 **Markdown Output (`-F markdown`):**
 ```markdown
@@ -359,6 +389,10 @@ When no engagement row exists for the conversation, the analysis payload still g
 | `-q, --quiet` | Generate/cache summaries without displaying output |
 | `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
 | `--with-engagement` | Include engagement metrics. For `-F json`, adds five engagement fields (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`, `engagement_ratio`) per item in the array. For `-F markdown`, adds an `Engaged: 4m 24s in N periods (X.X%)` sub-bullet below each conversation. No effect for `-F table`. Requires the [`engagement` indexing stage](indexing.md#engagement-stage). See [Engagement fields](#engagement-fields--with-engagement). |
+| `--engaged` | Filter the batch to conversations with `engaged_seconds > 0`. Mutually exclusive with `--no-engaged`; composes silently with the threshold flags. See [Engagement filters](#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio). |
+| `--no-engaged` | Filter to fire-and-forget conversations (`engaged_seconds == 0` **OR** the engagement row is missing). Only engagement flag that *includes* missing rows. Mutually exclusive with `--engaged`, `--min-engaged`, `--min-engagement-ratio`. |
+| `--min-engaged DURATION` | Filter to `engaged_seconds >= DURATION`. Accepts `30s` / `5m` / `1h` / `1h30m` (case-insensitive); bare number = **minutes** (`5` == `5m`). Missing rows excluded. |
+| `--min-engagement-ratio PCT` | Filter to `engaged_seconds / total_duration_seconds >= PCT / 100`. `PCT` in `[0, 100]`. Rows with zero / missing total duration are excluded. |
 | `--verbose` | Show debug output |
 
 ### Context levels (`gen objs --c` flag)
@@ -480,6 +514,10 @@ ohtv gen titles --week --include-sub-conversations
 | `-y, --yes` | Skip the >5-conversation confirmation prompt |
 | `--lock-timeout SECONDS` | Wait up to N seconds for `$OHTV_DIR/sync.lock` instead of failing fast. Default `0` = fail-fast. See note below. |
 | `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
+| `--engaged` | Filter to conversations with `engaged_seconds > 0`. See [Engagement filters](#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio). |
+| `--no-engaged` | Filter to fire-and-forget conversations (`engaged_seconds == 0` **OR** the engagement row is missing). Only engagement flag that *includes* missing rows. Mutually exclusive with `--engaged` / `--min-engaged` / `--min-engagement-ratio`. |
+| `--min-engaged DURATION` | Filter to `engaged_seconds >= DURATION` (e.g. `5m`, `1h30m`, or bare minutes). Missing rows excluded. |
+| `--min-engagement-ratio PCT` | Filter to `engaged_seconds / total_duration_seconds >= PCT / 100`. `PCT` in `[0, 100]`. Rows with zero / missing total duration are excluded. |
 | `--verbose` | Show debug output |
 
 > **Writer mutex.** `ohtv gen titles` PATCHes cloud titles and writes
@@ -619,6 +657,10 @@ Respond with JSON matching the output schema.
 | `-m, --model` | LLM model to use |
 | `-y, --yes` | Skip confirmation prompts |
 | `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
+| `--engaged` | Filter the source-conversation set to `engaged_seconds > 0`. See [Engagement filters](#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio). |
+| `--no-engaged` | Filter to fire-and-forget source conversations (`engaged_seconds == 0` **OR** the engagement row is missing). Only engagement flag that *includes* missing rows. Mutually exclusive with `--engaged` / `--min-engaged` / `--min-engagement-ratio`. |
+| `--min-engaged DURATION` | Filter source conversations to `engaged_seconds >= DURATION` (e.g. `5m`, `1h30m`, or bare minutes). Missing rows excluded. |
+| `--min-engagement-ratio PCT` | Filter source conversations to `engaged_seconds / total_duration_seconds >= PCT / 100`. `PCT` in `[0, 100]`. Rows with zero / missing total duration are excluded. |
 
 ---
 

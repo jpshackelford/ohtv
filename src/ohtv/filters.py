@@ -26,6 +26,85 @@ PR_URL_PATTERN = re.compile(
 # Relative date pattern (e.g., "7d", "2w", "1m")
 RELATIVE_DATE_PATTERN = re.compile(r"^(\d+)([dwm])$", re.IGNORECASE)
 
+# Duration pattern for engagement filters (Issue #170).
+# Matches one ``Nunit`` token where N is an int or float and unit is s/m/h.
+_DURATION_TOKEN_PATTERN = re.compile(r"(\d+(?:\.\d+)?)([smh])", re.IGNORECASE)
+# Bare numeric pattern (no unit suffix) — interpreted as minutes (Issue #170).
+_BARE_NUMBER_PATTERN = re.compile(r"^\d+(?:\.\d+)?$")
+
+
+def parse_duration_to_seconds(value: str) -> int:
+    """Parse a duration string into integer seconds (Issue #170).
+
+    Accepts:
+    - ``Ns`` / ``Nm`` / ``Nh`` (e.g. ``30s``, ``5m``, ``1h``).
+    - Combinations like ``1h30m`` (sum of tokens, case-insensitive).
+    - A bare integer or float, interpreted as **minutes**
+      (so ``"5"`` == ``"5m"`` == 300 seconds). This matches the UX
+      intuition called out in Issue #170: ``--min-engaged 5`` means
+      "5 minutes of engagement", not "5 seconds".
+
+    Returns the total duration in seconds, truncated to ``int``.
+
+    Raises:
+        ValueError: On empty input, negative values, unknown units,
+            trailing garbage (``5m garbage``), or any other malformed
+            input. The CLI layer wraps this in ``click.BadParameter``
+            so the user gets a clean exit code 2.
+
+    Examples:
+        >>> parse_duration_to_seconds("5m")
+        300
+        >>> parse_duration_to_seconds("30s")
+        30
+        >>> parse_duration_to_seconds("1h")
+        3600
+        >>> parse_duration_to_seconds("1h30m")
+        5400
+        >>> parse_duration_to_seconds("5")
+        300
+        >>> parse_duration_to_seconds("2.5")
+        150
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"duration must be a string, got {type(value).__name__}")
+    s = value.strip()
+    if not s:
+        raise ValueError(f"empty duration: {value!r}")
+    if s.startswith("-"):
+        raise ValueError(f"negative duration: {value!r}")
+
+    # Bare numeric -> minutes
+    if _BARE_NUMBER_PATTERN.match(s):
+        try:
+            return int(float(s) * 60)
+        except ValueError as exc:  # pragma: no cover - bare-number regex prevents this
+            raise ValueError(f"invalid duration: {value!r}") from exc
+
+    # Tokenised parse — each token must contribute consecutively and
+    # cover the entire string.
+    total = 0.0
+    pos = 0
+    matched_any = False
+    for m in _DURATION_TOKEN_PATTERN.finditer(s):
+        if m.start() != pos:
+            raise ValueError(f"invalid duration: {value!r}")
+        n = float(m.group(1))
+        unit = m.group(2).lower()
+        if unit == "s":
+            total += n
+        elif unit == "m":
+            total += n * 60
+        elif unit == "h":
+            total += n * 3600
+        else:  # pragma: no cover - regex restricts to s/m/h
+            raise ValueError(f"unknown duration unit: {unit!r}")
+        pos = m.end()
+        matched_any = True
+    if not matched_any or pos != len(s):
+        raise ValueError(f"invalid duration: {value!r}")
+    return int(total)
+
 
 def parse_date_filter(value: str) -> datetime | None:
     """Parse a date filter value, supporting both absolute and relative formats.

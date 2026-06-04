@@ -12,8 +12,9 @@ trajectories — from both the cloud product and local CLI sessions.
   to opt back into per-sub rendering. *(`list` and `refs` flipped in v0.18.0
   — see the [exploration guide](docs/guides/exploration.md#roots-only-default)
   for the migration note.)*
-- 📚 **Index** them into a local SQLite database (refs, actions, contributions, human input)
+- 📚 **Index** them into a local SQLite database (refs, actions, contributions, human input, engagement)
 - 🤖 **Analyze** with LLMs (objectives, summaries, weekly reports, auto-titles)
+- 🎯 **Filter** by engagement (`--engaged` / `--no-engaged` / `--min-engaged 5m` / `--min-engagement-ratio 25`) on `list` and every `gen` subcommand
 - 📈 **Report** velocity (merged-PRs × LOC × human-words) as tables, CSV, or 3-panel charts
 - 🔍 **Search & ask** semantically via embeddings + RAG (with optional multi-step agent mode)
 - 🐙 **Backfill LOC** for every PR/push contribution via the GitHub API
@@ -68,6 +69,58 @@ A 5-minute end-to-end walkthrough lives at
 A flag-by-flag command index is at [docs/reference/cli.md](docs/reference/cli.md).
 For terminology (change_ref, partial_loc, manifest, sandbox, …) see
 [docs/reference/glossary.md](docs/reference/glossary.md).
+
+## Engagement filtering
+
+`ohtv list`, `ohtv gen objs`, `ohtv gen titles`, and `ohtv gen run` all accept
+the same four filter flags for selecting conversations by sustained-attention
+("engaged human minutes") metrics. The flags are layered on top of every
+existing filter (`--repo`, `--pr`, `--label`, `--since` / `--until`, …) and
+work identically across `-F table`, `-F json`, and `-F csv` output.
+
+| Flag | Semantics |
+|------|-----------|
+| `--engaged` | Only conversations with `engaged_seconds > 0`. Missing engagement rows are excluded. |
+| `--no-engaged` | Fire-and-forget: keeps rows where `engaged_seconds == 0` **OR** the engagement row is missing entirely. This is the **only** flag that includes missing rows — a never-processed conversation is conservatively treated as un-engaged. |
+| `--min-engaged DURATION` | Threshold on `engaged_seconds`. Accepts `30s` / `5m` / `1h` / `1h30m` (case-insensitive) or a bare number interpreted as **minutes** (so `5` ≡ `5m`, **not** `5s`). |
+| `--min-engagement-ratio PCT` | Threshold on `engaged_seconds / total_duration_seconds`, expressed as a percentage `[0, 100]`. Rows with `total_duration_seconds == 0` / `NULL` / no engagement row are excluded. |
+
+**Mutual exclusion** (exits with code 2):
+
+- `--engaged` ⊕ `--no-engaged`
+- `--no-engaged` ⊕ `--min-engaged` / `--min-engagement-ratio`
+- `--engaged` **+** `--min-engaged` / `--min-engagement-ratio` composes silently
+  (the threshold implies engaged).
+
+**Examples:**
+
+```bash
+# Productivity review: what did I actually steer?
+ohtv list --engaged --with-engagement
+
+# Deep-dive sessions from the last week
+ohtv list --min-engaged 5m --week
+
+# Re-run objective analysis only for conversations where I was engaged
+# at least 25% of the wall-clock — composes with every other filter.
+ohtv gen objs --min-engagement-ratio 25 --label status=active
+
+# Auto-title only conversations the agent ran unattended
+ohtv gen titles --no-engaged --week
+```
+
+**Prerequisite** (same as `--with-engagement` display): engagement data lives in
+the `conversation_engagement` table populated by the `engagement` indexing
+stage from [#163](https://github.com/jpshackelford/ohtv/issues/163) / [PR
+#165](https://github.com/jpshackelford/ohtv/pull/165). Run `ohtv db process
+all` (or `ohtv db process engagement` for just this stage) after syncing —
+`ohtv sync` does this automatically. Conversations without an engagement row
+are excluded by `--engaged`, `--min-engaged`, and `--min-engagement-ratio`,
+and **included** by `--no-engaged`.
+
+Full details and per-command flag tables:
+[exploration](docs/guides/exploration.md#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio)
+· [analysis](docs/guides/analysis.md#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio).
 
 ## Configuration
 

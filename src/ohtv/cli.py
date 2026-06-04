@@ -2247,6 +2247,218 @@ class FilterResult:
     show_all: bool  # Whether filters imply showing all results
 
 
+def _parse_min_engaged_callback(
+    ctx: click.Context | None,
+    param: click.Parameter | None,
+    value: str | None,
+) -> int | None:
+    """Click callback for ``--min-engaged DURATION`` (Issue #170).
+
+    Wraps :func:`ohtv.filters.parse_duration_to_seconds`, translating
+    its ``ValueError`` into a :class:`click.BadParameter` so the user
+    gets a clean exit code 2 with a helpful message.
+    """
+    if value is None:
+        return None
+    from ohtv.filters import parse_duration_to_seconds
+
+    try:
+        return parse_duration_to_seconds(value)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), ctx=ctx, param=param) from exc
+
+
+def engagement_filter_options(func):
+    """Decorator that adds the four Issue #170 engagement filter flags.
+
+    Applied to ``ohtv list``, ``gen objs``, ``gen titles``, and
+    ``gen run``. Each command gains:
+
+    * ``--engaged`` / ``--no-engaged`` (mutually exclusive)
+    * ``--min-engaged DURATION``
+    * ``--min-engagement-ratio PCT``
+
+    Mutual-exclusion and DURATION parsing are validated in
+    :func:`_apply_conversation_filters` /
+    :func:`_parse_min_engaged_callback` so every call site shares the
+    same error path.
+    """
+    func = click.option(
+        "--min-engagement-ratio",
+        "min_engagement_ratio",
+        type=click.FloatRange(0.0, 100.0),
+        default=None,
+        metavar="PCT",
+        help=(
+            "Filter to conversations where engaged_seconds / "
+            "total_duration_seconds >= PCT / 100. PCT is a float in "
+            "[0, 100] (e.g. 25 means 'engaged at least 25% of the "
+            "wall-clock'). Rows with total_duration_seconds == 0 or "
+            "missing engagement data are excluded. Data comes from "
+            "the 'engagement' processing stage; run 'ohtv db process "
+            "all' or 'ohtv sync' to populate it. When combined with "
+            "--min-engaged, both thresholds must be satisfied. "
+            "Mutually exclusive with --no-engaged."
+        ),
+    )(func)
+    func = click.option(
+        "--min-engaged",
+        "min_engaged",
+        default=None,
+        callback=_parse_min_engaged_callback,
+        metavar="DURATION",
+        help=(
+            "Filter to conversations with engaged_seconds >= DURATION. "
+            "Accepts 5m, 30s, 1h, 1h30m (case-insensitive), or a bare "
+            "number (interpreted as minutes — '5' means 5 minutes). "
+            "Missing engagement data excludes the row. Data comes "
+            "from the 'engagement' processing stage; run 'ohtv db "
+            "process all' or 'ohtv sync' to populate it. When "
+            "combined with --min-engagement-ratio, both thresholds "
+            "must be satisfied. Mutually exclusive with --no-engaged."
+        ),
+    )(func)
+    func = click.option(
+        "--no-engaged",
+        "no_engaged",
+        is_flag=True,
+        default=False,
+        help=(
+            "Filter to fire-and-forget conversations (engaged_seconds "
+            "== 0 or no engagement row). Useful for spotting "
+            "automation candidates / silent failures. This is the "
+            "only engagement flag that treats a missing engagement "
+            "row as 'include' — a never-processed conversation is "
+            "conservatively assumed un-engaged. Mutually exclusive "
+            "with --engaged, --min-engaged, --min-engagement-ratio."
+        ),
+    )(func)
+    func = click.option(
+        "--engaged",
+        "engaged",
+        is_flag=True,
+        default=False,
+        help=(
+            "Filter to conversations with engaged_seconds > 0. "
+            "Data comes from the 'engagement' processing stage; "
+            "missing rows are excluded. Run 'ohtv db process all' "
+            "or 'ohtv sync' to populate it. Mutually exclusive with "
+            "--no-engaged. Composes silently with --min-engaged / "
+            "--min-engagement-ratio (the threshold flags imply it)."
+        ),
+    )(func)
+    return func
+
+
+def _validate_engagement_filter_args(
+    *,
+    engaged: bool,
+    no_engaged: bool,
+    min_engaged_seconds: int | None,
+    min_engagement_ratio: float | None,
+) -> None:
+    """Validate engagement filter flag combinations (Issue #170).
+
+    Called from :func:`_apply_conversation_filters` BEFORE any DB work
+    so the user gets a fast ``click.BadParameter`` exit (code 2) on
+    conflicting flags. ``--engaged`` combined with ``--min-engaged`` /
+    ``--min-engagement-ratio`` is permitted — ``--engaged`` is silently
+    absorbed by the threshold flags rather than erroring.
+    """
+    if engaged and no_engaged:
+        raise click.BadParameter(
+            "--engaged and --no-engaged are mutually exclusive."
+        )
+    if no_engaged and (
+        min_engaged_seconds is not None or min_engagement_ratio is not None
+    ):
+        raise click.BadParameter(
+            "--no-engaged cannot be combined with --min-engaged or "
+            "--min-engagement-ratio (they require positive engagement)."
+        )
+
+
+def _filter_by_engagement(
+    conversations: list[ConversationInfo],
+    *,
+    engaged: bool,
+    no_engaged: bool,
+    min_engaged_seconds: int | None,
+    min_engagement_ratio: float | None,
+) -> list[ConversationInfo]:
+    """Apply engagement filters (Issue #170).
+
+    Reuses PR #171's :func:`_load_engagement_for_conversations` helper
+    for a single batched DB lookup over the candidate set (``WHERE
+    conversation_id IN (?, ?, ...)``, chunked at 900 IDs). The
+    in-memory predicates are O(N) over the candidate list.
+
+    Filter semantics:
+
+    * ``--engaged`` keeps a row iff its ``conversation_engagement`` row
+      exists AND ``engaged_seconds > 0``.
+    * ``--no-engaged`` keeps a row iff its ``conversation_engagement``
+      row is missing OR ``engaged_seconds == 0``. This is the only
+      flag that treats missing rows as **include** (matches the
+      "fire-and-forget" intent — a never-processed conversation is
+      conservatively assumed un-engaged).
+    * ``--min-engaged DURATION`` keeps a row iff ``engaged_seconds >=
+      duration_in_seconds``. Missing rows are excluded.
+    * ``--min-engagement-ratio PCT`` keeps a row iff
+      ``total_duration_seconds > 0`` AND ``engaged_seconds /
+      total_duration_seconds >= PCT / 100``. Rows with
+      ``total_duration_seconds == 0`` or ``NULL`` are excluded.
+
+    Caller must have validated the flag combination via
+    :func:`_validate_engagement_filter_args` first.
+    """
+    # No engagement flag set → no-op. Skip the DB hit entirely.
+    if not (
+        engaged
+        or no_engaged
+        or min_engaged_seconds is not None
+        or min_engagement_ratio is not None
+    ):
+        return conversations
+
+    if not conversations:
+        return conversations
+
+    engagement_map = _load_engagement_for_conversations(conversations)
+
+    def keep(conv: ConversationInfo) -> bool:
+        row = engagement_map.get(conv.id)
+
+        # --no-engaged: missing row OR engaged_seconds == 0.
+        if no_engaged:
+            if row is None:
+                return True
+            return (row.get("engaged_seconds") or 0) == 0
+
+        # All remaining flags require a present row with engaged_seconds > 0.
+        if row is None:
+            return False
+        engaged_s = row.get("engaged_seconds") or 0
+        if engaged_s <= 0:
+            return False
+
+        # Threshold: minimum engaged seconds.
+        if min_engaged_seconds is not None and engaged_s < min_engaged_seconds:
+            return False
+
+        # Threshold: minimum engagement ratio.
+        if min_engagement_ratio is not None:
+            total = row.get("total_duration_seconds") or 0
+            if total <= 0:
+                return False
+            if (engaged_s / total) < (min_engagement_ratio / 100.0):
+                return False
+
+        return True
+
+    return [c for c in conversations if keep(c)]
+
+
 def _apply_conversation_filters(
     config: Config,
     *,
@@ -2260,6 +2472,10 @@ def _apply_conversation_filters(
     initial_show_all: bool = False,
     errors_only: bool = False,
     include_sub_conversations: bool = False,
+    engaged: bool = False,
+    no_engaged: bool = False,
+    min_engaged_seconds: int | None = None,
+    min_engagement_ratio: float | None = None,
 ) -> FilterResult:
     """Apply all conversation filters and return filtered results.
 
@@ -2283,14 +2499,36 @@ def _apply_conversation_filters(
             ``--include-sub-conversations`` flag. Other callers
             (``list``, ``summary``) leave the default — they have
             their own roll-up policy in #127.
+        engaged: Issue #170. Keep only rows with ``engaged_seconds > 0``.
+        no_engaged: Issue #170. Keep only fire-and-forget rows
+            (missing engagement row or ``engaged_seconds == 0``).
+            Mutually exclusive with ``engaged`` and the ``min_*`` knobs.
+        min_engaged_seconds: Issue #170. Keep only rows with
+            ``engaged_seconds >= min_engaged_seconds``. ``None`` disables.
+        min_engagement_ratio: Issue #170. Keep only rows with
+            ``engaged_seconds / total_duration_seconds >=
+            min_engagement_ratio / 100``. ``None`` disables.
 
     Returns:
         FilterResult with filtered conversations and metadata
     """
+    # Issue #170: validate engagement flag combinations before any DB work.
+    _validate_engagement_filter_args(
+        engaged=engaged,
+        no_engaged=no_engaged,
+        min_engaged_seconds=min_engaged_seconds,
+        min_engagement_ratio=min_engagement_ratio,
+    )
+
     show_all = initial_show_all
 
     # Any filter implies --all (show all matching records)
-    if any([since, until, pr_filter, repo_filter, action_filter, label_filter, errors_only]):
+    if any([
+        since, until, pr_filter, repo_filter, action_filter, label_filter,
+        errors_only, engaged, no_engaged,
+        min_engaged_seconds is not None,
+        min_engagement_ratio is not None,
+    ]):
         show_all = True
 
     # Load conversations from both sources, with date filtering pushed to DB
@@ -2344,7 +2582,17 @@ def _apply_conversation_filters(
     # Apply error filtering
     if errors_only:
         conversations = _filter_by_errors(config, conversations)
-    
+
+    # Apply engagement filtering (Issue #170). Last in the chain so the
+    # batched DB lookup runs only on the surviving candidates.
+    conversations = _filter_by_engagement(
+        conversations,
+        engaged=engaged,
+        no_engaged=no_engaged,
+        min_engaged_seconds=min_engaged_seconds,
+        min_engagement_ratio=min_engagement_ratio,
+    )
+
     return FilterResult(
         conversations=conversations,
         possible_match_ids=possible_match_ids,
@@ -2775,6 +3023,7 @@ def _populate_error_info(
     default=False,
     help="Include sub-conversations created by agent delegation (default: roots only)",
 )
+@engagement_filter_options
 @logging_options
 @click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def list_conversations(
@@ -2799,6 +3048,10 @@ def list_conversations(
     errors_only: bool,
     with_engagement: bool,
     include_sub_conversations: bool,
+    engaged: bool,
+    no_engaged: bool,
+    min_engaged: int | None,
+    min_engagement_ratio: float | None,
     verbose: bool,
 ) -> None:
     """List available conversations from local and cloud sources.
@@ -2830,6 +3083,10 @@ def list_conversations(
         initial_show_all=show_all,
         errors_only=errors_only,
         include_sub_conversations=include_sub_conversations,
+        engaged=engaged,
+        no_engaged=no_engaged,
+        min_engaged_seconds=min_engaged,
+        min_engagement_ratio=min_engagement_ratio,
     )
 
     conversations = filter_result.conversations
@@ -9512,6 +9769,7 @@ def gen() -> None:
         "to populate."
     ),
 )
+@engagement_filter_options
 def gen_objs_cmd(
     conversation_id: str | None,
     variant: str | None,
@@ -9539,6 +9797,10 @@ def gen_objs_cmd(
     quiet: bool,
     include_sub_conversations: bool,
     with_engagement: bool,
+    engaged: bool,
+    no_engaged: bool,
+    min_engaged: int | None,
+    min_engagement_ratio: float | None,
 ) -> None:
     """Identify what the user hopes to achieve in a conversation.
 
@@ -9589,14 +9851,19 @@ def gen_objs_cmd(
     # Check if filters are being used (multi-conversation options)
     has_filters = any([
         limit is not None, show_all, offset > 0, since_date, until_date,
-        day_date, week_date, pr_filter, repo_filter, action_filter, label_filter, reverse
+        day_date, week_date, pr_filter, repo_filter, action_filter, label_filter, reverse,
+        # Issue #170: engagement filters are multi-conversation only.
+        engaged, no_engaged,
+        min_engaged is not None, min_engagement_ratio is not None,
     ])
-    
+
     # Error if both conversation_id and filters are provided
     if conversation_id is not None and has_filters:
         raise click.UsageError(
             "Cannot use filters (--day, --week, --since, --until, --pr, --repo, "
-            "--action, --label, -n, --all, --offset, --reverse) with a specific conversation_id.\n"
+            "--action, --label, -n, --all, --offset, --reverse, --engaged, "
+            "--no-engaged, --min-engaged, --min-engagement-ratio) with a "
+            "specific conversation_id.\n"
             "Either analyze a single conversation: ohtv gen objs <conversation_id>\n"
             "Or analyze multiple conversations: ohtv gen objs --day"
         )
@@ -9634,6 +9901,10 @@ def gen_objs_cmd(
             quiet=quiet,
             include_sub_conversations=include_sub_conversations,
             with_engagement=with_engagement,
+            engaged=engaged,
+            no_engaged=no_engaged,
+            min_engaged_seconds=min_engaged,
+            min_engagement_ratio=min_engagement_ratio,
         )
     else:
         # Single-conversation mode - use --json for JSON output
@@ -9675,6 +9946,10 @@ def _run_batch_objectives_analysis(
     quiet: bool = False,
     include_sub_conversations: bool = False,
     with_engagement: bool = False,
+    engaged: bool = False,
+    no_engaged: bool = False,
+    min_engaged_seconds: int | None = None,
+    min_engagement_ratio: float | None = None,
 ) -> None:
     """Run objectives analysis on multiple conversations.
 
@@ -9686,6 +9961,10 @@ def _run_batch_objectives_analysis(
     (the default), agent-delegated sub-conversations are dropped from
     the selection so we don't analyze them as independent units of
     human intent.
+
+    The ``engaged`` / ``no_engaged`` / ``min_engaged_seconds`` /
+    ``min_engagement_ratio`` knobs are Issue #170 and are forwarded
+    verbatim to :func:`_apply_conversation_filters`.
     """
     from ohtv.progress import make_progress
     from ohtv.parallel import format_remaining
@@ -9708,6 +9987,10 @@ def _run_batch_objectives_analysis(
         include_empty=False,  # Summary always excludes empty
         initial_show_all=show_all,
         include_sub_conversations=include_sub_conversations,
+        engaged=engaged,
+        no_engaged=no_engaged,
+        min_engaged_seconds=min_engaged_seconds,
+        min_engagement_ratio=min_engagement_ratio,
     )
     
     conversations = filter_result.conversations
@@ -10398,6 +10681,7 @@ def _run_objectives_analysis(
     default=False,
     help="Include sub-conversations created by agent delegation (default: roots only)",
 )
+@engagement_filter_options
 def gen_titles_cmd(
     limit: int | None,
     show_all: bool,
@@ -10419,6 +10703,10 @@ def gen_titles_cmd(
     verbose: bool,
     lock_timeout: float,
     include_sub_conversations: bool,
+    engaged: bool,
+    no_engaged: bool,
+    min_engaged: int | None,
+    min_engagement_ratio: float | None,
 ) -> None:
     """Auto-rename placeholder-titled cloud conversations using cached ``gen objs`` analyses.
 
@@ -10474,6 +10762,10 @@ def gen_titles_cmd(
                 model=model,
                 yes=yes,
                 include_sub_conversations=include_sub_conversations,
+                engaged=engaged,
+                no_engaged=no_engaged,
+                min_engaged_seconds=min_engaged,
+                min_engagement_ratio=min_engagement_ratio,
             )
     except SyncLockTimeout as e:
         console.print(f"[red]Error:[/red] {e}")
@@ -10500,6 +10792,10 @@ def _run_gen_titles(
     model: str | None,
     yes: bool,
     include_sub_conversations: bool = False,
+    engaged: bool = False,
+    no_engaged: bool = False,
+    min_engaged_seconds: int | None = None,
+    min_engagement_ratio: float | None = None,
     # Injection hooks (used by tests to bypass the live LLM + cloud client)
     llm_call=None,
     cloud_client=None,
@@ -10548,6 +10844,10 @@ def _run_gen_titles(
         include_empty=False,
         initial_show_all=show_all,
         include_sub_conversations=include_sub_conversations,
+        engaged=engaged,
+        no_engaged=no_engaged,
+        min_engaged_seconds=min_engaged_seconds,
+        min_engagement_ratio=min_engagement_ratio,
     )
     conversations = sorted(
         filter_result.conversations,
@@ -11186,6 +11486,7 @@ def _apply_local_title_writeback(
     default=False,
     help="Include sub-conversations created by agent delegation (default: roots only)",
 )
+@engagement_filter_options
 def gen_run_cmd(
     job_id: str,
     model: str | None,
@@ -11201,6 +11502,10 @@ def gen_run_cmd(
     fmt: str,
     yes: bool,
     include_sub_conversations: bool,
+    engaged: bool,
+    no_engaged: bool,
+    min_engaged: int | None,
+    min_engagement_ratio: float | None,
 ) -> None:
     """Run an analysis job by ID (supports both single and aggregate modes).
 
@@ -11271,6 +11576,10 @@ def gen_run_cmd(
             fmt=fmt,
             yes=yes,
             include_sub_conversations=include_sub_conversations,
+            engaged=engaged,
+            no_engaged=no_engaged,
+            min_engaged_seconds=min_engaged,
+            min_engagement_ratio=min_engagement_ratio,
         )
     else:
         # For single-trajectory jobs, defer to gen objs logic
@@ -11295,6 +11604,10 @@ def _run_aggregate_job(
     fmt: str,
     yes: bool,
     include_sub_conversations: bool = False,
+    engaged: bool = False,
+    no_engaged: bool = False,
+    min_engaged_seconds: int | None = None,
+    min_engagement_ratio: float | None = None,
 ) -> None:
     """Run an aggregate analysis job.
 
@@ -11374,6 +11687,10 @@ def _run_aggregate_job(
         include_empty=False,
         initial_show_all=True,
         include_sub_conversations=include_sub_conversations,
+        engaged=engaged,
+        no_engaged=no_engaged,
+        min_engaged_seconds=min_engaged_seconds,
+        min_engagement_ratio=min_engagement_ratio,
     )
     
     conversations = filter_result.conversations
