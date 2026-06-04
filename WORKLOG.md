@@ -1801,3 +1801,37 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `4f5a012` (impl PR #1
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-06-04 06:32Z — Issue #168 implementation worker (impl worker, spawned by orchestrator)
+
+**Task:** Implement Issue #168 — add `--with-engagement` flag to `ohtv gen objs` JSON output. Mirror PR #171's pattern for `ohtv list`.
+
+**Outcome:** **PR #172 opened, draft → ready, CI green.**
+
+- **PR:** https://github.com/jpshackelford/ohtv/pull/172
+- **Branch:** `feat/issue-168-gen-objs-engagement` @ `8017f02`
+- **CI status:** `lint` ✅, `pytest` ✅, `enable-orchestrator` ✅ — all green on first push, no fixup commits needed.
+- **Tests:** 22 new tests in `tests/unit/test_cli_gen_objs_engagement.py`. Full suite `2373 passed, 2 skipped, 3 xfailed` in 35.6s.
+
+**What landed:**
+1. New `--with-engagement` flag on `gen objs` (decorator block + signature + forwarding to both helpers).
+2. New `_load_engagement_for_ids(conversation_ids)` helper — sibling of the existing `_load_engagement_for_conversations(conversations)` from PR #171, takes raw IDs since the `gen objs` batch path stores results as dicts (not `ConversationInfo`). `_load_engagement_for_conversations` now delegates to the new helper — single source of truth, no duplicated batching logic.
+3. New `_engagement_json_fields(row)` helper — centralises the five-key dict (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`, `engagement_ratio`) used by both the multi-conv and single-conv JSON emitters. Always returns the same five keys; missing rows ⇒ all-nulls.
+4. Multi-conv JSON branch (`_run_batch_objectives_analysis`): batch-loads engagement when flag set; merges five fields per item.
+5. Single-conv JSON branch (`_run_objectives_analysis`): replaces `analysis.model_dump_json(indent=2)` with `analysis.model_dump()` + merge + `json.dumps(..., default=str)` to preserve `ObjectiveStatus` enum serialization parity.
+6. Schema-stable `null` for missing values (matches `show -F json` and `list --with-engagement -F json`); no-op for `-F table` / `-F markdown` (regression-guarded by tests).
+
+**Notes / follow-ups carried forward:**
+- **uv.lock churn:** `main` had `version = "0.22.0"` in `uv.lock`, but `pyproject.toml` / `__init__.py` were already on 0.23.0 (the auto-released version after PR #171). `uv sync` refreshed the lockfile to 0.23.0 — included in the feature commit since the release workflow does NOT update `uv.lock` (per AGENTS.md). Future workers should expect this kind of one-line lockfile catch-up on every fresh feature branch until the release workflow is taught to bump the lockfile.
+- **`_engagement_ratio` precision discrepancy:** Issue body says 3 decimals; PR #171's helper rounds to 4. For the canonical example (`2460 / 8040 = 0.305970...`) both produce `0.306` after Python's trailing-zero trim, so no user-visible divergence. Used PR #171's helper as-is per orchestrator's hard rule "prefer #171 implementation when in disagreement with issue body". Documented in PR description's "Notes for the reviewer" so a future reader doesn't double-take.
+- **sqlite3.Connection is immutable** — can't `setattr` `execute` directly. The chunk-count test wraps `get_ready_connection` with a proxy class instead. Worth remembering for future DB-query-counting tests.
+- **`GH_TOKEN=$GITHUB_TOKEN` shim worked first try this cycle.** `$GITHUB_TOKEN` was populated (not empty as the orchestrator's prompt warned might be the case); no fallback to `$github_token` needed. The shim is durable across both states.
+- **Engagement-metric family progress:** PR #167 closed (PR #171) + PR #168 ready for review (PR #172). Queue now: **#169 → #170**, then medium-priority pair #161 / #162.
+
+**Conversation ID:** `e3d39820` (this conversation, spawned ~06:19Z, exited 06:33Z).
+
+EXIT — docs / testing / review / merge are separate orchestrator-spawned conversations.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
