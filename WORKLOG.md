@@ -1,4 +1,87 @@
+## Log
 
+
+
+### 2026-06-04 07:50 UTC - Orchestrator
+
+**Active Workers (at cycle exit):**
+
+| Conv ID   | Type  | Working On                                                | Status                    |
+|-----------|-------|-----------------------------------------------------------|---------------------------|
+| `0607681` | merge | PR #172 — spawned to squash, **PR was human-merged @ 07:51Z** | **NEW** (running, see note) |
+| `98fabf1` | testing | PR #172 — test report posted 07:42Z                     | finished, sandbox=RUNNING |
+
+**Step 0 — Setup:** Reused existing `.venv` from prior orchestrator cycles in `/workspace/project/ohtv`. No tool re-install needed this cycle. Direct `gh`/`curl` queries used for state-gather; `ohtv sync` skipped.
+
+**Step 0.5 — Housekeeping (deferred again):** WORKLOG.md at 1952 lines on entry (>>300, **20 consecutive cycles overdue**). Productive cycle (worker spawned + race-resolution entry) → deferred per skill rule.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged.
+
+**Step 2 — Slot scan at cycle entry:** All non-self workers `null`/PAUSED except `98fabf1` (testing worker from 07:20Z cycle) which was `exec=finished, sandbox=RUNNING` — terminal/clean-exit. **Both slots clear.**
+
+**Step 3 — State gather (at 07:47Z, before the human merge):**
+- **Open PRs (1 at scan time):** [PR #172](https://github.com/jpshackelford/ohtv/pull/172) — `feat: add --with-engagement flag to gen objs JSON output`. `headRefOid=cabd1775babd41867c5fc0b5efd353d7292c3209`, CI green, `mergeable=MERGEABLE`, not draft, 0 review threads.
+  - 06:54Z: Docs worker `5a0f995` posted "📝 Documentation updated".
+  - 06:37:51Z: `github-actions[bot]` review **🟡 Acceptable, worth merging**. Sole advisory: nesting refactor in `_load_engagement_for_ids` (deferred).
+  - 07:42:55Z: Testing worker `98fabf1` posted manual test results, verdict 🟢 **Ready to merge** (8 scenarios, real DB data, exact ratio math).
+- **Issue census:** Needs expansion = 0 (6th consecutive cycle), ready+prioritized = 5 (#168→PR #172, #169, #170, #161, #162), on hold = 2 (#26, #90).
+
+**Step 4 — Decisions:**
+- **PR slot** → Spawned **merge worker `0607681`** for PR #172. Decision-tree match: "PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker." First spawn attempt (`9896eb0a`) ERRORED with `404 Not Found` on the sandbox runtime URL — transient infra issue. **Retried after 5s and succeeded** (`4dca60f4` → READY in 1 poll, `app_conversation_id=06076811…`, `execution_status=running`).
+- **Expansion slot** → IDLE (7th consecutive cycle).
+
+**⚠ Race condition discovered at cycle close:**
+
+When the orchestrator did its post-spawn `git pull --ff-only origin main` for the worklog commit (at ~07:53Z), it discovered:
+
+```
+01b4e7f (HEAD -> main, origin/main, origin/HEAD) feat: add --with-engagement flag to gen objs JSON output
+```
+
+- **PR #172 was squash-merged at 2026-06-04T07:51:33Z** by `John-Mason P. Shackelford <jpshack@gmail.com>` (the human owner), **NOT** by an OpenHands worker.
+- Issue #168 auto-closed at 07:51:34Z (`Fixes #168`).
+- The merge happened in the ~4 minute window between state-gather (07:47Z) and the spawned merge worker's first action.
+- The squash commit message is comprehensive (lifts the full PR description body into the commit body) — no Co-authored-by trailers, no openhands disclosure footer.
+
+**Implications for spawned merge worker `0607681`:**
+
+The worker's prompt step 1 (stale-HEAD safety check) and step 6 (squash-merge) will both find the PR in `state: MERGED, mergedAt: 2026-06-04T07:51:33Z`. The worker should detect this on its first `gh pr view 172 --json state` call. **Expected behaviour:**
+
+- ✅ Recognise PR is already merged → skip steps 1–6 entirely.
+- ✅ Proceed to step 7 (post-merge verification): confirm `ohtv-v0.24.0` published, `pyproject.toml` / `__init__.py` on `0.24.0`.
+- ✅ Proceed to step 8 (file the deferred-refactor follow-up issue `refactor: reduce nesting in _load_engagement_for_ids`). This is still useful work and the worker has the full context to file it correctly.
+- ✅ Proceed to step 9 (worklog append). Worker should write a clear "PR was human-merged before I started; I verified release + filed follow-up issue" entry rather than claiming the merge.
+- ⚠ **Risk**: Worker may try to `gh pr merge 172 --squash` regardless. `gh` will reject (`PR not in mergeable state` / `already merged`), so no actual damage — just a noisy error. Worker should handle gracefully.
+
+**No corrective action taken this cycle.** The orchestrate skill mandates one action per wake-up; the merge worker will discover the state itself. Worst case it exits without filing the follow-up issue — next cycle can file it.
+
+**Step 5 — Quiet-cycle check:** Productive cycle (1 worker spawned, even though redundant). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~08:20Z):** Likely outcomes —
+  - ~60%: `0607681` finished (detected merge, filed follow-up issue, verified release). PR slot opens → spawn **implementation worker for #169** (next `priority:high`).
+  - ~25%: `0607681` finished but did NOT file follow-up issue (got confused by merged state) → next orchestrator files it inline, then spawns impl worker for #169.
+  - ~10%: `0607681` still running (verifying release, etc.).
+  - ~5%: Worker errored or stuck — would investigate.
+- **2 cycles out (~08:50Z):** PR #169 likely in implementation. PR slot fills.
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **Human-merge race (new this cycle):** Owner can merge a PR while an orchestrator cycle is mid-flight. Future merge worker prompts should explicitly handle the "PR already merged" case in step 1 (treat it as a clean exit, skip to steps 7–9). The post-test-comment window (07:42Z → 07:51Z, ~9 min) is when the human is most likely to merge directly — orchestrator cycles starting in that window should consider deferring the merge spawn for ~1–2 cycles or pre-checking `state=MERGED` immediately before the spawn call.
+- **Pending follow-up refactor issue:** `refactor: reduce nesting in _load_engagement_for_ids` — `_load_engagement_for_ids` has 5 levels of nesting (`try → with conn → for chunk → for row → if hasattr`); pr-review-bot suggested extracting `_process_engagement_rows`. Labels: `enhancement` + `priority:low`. If `0607681` doesn't file it, next orchestrator should.
+- **Spawn 404 retry pattern (new this cycle):** Transient `404 Not Found` on sandbox agent-server `/api/conversations` POST is recoverable with a single 5s-delay retry. Worth adding to the spawn-conversation skill if it recurs.
+- **WORKLOG.md size: 1952 → ~2030 lines post-entry. 20 consecutive cycles overdue on truncation.**
+- **Engagement-metric family — 2 closed, 2 in queue:** PR #171 closed #167; PR #172 closed #168 (human merge). Active queue: **#169 → #170**, then medium-priority pair: #161, #162.
+- **Plugin spec format unchanged:** `plugins: [{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}]`. 7th successful spawn in this orchestrator instance using this exact shape.
+- **Stale-HEAD safety check carried forward** for future merge worker prompts.
+- **Testing-worker spawn gap from prior cycle resolved:** the 07:20Z orchestrator cycle (at the top of WORKLOG.md) is what spawned `98fabf1`. Newest-entries-at-top reading-order convention re-confirmed.
+
+**Local checkout note:** `main` at `01b4e7f` (the squash merge). `git pull --ff-only` clean. Worklog entry committed directly to `main` per skill rule.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `0607681` (merge worker, redundant) and most likely spawns the impl worker for **#169**. The `ohtv-v0.24.0` release should be live within 30s of the merge (verify with `gh release view ohtv-v0.24.0 --repo jpshackelford/ohtv` next cycle).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 
 ## Log
 
