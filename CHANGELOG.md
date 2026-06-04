@@ -1,6 +1,61 @@
 # CHANGELOG
 
 
+## v0.24.0 (2026-06-04)
+
+### Chores
+
+- **worklog**: Orchestrator @ 2026-06-04T07:20Z — spawned testing worker for PR #172
+  ([`67d1c8b`](https://github.com/jpshackelford/ohtv/commit/67d1c8b24185249caf85c4ad1dea983779c566a2))
+
+- **worklog**: Orchestrator cycle 2026-06-04 06:21 UTC — spawn impl worker for #168
+  ([`9b578ef`](https://github.com/jpshackelford/ohtv/commit/9b578ef2f3b2d08bec683e48208416a08efe578d))
+
+- **worklog**: Orchestrator cycle — PR #172 → docs worker (5a0f995) spawned
+  ([`f4542fe`](https://github.com/jpshackelford/ohtv/commit/f4542fee52d8321d34aaedfa5cd704bdae2cc2a2))
+
+### Documentation
+
+- **worklog**: Impl worker — Issue #168 (PR #172) draft→ready, CI green
+  ([`f5dfd45`](https://github.com/jpshackelford/ohtv/commit/f5dfd457cb9c8ecb5d1a3e47a06a48b51fe57741))
+
+### Features
+
+- Add --with-engagement flag to gen objs JSON output
+  ([`01b4e7f`](https://github.com/jpshackelford/ohtv/commit/01b4e7fd3607f9b67f9a6d88b0ec98b395cbd40f))
+
+Adds an opt-in `--with-engagement` flag to `ohtv gen objs` that surfaces the sustained-attention
+  metric across the JSON exporter, in both single-conversation (`gen objs <id> --json`) and
+  multi-conversation (`gen objs -F json`) modes.
+
+When the flag is set, the JSON payload gains five fields per conversation: `engaged_seconds`,
+  `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`, and
+  `engagement_ratio`. Missing rows emit JSON `null` for every field so the schema is stable across
+  rows — consumers can rely on `engagement_ratio` being either a float in `[0.0, 1.0]` rounded to 4
+  decimals or `null`. Engagement rows come from the `engagement` indexing stage (`ohtv db process
+  engagement`); without it all five fields render as `null`, but rows are never filtered out.
+
+This completes the engagement-metric family for `gen objs` after PR #165 wired engagement into `ohtv
+  show -F json` and PR #171 added the engagement columns to `ohtv list`. The schema and semantics
+  here are deliberately identical to those two surfaces so consumers can mix and match outputs
+  without translation.
+
+The flag is JSON-only by design: passing `--with-engagement` with `-F table` or `-F markdown` is a
+  silent no-op so users can leave it in their aliases and switch formats freely. Markdown engagement
+  output is tracked separately in issue #169; engagement-based filtering (e.g.
+  `--min-engaged-seconds`) is tracked in issue #170.
+
+Internally, `_load_engagement_for_ids` was extracted as the ID-based sibling of
+  `_load_engagement_for_conversations` (now a thin delegator). It uses the same batched-query /
+  900-chunk / dashless normalization semantics that AGENTS.md item #14 codifies, so the
+  single-batched-SELECT performance characteristic is preserved across both call sites. A follow-up
+  to reduce nesting in `_load_engagement_for_ids` is tracked separately.
+
+Fixes #168.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+
 ## v0.23.0 (2026-06-04)
 
 ### Chores
