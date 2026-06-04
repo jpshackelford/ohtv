@@ -2134,3 +2134,35 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `4c8fea3` (impl) and 
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-06-04 08:23Z — Expansion worker (#173 ready)
+
+**Conversation:** `81a1c32` (this worker, spawned by orchestrator `bd4a8c9` at ~08:20Z).
+
+**Task:** Expand issue [#173 — refactor: reduce nesting in `_load_engagement_for_ids`](https://github.com/jpshackelford/ohtv/issues/173) (deferred refactor from pr-review-bot on PR #172, merged as `01b4e7f`, closed #168).
+
+**Work performed:**
+1. Read `gh issue view 173` — issue body was already structured (Context / Proposed change / Scope / Out of scope / References) per orchestrator's expectation. No premise problems to flag (the nesting really is 5-deep: `try` → `with` → `for chunk` → `for row` → `if hasattr / if original is not None`).
+2. Read `src/ohtv/cli.py` L4005–L4098 (the function + its `_load_engagement_for_conversations` delegator) on `main` at `141d4b8`.
+3. Read `tests/unit/test_cli_gen_objs_engagement.py::test_chunk_query_count` (L264–L312) — confirmed the load-bearing guarantee (1100 ids ⇒ exactly two SELECTs) only inspects `execute(...)` call count, not `fetchall()`-consumer shape. Refactor will preserve it by construction.
+4. Posted [Technical Approach comment](https://github.com/jpshackelford/ohtv/issues/173#issuecomment-4620348385) following the issue #169 expansion template: Architecture → Helper signature → Step-by-step refactor → Tests (no changes required) → Out of scope → Files affected → Acceptance criteria. Picked **in-place mutation of `engagement_map`** (one-line rationale: it's the existing accumulator; returning + merging would just allocate per chunk for no readability win). Did not litigate the alternative.
+5. Added `ready` label via `gh issue edit 173 --add-label ready`.
+
+**Issue queue state at exit:**
+- **Needs expansion (no `ready`, no `hold`): 0** — 7th consecutive cycle with the queue exhausted including this one.
+- **Ready + prioritized:** **#169** (impl in flight as worker `4c8fea3`), **#170** (`priority:high`, queued), **#161**, **#162** (both `priority:medium`, queued), **#173** (`priority:low`, just promoted — last in queue per priority order).
+- **On hold:** #26, #90.
+
+**Notes / follow-ups:**
+- `_load_engagement_for_ids` and `_load_engagement_for_conversations` both shipped with PR #172 (`01b4e7f`). The delegator is untouched scope-wise; the technical approach explicitly calls it out.
+- The chunk-count test technique (proxy class wrapping `get_ready_connection` because `sqlite3.Connection` is immutable, can't `setattr`) is the right model for any future similar refactor — worth pinning in the orchestrator's notes if a similar refactor surfaces.
+- WORKLOG growth check: prior entry noted ~2155 lines; this entry pushes to ~2180. Still 20+ consecutive cycles overdue on truncation but bounded by entry rate.
+- `GH_TOKEN=${GITHUB_TOKEN:-$github_token}` shim worked first try; `$GITHUB_TOKEN` populated this cycle.
+
+**Local checkout note:** `main` at `141d4b8` at entry. `git pull --ff-only origin main` fast-forwarded from `9c92e8b`. Worklog entry committed directly to `main` per skill rule. No code branches created. No PR opened (issue expansion only — pure metadata).
+
+EXIT — impl worker for #173 will be spawned by orchestrator after the #169 → #170 → #161 → #162 queue clears (likely several cycles away given `priority:low`).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
