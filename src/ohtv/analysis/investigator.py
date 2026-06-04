@@ -23,12 +23,14 @@ from openhands.sdk.tool import FinishTool, ThinkTool, ToolDefinition
 
 from ohtv.analysis.agent_tools import (
     GetRefsTool,
+    ListConversationsTool,
     SearchConversationsTool,
     ShowConversationTool,
 )
 from ohtv.analysis.rag import RAGAnswer
 
 if TYPE_CHECKING:
+    from ohtv.config import Config
     from ohtv.db.stores import (
         ConversationStore,
         EmbeddingStore,
@@ -68,7 +70,13 @@ You have been given an initial answer to a question, along with source citations
 1. **Assess the initial answer**: Is it complete? Are there gaps or areas that need more detail?
 2. **Investigate if needed**: Use your tools to gather more information:
    - `show_conversation`: Load the full transcript of a specific conversation to get more detail
-   - `search_conversations`: Find additional related conversations that might help
+   - `search_conversations`: Find additional related conversations using semantic similarity
+   - `list_conversations`: Enumerate conversations by metadata (date range, repo, PR, action, label). Use this when:
+       - The question is anchored to time ("yesterday", "last week", "in May")
+       - The question asks "how many" / "list all" / "every X"
+       - You want to verify a negative ("did we work on Y at all?")
+       - Search returned nothing or returned obviously-stale matches
+     Prefer this over `search_conversations` for temporal or enumerative questions.
    - `get_refs`: Get git references (PRs, issues, repos) for a conversation
 3. **Synthesize findings**: Produce a final comprehensive answer with citations
 
@@ -150,6 +158,7 @@ class InvestigationAgent:
         ref_store: "ReferenceStore | None" = None,
         repo_store: "RepoStore | None" = None,
         conversation_dirs: list[str] | None = None,
+        config: "Config | None" = None,
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
         console: Console | None = None,
     ):
@@ -163,6 +172,9 @@ class InvestigationAgent:
             ref_store: ReferenceStore for ref details
             repo_store: RepoStore for repository details
             conversation_dirs: List of directories containing conversations
+            config: Application Config; required to enable the
+                ``list_conversations`` metadata-browsing tool. When None
+                the tool is skipped (existing three tools still work).
             max_iterations: Maximum number of agent iterations
             console: Rich console for output (optional)
         """
@@ -173,6 +185,7 @@ class InvestigationAgent:
         self.ref_store = ref_store
         self.repo_store = repo_store
         self.conversation_dirs = conversation_dirs or []
+        self.config = config
         self.max_iterations = max_iterations
         self.console = console or Console()
 
@@ -210,6 +223,16 @@ class InvestigationAgent:
                 repo_store=self.repo_store,
             )
             tools.extend(ref_tools)
+
+        # ListConversations tool (Issue #160) — only when a Config is
+        # available, since the executor needs it to resolve conversation
+        # directories and dispatch to the cli filter helpers.
+        if self.config is not None:
+            list_tools = ListConversationsTool.create(
+                config=self.config,
+                conv_store=self.conv_store,
+            )
+            tools.extend(list_tools)
 
         return tools
 
@@ -449,6 +472,14 @@ class InvestigationAgent:
         elif tool_name == "get_refs":
             conv_id = args.get("conversation_id", "unknown")[:8]
             self.console.print(f"[dim]🔗 Getting refs for {conv_id}...[/dim]")
+        elif tool_name == "list_conversations":
+            filter_parts = []
+            for name in ("day", "week", "since", "until", "repo", "pr", "action", "label"):
+                value = args.get(name)
+                if value:
+                    filter_parts.append(f"{name}={value}")
+            filters_str = " ".join(filter_parts) if filter_parts else "no filters"
+            self.console.print(f"[dim]📋 Listing conversations: {filters_str}[/dim]")
         elif tool_name == "think":
             # Handled separately in the loop
             pass

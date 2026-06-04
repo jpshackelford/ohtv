@@ -209,6 +209,46 @@ class TestInvestigationAgentCreateTools:
         assert "search_conversations" in tool_names
         assert "get_refs" in tool_names
 
+    @patch.dict('os.environ', {'LLM_API_KEY': 'test-key'})
+    def test_create_tools_with_config_includes_list_conversations(self):
+        """Issue #160: When config is provided, list_conversations is registered."""
+        from ohtv.analysis.investigator import InvestigationAgent
+
+        agent = InvestigationAgent(
+            model="gpt-4o-mini",
+            embed_store=MagicMock(),
+            conv_store=MagicMock(),
+            config=MagicMock(),
+        )
+
+        tool_names = [t.name for t in agent._create_tools()]
+        assert "list_conversations" in tool_names
+
+    @patch.dict('os.environ', {'LLM_API_KEY': 'test-key'})
+    def test_create_tools_without_config_skips_list_conversations(self):
+        """When config is missing the new tool is silently omitted."""
+        from ohtv.analysis.investigator import InvestigationAgent
+
+        agent = InvestigationAgent(
+            model="gpt-4o-mini",
+            embed_store=MagicMock(),
+            conv_store=MagicMock(),
+            config=None,
+        )
+
+        tool_names = [t.name for t in agent._create_tools()]
+        assert "list_conversations" not in tool_names
+
+    def test_system_prompt_mentions_list_conversations(self):
+        """The system prompt must teach the agent when to choose browse vs. search."""
+        from ohtv.analysis.investigator import get_investigation_system_prompt
+
+        prompt = get_investigation_system_prompt()
+        assert "list_conversations" in prompt
+        # Must reference the temporal / enumerative cues
+        assert "yesterday" in prompt or "temporal" in prompt
+        assert "enumerative" in prompt or "list all" in prompt or "every X" in prompt
+
 
 class TestInvestigationAgentInvestigate:
     """Integration tests for InvestigationAgent.investigate() method."""

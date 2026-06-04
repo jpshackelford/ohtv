@@ -3579,6 +3579,7 @@ def ask(
                     ref_store=ref_store,
                     repo_store=repo_store,
                     conversation_dirs=conversation_dirs,
+                    config=config,
                     max_iterations=max_steps,
                     console=console,
                 )
