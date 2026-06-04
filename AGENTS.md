@@ -261,6 +261,20 @@ These decisions explain WHY the code is structured as it is. See [`docs/guides/`
     - **Click reentrancy note**: Rich's `Console` reads `sys.stdout` lazily at write-time (no file handle is captured at module load), so the runner's CliRunner invocations correctly capture all Rich output via the redirected stdout. No `cli.console` rebinding needed.
     - **Documentation**: `docs/guides/search-and-ask.md` §"Investigation Mode" carries the user-facing table + allow-list + browse-vs-search guidance.
 
+34. **`ohtv ask` session telemetry (Issue #162)**: Every `ohtv ask` invocation writes a self-contained JSON blob under `~/.ohtv/telemetry/sessions/{ISO8601-Z-with-hyphens}_{8-hex-uuid-prefix}.json` plus a one-line summary appended to `~/.ohtv/telemetry/sessions.jsonl`. Schema version 1; full field reference in `docs/reference/telemetry.md`.
+    - **Storage root**: `get_telemetry_dir()` in `src/ohtv/config.py` returns `$OHTV_TELEMETRY_DIR` if set, else `$OHTV_DIR/telemetry/` (consistent with item #12).
+    - **Opt-out**: `OHTV_TELEMETRY_ENABLED=0` short-circuits recorder construction in the `ask` handler — no files written.
+    - **`agent: null` (not key omission)**: plain `ohtv ask` invocations (no `--agent` / `--agent-tools` flag) land with `agent` explicitly `null` so JSON consumers see a stable key set.
+    - **`flags.agent_mode` mirrors `InvestigationResult.mode`** (#161 contract): `"cli"` for `--agent` (prompt-cookbook), `"tools"` for `--agent-tools` (legacy custom-tools), `null` for plain RAG.
+    - **Filename grammar**: hyphens replace the conventional colons in the timestamp because `:` is reserved on Windows and some cloud sync clients (Dropbox, OneDrive) misbehave. Lockdown is `tests/unit/analysis/test_telemetry.py::test_filename_grammar`.
+    - **Atomic blob writes**: `tempfile.NamedTemporaryFile(dir=sessions_dir)` + `os.replace()` (POSIX-atomic, Windows-safe). A `^C` mid-write leaves a `.tmp` file behind but never a half-written `.json`.
+    - **`sessions.jsonl` concurrency**: single `write()` per session, line is ~200 bytes (well under `PIPE_BUF=4096`), so concurrent writers from two processes interleave at line boundaries only under POSIX `O_APPEND`. No file locking. Verified by `multiprocessing.Process(2)` regression.
+    - **Graceful degradation**: `SessionRecorder.finalize()` may raise on I/O errors; the CLI handler swallows it with a `log.warning` so `ohtv ask` still exits 0 with its answer (AC).
+    - **Per-step `cost` and `tokens.{prompt,completion}` are deltas**, not cumulative reads. `StepRecorder.__enter__` snapshots the recorder's running totals; `__exit__` computes deltas and propagates the new totals. Summed deltas across all steps reconcile to `agent.total_cost` within float epsilon.
+    - **Truncation**: `chunk_text` capped at 2 KB, `observation_truncated_text` at 8 KB. Each carries a paired `_truncated` flag + `_size_bytes` counter.
+    - **No PII redaction**: ohtv has no remote storage path; telemetry stays local. If/when remote upload appears, that's a different issue.
+    - **Files**: new `src/ohtv/analysis/telemetry.py` (`SessionRecorder`, `StepRecorder`, `build_*_record` helpers); `get_telemetry_dir` in `src/ohtv/config.py`; recorder hook into `InvestigationAgent.investigate(..., recorder=None)` / `InvestigationAgentCli.investigate(..., recorder=None)`; `ask` handler builds + finalises the recorder with a `try/finally`. The agent-loop bodies use `from ohtv.analysis.telemetry import maybe_step` to keep the loop body single-branch.
+
 ## Troubleshooting
 
 ### Terminal shows `^M^M^M` when typing input

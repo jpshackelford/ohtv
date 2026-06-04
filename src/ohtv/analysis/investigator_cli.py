@@ -18,7 +18,10 @@ import logging
 import os
 import time
 from collections.abc import Sequence
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
+
+if TYPE_CHECKING:
+    from ohtv.analysis.telemetry import SessionRecorder
 
 from pydantic import Field, SecretStr
 from rich.console import Console
@@ -303,10 +306,17 @@ class InvestigationAgentCli:
         self,
         question: str,
         initial_answer: RAGAnswer,
+        recorder: "SessionRecorder | None" = None,
     ) -> InvestigationResult:
         """Run multi-turn investigation starting from initial RAG answer.
 
         See :class:`InvestigationAgent.investigate` for the shape contract.
+        The optional ``recorder`` argument is the #162 hook — when
+        provided, each iteration is wrapped in a
+        :class:`StepRecorder` context manager that captures
+        ``tool_call.name`` / ``tool_call.arguments`` (which in cli
+        mode is always ``run_ohtv`` with an ``argv`` payload) plus
+        per-step token / cost deltas.
         """
         start_time = time.time()
         api_key = os.environ.get("LLM_API_KEY")
@@ -336,6 +346,7 @@ class InvestigationAgentCli:
                 conversations_examined=conversations_examined,
                 question=question,
                 initial_answer=initial_answer,
+                recorder=recorder,
             )
             final_answer = loop_result["answer"]
             total_tokens = loop_result["total_tokens"]
@@ -523,9 +534,12 @@ class InvestigationAgentCli:
         conversations_examined: set[str],
         question: str,
         initial_answer: RAGAnswer,
+        recorder: "SessionRecorder | None" = None,
     ) -> dict:
         """Drive the LLM loop until finish, iteration cap, or command cap."""
         from openhands.sdk.llm.message import Message
+
+        from ohtv.analysis.telemetry import maybe_step
 
         tool_definitions, tool_map = self._build_tool_map(custom_tools)
 
@@ -543,79 +557,110 @@ class InvestigationAgentCli:
 
         while not finished and iteration < self.max_iterations:
             iteration += 1
-            try:
-                response = llm.completion(messages, tools=tool_definitions)
+            with maybe_step(recorder, iteration) as step:
+                try:
+                    response = llm.completion(messages, tools=tool_definitions)
 
-                if response.metrics:
-                    if response.metrics.accumulated_token_usage:
-                        usage = response.metrics.accumulated_token_usage
-                        total_tokens += usage.prompt_tokens + usage.completion_tokens
-                    total_cost += response.metrics.accumulated_cost or 0.0
+                    if response.metrics:
+                        if response.metrics.accumulated_token_usage:
+                            usage = response.metrics.accumulated_token_usage
+                            total_tokens += usage.prompt_tokens + usage.completion_tokens
+                            if step is not None:
+                                step.set_metrics(
+                                    response.metrics.accumulated_cost or 0.0,
+                                    usage.prompt_tokens,
+                                    usage.completion_tokens,
+                                )
+                        else:
+                            if step is not None:
+                                step.set_metrics(
+                                    response.metrics.accumulated_cost or 0.0,
+                                    0,
+                                    0,
+                                )
+                        total_cost += response.metrics.accumulated_cost or 0.0
 
-                message = response.message
-                tool_calls = message.tool_calls or []
+                    message = response.message
+                    tool_calls = message.tool_calls or []
 
-                if not tool_calls:
-                    final_answer = self._extract_final_answer_from_message(message)
-                    if final_answer:
-                        finished = True
-                        investigation_steps.append("Finished with direct response")
-                    break
-
-                pending_tool_results = []
-                for tool_call in tool_calls:
-                    tool_name = tool_call.name
-
-                    # Per-investigation command-count cap (#161 AC).
-                    # Counts only run_ohtv invocations — think/finish are
-                    # free, since they don't pay any litellm / disk cost.
-                    if tool_name == "run_ohtv":
-                        if command_count >= self.command_count_cap:
-                            cap_msg = (
-                                f"Command-count cap reached "
-                                f"({self.command_count_cap}). No more run_ohtv "
-                                "invocations are permitted; call `finish` with "
-                                "what you've learned so far."
-                            )
-                            investigation_steps.append(cap_msg)
-                            pending_tool_results.append((tool_call, cap_msg))
-                            continue
-                        command_count += 1
-
-                    self._show_tool_progress(tool_name, tool_call.arguments)
-                    investigation_steps.append(
-                        f"Called {tool_name}: {tool_call.arguments}"
-                    )
-
-                    result_text, answer, is_finished = self._process_tool_call(
-                        tool_call, tool_map, conversations_examined
-                    )
-
-                    if is_finished:
-                        final_answer = answer or ""
-                        finished = True
+                    if not tool_calls:
+                        final_answer = self._extract_final_answer_from_message(message)
+                        if final_answer:
+                            finished = True
+                            investigation_steps.append("Finished with direct response")
+                            if step is not None:
+                                step.set_tool_call("finish", {"message": final_answer})
+                                step.set_observation(final_answer)
                         break
 
-                    if result_text:
-                        if tool_name == "think":
-                            thought = result_text.replace("Thought recorded: ", "")
-                            investigation_steps.append(f"Thinking: {thought[:100]}...")
-                            self.console.print(
-                                f"[dim italic]💭 {thought[:200]}"
-                                f"{'...' if len(thought) > 200 else ''}[/dim italic]"
-                            )
-                        pending_tool_results.append((tool_call, result_text))
+                    pending_tool_results = []
+                    first_tool_recorded = False
+                    for tool_call in tool_calls:
+                        tool_name = tool_call.name
 
-                for tool_call, result_text in pending_tool_results:
-                    self._add_tool_response(messages, tool_call, result_text)
+                        # Per-investigation command-count cap (#161 AC).
+                        # Counts only run_ohtv invocations — think/finish are
+                        # free, since they don't pay any litellm / disk cost.
+                        if tool_name == "run_ohtv":
+                            if command_count >= self.command_count_cap:
+                                cap_msg = (
+                                    f"Command-count cap reached "
+                                    f"({self.command_count_cap}). No more run_ohtv "
+                                    "invocations are permitted; call `finish` with "
+                                    "what you've learned so far."
+                                )
+                                investigation_steps.append(cap_msg)
+                                pending_tool_results.append((tool_call, cap_msg))
+                                if step is not None and not first_tool_recorded:
+                                    step.set_tool_call(tool_name, tool_call.arguments)
+                                    step.set_observation(cap_msg)
+                                    first_tool_recorded = True
+                                continue
+                            command_count += 1
 
-                if finished:
+                        self._show_tool_progress(tool_name, tool_call.arguments)
+                        investigation_steps.append(
+                            f"Called {tool_name}: {tool_call.arguments}"
+                        )
+                        if step is not None and not first_tool_recorded:
+                            step.set_tool_call(tool_name, tool_call.arguments)
+                            first_tool_recorded = True
+
+                        result_text, answer, is_finished = self._process_tool_call(
+                            tool_call, tool_map, conversations_examined
+                        )
+
+                        if is_finished:
+                            final_answer = answer or ""
+                            finished = True
+                            if step is not None:
+                                step.set_observation(final_answer)
+                            break
+
+                        if result_text:
+                            if tool_name == "think":
+                                thought = result_text.replace("Thought recorded: ", "")
+                                investigation_steps.append(f"Thinking: {thought[:100]}...")
+                                self.console.print(
+                                    f"[dim italic]💭 {thought[:200]}"
+                                    f"{'...' if len(thought) > 200 else ''}[/dim italic]"
+                                )
+                            if step is not None:
+                                step.set_observation(result_text)
+                            pending_tool_results.append((tool_call, result_text))
+
+                    for tool_call, result_text in pending_tool_results:
+                        self._add_tool_response(messages, tool_call, result_text)
+
+                    if finished:
+                        break
+
+                except Exception as e:  # noqa: BLE001
+                    log.exception("Error in CLI investigation step")
+                    investigation_steps.append(f"Error: {e}")
+                    if step is not None:
+                        step.set_observation(f"Error: {e}")
                     break
-
-            except Exception as e:  # noqa: BLE001
-                log.exception("Error in CLI investigation step")
-                investigation_steps.append(f"Error: {e}")
-                break
 
         if not final_answer and not finished:
             final_answer = self._synthesize_partial_findings(

@@ -28,6 +28,7 @@ from ohtv.analysis.agent_tools import (
 from ohtv.analysis.rag import RAGAnswer
 
 if TYPE_CHECKING:
+    from ohtv.analysis.telemetry import SessionRecorder
     from ohtv.config import Config
     from ohtv.db.stores import (
         ConversationStore,
@@ -246,12 +247,16 @@ class InvestigationAgent:
         self,
         question: str,
         initial_answer: RAGAnswer,
+        recorder: "SessionRecorder | None" = None,
     ) -> InvestigationResult:
         """Run multi-turn investigation starting from initial RAG answer.
 
         Args:
             question: The original question
             initial_answer: The initial RAG answer with context
+            recorder: Optional :class:`ohtv.analysis.telemetry.SessionRecorder`
+                that captures per-iteration metrics. Pass-through —
+                ``None`` (the default) leaves behaviour unchanged.
 
         Returns:
             InvestigationResult with final answer and metrics
@@ -293,6 +298,7 @@ class InvestigationAgent:
                 conversations_examined=conversations_examined,
                 question=question,
                 initial_answer=initial_answer,
+                recorder=recorder,
             )
 
             final_answer = result["answer"]
@@ -533,6 +539,7 @@ class InvestigationAgent:
         conversations_examined: set[str],
         question: str,
         initial_answer: "RAGAnswer",
+        recorder: "SessionRecorder | None" = None,
     ) -> dict:
         """Run the investigation loop using direct LLM calls with tools.
 
@@ -540,6 +547,8 @@ class InvestigationAgent:
         infrastructure, which is better suited for autonomous agent tasks.
         """
         from openhands.sdk.llm.message import Message
+
+        from ohtv.analysis.telemetry import maybe_step
 
         # Build tool definitions and mapping
         tool_definitions, tool_map = self._build_tool_map(custom_tools)
@@ -559,65 +568,98 @@ class InvestigationAgent:
         while not finished and iteration < self.max_iterations:
             iteration += 1
 
-            try:
-                response = llm.completion(messages, tools=tool_definitions)
+            with maybe_step(recorder, iteration) as step:
+                try:
+                    response = llm.completion(messages, tools=tool_definitions)
 
-                # Track metrics
-                if response.metrics:
-                    if response.metrics.accumulated_token_usage:
-                        usage = response.metrics.accumulated_token_usage
-                        total_tokens += usage.prompt_tokens + usage.completion_tokens
-                    total_cost += response.metrics.accumulated_cost or 0.0
+                    # Track metrics
+                    if response.metrics:
+                        if response.metrics.accumulated_token_usage:
+                            usage = response.metrics.accumulated_token_usage
+                            total_tokens += usage.prompt_tokens + usage.completion_tokens
+                            if step is not None:
+                                step.set_metrics(
+                                    response.metrics.accumulated_cost or 0.0,
+                                    usage.prompt_tokens,
+                                    usage.completion_tokens,
+                                )
+                        else:
+                            if step is not None:
+                                step.set_metrics(
+                                    response.metrics.accumulated_cost or 0.0,
+                                    0,
+                                    0,
+                                )
+                        total_cost += response.metrics.accumulated_cost or 0.0
 
-                message = response.message
-                tool_calls = message.tool_calls or []
+                    message = response.message
+                    tool_calls = message.tool_calls or []
 
-                if not tool_calls:
-                    # No tool calls - extract text response as final answer
-                    final_answer = self._extract_final_answer_from_message(message)
-                    if final_answer:
-                        finished = True
-                        investigation_steps.append("Finished with direct response")
-                    break
-
-                # Process ALL tool calls in this response before next iteration
-                # This handles cases where LLM wants to make multiple tool calls
-                pending_tool_results = []
-                for tool_call in tool_calls:
-                    tool_name = tool_call.name
-                    
-                    # Show meaningful progress based on tool type
-                    self._show_tool_progress(tool_name, tool_call.arguments)
-                    investigation_steps.append(f"Called {tool_name}: {tool_call.arguments}")
-
-                    result_text, answer, is_finished = self._process_tool_call(
-                        tool_call, tool_map, conversations_examined
-                    )
-
-                    if is_finished:
-                        final_answer = answer or ""
-                        finished = True
+                    if not tool_calls:
+                        # No tool calls - extract text response as final answer
+                        final_answer = self._extract_final_answer_from_message(message)
+                        if final_answer:
+                            finished = True
+                            investigation_steps.append("Finished with direct response")
+                            if step is not None:
+                                step.set_tool_call("finish", {"message": final_answer})
+                                step.set_observation(final_answer)
                         break
 
-                    if result_text:
-                        if tool_name == "think":
-                            thought = result_text.replace("Thought recorded: ", "")
-                            investigation_steps.append(f"Thinking: {thought[:100]}...")
-                            # Show thinking to user
-                            self.console.print(f"[dim italic]💭 {thought[:200]}{'...' if len(thought) > 200 else ''}[/dim italic]")
-                        pending_tool_results.append((tool_call, result_text))
+                    # Process ALL tool calls in this response before next iteration
+                    # This handles cases where LLM wants to make multiple tool calls
+                    pending_tool_results = []
+                    first_tool_recorded = False
+                    for tool_call in tool_calls:
+                        tool_name = tool_call.name
 
-                # Add all tool responses to messages after processing all calls
-                for tool_call, result_text in pending_tool_results:
-                    self._add_tool_response(messages, tool_call, result_text)
+                        # Show meaningful progress based on tool type
+                        self._show_tool_progress(tool_name, tool_call.arguments)
+                        investigation_steps.append(f"Called {tool_name}: {tool_call.arguments}")
+                        # Record the first tool call on the step.
+                        # The schema models one (kind, tool_name,
+                        # arguments) per step; multi-tool responses are
+                        # rare for these models and the per-tool
+                        # observation lines below still capture the
+                        # text into the step's observation slot.
+                        if step is not None and not first_tool_recorded:
+                            step.set_tool_call(tool_name, tool_call.arguments)
+                            first_tool_recorded = True
 
-                if finished:
+                        result_text, answer, is_finished = self._process_tool_call(
+                            tool_call, tool_map, conversations_examined
+                        )
+
+                        if is_finished:
+                            final_answer = answer or ""
+                            finished = True
+                            if step is not None:
+                                step.set_observation(final_answer)
+                            break
+
+                        if result_text:
+                            if tool_name == "think":
+                                thought = result_text.replace("Thought recorded: ", "")
+                                investigation_steps.append(f"Thinking: {thought[:100]}...")
+                                # Show thinking to user
+                                self.console.print(f"[dim italic]💭 {thought[:200]}{'...' if len(thought) > 200 else ''}[/dim italic]")
+                            if step is not None:
+                                step.set_observation(result_text)
+                            pending_tool_results.append((tool_call, result_text))
+
+                    # Add all tool responses to messages after processing all calls
+                    for tool_call, result_text in pending_tool_results:
+                        self._add_tool_response(messages, tool_call, result_text)
+
+                    if finished:
+                        break
+
+                except Exception as e:
+                    log.exception("Error in investigation step")
+                    investigation_steps.append(f"Error: {e}")
+                    if step is not None:
+                        step.set_observation(f"Error: {e}")
                     break
-
-            except Exception as e:
-                log.exception("Error in investigation step")
-                investigation_steps.append(f"Error: {e}")
-                break
 
         # If we hit the iteration limit, synthesize what we learned
         if not final_answer and not finished:
