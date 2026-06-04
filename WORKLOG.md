@@ -1174,3 +1174,72 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `1f83ee2` (implementa
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-04 11:20 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `ee9bfd9` | docs | PR #175 — README for engagement filters | **NEW** (running, first poll) |
+
+**Step 0 — Setup:** `uv sync` ran clean in the local checkout (fresh `.venv` since the cloned workspace had no env). `lxa` + `ohtv` resolved from `.venv/bin/`. `lxa repo add jpshackelford/ohtv` was a fresh add (created `Unnamed Board 1` — cosmetic, no behavior impact). `ohtv sync` was slow this cycle (>30s, did not gate any decision) — skipped output; subsequent `gh`/`lxa` calls did all the gating.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1176 lines** at cycle entry. Truncated at 10:20Z (2464 → 943) and the 10:20Z + 10:50Z entries are still inside the 6h productive window. **Defer truncation** — first cycle since the big truncation; counter sits at 0 cycles overdue. Will re-evaluate next cycle.
+
+**Step 1 — Human Instructions:** None pending. `awk` over WORKLOG.md (excluding fenced code blocks) for `^## INSTRUCTION:` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):** Prior cycle's implementation worker `1f83ee2` reports `execution_status=finished, sandbox_status=RUNNING` → finished. (Also: `002934f` from 10:20Z still `PAUSED, execution_status=null` — finished long ago.) PR slot is **free** for the next handoff. Expansion slot idle.
+
+**Step 3 — State gathered:**
+- **PR #175 — `feat(filter): add engagement-level filters to list and gen subcommands`** (closes #170): branch `feat/170-engagement-filters`, opened 11:11Z, last commit 11:10Z, ready (not draft).
+- **PR #175 status (lxa-style):** `oR green ready 1 💬` — opened, **R**eviewed by `github-actions` `pr-review` bot (state `COMMENTED`, verdict 🟡 "Acceptable — Clean implementation with comprehensive testing. One minor documentation enhancement suggested"), `lint` + `pytest` both **SUCCESS**, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`.
+- **PR #175 changed files:** `src/ohtv/cli.py`, `src/ohtv/filters.py`, 4 new test files (`test_filters_duration.py`, `test_cli_engagement_filter.py`, `test_cli_list_engagement_filter.py`, `test_cli_gen_engagement_filter.py`), `uv.lock`. **No `README.md` in the diff** — docs gap confirmed.
+- **README scan:** `grep -nE "engagement|--engaged" README.md` → 0 hits. New `--engaged` / `--no-engaged` / `--min-engaged` / `--min-engagement-ratio` flags across `list` + 3 `gen` subcommands are completely undocumented.
+- **Open PRs:** 1 (PR #175). **Issues needing expansion:** 0. **Ready issues (4):** #170 (in flight via PR #175), #161 (priority:medium), #162 (priority:medium), #173 (priority:low). On hold: #26, #90.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+- PR slot: `PR exists, ready, CI green, **README not updated**` → **Spawn docs worker.** ✅ User-facing surface is 4 new CLI flags × 4 commands — canonical docs trigger. The `pr-review` bot's minor inline comment is deferred to a later review-handler worker (out of scope for the docs worker per the orchestrate workflow sequence "Docs Update → Manual Testing → Review").
+- Expansion slot: 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Docs Worker**
+- PR: [#175 — feat(filter): add engagement-level filters](https://github.com/jpshackelford/ohtv/pull/175) (closes #170)
+- Start task: `d5eb0c17` → `app_conversation_id = ee9bfd9a84474e1e995e7b2d3371d7c6`
+- Conversation: [`ee9bfd9`](https://app.all-hands.dev/conversations/ee9bfd9a84474e1e995e7b2d3371d7c6)
+- Polling timeline: `WORKING` (T+0s) → `STARTING_CONVERSATION` (T+10s) → `READY` (T+18s). First-attempt success.
+- Verify (T+~20s): `execution_status=running`, `sandbox_status=RUNNING`. **Confirmed actually executing.**
+- Plugin spec (unchanged, **14th successful spawn**): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract: `initial_message: {content: [{type:"text", text:"…"}], run: true}` (V1 — 14 in a row).
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- Prompt scope: checkout PR branch → read PR/Issue context → add an "Engagement filtering" section to README.md documenting the 4 flags + 3 copy-pasteable examples + missing-row semantics callout + `conversation_engagement` provenance note → also touch `docs/guides/`/`docs/reference/cli.md` if the existing patterns warrant → commit `docs: …` → push → wait for CI green → post PR comment summarizing the docs changes (with AI-agent disclosure) → WORKLOG entry on main → EXIT. Explicit OUT-OF-SCOPE: inline pr-review bot comment (review-handler's job), manual tests (testing worker next), any `src/`/`tests/` edits.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~11:50Z):** Most likely —
+  - ~50%: Docs worker `ee9bfd9` still running. README edit is small but the worker also has to test examples and may iterate.
+  - ~35%: Docs commit pushed, CI green, docs PR comment posted → spawn **testing worker** (PR slot occupied by testing role).
+  - ~10%: Docs commit lands but CI flakes / lint trips → wait or spawn fix.
+  - ~5%: Worker mis-scopes (touches code) — pr-review will catch on next review pass.
+- **2 cycles out (~12:20Z):** Testing worker reporting "ALL TESTS PASS" or surfacing a doc-vs-behavior mismatch (which is the whole point of docs-before-testing). Review worker handles the minor pr-review inline comment in parallel-ish, then merge.
+- **3 cycles out (~12:50Z):** PR #175 squash-merged → `ohtv-v0.26.0` (next minor, `feat:` subject) → engagement-metric family **4/4 done** 🎉 → ready queue shifts to #161/#162/#173.
+
+**Notes / follow-ups carried forward (cumulative):**
+- **`initial_message` spawn-payload contract** stays pinned. **14 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY` (per `/spawn-conversation` skill).
+- **Plugin spec format unchanged:** 14th successful spawn — `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- **`GH_TOKEN` shim:** `GH_TOKEN` was unset this cycle; `GITHUB_TOKEN` and `github_token` both populated. `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` worked. The shim keeps flipping between cycles; keep checking both.
+- **Tool install pattern:** This cycle used the `uv sync`-installed `.venv` (because the workspace was a fresh clone with no `~/.local/bin/lxa`/`ohtv`). Either `uv tool install` (10:50Z), `uv venv .venv` (10:20Z), or `uv sync` (this cycle) gets it done; pick the one matching the sandbox state.
+- **lxa initial board creation** is silent and cosmetic — `lxa repo add` works the same with or without a pre-named board. Not worth fixing.
+- **`ohtv sync` can stall >30s** on cold runs even with `--since 4h --quiet`. Don't gate decisions on it — `gh pr list` + `lxa pr list` + `gh issue list` cover the orchestrator state surface independently. Cached follow-up.
+- **`pr-review` bot leaves verdicts as `state=COMMENTED` (not `APPROVED`)** when verdict is 🟡 Acceptable with inline suggestions. So `reviewDecision` stays `""` even when the review is positive. Use the review-body verdict tag (🟢/🟡/🔴) as the source of truth for review-handler dispatch. New cached learning this cycle.
+- **GitHub CLI `gh pr view --comments` only returns issue-style comments, not review-thread comments.** Use `gh pr view --json reviews` (or GraphQL `pullRequest.reviewThreads`) for review content. Cached.
+- **Engagement-metric family progress:** #167 ✅, #168 ✅, #169 ✅, #170 → PR #175 docs-in-flight → expected merge within 2 cycles → 4/4 done.
+- **`statusCheckRollup` remains the source of truth for "is CI green?"** Both `lint` and `pytest` SUCCESS on the head commit of `feat/170-engagement-filters`.
+
+**Local checkout note:** `main` HEAD at `2a8eab0` on entry (the prior orchestrator's worklog commit). This entry pushes one more chore(worklog) commit on top. Local `uv.lock` had a 1-line drift from `uv sync` — discarded before rebase. No code branches created by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `ee9bfd9` (docs worker), the README.md diff on PR #175, the pushed docs commit's CI, and (if all green) spawns the manual-testing worker.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
