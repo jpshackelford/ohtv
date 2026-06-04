@@ -340,6 +340,7 @@ class RAGRetriever:
         min_score: float = 0.3,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        event_dates: bool = False,
     ) -> RAGRetrievalResult:
         """Retrieve relevant context chunks without LLM generation.
 
@@ -349,6 +350,13 @@ class RAGRetriever:
             min_score: Minimum similarity score for context (0-1)
             start_date: Only include conversations from this date
             end_date: Only include conversations until this date
+            event_dates: Issue #180. When True, interpret
+                ``start_date`` / ``end_date`` against
+                ``conversation_engagement.last_event_ts`` /
+                ``first_event_ts`` instead of ``conversations.created_at``.
+                Composes with auto-extracted temporal filtering (the
+                dates come from the temporal-extraction layer, the
+                column comes from this flag).
 
         Returns:
             RAGRetrievalResult with retrieved chunks and metadata
@@ -388,6 +396,7 @@ class RAGRetriever:
             min_score=min_score,
             start_date=start_date,
             end_date=end_date,
+            event_dates=event_dates,
         )
 
         context_chunks = _results_to_context_chunks(
@@ -398,7 +407,10 @@ class RAGRetriever:
         search_time = time.perf_counter() - start_time
 
         if not context_chunks:
-            # If temporal filter found nothing, try without filter
+            # If temporal filter found nothing, try without filter.
+            # Issue #180: drop ``event_dates`` too on the retry so the
+            # fallback doesn't still INNER-JOIN against
+            # ``conversation_engagement`` and find nothing.
             if temporal_applied:
                 log.debug("No results with temporal filter, retrying without filter")
                 start_time = time.perf_counter()
@@ -408,6 +420,7 @@ class RAGRetriever:
                     min_score=min_score,
                     start_date=None,
                     end_date=None,
+                    event_dates=False,
                 )
                 context_chunks = _results_to_context_chunks(
                     results, self.conv_store, self.link_store, self.ref_store,
@@ -506,19 +519,24 @@ class RAGAnswerer:
         min_score: float = 0.3,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        event_dates: bool = False,
     ) -> RAGAnswer:
         """Answer a question using RAG.
-        
+
         Args:
             question: The question to answer
             max_context_chunks: Maximum number of context chunks to retrieve
             min_score: Minimum similarity score for context (0-1)
             start_date: Override: only include conversations from this date
             end_date: Override: only include conversations until this date
-        
+            event_dates: Issue #180. When True, interpret
+                ``start_date`` / ``end_date`` against
+                ``conversation_engagement.last_event_ts`` /
+                ``first_event_ts`` instead of ``conversations.created_at``.
+
         Returns:
             RAGAnswer with the generated answer and metadata
-        
+
         Raises:
             RuntimeError: If LLM configuration is missing or API call fails
             ValueError: If no relevant context is found
@@ -548,16 +566,22 @@ class RAGAnswerer:
         # Retrieve context
         start_time = time.perf_counter()
         context_chunks = self._retrieve_context(
-            search_query, max_context_chunks, min_score, start_date, end_date
+            search_query, max_context_chunks, min_score, start_date, end_date,
+            event_dates=event_dates,
         )
         search_time = time.perf_counter() - start_time
-        
+
         if not context_chunks:
-            # If temporal filter found nothing, try without filter
+            # If temporal filter found nothing, try without filter.
+            # Issue #180: drop ``event_dates`` on the retry so the
+            # fallback path doesn't still INNER-JOIN against
+            # ``conversation_engagement`` (the engagement stage may
+            # simply not have run for the candidate corpus).
             if temporal_applied:
                 log.debug("No results with temporal filter, retrying without filter")
                 context_chunks = self._retrieve_context(
-                    question, max_context_chunks, min_score, None, None
+                    question, max_context_chunks, min_score, None, None,
+                    event_dates=False,
                 )
                 if context_chunks:
                     temporal_applied = False
@@ -616,8 +640,16 @@ class RAGAnswerer:
         min_score: float,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
+        *,
+        event_dates: bool = False,
     ) -> list[ContextChunk]:
-        """Retrieve relevant context chunks for a question with full metadata."""
+        """Retrieve relevant context chunks for a question with full metadata.
+
+        Issue #180: ``event_dates`` forwards to the embedding store so
+        the same call site can switch between ``created_at`` (default)
+        and ``conversation_engagement`` timestamps without an extra
+        SQL path.
+        """
         from ohtv.analysis.embeddings import get_embedding
 
         query_result = get_embedding(question)
@@ -629,6 +661,7 @@ class RAGAnswerer:
             min_score=min_score,
             start_date=start_date,
             end_date=end_date,
+            event_dates=event_dates,
         )
 
         chunks = _results_to_context_chunks(

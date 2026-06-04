@@ -353,6 +353,101 @@ class ConversationStore:
         )
         return [self._row_to_conversation(row) for row in cursor.fetchall()]
 
+    def list_by_event_date_range(
+        self,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        source: str | None = None,
+        include_subs: bool = False,
+    ) -> list[Conversation]:
+        """List conversations whose event span overlaps ``[since, until]``.
+
+        Issue #180. Mirrors :meth:`list_by_date_range` (same parameter
+        surface, same ordering contract) but the date predicate runs
+        against ``conversation_engagement.first_event_ts`` /
+        ``last_event_ts`` instead of ``conversations.created_at``.
+
+        Overlap semantics: a conversation matches when its event span
+        ``[first_event_ts, last_event_ts]`` overlaps ``[since, until]``:
+
+        * ``--since X`` ⇒ ``last_event_ts >= X`` (last activity at or after X)
+        * ``--until Y`` ⇒ ``first_event_ts <= Y`` (first activity at or before Y)
+        * Combined: ``last_event_ts >= since AND first_event_ts <= until``
+          — the standard interval-overlap test.
+
+        Conversations without a ``conversation_engagement`` row are
+        **excluded** (INNER JOIN). This matches the Issue #170
+        ``--engaged`` / ``--min-engaged`` semantics: "missing engagement
+        row" ⇒ "engagement stage has not run yet for this conv". The CLI
+        surfaces a hint pointing at ``ohtv db process engagement`` when
+        the result set is empty.
+
+        Migration 024 adds two single-column indexes
+        (``idx_conv_engagement_last_event_ts`` and
+        ``idx_conv_engagement_first_event_ts``) so the JOIN doesn't
+        degenerate into a full table scan.
+
+        Args:
+            since: Include conversations whose ``last_event_ts >= since``.
+            until: Include conversations whose ``first_event_ts <= until``.
+            source: Filter by source (e.g., ``'local'``, ``'cloud'``).
+            include_subs: When False (default, Issue #125), exclude
+                agent-delegated sub-conversations. Source filter and
+                roots-only filter run at the conversation grain — the
+                engagement JOIN doesn't relax them.
+
+        Returns:
+            List of matching conversations, ordered by ``last_event_ts``
+            descending so "what's been active most recently" surfaces
+            first.
+
+        Raises:
+            RuntimeError: when ``include_subs=False`` and migration 020
+                (``root_conversation_id``) has not been applied.
+        """
+        conditions: list[str] = []
+        params: list = []
+
+        if since:
+            conditions.append("ce.last_event_ts >= ?")
+            params.append(since.isoformat())
+
+        if until:
+            conditions.append("ce.first_event_ts <= ?")
+            params.append(until.isoformat())
+
+        if source:
+            conditions.append("c.source = ?")
+            params.append(source)
+
+        if not include_subs:
+            # Same guard + predicate as ``list_by_date_range`` (Issue #125).
+            self._assert_root_column_present_for_list("list/gen --event-dates")
+            conditions.append("c.id = c.root_conversation_id")
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+        # Use the existing ``_ALL_COLUMNS`` constant with ``c.`` prefixes
+        # so we stay in sync with ``_row_to_conversation`` automatically.
+        prefixed_cols = ", ".join(
+            f"c.{col.strip()}"
+            for col in self._ALL_COLUMNS.strip().split(",")
+            if col.strip()
+        )
+
+        cursor = self.conn.execute(
+            f"""
+            SELECT {prefixed_cols}
+            FROM conversations c
+            INNER JOIN conversation_engagement ce
+                ON ce.conversation_id = c.id
+            WHERE {where_clause}
+            ORDER BY ce.last_event_ts DESC
+            """,
+            params,
+        )
+        return [self._row_to_conversation(row) for row in cursor.fetchall()]
+
     def _assert_root_column_present_for_list(self, command: str) -> None:
         """Guard for the Issue #125 roots-only predicate on ``list_by_date_range``.
 

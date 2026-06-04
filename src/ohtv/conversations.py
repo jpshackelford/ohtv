@@ -26,6 +26,7 @@ def get_conversations(
     source: str | None = None,
     use_db: bool = True,
     include_subs: bool = False,
+    event_dates: bool = False,
 ) -> list[ConversationInfo]:
     """Get conversations with optional filtering.
 
@@ -46,6 +47,11 @@ def get_conversations(
             from ``ConversationInfo`` alone, so the flag is logged and
             the FS path returns its rows unchanged — documented as
             "skip the FS roots filter cleanly" in the issue brief.
+        event_dates: Issue #180. When True, interpret ``since`` / ``until``
+            against ``conversation_engagement.last_event_ts`` /
+            ``first_event_ts`` instead of ``conversations.created_at``.
+            Conversations without an engagement row are excluded.
+            Requires the DB path (no FS fallback semantics).
 
     Returns:
         List of ConversationInfo objects, sorted by created_at descending
@@ -53,7 +59,7 @@ def get_conversations(
     if use_db:
         try:
             conversations = _get_conversations_from_db(
-                config, since, until, source, include_subs
+                config, since, until, source, include_subs, event_dates
             )
             if conversations is not None:
                 log.debug("Listed %d conversations from database", len(conversations))
@@ -77,6 +83,20 @@ def get_conversations(
             "roots-only filtering (Issue #125)."
         )
 
+    if event_dates:
+        # Issue #180: ``--event-dates`` reads from
+        # ``conversation_engagement`` which only exists in the DB. On
+        # the FS fallback we have no way to honor the column swap, so
+        # the requested predicate would silently degrade to created_at.
+        # Surface a WARNING — the same shape as the include_subs note
+        # above — and proceed with created_at semantics so the caller
+        # still gets a usable result rather than crashing.
+        log.warning(
+            "Filesystem fallback cannot honor --event-dates; falling back "
+            "to conversations.created_at. Run 'ohtv db scan' and "
+            "'ohtv db process engagement' (Issue #180)."
+        )
+
     # Apply date filters manually
     if since:
         conversations = [c for c in conversations if c.created_at and c.created_at >= since]
@@ -93,6 +113,7 @@ def _get_conversations_from_db(
     until: datetime | None,
     source: str | None,
     include_subs: bool = False,
+    event_dates: bool = False,
 ) -> list[ConversationInfo] | None:
     """Get conversations from database.
 
@@ -101,6 +122,15 @@ def _get_conversations_from_db(
 
     ``include_subs`` is plumbed through to
     :meth:`ConversationStore.list_by_date_range` — see Issue #125.
+
+    ``event_dates`` (Issue #180) switches the date predicate from
+    :meth:`ConversationStore.list_by_date_range` (filters on
+    ``conversations.created_at``) to
+    :meth:`ConversationStore.list_by_event_date_range` (filters on
+    ``conversation_engagement.last_event_ts`` /
+    ``first_event_ts``). The downstream method enforces the INNER JOIN
+    against ``conversation_engagement`` so conversations without an
+    engagement row are excluded.
     """
     from ohtv.db import get_connection, get_db_path, ensure_db_ready
     from ohtv.db.stores import ConversationStore
@@ -120,13 +150,21 @@ def _get_conversations_from_db(
             log.debug("Database has no metadata, falling back to filesystem")
             return None
 
-        # Query with filters
-        db_conversations = store.list_by_date_range(
-            since=since,
-            until=until,
-            source=source,
-            include_subs=include_subs,
-        )
+        # Query with filters (Issue #180: column swap when event_dates=True)
+        if event_dates:
+            db_conversations = store.list_by_event_date_range(
+                since=since,
+                until=until,
+                source=source,
+                include_subs=include_subs,
+            )
+        else:
+            db_conversations = store.list_by_date_range(
+                since=since,
+                until=until,
+                source=source,
+                include_subs=include_subs,
+            )
 
         # Convert to ConversationInfo
         return [_db_conv_to_info(c) for c in db_conversations]
