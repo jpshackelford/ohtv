@@ -1003,3 +1003,75 @@ _This worklog entry was written by an AI agent (OpenHands) on behalf of @jpshack
 _This worklog entry was written by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-04 01:52 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7a20450` | orchestrator | this cycle | running |
+| `fa9ab78` | testing | PR #166 — list_conversations agent tool | **NEW** (running, sandbox RUNNING, proof-of-life ~38s) |
+| `3f4e392` | docs | PR #166 (DONE — docs commit + comment) | PAUSED, exec=null (clean exit) |
+
+**Spawned: Testing Worker**
+- PR: [#166 — feat: add list_conversations tool to ohtv ask --agent investigator](https://github.com/jpshackelford/ohtv/pull/166) (Issue [#160](https://github.com/jpshackelford/ohtv/issues/160))
+- Conversation: [`fa9ab78`](https://app.all-hands.dev/conversations/fa9ab7863491483bbf8510155300e3d6)
+- Start task `1320c963` → READY in ~8s; `execution_status=running`, `sandbox=RUNNING`; proof-of-life confirmed at re-poll (`updated_at - created_at = ~38s`, well above the 5s carry-forward heuristic threshold).
+
+**Step 0 — Setup:** `pip install --user git+...` for both `lxa` and `ohtv` (note: this orchestrator could not use `uv pip install` — no project venv at workspace root for the orchestrator's own shell — and fell back to system `pip install --user`, adding `~/.local/bin` to PATH). `lxa repo add jpshackelford/ohtv` created a fresh "Unnamed Board 1" (cosmetic). `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 4h --quiet` succeeded silently. **Carry-forward update:** the prior cycle's note that "stable pattern is `uv tool install lxa ohtv`" doesn't apply when the orchestrator's shell starts at the repo root without an existing venv — `pip install --user` is the durable fallback. `GH_TOKEN=$github_token` shim continues to work (system `GITHUB_TOKEN` is empty, lowercase `github_token` secret populated).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1005 lines** (>>300 threshold; **10 consecutive cycles overdue** on truncation per carry-forward at 00:52Z). Truncation deferred again — this cycle's primary action is spawning the testing worker to keep PR #166 moving toward merge. Truncation remains flagged for a future quiet cycle or human `## INSTRUCTION:` directive.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`grep -A5 "## INSTRUCTION:" WORKLOG.md` returned only historical mentions inside other entries; no `## INSTRUCTION: <directive>` headings since the last cycle).
+
+**Step 2/3 — Active workers at cycle entry:**
+- `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` filtered to `execution_status=running` returned only this orchestrator (`7a20450`, `trigger=automation`).
+- Prior cycle's docs worker `3f4e392` (for PR #166): `sandbox=PAUSED, exec=null, created=01:20:10Z, updated=01:24:29Z` — `updated_at - created_at ≈ 4m 19s` (well above the 30s "lived" threshold from the 00:52Z carry-forward). Combined with the visible artifacts on PR #166 (commit at 01:22:52Z adding `docs/guides/search-and-ask.md`, and the `## Documentation updated` PR comment at 01:24:27Z), this confirms `3f4e392` ran successfully and auto-paused on clean exit. Another evidence point for the "PAUSED post-success" vs "PAUSED never-started" heuristic.
+- All other recent worker conv IDs (`f6fe160`, `8fe6274`, `b4c835b`, `3bb7299`, `470ea49`, `0eafb95`, `487b7e1`, `38d513e`, `e85cba5`, `c0ad59b`, `88315ec`, `100f39c`, `266ba82`) = `PAUSED`/`MISSING` with `execution_status=null`. **Both worker slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs (1):** [PR #166 — `feat: add list_conversations tool to ohtv ask --agent investigator`](https://github.com/jpshackelford/ohtv/pull/166):
+  - `lxa pr list jpshackelford/ohtv#166` → `oAFc green ready 💬-- 45m 25m ago`
+  - CI: `lint=SUCCESS`, `pytest=SUCCESS` (54s) — `enable-orchestrator` not listed on this PR's check run.
+  - `reviewDecision=APPROVED`, `mergeable=MERGEABLE`, last commit at 01:22:52Z (the docs commit from `3f4e392`).
+  - 1 PR comment: `## Documentation updated` from jpshackelford at 01:24:27Z (auto-posted by docs worker `3f4e392` running under the human's GitHub identity).
+  - 0 review comments needing reply. `pr-review` auto-bot already APPROVED with "🟢 Good taste".
+  - Diff: 6 files — `src/ohtv/analysis/agent_tools.py`, `src/ohtv/analysis/investigator.py`, `src/ohtv/cli.py`, `docs/guides/search-and-ask.md`, plus 2 test files. The `docs/guides/search-and-ask.md` entry in the diff confirms the docs worker did add the file (vs. just editing in place).
+  - **No `## Manual Test Results` comment.** My initial `grep` for `Manual Test` matched the docs comment's body ("ahead of manual testing") — false positive. A stricter check on the comment heading confirmed no test report exists yet.
+  - Decision-tree row matched: *"PR exists, ready, CI green, **docs updated, no manual test results** → Spawn testing worker"*.
+- **Issue census** (unchanged structurally since the prior cycle):
+  - Needs expansion (no `ready`, no `hold`): **0**.
+  - Ready + prioritized: **#160** (implemented by PR #166), **#161**, **#162** (both `enhancement, ready, priority:medium`).
+  - On hold: **#26**, **#90**.
+
+**Step 5 — Decisions:**
+- **PR slot** → Spawn **testing worker** for PR #166 (chosen this cycle).
+- **Expansion slot** → idle (no issues need expansion). Cannot spawn an implementation worker for #161/#162 in parallel because the PR slot is now occupied — one PR worker at a time per the parallel-slots rule. The downstream queue (post-#166 merge) is #161 → #162.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~02:22Z, ~30 min):** `fa9ab78` may still be testing (LLM-loop integration manual tests + full pytest suite are time-bound). Typical first-cycle outcome: running. Log status, no action.
+- **Cycle after that (~02:52Z, ~60 min):** Likely outcomes —
+  - ~60%: Test report posted → spawn **merge worker** (PR is already APPROVED with 0 review threads; no review round needed unless the test report surfaces a regression).
+  - ~25%: Still testing or partial completion → wait one more cycle.
+  - ~10%: Test report shows failures → spawn **review/fix worker**.
+  - ~5%: Stalled (dead-on-arrival pattern — but proof-of-life was ✓ on this spawn, so unlikely).
+- **By ~3 cycles out (~03:22Z):** PR #166 likely merged. Then queue advances to #161 (prompt-based agent mode).
+
+**Notes / follow-ups carried forward (cumulative):**
+- **WORKLOG.md size: 1005 lines → ~1075 lines post-entry. 10 consecutive cycles overdue on truncation** (threshold 300). Now formally requires either (a) a human `## INSTRUCTION: archive WORKLOG.md entries older than 12h` directive, or (b) a fix to the `/truncate-worklog` matcher's `is_productive` regex (it under-matches the prose-style entries this orchestrator writes). **Recommendation:** post the INSTRUCTION on the next manual interaction.
+- **`pip install --user` for tool install** (new this cycle for orchestrator-shell context where no venv exists at repo root). Stable.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable across 4 consecutive cycles. `export GH_TOKEN=$github_token` is the durable shim.
+- **`/spawn-conversation` proof-of-life heuristic:** `updated_at > created_at` by ≥5s within the first ~30s after start-task hits READY is sufficient to declare the worker alive. Confirmed again this cycle (`fa9ab78`: 38s delta). `updated == created` after ≥1 min = dead-on-arrival (`e85cba5` pattern).
+- **PAUSED-post-success detection:** `updated_at - created_at > 30s` + visible artifacts on the target PR/issue = successful completion (vs. dead-on-arrival). Confirmed twice now (`487b7e1` at 00:52Z, `3f4e392` this cycle).
+- **`Manual Test` grep false positive:** A comment that *mentions* "manual testing" in prose (e.g., a docs-worker comment saying "ahead of manual testing") will match a loose regex. Use a stricter check (heading anchor like `^## Manual Test Results` or `body | startswith("## Manual Test")`) when detecting test-report comments. Noted for next cycle / skill update.
+- **Docs worker behavior on this PR:** `3f4e392` chose to add a NEW file (`docs/guides/search-and-ask.md`) rather than editing `README.md`. The orchestrate skill's "Detecting Documentation Updates" rule needs to be lenient enough to recognize ANY user-facing docs file added/modified (not just README.md). Today's check (`gh pr diff --name-only | grep -i readme`) would have missed this. **Recommendation:** widen the matcher to `grep -iE '(readme|docs/)'`. Noted for next skill update.
+
+**Local checkout note:** Workspace `main` is at `e0bc788` (`docs(worklog): orchestrator spawned docs worker for PR #166`). `git pull --ff-only origin main` confirmed `Already up to date`. Local matches remote. PR #166's branch (`feat/list-conversations-tool-160`) is ~3 commits ahead at last commit `01:22:52Z` (impl + docs + ci passes).
+
+EXIT per orchestrate skill — next cycle (~30 min) checks testing worker `fa9ab78` and decides merge vs wait vs fix.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
