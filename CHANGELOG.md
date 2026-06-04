@@ -1,6 +1,92 @@
 # CHANGELOG
 
 
+## v0.23.0 (2026-06-04)
+
+### Chores
+
+- **worklog**: Expand Issue #169 (engagement in gen objs markdown)
+  ([`d17bf71`](https://github.com/jpshackelford/ohtv/commit/d17bf716d8ab9bb5a9c36523017927d672fd002c))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Expansion worker for Issue #170 (engagement filter flags)
+  ([`a5d28f4`](https://github.com/jpshackelford/ohtv/commit/a5d28f47568f51e3468859d1627a82c6c11c039b))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Implementation worker for Issue #167 (PR #171)
+  ([`e4078b0`](https://github.com/jpshackelford/ohtv/commit/e4078b0a695e1a1d15a6ecfcebb04ceba0df5fa5))
+
+- **worklog**: Orchestrator cycle 2026-06-04 03:51Z - docs + expansion workers
+  ([`42480d4`](https://github.com/jpshackelford/ohtv/commit/42480d476aa0ef630a00b42455bd7f11ab33f97d))
+
+- **worklog**: Orchestrator cycle 2026-06-04 04:51Z — spawn review worker for PR #171
+  ([`2865f5a`](https://github.com/jpshackelford/ohtv/commit/2865f5a922de2b3b9a2f02188e17ac8ffd174b28))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawn merge worker for PR #171
+  ([`2865a31`](https://github.com/jpshackelford/ohtv/commit/2865a31bbe514d8a78920f2b9f37bed2acdebc63))
+
+- **worklog**: Orchestrator spawn re-test worker for PR #171
+  ([`c437c87`](https://github.com/jpshackelford/ohtv/commit/c437c87e808c9d2c287f210dbd8352bfa7f87f10))
+
+- **worklog**: Orchestrator spawned impl #167 + expansion #169
+  ([`bf492e8`](https://github.com/jpshackelford/ohtv/commit/bf492e8a98aeb54adb6bce209e637eb4a4675be1))
+
+- **worklog**: Record merge of PR #171 (engagement columns)
+  ([`02e618f`](https://github.com/jpshackelford/ohtv/commit/02e618f1781f183a2230ee0d090a64aaf9fee0a7))
+
+_This commit was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+- **worklog**: Record PR #171 review-feedback completion
+  ([`4675e95`](https://github.com/jpshackelford/ohtv/commit/4675e95ecd70bf8b1a8701c377c4ed0b7d6a2a24))
+
+- **worklog**: Testing worker spawned for PR #171 (#170 expanded, queue empty)
+  ([`26f0f70`](https://github.com/jpshackelford/ohtv/commit/26f0f70dd8f652ce1b45b8cacab44b6c8875e5a4))
+
+### Features
+
+- Add engagement columns to ohtv list output
+  ([#171](https://github.com/jpshackelford/ohtv/pull/171),
+  [`fe476c7`](https://github.com/jpshackelford/ohtv/commit/fe476c776d3fda7e7deade9eb7cb9ef7a5c7b4c6))
+
+Adds an opt-in `--with-engagement` flag to `ohtv list` that surfaces the engagement metric (added by
+  PR #165 to per-conversation `ohtv show`) across many conversations in the same view. The flag is
+  purely a display flag — it never filters rows out, and it composes with every existing filter /
+  display flag on `ohtv list`.
+
+What ships:
+
+* Table view adds three columns when set: `Engaged`, `Periods`, `Eng%`. Missing rows render as dim
+  `-` so conversations whose engagement stage hasn't run are still listed, never silently dropped. *
+  JSON output adds five fields matching the schema PR #165 established on `ohtv show <id> -F json`:
+  `engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`,
+  plus the computed `engagement_ratio`. Missing values emit JSON `null`. * CSV output appends the
+  same five columns to the existing header. Empty strings for missing values; zeros preserved as
+  `0`. * `_load_engagement_for_conversations` issues a single batched `SELECT ... WHERE
+  conversation_id IN (?, ?, ...)` against the `conversation_engagement` table (migration 023),
+  chunked at 900 IDs per batch to stay under SQLite's default ~999 parameter ceiling. Normalizes
+  dashed LocalSource ids to dashless before lookup (AGENTS.md item #14). * Shared
+  `_validate_engagement_values` helper and `_engagement_csv_row` builder (DRY refactor from review
+  feedback) keep the formatters and CSV emitter on a single code path for present-vs-missing rows.
+
+Tests: 36 new in `tests/unit/test_cli_list_engagement.py` cover the formatters, the batch DB loader
+  (empty input, missing DB, present/missing rows, dashed-ID normalization, 1100-row chunking), the
+  JSON/CSV emitters (schema stability across rows), and the rich table column rendering
+  (with/without flag, idle composition). Full suite: 2351 passed, 2 skipped, 3 xfailed.
+
+Docs: `docs/guides/exploration.md` and `docs/reference/cli.md` updated with `--with-engagement`
+  examples and the `ohtv db process all` dependency.
+
+Fixes #167.
+
+This commit was authored by an AI agent (OpenHands) on behalf of @jpshackelford.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+
 ## v0.22.0 (2026-06-04)
 
 ### Chores
