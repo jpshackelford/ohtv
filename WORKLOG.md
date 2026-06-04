@@ -1340,3 +1340,34 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `ee9bfd9` (docs worke
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-04T12:06Z - Testing Worker (PR #175)
+
+Manual blackbox tests for [PR #175](https://github.com/jpshackelford/ohtv/pull/175) — `feat(filter): add engagement-level filters to list and gen subcommands` (closes #170).
+
+**Verdict: ✅ ALL PASS** — every documented behavior matches actual CLI behavior.
+
+**Tests run** (against a 30-conv fixture with surgically-controlled engagement state: 10 engaged>0 spanning 30s–1h and ratios 2.28 %–85.7 %, 10 engaged=0 incl. 1 with total=0, 10 with missing engagement rows):
+
+| Area | Result |
+|------|--------|
+| Mutual exclusion (3 cases, exit 2) | ✅ |
+| Duration grammar (`5`/`5m`/`30s`/`1h`/`1h30m`, case-insensitive, bare 5 ≡ 5m ≠ 5s) | ✅ |
+| Invalid duration / ratio (7 cases, all exit 2 pre-DB) | ✅ |
+| Missing-row asymmetry (`--no-engaged` includes; others exclude) — `engaged ∪ no_engaged = full set` | ✅ |
+| Ratio + zero-duration row exclusion (`engaged=0,total=0` excluded under `--min-engagement-ratio 0`) | ✅ |
+| Composition with `--repo`/`--pr`/`--since`/`-D`/`--include-empty`/`--errors-only` + threshold-flag AND | ✅ |
+| Format-independence (table/json/csv → same 10-row set) | ✅ |
+| Cross-command surface: `list`, `gen objs`, `gen titles`, `gen run` | ✅ |
+| Batched query verified via `sqlite3.set_trace_callback`: **1 `IN (…)` query** per invocation, all 30 IDs inlined, no per-row queries even when `--min-engaged` AND `--min-engagement-ratio` combine | ✅ |
+| README "Engagement filtering" examples all execute | ✅ |
+
+**Unit test suite:** `uv run pytest -q` → **2492 passed, 2 skipped, 3 xfailed** (xfailed = pending-behavior tests in `tests/unit/sync/` for issues #11x per AGENTS.md item 30; strict=True so they'd fail CI if they accidentally landed early).
+
+**Findings:** No bugs. One minor ordering note: `gen run <invalid_job_id> --engaged --no-engaged` exits 1 on job-ID parse before the engagement validator runs; using a valid family.variant ID (e.g. `reports.weekly`) gives the expected exit-2 mutex error. Correct ordering (parse → validate), worth knowing for testers.
+
+Test report posted: https://github.com/jpshackelford/ohtv/pull/175#issuecomment-4621960813
+
+Next: orchestrator should dispatch the review-handler worker (pr-review bot's inline comment is out of scope per the testing brief).
+
+---
