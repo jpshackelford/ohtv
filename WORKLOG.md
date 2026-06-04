@@ -1,5 +1,42 @@
 ## Log
 
+### 2026-06-04 17:21 UTC - Merge Worker — PR #178 squash-merged
+
+**Worker:** merge conversation for PR #178 (`feat/issue-162-telemetry`).
+
+**Outcome:** ✅ Squash-merged at 17:20:59Z. Merge commit `0dbd6bb`. Issue #162 auto-closed at 17:21:00Z (state `CLOSED` / reason `COMPLETED`) via `Closes #162` footer.
+
+**Merge criteria verified before action:**
+- CI: all SUCCESS (`pytest`, `lint-pr-title`, both `pr-review` and `enable-orchestrator` runs).
+- Review: `APPROVED` by `github-actions` (🟡 Acceptable — "Well-executed telemetry implementation with solid data structures and comprehensive testing").
+- 0 unresolved review threads.
+- Mergeable: `MERGEABLE` / `mergeStateStatus: CLEAN`.
+- Manual test report at 17:10Z covered 11 scenarios — all PASS — plus `2592 passed, 2 skipped, 3 xfailed`. Last code commit at 16:37:06Z, so tests current.
+- Docs: new `docs/reference/telemetry.md` shipped in-diff; AGENTS.md item #34 added.
+
+**Merge mechanics:**
+- `gh pr merge 178 --squash` with crafted subject + body (subject `feat(telemetry): record ohtv ask sessions to ~/.ohtv/telemetry/`).
+- Body summarises schema v1 lock-ins (`agent: null` as explicit null not omission; `flags.agent_mode` mirrors `InvestigationResult.mode` from #161; ISO-with-hyphens filename grammar), env-var contracts (`OHTV_TELEMETRY_DIR`, `OHTV_TELEMETRY_ENABLED`), concurrency story (atomic `os.replace()` for blobs, sub-`PIPE_BUF` appends for `sessions.jsonl`, no file locking), graceful-degradation path, and test footprint. Closes #162.
+- PR description was already comprehensive (covered every key decision and AC mapping) — no update needed before merge.
+
+**Expected release:** `feat:` subject → minor bump per AGENTS.md "Releases & Commit Contract". `ohtv-v0.27.0` → **`ohtv-v0.28.0`** via python-semantic-release on next `main` push (~30s). The auto-generated `chore(release): ohtv 0.28.0 [skip ci]` commit and `ohtv-v0.28.0` tag should appear shortly. **NOT waiting** — release workflow handles it autonomously per #178 instructions.
+
+**Family status:**
+- `ohtv ask` agent-mode family progress: #161 (dual-mode split) merged earlier this cycle as PR #177; #162 (telemetry capture) merged now as PR #178. The comparison instrument exists — future `ohtv ask` A/B work can now produce data, not opinion.
+- #173 (the unrelated refactor noted previously) is still the next pickup candidate after this family settles.
+
+**Notes / follow-ups carried forward:**
+- Per #162 Non-Goals, no `ohtv telemetry list/show/replay/compare/prune` subcommands shipped — those are a separate follow-up. Schema v1 is replay-ready (full / agent-loop / cross-mode) but the consumer side is still on the backlog.
+- No remote upload path; telemetry stays under `~/.ohtv/telemetry/`. No PII scrubbing.
+
+**Local checkout note:** `main` HEAD at `f06f359` pre-pull, now advanced past the squash. This entry commits WORKLOG.md only as `chore(worklog):` per release-workflow contract (hidden from changelog, no version bump).
+
+EXIT per `/prepare-and-merge` skill — semantic-release is now in flight; orchestrator's next cycle will see `ohtv-v0.28.0` in the tag list.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 17:10 UTC - Testing worker (PR #178)
 
 **Worker:** testing conversation for PR #178 (`feat/issue-162-telemetry`, HEAD `3edcaf9`).
