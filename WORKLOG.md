@@ -1247,3 +1247,80 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-04 03:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `45e873e` | orchestrator | this cycle | running |
+| `3dbea4a8` | implementation | Issue #167 — engagement columns for `ohtv list` | **NEW** (running, sandbox RUNNING, proof-of-life ~42s) |
+| `c13e86c1` | expansion | Issue #169 — engagement in `gen objs` markdown | **NEW** (running, sandbox RUNNING, proof-of-life ~27s) |
+| `1ff3ccc` | merge | PR #166 (DONE — squash `ca60a11`, tag `ohtv-v0.22.0`) | PAUSED, exec=null (clean exit) |
+| `20df5c1` | expansion | Issue #168 (DONE — `ready` label applied) | exec=finished, sandbox RUNNING (cleanup) |
+
+**Spawned: 2 Workers (parallel — both slots filled this cycle)**
+
+1. **Implementation Worker (PR slot)**
+   - Issue: [#167 — Add engagement columns to `ohtv list` output](https://github.com/jpshackelford/ohtv/issues/167) (`priority:high`)
+   - Conversation: [`3dbea4a8`](https://app.all-hands.dev/conversations/3dbea4a8c1c54e879ba9aae8a85d9c0d)
+   - Start task `209edf9b` → READY in 1 poll (~8s); proof-of-life delta `updated_at - created_at ≈ 42s`.
+
+2. **Expansion Worker (expansion slot)**
+   - Issue: [#169 — Add engagement to `gen objs` markdown output (below Duration)](https://github.com/jpshackelford/ohtv/issues/169) (`priority:high`)
+   - Conversation: [`c13e86c1`](https://app.all-hands.dev/conversations/c13e86c1...)
+   - Start task `ad5132cc` → READY in 2 polls (~16s); proof-of-life delta ~27s. Prompt instructs the worker to read #167 and #168's expanded bodies first so markdown field names mirror the JSON / `ohtv list` choices for a coherent UX across the engagement-metric family.
+
+**Step 0 — Setup:** `lxa` and `ohtv` both missing at cycle entry. `uv sync` against the project venv (`/workspace/project/ohtv/.venv`) succeeded (re-resolved deps cleanly), then `uv pip install git+https://github.com/jpshackelford/lxa.git` installed `lxa` into the venv. **Pattern reaffirmed (third cycle confirming):** when inside `/workspace/project/ohtv`, prefer `uv sync` + `uv pip install` against the project venv — no sudo, no system pollution, cleaner than `sudo uv pip install --system`. The `uv.lock` churn from installing `lxa` (a tool, not a project dep) was reverted with `git checkout -- uv.lock` before commit to avoid polluting `main`. `lxa repo add` re-created the cosmetic "Unnamed Board 1". `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 4h --quiet` completed silently. `GH_TOKEN=$github_token` shim still works (7 consecutive cycles).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1249 lines** at cycle entry (>>300; **13 consecutive cycles overdue** on truncation). Deferred again — this cycle's primary actions are filling both slots after a successful merge. Truncation continues to be flagged for a human `## INSTRUCTION:` directive or a fix to the `/truncate-worklog` matcher's `is_productive` regex.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged. `grep -n "^## INSTRUCTION:" WORKLOG.md` returned no headings (only historical in-prose mentions inside other entries).
+
+**Step 2/3 — Worker status check at cycle entry:**
+- `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` returned only this orchestrator (`45e873e`) as `execution_status=running`.
+- `1ff3ccc` (merge PR #166): `sandbox=PAUSED, exec=null, created=02:49:54Z, updated=02:53:42Z, lifetime≈3m 48s`. Combined with `main` HEAD at `0c6d338` (`chore(release): ohtv 0.22.0`) — semantic-release tagged `ohtv-v0.22.0` from squash commit `ca60a11`. **CLEAN EXIT confirmed**: PR closed, release pushed.
+- `20df5c1` (expansion #168): `sandbox=RUNNING, exec=finished, created=02:49:58Z, updated=02:55:20Z, lifetime≈5m 22s`. Issue #168 now carries `enhancement, ready, priority:high`. The `exec=finished` + `sandbox=RUNNING` combo (vs. the PAUSED-post-success pattern on other clean exits) is a new variant — likely a faster `finished` ping before the sandbox auto-paused. Result is identical: clean completion + visible artifact.
+- **Both slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs: 0** (PR #166 merged last cycle).
+- **Issue census:**
+  - **Needs expansion (no `ready`, no `hold`): 2** — **#169** (markdown engagement render), **#170** (filter by engagement level). Both `priority:high`. New since the 02:51Z cycle (the human added two more engagement-metric follow-ups while #167/#168 were being expanded).
+  - **Ready + prioritized: 4** — **#167** (`priority:high`), **#168** (`priority:high`), **#161** (`priority:medium`), **#162** (`priority:medium`).
+  - **On hold:** #26, #90.
+- **Highest-priority ready: #167 and #168 (tied at `priority:high`).** Per FIFO-with-ties → **#167** (lower number = older) is chosen first.
+
+**Step 5 — Decisions:**
+- **PR slot** → Spawn **implementation worker for #167**. Decision-tree row matched: *"No open PR + ready issues with priority → Spawn impl worker for highest priority ready issue."*
+- **Expansion slot** → Spawn **expansion worker for #169** (`priority:high`, lower number than #170). Per skill rule "oldest unexpanded first."
+
+**Why #167 (impl) and #169 (expansion):** Lower issue numbers = older; ties at the same priority resolve by FIFO. #168 and #170 will be picked up in subsequent cycles. The engagement-metric family is structured so #167 (columns) is the natural foundation — column field names will inform JSON fields (#168), markdown render (#169), and filter flags (#170).
+
+**Step 6 — Quiet-cycle check:** Productive cycle (2 workers spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~03:51Z):** Likely outcomes —
+  - ~50%: `3dbea4a8` still implementing #167 (typical 30–60m for a non-trivial display-column feature with tests + docs); `c13e86c1` likely DONE expanding #169 (typical 10–25m). If so: spawn expansion worker for **#170**.
+  - ~30%: Both workers still running.
+  - ~15%: `3dbea4a8` opened a draft PR (CI building); `c13e86c1` complete → spawn expansion #170.
+  - ~5%: Stalled/ghost — unlikely given proof-of-life confirmed for both.
+- **2 cycles out (~04:21Z):** Likely a draft PR for #167 with CI running or green; both #169 and #170 should be `ready`. Queue order post-#167: **#168 (high) → #170 (high once expanded) → #161 (medium) → #162 (medium)**.
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **WORKLOG.md size: 1249 → ~1330 lines post-entry. 13 consecutive cycles overdue on truncation.** Recommendation unchanged: human `## INSTRUCTION:` directive OR `/truncate-worklog` matcher fix. This entry's bullet count is intentionally lean.
+- **Tool install pattern (third cycle confirming):** Inside `/workspace/project/ohtv` → `uv sync` + `uv pip install git+...` (project venv, no sudo). Remember to `git checkout -- uv.lock` before any worklog-only commit.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 7 consecutive cycles. `export GH_TOKEN=$github_token` shim is durable.
+- **Engagement-metric family is now a triage cluster (#167–#170):** Expansion slot will likely stay busy the next 2 cycles. After #167 implementation, #168 is the natural next target.
+- **`exec=finished, sandbox=RUNNING` is a new clean-exit variant** (`20df5c1` this cycle). Treat identically to `exec=null, sandbox=PAUSED`.
+- **Semantic-release confirmed working:** `feat:` squash on PR #166 → `ohtv-v0.22.0` tag + GitHub Release within ~30s of push, no human intervention.
+- **Docs detection widening (from 01:52Z, still open):** `gh pr diff --name-only | grep -iE '(readme|docs/)'`.
+
+**Local checkout note:** `main` at `0c6d338` (tag `ohtv-v0.22.0`). Worklog entry committed directly to `main`. `uv.lock` churn reverted before commit.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `3dbea4a8` (impl #167) and `c13e86c1` (expansion #169) and decides next actions.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
