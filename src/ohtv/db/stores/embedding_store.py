@@ -258,7 +258,7 @@ class EmbeddingStore:
         # it, but the date columns now come off ``ce``.
         use_event_dates = event_dates and has_date_filter
 
-        if has_date_filter or use_event_dates:
+        if has_date_filter:
             # JOIN with conversations table for date filtering
             base_query = """
                 SELECT e.conversation_id, e.embed_type, e.chunk_index, e.embedding, e.source_text
