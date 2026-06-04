@@ -1,5 +1,30 @@
 ## Log
 
+### 2026-06-04 11:35 UTC - Docs Worker (PR #175)
+
+✅ **Documentation landed for PR [#175](https://github.com/jpshackelford/ohtv/pull/175) before manual testing.** Pushed `76828f8` to `feat/170-engagement-filters`; both CI checks (lint + pytest) green.
+
+**Scope:** `README.md` + `docs/guides/exploration.md` + `docs/guides/analysis.md` + `docs/reference/cli.md`. No code touched (per task brief — `src/` and `tests/` are explicitly out of scope for this worker).
+
+**What changed:**
+- **README.md** — new top-level **Engagement filtering** section (between *Commands* and *Configuration*) with the 4-flag table, mutual-exclusion summary, 4 copy-pasteable examples on `list`/`gen objs`/`gen titles`, an explicit missing-row semantics callout for `--no-engaged`, and a prerequisite pointer to the `engagement` indexing stage (#163 / #165). One-line feature bullet added near the top of the README.
+- **docs/guides/exploration.md** — 4 new flag rows in the `ohtv list` Options table; new dedicated **Engagement filters** subsection right after **Engagement columns** with the full missing-row truth table, `--min-engaged` duration grammar (incl. the `5` ≡ `5m` ≠ `5s` trap from the issue's UX rationale), mutual-exclusion rules, and 5 examples. Rewrote the prior "filtering is deferred to #170" deferral notice (was sitting under the `--with-engagement` subsection) to point at the now-shipped subsection.
+- **docs/guides/analysis.md** — 4 new flag rows in `gen objs` (multi-conversation), `gen titles`, and `gen run` Options tables; new **Engagement filters** subsection with `gen`-specific examples. Rewrote the matching "deferred to #170" deferral notice.
+- **docs/reference/cli.md** — extended the `ohtv list` / `gen objs` / `gen titles` / `gen run` rows to mention the new filter flags and deep-link to the relevant guide subsection.
+
+**Quality bar (per task brief):**
+- Every example in the README and both guides was executed against a fresh `OHTV_DIR` on the PR branch (`uv sync` clean). All commands parse, validate, mutually-exclude correctly, and exit 0.
+- Caught one issue-body bug during the example pass: the original issue #170 used `--since 30d` / `--since 7d` shorthand — that syntax is wired into `ohtv ask` (RAG temporal filter) only, NOT `--since` on `list`/`gen` (which only accept `today` + ISO date via `click.DateTime`). Docs use `-D N` (last N days) and `--week` instead, both of which work today. Worth flagging if anyone wants `--since 7d` to actually work on `list` — that's a separate issue.
+- Style matches the existing `--with-engagement` documentation: same anchor naming (`<a id="engagement-filters-...">`), same "Composes with other flags" / "Prerequisite" phrasing, same per-command Options-table row format.
+- No invented doc surface. No duplicate engagement explanations — all four docs cross-reference the same canonical subsection in exploration.md.
+- The inline review comment from the `github-actions` `pr-review` bot is intentionally NOT addressed (per task brief — review-handler worker's scope, not docs worker's).
+
+**PR comment posted:** [#175 (comment) 4621720085](https://github.com/jpshackelford/ohtv/pull/175#issuecomment-4621720085) — summarizes the four edited files with the AI-agent disclosure line.
+
+**Next worker:** manual testing on a populated `OHTV_DIR` (separate conversation). Testers should verify documented behavior matches actual behavior on real data — in particular the `--no-engaged` missing-row semantics, the `--min-engaged 5 == 5m` duration trap, and the mutual-exclusion exit codes.
+
+---
+
 ### 2026-06-04 11:25 UTC - Implementation Worker (Issue #170 → PR #175)
 
 ✅ **Opened PR [#175](https://github.com/jpshackelford/ohtv/pull/175) — `feat(filter): add engagement-level filters to list and gen subcommands` (Closes [#170](https://github.com/jpshackelford/ohtv/issues/170)).**
