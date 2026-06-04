@@ -1151,3 +1151,83 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `fa9ab78` (testing PR
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-04 02:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `103e62f` | orchestrator | this cycle | running |
+| `1ff3ccc` | merge | PR #166 — list_conversations agent tool | **NEW** (running, sandbox RUNNING, proof-of-life ~37s) |
+| `20df5c1` | expansion | Issue #168 — engagement fields in `gen objs` JSON | **NEW** (running, sandbox RUNNING, proof-of-life ~35s) |
+| `fa9ab78` | testing | PR #166 (DONE — test report posted) | PAUSED, exec=null (clean exit) |
+| `5539799` | expansion | Issue #167 (DONE — `ready` label applied) | PAUSED, exec=null (clean exit) |
+
+**Spawned: 2 Workers (parallel — both slots filled this cycle)**
+
+1. **Merge Worker (PR slot)**
+   - PR: [#166 — feat: add list_conversations tool to ohtv ask --agent investigator](https://github.com/jpshackelford/ohtv/pull/166) (Issue [#160](https://github.com/jpshackelford/ohtv/issues/160))
+   - Conversation: [`1ff3ccc`](https://app.all-hands.dev/conversations/1ff3cccfe6a1446f8200b031a1ddc7e9)
+   - Start task `945434d8` → READY in 1 poll (~25s); proof-of-life delta `updated_at - created_at ≈ 37s`.
+
+2. **Expansion Worker (expansion slot)**
+   - Issue: [#168 — Add engagement fields to `ohtv gen objs` JSON output](https://github.com/jpshackelford/ohtv/issues/168)
+   - Conversation: [`20df5c1`](https://app.all-hands.dev/conversations/20df5c15cdfe454e902e3757ee1e1f9c)
+   - Start task `f979c1ea` → READY in 1 poll (~25s); proof-of-life delta ~35s. Prompt explicitly instructs the worker to read #167's expanded body first so the JSON-field design mirrors the column choices for `ohtv list`.
+
+**Step 0 — Setup:** `lxa` was missing this cycle; `ohtv` already present in the project venv (`/workspace/project/ohtv/.venv` — `uv sync` reused the existing virtualenv). `uv pip install git+...` installed `lxa` into the activated venv. **Updated tool-install pattern (refined again):** when the orchestrator shell starts inside the project directory, `uv sync` + `uv pip install` against the project venv is cleaner than `sudo uv pip install --system` (no sudo required, no system pollution). The 02:21Z `--system` note still applies when no project venv exists at cwd, but inside `/workspace/project/ohtv` the venv path is the durable choice. `lxa repo add jpshackelford/ohtv` created a fresh "Unnamed Board 1" again (cosmetic — each ephemeral env starts blank). `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 4h --quiet` completed in <2m. `GH_TOKEN=$github_token` shim continues to work (6 consecutive cycles).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1153 lines** (>>300 threshold; **12 consecutive cycles overdue** on truncation). Deferred again — this cycle's primary actions are spawning the merge worker (PR #166 → main) and expansion worker (#168), both productive. Truncation remains flagged for a future genuinely-quiet cycle or a human `## INSTRUCTION: archive WORKLOG.md entries older than 12h` directive. **Recommendation reaffirmed:** post the INSTRUCTION on next manual interaction, OR widen the `/truncate-worklog` matcher's `is_productive` regex.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged. `grep -n "## INSTRUCTION:" WORKLOG.md` returned only historical in-prose mentions (line refs 159, 274, 376, 523, 571, 779, 823, 874, 919, 985, 1034, 1036, 1074, 1106, 1108, 1138 — all inside other entries, never the heading form).
+
+**Step 2/3 — Worker status check at cycle entry:**
+- `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` returned only this orchestrator (`103e62f`) as `execution_status=running`.
+- `fa9ab78` (testing PR #166): `sandbox=PAUSED, exec=null, created=01:51:44Z, updated=02:22:52Z, lifetime≈31m 8s`. Combined with the **`## Manual Test Results for PR #166` comment posted on PR #166 at 02:22:20Z** by `fa9ab78` running under the human's GitHub identity → confirmed CLEAN EXIT (PAUSED-post-success pattern). All T1-T10 PASS in the test report (T5 marked PASS-LIMITED due to no sub-conversations in test data — expected and acceptable).
+- `5539799` (expansion #167): `sandbox=PAUSED, exec=null, created=02:20:07Z, updated=02:24:14Z, lifetime≈4m 7s`. Issue #167 now has labels `enhancement, ready, priority:high` (priority was already on the issue; `ready` is the worker's contribution). PAUSED-post-success confirmed.
+- **Both slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs (1):** [PR #166 — `feat: add list_conversations tool to ohtv ask --agent investigator`](https://github.com/jpshackelford/ohtv/pull/166):
+  - `state=OPEN, isDraft=false, reviewDecision=APPROVED, mergeable=UNKNOWN, mergeStateStatus=UNKNOWN` (UNKNOWN values are GitHub's "not yet recomputed since last activity" — the merge worker will refresh by pulling).
+  - CI: `lint=SUCCESS`, `pytest=SUCCESS` (both completed at ~01:23–01:24Z, on the docs commit `fd5b66b`).
+  - 2 PR comments: docs comment at 01:24:27Z, test report at 02:22:20Z (all T1-T10 PASS).
+  - 0 unresolved review threads (pr-review bot APPROVED with "🟢 Good taste"; 0 💬 needing reply).
+  - Last commit at 01:22:52Z — **no new commits since the manual test ran at 02:22:20Z**, so re-testing is NOT required.
+  - **Decision-tree row matched:** *"PR exists, ready, CI green, test results valid, good rating, docs valid → Spawn merge worker."*
+- **Issue census:**
+  - Needs expansion (no `ready`, no `hold`): **1** — **#168** (engagement fields in `gen objs` JSON output).
+  - Ready + prioritized: **#160** (PR #166 in flight → merging), **#161** (prompt-based agent mode, `priority:medium`), **#162** (telemetry for `ohtv ask`, `priority:medium`), **#167** (engagement columns for `ohtv list`, `priority:high` — newly ready).
+  - On hold: **#26**, **#90** (unchanged).
+
+**Step 5 — Decisions:**
+- **PR slot** → Spawn **merge worker** for PR #166. All gates met (CI green, approved, docs ✓, test report all-PASS, no review threads).
+- **Expansion slot** → Spawn **expansion worker** for **#168** (the single unexpanded issue this cycle, freshly entered the queue at 02:13Z by the human).
+
+**Step 6 — Quiet-cycle check:** Productive cycle (2 workers spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~03:21Z):** Likely outcomes —
+  - ~65%: PR #166 MERGED (typical merge worker turnaround: 5-15m once started); `20df5c1` likely still expanding #168 (typical 10–25m). If both: open-PR count drops to 0 → **spawn implementation worker for the highest-priority `ready` issue** (now **#167** at `priority:high`, ahead of #161/#162 at `priority:medium`).
+  - ~20%: PR #166 hit a snag (rare given the clean state) → review worker if needed; #168 expansion likely complete and `ready`.
+  - ~10%: Both workers still running.
+  - ~5%: Stalled/ghost — unlikely given proof-of-life confirmed for both.
+- **2 cycles out (~03:51Z):** Likely PR #166 merged + #168 ready + implementation worker spawned for #167. Queue order post-merge: **#167 (high) → #168 (high) → #161 (medium) → #162 (medium)**.
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **WORKLOG.md size: 1153 lines → ~1225 lines post-entry. 12 consecutive cycles overdue on truncation.** Recommendation unchanged: human `## INSTRUCTION:` directive or `/truncate-worklog` matcher fix. (This entry's bullet count is intentionally kept lean to slow the growth rate.)
+- **Tool install pattern (final form):** Order of preference: `uv sync` + `uv pip install git+...` (when project venv exists at cwd, no sudo needed) → `sudo uv pip install --system git+...` (with sudo) → `pip install --user git+...` (last resort). Today's cycle used the cleanest path (venv-relative) for the first time across the streak.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 6 consecutive cycles. `export GH_TOKEN=$github_token` is the durable shim.
+- **`/spawn-conversation` proof-of-life heuristic:** ≥5s delta within ~30s = alive. Confirmed for both `1ff3ccc` (37s) and `20df5c1` (35s).
+- **PAUSED-post-success detection:** `updated_at - created_at > 30s` + visible artifacts = success. Now confirmed across 4+ workers (`487b7e1`, `3f4e392`, `fa9ab78`, `5539799`). Pattern is reliable.
+- **`Manual Test` heading-anchor check:** Used `comments[-1].body | startswith("## Manual Test Results")` this cycle — clean match, no false positives (the docs comment ranks earlier in the list, so it didn't even need filtering).
+- **Docs detection widening (from 01:52Z):** Still open. PR #166's docs went to `docs/guides/search-and-ask.md`, not README. Skill update needed: `gh pr diff --name-only | grep -iE '(readme|docs/)'`.
+- **Issue #168 expansion ordering:** Per skill rule "oldest unexpanded first" → #168 was the only one this cycle (after #167 cleared). Both engagement-metric follow-ups will be `ready` by next cycle.
+
+**Local checkout note:** `git pull --ff-only origin main` was clean (already up to date). Worklog entry committed directly to `main` per skill rule.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `1ff3ccc` (merge PR #166) and `20df5c1` (expansion #168) status and decides next implementation worker.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
