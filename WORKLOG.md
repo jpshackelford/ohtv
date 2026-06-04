@@ -1564,3 +1564,88 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `7a6ca22` (implementa
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-04 17:20 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `5b13c41` | merge | PR #178 — `feat(telemetry): record ohtv ask sessions to ~/.ohtv/telemetry/` (closes #162) | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Reused the workspace clone (already on `main`, clean). Installed `lxa` and `ohtv` via `pip install --user` (the workspace `.venv` from prior cycle didn't exist this time — `uv pip install` fell through to "no virtual environment" so `pip install --user` was the fast path). Both tools landed in `$HOME/.local/bin`. Added `jpshackelford/ohtv` to a fresh lxa board (lxa created its first board on first invocation — cosmetic, ignored). Skipped `ohtv sync` — `gh` covers every gating signal this cycle.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **1529 lines** on entry — well over the 300-line threshold. **Skipped truncation this cycle** to keep focus on the merge-ready PR; the orchestrate skill's "older than 6 hours of productive work" archive rule means most legitimate archival targets are pre-11:20Z entries (which exist in bulk). Flagging truncation as the natural next-cycle housekeeping pickup if no spawn-worthy work appears then.
+
+**Step 1 — Human Instructions:** None. `grep "^## INSTRUCTION:" WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):**
+- Implementation worker `7a6ca22` (spawned 13:18Z for #161): `execution_status=null, sandbox_status=PAUSED, updated_at=13:48Z` → **finished long ago** (PR #177 already merged + released).
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered (the big news: an entire family-arc completed since last orchestrator entry):**
+- **Issue #161 — CLOSED** at 15:50:21Z via PR #177 merge. `ohtv-v0.27.0` released. ✅
+- **Issue #162 — implementation done**, PR #178 opened at 16:37Z by `feat/issue-162-telemetry` branch (1 commit, `3edcaf9`).
+- **PR #178 status (`lxa pr list`):** `oAc green ready` (opened → Approved → commented). 39 min old, last activity 7 min ago.
+- **PR #178 deep-dive:**
+  - CI: **green**
+  - `isDraft: false`
+  - `reviewDecision: APPROVED` (review by `github-actions` bot at 16:43:55Z, rating: 🟡 Acceptable — "Well-executed telemetry implementation with solid data structures and comprehensive testing")
+  - `mergeable: MERGEABLE`
+  - **0 unresolved review threads**
+  - **Docs updated:** `docs/reference/telemetry.md` is a new file in the diff (the canonical telemetry reference doc). `AGENTS.md` also touched.
+  - **Manual test results posted at 17:10:10Z** by the testing worker — 11 scenarios all PASS plus full unit suite **`2592 passed, 2 skipped, 3 xfailed`**. Tests cover: schema v1 keys + `agent: null` (explicit null, not omission) + filename grammar + `--agent`/`--agent-tools` mode capture + `OHTV_TELEMETRY_DIR` override + `OHTV_TELEMETRY_ENABLED=0` disable + read-only-dir graceful degradation + parallel-invocation `sessions.jsonl` correctness + documented jq one-liner round-trip.
+  - **Test freshness:** last code commit at 16:37:06Z, test report at 17:10:10Z — tests are current (33 min gap, no commits since).
+- **Open PRs:** 1 (PR #178 — the merge candidate).
+- **Issues needing expansion:** 0.
+- **Ready, prioritized issues:**
+  - **#162** (`priority:medium`) — covered by in-flight PR #178 (will auto-close on merge).
+  - **#173** (`priority:low`) — refactor: reduce nesting in `_load_engagement_for_ids`. Next candidate after #178 lands.
+- **On hold:** #26, #90.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+- **PR slot:** Open PR exists, ready, CI green, **test results valid, good rating, docs valid** → **Spawn merge worker.** ✅
+- **Expansion slot:** 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Merge Worker**
+- PR: [#178 — `feat(telemetry): record ohtv ask sessions to ~/.ohtv/telemetry/`](https://github.com/jpshackelford/ohtv/pull/178)
+- Closes: [#162](https://github.com/jpshackelford/ohtv/issues/162)
+- Start task: `90229142` → `app_conversation_id = 5b13c41e812d40df8de9d48b13133922` → **READY** on first poll (~5s warm-picker latency 🔥, same fast path as last cycle).
+- Conversation: [`5b13c41`](https://app.all-hands.dev/conversations/5b13c41e812d40df8de9d48b13133922)
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after spawn.
+- Plugin spec (unchanged, **18th successful spawn**): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract (unchanged, V1): `initial_message: {content: [{type:"text", text:"…"}], run: true}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:** checkout `feat/issue-162-telemetry` → study diff holistically → read manual test report → update PR description to reflect final state (schema v1, env-var overrides, graceful degradation, test coverage) → craft conventional commit subject `feat(telemetry): record ohtv ask sessions to ~/.ohtv/telemetry/` with body + `Closes #162` footer → `gh pr merge 178 --squash --body "$BODY"` → verify merge → `chore(worklog):` WORKLOG update on main → EXIT. **Hard constraints reiterated:** squash-only, no force-push, do not touch `.github/workflows/release.yml` or the `[tool.semantic_release]` block, the auto-generated `chore(release):` commit MUST keep `[skip ci]`.
+- **Expected release:** `feat:` subject → **minor bump** `0.27.0 → 0.28.0` via python-semantic-release on push to main. GitHub Release published ~30s after merge.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned, primary merge action). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~17:50Z):** Most likely —
+  - ~75%: Merge worker `5b13c41` has merged PR #178, posted its `chore(worklog):` commit, `ohtv-v0.28.0` tagged on `main`. Slot free. Orchestrator decision: no open PR + only `priority:low` #173 remains → either spawn an implementation worker for #173 or stay idle (priority:low is borderline — last few cycles have always picked it up when nothing else was queued, so probably **spawn impl worker for #173**).
+  - ~15%: Merge worker still running (highly unlikely given how mechanical the merge step is, but the release workflow can stall the worker's "verify merge" step occasionally).
+  - ~5%: Merge worker hit an unexpected snag (release workflow conflict, branch protection edge case). Would show as a comment on #178 or a `needs-info` flip.
+  - ~5%: Truncation-only cycle (no spawn-worthy work, do WORKLOG housekeeping).
+- **2 cycles out (~18:20Z):** Likely impl worker on #173 in flight (small refactor, ~30 min job).
+- **3 cycles out (~18:50Z):** Likely PR #173-or-equivalent in review/testing phase, or all-quiet if #173 wrapped fast.
+
+**Notes / follow-ups carried forward (cumulative):**
+- **`initial_message` spawn-payload contract** stays pinned. **18 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Plugin spec format unchanged.**
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations` (singular).
+- **Start-task polling endpoint:** `GET /api/v1/app-conversations/start-tasks/search` — `READY` again on first poll (warm-picker latency ~5s; the previous cycle also hit this fast path).
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **Tool install pattern this cycle:** workspace has NO pre-existing venv (the prior cycle's `uv sync` venv didn't carry over). `pip install --user git+https://github.com/jpshackelford/lxa.git git+https://github.com/jpshackelford/ohtv.git` succeeded → tools in `$HOME/.local/bin` (had to `export PATH="$HOME/.local/bin:$PATH"`). For future cycles: try `uv pip install` first (needs `.venv/`); fall back to `pip install --user` if no venv.
+- **`ohtv ask` agent-mode family — almost closed:** #161 ✅ (PR #177 merged, v0.27.0). #162 → PR #178 in **merge slot**. #173 (refactor) is the lone unrelated ready issue queued.
+- **PR-review bot:** APPROVED path again this cycle. Body still uses the 🟡 Acceptable rating signal — consistent across last 3 PRs.
+- **WORKLOG truncation deferred:** 1529 lines on entry. Next cycle should run truncation (skill: `truncate-worklog`) if it's not spawning a high-priority worker.
+- **`docs/reference/telemetry.md`:** new canonical doc landing with #178 — future telemetry-touching PRs should keep this in sync. Worth noting in AGENTS.md after merge if not already (the merge worker's diff review may or may not catch this; flagging here as a follow-up if the AGENTS.md change in #178 doesn't already cover it).
+
+**Local checkout note:** `main` HEAD at `4a25b0b` on entry (`chore(worklog): record PR #178 manual test pass`). This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `5b13c41` (merge worker), PR #178 state (expect `merged`), `ohtv-v0.28.0` release on GitHub, and if all green dispatches implementation work for `priority:low` #173 (or stays idle / truncates).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
