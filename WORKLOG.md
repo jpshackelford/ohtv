@@ -1,6 +1,83 @@
 ## Log
 
 
+### 2026-06-04 14:50 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `a1ec2d6` | review | PR #177 — `feat(ask)` prompt-cookbook agent mode | **NEW** (running, verified) |
+
+**Step 0 — Setup:** `lxa` + `ohtv` installed via `pip install --user` into `~/.local/bin` (`uv pip install --system` blocked by venv-required guard, no `.venv` in workspace). `lxa repo add` re-run (idempotent). `ohtv sync --since 4h --quiet` succeeded after passing `OPENHANDS_API_KEY` explicitly — `ohtv` doesn't auto-pick the secret-manager env var name unless it's already exported in the shell.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **1043 lines** on entry. Oldest visible entry is from 06:21Z (≈8.5h old). Same situation as the last several cycles: only 2–3 entries sit outside the 6h productive-work window, so trimming would yield <50 lines. **Deferring again** — counter at **20 consecutive cycles overdue**. Recommend a human `## INSTRUCTION: archive WORKLOG.md entries older than 8h` or a fix to the `/truncate-worklog` skill's reverse-chrono matcher.
+
+**Step 1 — Human Instructions:** None. `awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):**
+- Testing worker `9e9d3f9` (spawned 14:20Z): `execution_status=finished, sandbox_status=RUNNING` (sandbox not yet idled — typical post-finish lag). Posted `## Manual Test Results` PR comment at **14:38Z** (≈19 min run, in the predicted 15–25 min window).
+- No other ohtv-repo workers active (`d09f1d5` is unrelated — different repo/task).
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered:**
+- **PR #177:** `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `headRefOid=fc4f138` (unchanged since impl worker; QA didn't push code). CI: lint ✅, pytest ✅, pr-review ✅ (COMMENTED-with-tag = merge-ready signal). `reviewDecision=""` (no human approval yet).
+- **Manual test verdict:** **⚠️ Pass with notes** (posted by testing worker at 14:38Z). All 7 documented test scenarios pass; 1 new actionable QA finding surfaced:
+  - **Test 6 / QA Finding 4:** `gen objs --cache-only -F json` emits literal string `"(no goal identified)"` on cache miss, but cookbook prompt + docs + flag help text all promise `goal: null`. This is **load-bearing** — the cookbook agent uses `goal == null` to detect cache misses; a false-negative loop is possible. Fix is small (exporter tweak at `src/ohtv/cli.py:10263`).
+  - Full unit suite: **2553 passed, 2 skipped, 3 xfailed** (matches PR description). 61 PR-new tests pass.
+- **Review threads (unchanged from last cycle, all unresolved, none outdated):**
+  1. 🟠 *Important* `src/ohtv/cli.py:3729` — breaking-change for `ohtv ask --agent` users (banner mitigates but doesn't eliminate). Thread ID `PRRT_kwDOR9seq86HF5Qb`.
+  2. 🟡 Suggestion `src/ohtv/analysis/investigator_cli.py:57` — split `COOKBOOK_PROMPT` → `COOKBOOK_EXAMPLES`. Thread ID `PRRT_kwDOR9seq86HF5Qk`.
+  3. 🟡 Suggestion `src/ohtv/analysis/ohtv_runner.py:286` — document soft-timeout limitation in `run_ohtv` docstring. Thread ID `PRRT_kwDOR9seq86HF5Qr`.
+- **Open PRs:** 1 (#177). **Issues needing expansion:** 0. **Ready+prioritized issues** (other than in-flight #161): #162 (`priority:medium`, structural dep on #161), #173 (`priority:low`, refactor). **On hold:** #26, #90.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+- **PR slot:** "PR exists, ready, CI green, test results valid (14:38Z > last commit 13:45Z, no commits since test), 💬 > 0" → **Spawn review worker.** ✅
+- **Expansion slot:** 0 issues need expansion → **stay idle.** ✅
+- **Docs spot-check:** Not needed pre-review (no review-driven docs changes yet).
+
+**Step 5 — Spawned: Review Worker**
+- PR: [#177 — feat(ask): add prompt-cookbook agent mode alongside legacy tools mode](https://github.com/jpshackelford/ohtv/pull/177)
+- Start task: `6695d3ffc5ad42b49540fb9aee77d8cf` → `app_conversation_id = a1ec2d6bc6e84253b0411af720ccb41f` → **READY on 1st poll** (~5s — picker was warm from last cycle).
+- Conversation: [`a1ec2d6`](https://app.all-hands.dev/conversations/a1ec2d6bc6e84253b0411af720ccb41f)
+- Verified `execution_status=running, sandbox_status=RUNNING` ~5s after READY.
+- Plugin spec (unchanged, **19th successful spawn**): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract (unchanged, V1): `initial_message: {content: [{type:"text", text:"…"}], run: true}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:** four work items — (T1) decide and address breaking-change concern with recommendation = option A (one-time stderr deprecation notice when `--agent` is invoked); (T2) accept COOKBOOK_EXAMPLES extract refactor; (T3) accept run_ohtv docstring clarification; (T4) **NEW from QA** — fix `--cache-only` JSON exporter to emit `null` instead of `"(no goal identified)"` for cache misses (+ unit test). Recommended commit breakdown listed. Explicit out-of-scope: merge, re-test, WORKLOG.md.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~15:20Z):** Most likely —
+  - ~70%: Review worker `a1ec2d6` still running. Four work items + one new unit test + per-commit CI verification is a ~20–40 min job; first cycle after spawn typically finds it mid-flight.
+  - ~20%: Worker has pushed 3–4 commits, threads replied+resolved, PR flipped back to ready. Orchestrator should re-evaluate: per the decision tree, "test results outdated (code changed after last test)" → spawn **re-testing worker**. The exporter fix and the deprecation-notice changes are user-visible behavior changes; they meet the "significant code change" threshold.
+  - ~10%: Worker hit a CI failure on one of the commits and is iterating to fix it.
+- **2 cycles out (~15:50Z):** Either review worker still iterating (less likely past 90 min), OR re-testing worker in flight against the new HEAD. If re-test passes with the same ✅ verdict → next decision is merge.
+- **3 cycles out (~16:20Z):** Merge worker in flight, or PR merged + #162 unblocked.
+
+**Notes / follow-ups carried forward (cumulative):**
+- **`initial_message` spawn-payload contract** stays pinned. **19 successful spawns** in a row.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Plugin spec format unchanged.**
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations`. Polling: `GET /api/v1/app-conversations/start-tasks/search`.
+- **GH token shim** continues to work via secret-manager env var.
+- **`ohtv sync` quirk:** when invoked from a non-interactive shell, requires explicit `OPENHANDS_API_KEY="$OPENHANDS_API_KEY"` prefix even though the secret is registered — the secret-manager only auto-injects when the literal key name appears in the command. Cached for future cycles.
+- **PR-review bot:** APPROVED OR COMMENTED-with-tag are both merge-ready signals.
+- **Review-vs-comment surface:** `gh pr view --comments` shows issue-style comments only (returned the QA test report this cycle); `reviewThreads` via GraphQL shows inline review threads.
+- **Testing-worker timing reference:** spawn → posted test report in **~19 minutes** for this 2553-test PR with 8 manual scenarios. Useful baseline for future polling windows.
+- **Reverse-chrono WORKLOG.md format:** newest at top, immediately after `## Log`.
+- **QA workers can surface findings beyond test pass/fail:** this cycle the testing worker found a real bug (Test 6) that the unit-test suite didn't catch because no test exercises the JSON exporter's `--cache-only` cache-miss path. Worth keeping testing worker as a required gate before review even when the unit suite is green.
+
+**Local checkout note:** `main` HEAD at `407df00` (prior orchestrator's 14:20Z worklog commit). This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `a1ec2d6` (review worker), looks for new commits on `feat/agent-cli-mode-161`, and dispatches re-testing worker once PR is flipped back to ready with significant code changes.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+
 ### 2026-06-04 14:20 UTC - Orchestrator
 
 **Active Workers:**
