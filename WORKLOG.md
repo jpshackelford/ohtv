@@ -2,6 +2,18 @@
 
 ## Log
 
+### 2026-06-04 03:25 UTC - Expansion Worker (Issue #169)
+
+✅ **Expanded Issue #169 — Add engagement to `gen objs` markdown output.**
+
+- Issue: [Add engagement to `gen objs` markdown output (below Duration)](https://github.com/jpshackelford/ohtv/issues/169)
+- Type: Enhancement (display-layer surface for the PR #165 engagement metric)
+- Status: Ready for implementation (`ready` label applied)
+- Approach: Opt-in `--with-engagement` flag (shared with #167 / #168 — same flag, same batch loader). When set with `-F markdown`, append an `Engaged: 4m 24s in 2 periods (8.8%)` sub-bullet to each conversation entry, above the existing `Repos:` / `PRs:` / `Labels:` sub-bullets. Gracefully omitted when the engagement row is missing. Noted that the issue body's `## Conversation: abc123` example matches `ohtv show -F markdown`, not the current `gen objs -F markdown` bullet-list shape — expansion realigns to the actual shape while honoring the intent ("engagement as a refinement of duration"). New small helper `_format_engaged_markdown_subbullet` drops the redundant `of <duration> total` suffix from `_format_engaged_line` (parent bullet already shows duration inline). Pure display-layer change in `src/ohtv/cli.py` — no schema, no migration, no new stage. Cross-PR coordination called out: whichever sibling (#167/#168/#169) lands first owns the `_load_engagement_for_conversations` helper. `--with-periods` toggle, table-column support, single-conv markdown path, and engagement filtering all explicitly out of scope. Complexity: small (~30 LOC + ~250 LOC tests).
+
+---
+
+
 ### 2026-06-04 02:25 UTC - Expansion Worker (Issue #167)
 
 ✅ **Expanded Issue #167 — Add engagement columns to `ohtv list` output.**
