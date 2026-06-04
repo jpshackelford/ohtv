@@ -1,6 +1,84 @@
 # CHANGELOG
 
 
+## v0.28.0 (2026-06-04)
+
+### Chores
+
+- **worklog**: Implementation worker — PR #178 opened (ready) for #162
+  ([`d6c7248`](https://github.com/jpshackelford/ohtv/commit/d6c7248e4c57dd692e54c50569fd723ff45b3775))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Merge worker — PR #177 squash-merged (#161 closed)
+  ([`d7dff8f`](https://github.com/jpshackelford/ohtv/commit/d7dff8fe7bbf4d40b6980eefa6bcb54904314cbe))
+
+- **worklog**: Merge worker — PR #178 squash-merged (#162 closed)
+  ([`928d3bf`](https://github.com/jpshackelford/ohtv/commit/928d3bf609ee205c38eb27d7294fd1e0e0de006a))
+
+Records the squash-merge of PR #178 (telemetry capture for ohtv ask sessions). Issue #162
+  auto-closed via Closes #162. Expected release: ohtv-v0.28.0 (minor bump from feat: subject)
+  inbound via python-semantic-release. Not waiting for the release.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 15:48Z — spawned merge worker for PR #177
+  ([`3873696`](https://github.com/jpshackelford/ohtv/commit/3873696096f3a413921f46b9600bbc2ee0b4cfb2))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 16:19Z — spawned implementation worker for #162
+  ([`3680875`](https://github.com/jpshackelford/ohtv/commit/3680875b24cc8ecf0688d950db63e1cec268f046))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 17:20Z — spawned merge worker for PR #178
+  ([`8dcaa7a`](https://github.com/jpshackelford/ohtv/commit/8dcaa7a790e2ddea56b2d3bb6e840aeca3cf25c0))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Record PR #178 manual test pass
+  ([`4a25b0b`](https://github.com/jpshackelford/ohtv/commit/4a25b0b8a801142ed544a16cccd127617e13a4f9))
+
+10 blackbox scenarios + full unit suite all green; report posted to PR #178.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Testing worker spawned for PR #178
+  ([`6a5189c`](https://github.com/jpshackelford/ohtv/commit/6a5189c30e89618b0ee7db95c02074ec12d808ec))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- **telemetry**: Record ohtv ask sessions to ~/.ohtv/telemetry/
+  ([`0dbd6bb`](https://github.com/jpshackelford/ohtv/commit/0dbd6bb9b82de0b73a184c526292036cef9a9a18))
+
+Capture every `ohtv ask` invocation as a self-contained, replay-friendly JSON blob under
+  `~/.ohtv/telemetry/sessions/`, with an append-only `sessions.jsonl` index alongside. Designed as
+  the comparison instrument for the #161 dual-mode (`--agent` vs `--agent-tools`) split.
+
+Highlights: - `SessionRecorder` + `StepRecorder` (context manager) in
+  `src/ohtv/analysis/telemetry.py`; both investigators take an optional `recorder=` kwarg
+  (pass-through, no behaviour change when `None`). - Schema v1 with explicit `agent: null` (not key
+  omission) for plain `ohtv ask`; `flags.agent_mode` mirrors `InvestigationResult.mode` (`"cli"` /
+  `"tools"` / `null`). Filename grammar `YYYY-MM-DDTHH-MM-SSZ_<8hex>.json` (hyphens — `:` is
+  reserved on Windows / breaks Dropbox-OneDrive sync). - Env-var contracts: `OHTV_TELEMETRY_DIR`
+  overrides storage root; `OHTV_TELEMETRY_ENABLED=0` disables capture (recorder is never constructed
+  — zero overhead). - Per-session blobs atomic via `tempfile` + `os.replace()`; `sessions.jsonl`
+  appends are single sub-`PIPE_BUF` `write()`s under `O_APPEND` — no file locking needed
+  (regression-tested with `multiprocessing.Process(2)`). - Graceful degradation: telemetry-dir write
+  failures are swallowed in the `ask` handler's `try/finally` with a `log.warning`; `ohtv ask` still
+  completes and prints its answer. - Docs: new `docs/reference/telemetry.md` (schema, layout, replay
+  contract, env-var matrix); AGENTS.md item #34.
+
+Tests: 28 new unit tests (`tests/unit/analysis/test_telemetry.py`) + 4 new CLI integration tests
+  (`tests/unit/test_cli_ask_telemetry.py`). Full suite: 2592 passed, 2 skipped, 3 xfailed. Manual
+  blackbox covered 11 scenarios — all PASS.
+
+Closes #162
+
+
 ## v0.27.0 (2026-06-04)
 
 ### Chores
