@@ -7071,8 +7071,11 @@ def _format_summary_markdown(results: list[dict], *, include_outputs: bool = Tru
             meta_parts.append(steps_str)
         meta = ", ".join(meta_parts)
 
-        # Format as a list item with metadata and goal
-        lines.append(f"- **{r['short_id']}** ({meta}): {r['goal']}")
+        # Format as a list item with metadata and goal. The goal field may be
+        # ``None`` for cache-only misses (Issue #161); apply the human-readable
+        # placeholder here so JSON output stays ``null``.
+        goal_text = r["goal"] or "(no goal identified)"
+        lines.append(f"- **{r['short_id']}** ({meta}): {goal_text}")
 
         # Issue #169: render the Engaged sub-bullet first (immediately after
         # the parent bullet, before refs / labels) so it reads as a
@@ -10251,7 +10254,13 @@ def _run_batch_objectives_analysis(
             # Fetch labels from database
             labels = _get_conversation_labels(config, conv.id)
             
-            # Build result dict with all analysis fields for display schema rendering
+            # Build result dict with all analysis fields for display schema rendering.
+            # Note: ``goal`` is kept as ``None`` when no analysis is available
+            # (e.g. ``--cache-only`` cache miss, Issue #161). The JSON formatter
+            # passes ``None`` through as JSON ``null`` — that's the contract the
+            # cookbook prompt and ``docs/guides/search-and-ask.md`` document. The
+            # table and markdown formatters apply the human-readable
+            # ``"(no goal identified)"`` placeholder themselves.
             result_dict = {
                 "id": conv.id,
                 "short_id": conv.short_id,
@@ -10260,7 +10269,7 @@ def _run_batch_objectives_analysis(
                 "updated_at": conv.updated_at,
                 "duration": conv.duration,  # timedelta for display formatting
                 "event_count": conv.event_count,
-                "goal": display_goal or "(no goal identified)",
+                "goal": display_goal,
                 "cached": analysis_result.from_cache,
                 "conv_dir": conv_dir,
                 # Include all analysis fields for variant-aware rendering
@@ -10516,6 +10525,13 @@ def _run_batch_objectives_analysis(
     elif fmt == "markdown":
         print(_format_summary_markdown(results, include_outputs=not no_outputs))
     else:
+        # Apply the human-readable goal placeholder for the table renderer.
+        # The result dict carries ``goal=None`` for cache-only misses so
+        # JSON can serialise it as ``null`` (Issue #161); the table is a
+        # human-facing format, so display the placeholder string instead.
+        for r in results:
+            if r.get("goal") is None:
+                r["goal"] = "(no goal identified)"
         _print_summary_table(
             results, total_count, len(errors),
             include_outputs=not no_outputs,
