@@ -1,6 +1,71 @@
 ## Log
 
 
+### 2026-06-04 13:51 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7a6ca22` | implementation | Issue #161 — `ohtv ask` agent mode → PR #177 | running (finishing) |
+
+**Step 0 — Setup:** Tools installed via `uv tool install …/{lxa,ohtv}.git` into `~/.local/bin` (writable; `uv pip install --system` blocked by /usr/local permissions, `.venv` not present in this workspace). `lxa repo add jpshackelford/ohtv` re-run (idempotent — board already existed). `ohtv sync` skipped: cloud API returned HTTP 500 mid-page on `…/search?page_id=2200`; `gh` covers all gating signals so the failure is cosmetic.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **864 lines** on entry, **893** after impl worker's commit `d4aa8df`. Oldest entry is 06:21Z (7h27m old) — only 1–2 entries fall outside the 6h productive-work window (07:48Z cutoff). Truncation would yield <30 lines of trimming for ~600 lines of bookkeeping churn → **skipping again**; will revisit when oldest entry is ≥9h old (≥3+ archivable entries).
+
+**Step 1 — Human Instructions:** None.
+
+**Step 2 — Active Workers:**
+- `7a6ca22` (impl, spawned 13:18Z): `execution_status=running, sandbox_status=RUNNING`. Worker has already delivered: PR #177 opened at 13:45Z, flipped to ready, committed worklog entry `d4aa8df` on main at 13:50Z. Sandbox still up — worker on its way to step 13 (Exit) of its prompt. → **PR slot occupied** (respect the API state; don't double-spawn).
+- → **expansion slot free**, **PR slot busy**.
+
+**Step 3 — State gathered:**
+- **PR #177 — `feat(ask): add prompt-cookbook agent mode alongside legacy tools mode`:** `headRefName=feat/agent-cli-mode-161`, `isDraft=false`, `mergeable=MERGEABLE`, 1 commit (`5cbfe5a`).
+  - CI: lint ✅ (3s), pytest ✅ (1m7s), enable-orchestrator ✅ (x2), **pr-review: pending** (just-triggered by the ready-flip; ~3 min in flight at observation, normal latency for a 2553-test PR).
+  - Files: 14 changed — code (`investigator.py`, `investigator_cli.py`, `objectives.py`, `ohtv_runner.py`, `cli.py`), tests (8 new files), docs (`docs/guides/search-and-ask.md`, `AGENTS.md`), `uv.lock`. **README.md NOT touched** — but only L19/L67/L173 of README touch `ask`/`agent` and they're high-level pointers to the guide that *was* updated. Docs-worker likely a NO-OP next cycle.
+  - Closes #161 (verified in PR body).
+- **Open PRs:** 1 (#177).
+- **Issues needing expansion:** 0.
+- **Ready, prioritized issues** (excluding in-flight #161):
+  - **#162** (`priority:medium`) — telemetry capture for `ohtv ask` sessions; **structural dependency on #161** (consumes the new `InvestigationResult.mode="cli"|"tools"` field the impl worker just added).
+  - **#173** (`priority:low`) — refactor: reduce nesting in `_load_engagement_for_ids`.
+- **On hold:** #26, #90.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+- **PR slot:** `!CAN_SPAWN_PR_WORKER` (impl worker still running) → **Wait.** Even though PR #177 is technically eligible for the docs/test-worker phase next, racing the still-running impl worker risks branch contention or duplicate worklog commits.
+- **Expansion slot:** 0 issues need expansion → **stay idle.** ✅
+- **Action this cycle:** log status + exit.
+
+**Step 5 — Spawned:** Nothing this cycle (correct — PR slot has an active worker finishing up).
+
+**Step 6 — Quiet-cycle check:** **NOT quiet.** PR slot actively progressing (new PR #177 created within this cycle's window, CI green, pr-review running). Auto-disable counter resets/stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~14:21Z):** Highest probability —
+  - ~70%: Worker `7a6ca22` finished, pr-review bot has rendered a verdict (APPROVED or COMMENTED). **No docs update needed** (README pointers are intact, guide already updated) → orchestrator dispatches **testing worker** for PR #177.
+  - ~15%: Worker still running (rare for impl this deep past the deliverable; would suggest a hung sandbox).
+  - ~10%: pr-review bot still pending (would push testing worker to the cycle after).
+  - ~5%: Reviewer requested changes pre-test — would dispatch review worker instead.
+- **2 cycles out (~14:51Z):** Testing worker likely posted manual-test results; pr-review verdict in.
+- **3 cycles out (~15:21Z):** Review round 1 likely in progress or merge worker dispatched (if approval clean).
+
+**Notes / follow-ups carried forward (cumulative, condensed):**
+- **Tool install pattern when no `.venv`:** `uv tool install git+…` → `~/.local/bin/{lxa,ohtv}` works without sudo (`uv pip install --system` is blocked by `/usr/local` perms). Added to PATH via `export` + `~/.bashrc` append.
+- **`ohtv sync` cloud API:** HTTP 500 on `…/search?page_id=2200&include_sub_conversations=true` this cycle. Not blocking — `gh` is the canonical state source for orchestration.
+- **README docs heuristic for #161:** The README-touch detector (`gh pr diff … --name-only | grep -i readme`) would say "docs missing" for PR #177, but the human-judgment view is "docs updated in the right place" (`docs/guides/search-and-ask.md`). Next cycle's orchestrator: don't reflexively spawn docs worker; verify whether the existing guide update plus PR-comment trail counts as a "Documentation updated" signal first.
+- **`initial_message` spawn-payload contract** still pinned (17 successful spawns). No spawn this cycle.
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked.
+- **`ohtv ask` agent-mode family progress:** #161 in flight (PR #177 ready), #162 next (telemetry sibling, depends on #161), #173 unrelated refactor (queued after #162).
+
+**Local checkout note:** `main` HEAD pulled to `d4aa8df` (impl worker's worklog commit). This entry will commit only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~14:21Z) checks `7a6ca22` final status, pr-review verdict on #177, and dispatches testing worker if CI green + review verdict in.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
+
 ### 2026-06-04 13:50 UTC - Implementation Worker
 
 **PR #177 — opened (ready for review).** Issue #161 implementation pushed.
