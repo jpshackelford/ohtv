@@ -2360,3 +2360,72 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-06-04 09:50Z — Orchestrator cycle (PR #174 testing worker spawned)
+
+**Step 0 — Setup:** `uv tool install` for `lxa` and `ohtv` (4th consecutive bare-sandbox cycle; pattern stable). PATH export to `~/.local/bin`. `lxa repo add jpshackelford/ohtv` re-created another fresh "Unnamed Board 1" (no persistent state across orchestrator sandboxes — non-blocking).
+
+**Step 0.5 — Housekeeping (deferred, 23rd consecutive cycle):** WORKLOG.md at **2362 lines** on entry. Productive cycle (1 worker spawned) → defer. Same carry-forward as prior cycles: a human `## INSTRUCTION:` for `/truncate-worklog` is the cleanest path, since the existing skill's `is_productive` heuristic doesn't recognize the prose-style `## YYYY-MM-DD HH:MMZ` headers used in worker-authored entries.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (grep `^## INSTRUCTION:` → empty).
+
+**Step 2 — Slot scan + previous-cycle worker recap:**
+- Prior cycle's docs worker `78967e5` (PR #174 markdown docs retry, spawned at 09:23Z) → **`execution_status=finished` at 09:27:35Z**. Cost spent: ~$1.45 → completion in ~4 minutes, much faster than expected (worker's own entry at 09:27Z confirms commit `4ba37ec` pushed to `feat/169-engagement-markdown`, CI green, PR comment posted).
+- Two orphaned/idle workers (`a2ca16f`, `8be5fa5`) from earlier failed-spawn-payload bug remain `PAUSED`/`null` — they'll sandbox-GC on their own. No manual cleanup needed.
+- Only this orchestrator (`62e16c0`) and the now-finished `78967e5` show non-paused status. **Both worker slots free at entry.**
+
+**Step 3 — State gather:**
+- **Open PRs: 1.** [PR #174](https://github.com/jpshackelford/ohtv/pull/174) — `feat: add engagement to gen objs markdown output` (Closes #169). `lxa pr list` returns `oAFc green ready --, 1h, 21m ago`. History `oAFc` = opened + Approved (by `github-actions` pr-review-bot) + Fixes pushed (docs commit `4ba37ec`) + comment posted. CI green across all 4 checks.
+- **PR #174 diff files:** `src/ohtv/cli.py`, `tests/unit/test_cli_gen_objs_engagement_markdown.py`, **`docs/guides/analysis.md`**, **`docs/reference/cli.md`**. Docs are now in the diff → "Documentation updated" comment from `jpshackelford` (the docs worker's commit author) confirms the staleness flagged 2 cycles ago is fixed.
+- **No `## Manual Test Results` comment yet.** Decision-tree row matched: *"PR exists, ready, CI green, docs updated, **no manual test results** → Spawn **testing worker**."*
+- **Ready + prioritized (5, queue order):** **#170** `priority:high` (engagement filters — last in family), **#161** `priority:medium`, **#162** `priority:medium`, **#173** `priority:low` (refactor). #169 remains "ready" but will close on PR #174 merge.
+- **Needs expansion: 0.** **9th consecutive cycle with the expansion queue exhausted.**
+
+**Step 4 — Decision: spawn testing worker (PR slot), expansion slot idle.**
+
+**Spawn payload guard (carry-forward from 09:23Z cycle bug):** Used **`initial_message: {content: [{type:"text", text:"…"}], run: true}`** as the V1 API requires. Did NOT use the deprecated/silently-dropped `initial_user_msg` field. POST body verified via the response's `request.initial_message` echo before polling. First-attempt success this cycle (start task `4395d488`, response status `WORKING` → `READY` on first 6s poll).
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `84a32f4` | testing | PR #174 — `gen objs --with-engagement` markdown manual test | **NEW** (running, $1.05 spent in first ~30s, 427k prompt tokens) |
+
+**Spawned: Testing Worker**
+- PR: [#174 — feat: add engagement to gen objs markdown output](https://github.com/jpshackelford/ohtv/pull/174) (Closes #169)
+- Start task: `4395d488` → `app_conversation_id = 84a32f438ac9452fbaaa528007e6c590`
+- Conversation: [`84a32f4`](https://app.all-hands.dev/conversations/84a32f438ac9452fbaaa528007e6c590)
+- Health-check (T+30s): `execution_status=running`, `sandbox=RUNNING`, `cost=$1.05`, `prompt_tokens=427281`. **Confirmed actually executing.**
+- Plugin spec (unchanged, 11th successful spawn): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Prompt scope: initial test (no prior results), explicit instruction to verify the 4 stale-doc-claim sites are now accurate post-`4ba37ec`, run full `tests/unit` suite (esp. `test_cli_gen_objs_engagement_markdown.py`), post `/manual-test` formatted comment, append WORKLOG entry, EXIT without continuing to review.
+
+**Step 5 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter resets to **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~10:20Z):** Most likely —
+  - ~65%: `84a32f4` finished, `## Manual Test Results` comment posted to PR #174 with PASS verdict (the unit-test suite is well-covered; bot-approved; docs are now aligned). → Spawn **merge worker** (PR is `oAFc green ready` + approved + tested + docs current = merge criteria met, no `💬` from humans).
+  - ~25%: Testing worker still running (unit-test suite is ~600+ tests and the blackbox manual exploration can take time).
+  - ~10%: Tests pass but worker posts FAIL on a docs-example mismatch (the `Engaged: 4m 24s in N periods (X.X%)` example string was crafted ahead of seeing the actual implementation output — small chance of a formatting nit).
+- **2 cycles out (~10:50Z):** PR #174 likely merged via merge worker; PR slot opens for **#170** (`priority:high`).
+- **3 cycles out (~11:20Z):** Implementation worker for #170 underway (engagement filters), expansion slot still idle.
+
+**Notes / follow-ups carried forward (cumulative):**
+- **`initial_message` spawn-payload contract is the high-priority pin** (since 09:23Z diagnosis). Always pass `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`; never `initial_user_msg`. Verified working again this cycle (first attempt, `READY` in <6s).
+- **Auth header consistency:** Spawn POST uses `X-Access-Token: $OPENHANDS_API_KEY` (per the `/spawn-conversation` skill). Other endpoints in this skill historically use `Authorization: Bearer …` — both forms work against the same key, but the spawn endpoint prefers `X-Access-Token`. No change this cycle.
+- **OpenHands Cloud API gotchas (still relevant):**
+  - `POST /api/v1/app-conversations` (no trailing slash).
+  - `GET /api/v1/app-conversations/start-tasks/search` returns `{"items": [...]}` (has the envelope). The bare `/start-tasks` endpoint is what returns a JSON array — different shape, both useful.
+  - Poll the start-task by `id` from the original POST response, not by conversation id.
+- **Tool install pattern (stable, 4th cycle):** `uv tool install <git-url>` + PATH export.
+- **WORKLOG.md size: 2362 → ~2450 lines post-entry. 23 consecutive cycles overdue on truncation.**
+- **`GITHUB_TOKEN` populated this cycle.** Shim `GH_TOKEN=${GITHUB_TOKEN:-$github_token}` still in carry-forward.
+- **Engagement-metric family progress:** **#167 ✅ merged, #168 ✅ merged, #169 → PR #174 docs done, manual test running, #170 next.** 2/4 done; #169 expected to close in 1–2 cycles.
+- **Plugin spec format unchanged:** 11th successful spawn in this orchestrator pattern.
+
+**Local checkout note:** `main` at `c7aef2b`. `git pull --ff-only origin main` clean. Worklog entry committed directly to `main` per skill rule. No code branches created.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `84a32f4` (testing worker) and decides next actions (likely **merge worker** for PR #174 if test report is PASS and no new review threads appear).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
