@@ -1,5 +1,87 @@
 ## Log
 
+### 2026-06-04 15:48 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `1cc846c` | merge | PR #177 — `feat(ask)` prompt-cookbook agent mode (HEAD `d80a023`) | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Fresh single-commit grafted clone at `39956b1` (15:18Z orchestrator's worklog commit). `uv sync` populated `.venv/`; `lxa` installed into the project venv via `uv pip install git+…/lxa.git`; `ohtv` came in via `uv sync`. Skipped `ohtv sync` — `gh` covers every gating signal this cycle.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **1221 lines** on entry (1120 at 15:18Z + the 100-line 15:18Z entry). Oldest entry still **06:21Z** (≈9.5h old). The 6h-productive-window rule still keeps yielding <50 lines of archivable content even though the file is now ~4× the soft threshold. **Deferring again** — same recommendation as the last 2 cycles: a human `## INSTRUCTION: archive WORKLOG.md entries older than 8h` would let us reclaim ~400 lines.
+
+**Step 1 — Human Instructions:** None. `grep -B1 -A5 "^## INSTRUCTION:" WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):**
+- Re-testing worker `4f7e5df` (spawned 15:18Z): `execution_status=finished, sandbox_status=RUNNING` (post-finish lag), `updated_at=15:26:25Z` → **finished ✓** ~8 min into this cycle's window. Worker posted the re-test report at 15:26:19Z (✅ Pass verdict on HEAD `d80a023`).
+- Review worker `a1ec2d6` (spawned 14:50Z): `sandbox=PAUSED` → ignored.
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered:**
+
+**PR #177 — `feat(ask): add prompt-cookbook agent mode alongside legacy tools mode`**:
+- `headRefOid=d80a023` (unchanged since 15:18Z — re-test was read-only, no new commits).
+- CI: lint ✅, pytest ✅, pr-review ✅ (🟡 Acceptable — merge-ready), enable-orchestrator ✅ — **all green, unchanged**.
+- `isDraft=false`, `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`, `reviewDecision=""` (review-bot uses COMMENTED, not APPROVED).
+- Review threads: **3 total, all 3 RESOLVED** ✅ (review worker `a1ec2d6` already resolved each one — unchanged since 15:18Z).
+- **Re-test verdict (15:26:19Z):** ✅ **Pass** — 2508 passed / 2 skipped / 3 xfailed in `uv run pytest -q`; all 8 documented scenarios verified live; all 4 review-round changes verified (§A QA cache-only-JSON fix, §B `--agent` stderr notice, §C `COOKBOOK_EXAMPLES` refactor, §D `run_ohtv` docstring). New regression test `test_cli_gen_objs_cache_only_json.py` passes. No new regressions.
+- **Docs assessment:** PR includes `docs/guides/search-and-ask.md` and `AGENTS.md` updates. Per cached precedent (logged in the 13:51Z orchestrator entry, line ~255): README is pitch-only for `ohtv ask`; the guide doc carries the CLI flag detail. **No docs spot-check needed** — the review-round changes were behavioral (stderr notice, JSON exporter, refactor) not docs-affecting.
+
+**Open PRs:** 1 (#177). **Issues needing expansion:** 0. **Ready, prioritized issues** (other than in-flight #161): #162 (`priority:medium`, structural dep on #161 → unblocks at merge), #173 (`priority:low`, refactor). **On hold:** #26, #90.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+
+- **PR slot:** "PR exists, ready, test results valid, good rating, docs valid" → **Spawn merge worker.** ✅ This is the decision tree's terminal merge-eligible state. All 5 gating signals (CI, mergeable, threads resolved, re-test pass, docs covered) line up.
+- **Expansion slot:** 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Merge Worker**
+
+- PR: [#177 — feat(ask): add prompt-cookbook agent mode alongside legacy tools mode](https://github.com/jpshackelford/ohtv/pull/177)
+- Start task: `77dcc056` → `app_conversation_id = 1cc846ccf6404636a9cf1570df07d7af` → **READY** on first poll (~25s; typical warm-picker latency).
+- Conversation: [`1cc846c`](https://app.all-hands.dev/conversations/1cc846ccf6404636a9cf1570df07d7af)
+- Verified `execution_status=running, sandbox_status=RUNNING` ~40s after spawn.
+- Plugin spec (unchanged, **21st successful spawn**): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract (unchanged, V1): `initial_message: {content: [{type:"text", text:"…"}], run: true}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:** `gh pr checkout 177` → re-read full PR diff holistically + re-test report at 15:26Z → update PR description if needed (ensure "Closes #161" present + final-state summary of the 4 behavior changes) → squash-merge keeping PR title **exactly** `feat(ask): add prompt-cookbook agent mode alongside legacy tools mode` (semantic-release → minor bump → `ohtv-v0.27.0`) → verify merge state + release workflow kicks off → `chore(worklog):` WORKLOG update on main → EXIT. **Explicit OUT-OF-SCOPE:** changing the squash subject prefix, pushing code to main beyond the worklog commit, re-testing, docs spot-check.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned, decision-rich gating: 5 distinct gating signals × cached precedent for docs decision). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~16:18Z):** Most likely —
+  - ~75%: Merge worker `1cc846c` has finished, PR #177 is **merged**, release workflow has tagged `ohtv-v0.27.0` and published the GitHub Release. #161 closed automatically by "Closes #161" in PR description. Orchestrator dispatches **implementation worker for #162** (`priority:medium`, telemetry sibling that just unblocked).
+  - ~15%: Merge worker still running (squash + release-workflow push-back can take 1–2 min; on a 30-min check cadence this is rare but possible if spawn was delayed).
+  - ~7%: Merge encountered a stale-branch issue (PR #176-equivalent landed externally between testing and merge — though no other PRs are open and no recent main commits other than the orchestrator's worklog, so this is unlikely).
+  - ~3%: GitHub merge queue or branch protection caught something the gh API didn't surface.
+- **2 cycles out (~16:48Z):** Implementation worker on #162 likely in flight (or just landed a draft PR). #162 will reuse `InvestigationResult` shape from #161, so the structural fit is direct.
+- **3 cycles out (~17:18Z):** Likely #162 in CI/review phase, or — if smaller than expected — already approaching merge.
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** stays pinned. **21 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Plugin spec format unchanged.**
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations`. Polling: `GET /api/v1/app-conversations/start-tasks/search`.
+- **`GH_TOKEN` shim:** worked via `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"`.
+- **Tool install pattern this cycle:** `uv sync` populated `.venv/` first try; then `uv pip install git+…/lxa.git` inside the activated venv. Fastest path when the project ships a `pyproject.toml` + `uv.lock` (as ohtv does). No need for the `/tmp/orch-venv` fallback this cycle.
+- **`uv sync` side effect:** still touches `uv.lock` on a grafted checkout (platform-marker churn). Left uncommitted; the worklog edit is staged separately.
+- **PR-review bot:** APPROVED OR COMMENTED-with-tag both merge-ready. PR #177 round-2 verdict (15:05Z): COMMENTED 🟡 Acceptable.
+- **Review threads:** GraphQL `reviewThreads.totalCount` + `isResolved` is the canonical "are we done with review" signal. All 3 threads on #177 already resolved by the round-1 review worker — no extra work needed at merge time.
+- **README vs `docs/guides/` precedent (re-confirmed for #177):** When `docs/guides/*.md` carries the CLI flag detail and README is pitch-only, **no docs-worker spawn is needed**. This cycle exercised that judgment for the merge decision (no docs spot-check pre-merge).
+- **Re-test heuristic confirmed working as designed (re-run from 15:18Z):** the 14:50Z → 15:18Z re-test gate fired correctly (4 commits, 78 non-test LOC, user-visible behavior change) AND the re-test produced a clean Pass verdict — validating the workflow's "test what's documented" principle.
+- **`ohtv ask` agent-mode family progress:** #161 (PR #177) merge-in-flight this cycle → expected merged + released as `ohtv-v0.27.0` within 1 cycle. After merge: #162 (telemetry sibling) unblocks for impl. #173 (refactor) is independent and can interleave.
+
+**Local checkout note:** `main` HEAD on entry at `39956b1`. This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `1cc846c` (merge worker), PR #177 state (expect `merged`), `ohtv-v0.27.0` release on GitHub, and (if all green) dispatches an implementation worker for **#162** (priority:medium, next ready issue and the natural follow-up to #161).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 15:18 UTC - Orchestrator
 
 **Active Workers:**
