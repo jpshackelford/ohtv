@@ -13,7 +13,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple
 
 import click
 from click import Context, HelpFormatter
@@ -4420,6 +4420,47 @@ def _load_refs_for_conversations(
     return refs_map
 
 
+def _process_engagement_rows(
+    rows: Iterable[Any],
+    normalized_to_original: dict[str, str],
+    engagement_map: dict[str, dict],
+) -> None:
+    """Merge one chunk of ``conversation_engagement`` rows into ``engagement_map``.
+
+    Each row is coerced to a plain ``dict`` (handling both ``sqlite3.Row``
+    and bare tuples), its ``conversation_id`` is back-translated through
+    ``normalized_to_original`` to the caller's original (possibly dashed)
+    id form, and the row dict is written into ``engagement_map`` keyed on
+    that original id. Rows whose ``conversation_id`` is not in the
+    translation map are silently dropped — they would only appear if the
+    DB returned a row the caller did not ask for, which the batched
+    ``WHERE conversation_id IN (...)`` clause makes impossible in
+    practice.
+
+    This is a pure mutator: ``engagement_map`` is modified in place; the
+    function returns ``None``. The DB-error suppression contract
+    (Issues #167 / #168: never raise) stays at the outer ``try/except``
+    in :func:`_load_engagement_for_ids`.
+    """
+    for row in rows:
+        # sqlite3.Row supports keys(); fall back to indexing for plain
+        # tuples just in case.
+        if hasattr(row, "keys"):
+            row_dict = {k: row[k] for k in row.keys()}
+        else:
+            row_dict = {
+                "conversation_id": row[0],
+                "engaged_seconds": row[1],
+                "attention_periods": row[2],
+                "threshold_seconds": row[3],
+                "total_duration_seconds": row[4],
+            }
+        norm_id = row_dict.get("conversation_id")
+        original = normalized_to_original.get(norm_id)
+        if original is not None:
+            engagement_map[original] = row_dict
+
+
 def _load_engagement_for_ids(
     conversation_ids: list[str],
 ) -> dict[str, dict]:
@@ -4477,23 +4518,7 @@ def _load_engagement_for_ids(
                     f"WHERE conversation_id IN ({placeholders})",
                     batch,
                 )
-                for row in cur.fetchall():
-                    # sqlite3.Row supports keys(); fall back to indexing
-                    # for plain tuples just in case.
-                    if hasattr(row, "keys"):
-                        row_dict = {k: row[k] for k in row.keys()}
-                    else:
-                        row_dict = {
-                            "conversation_id": row[0],
-                            "engaged_seconds": row[1],
-                            "attention_periods": row[2],
-                            "threshold_seconds": row[3],
-                            "total_duration_seconds": row[4],
-                        }
-                    norm_id = row_dict.get("conversation_id")
-                    original = normalized_to_original.get(norm_id)
-                    if original is not None:
-                        engagement_map[original] = row_dict
+                _process_engagement_rows(cur.fetchall(), normalized_to_original, engagement_map)
     except Exception:  # pragma: no cover - defensive only
         return engagement_map
 
