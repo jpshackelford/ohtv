@@ -1,6 +1,89 @@
 # CHANGELOG
 
 
+## v0.22.0 (2026-06-04)
+
+### Chores
+
+- **worklog**: Expansion worker for Issue #167
+  ([`1befcee`](https://github.com/jpshackelford/ohtv/commit/1befceef4eeffaaf2ee7aed3fcad797384c6622b))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-06-04 02:51Z — merged PR #166 (list_conversations tool, ca60a11)
+  ([`e1155d4`](https://github.com/jpshackelford/ohtv/commit/e1155d49860aa3245e9b1957d099ddf6daddcfab))
+
+- **worklog**: Orchestrator 2026-06-04T00:52Z - spawn impl worker for #160
+  ([`6a0ce06`](https://github.com/jpshackelford/ohtv/commit/6a0ce0627806c11898e46fc3b9b1b79c2aee8419))
+
+PR #165 merged at 00:25:43Z (commit d8a94da3a2); ohtv 0.21.0 shipped. Issue #163 auto-closed.
+  Testing worker 487b7e1 did succeed (posted Manual Test Results at 23:59:45Z PASS before clean
+  exit) — prior 23:53Z orchestrator read was wrong. Spawned implementation worker 8fe6274 for Issue
+  #160 (list_conversations agent tool, priority:medium).
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned expansion worker for #167 [skip ci]
+  ([`ae2a8ec`](https://github.com/jpshackelford/ohtv/commit/ae2a8ec5e6693e9f9c6a15a36034165a313d5cf6))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned testing worker for PR #166
+  ([`9deaaa5`](https://github.com/jpshackelford/ohtv/commit/9deaaa55b0785052fba830eee97557fe4cd34dac))
+
+### Documentation
+
+- **worklog**: Orchestrator spawned docs worker for PR #166
+  ([`e0bc788`](https://github.com/jpshackelford/ohtv/commit/e0bc78811c79f8c8cd805462ac1ac678b8b80e9b))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned merge worker for PR #166 + expansion for #168
+  ([`79c3170`](https://github.com/jpshackelford/ohtv/commit/79c31707405952e423d6aece1f8d87b9377f4ad7))
+
+- **worklog**: Worker entry for PR #166 (Issue #160 — list_conversations agent tool)
+  ([`6e09a9d`](https://github.com/jpshackelford/ohtv/commit/6e09a9d7c97825b71bbbfaac3bef23f82185ee9c))
+
+### Features
+
+- Add list_conversations tool to ohtv ask --agent investigator
+  ([#166](https://github.com/jpshackelford/ohtv/pull/166),
+  [`ca60a11`](https://github.com/jpshackelford/ohtv/commit/ca60a1116c20d51e0441e64555f000c038595b3e))
+
+Closes #160.
+
+Adds a fourth tool to the `InvestigationAgent` — `list_conversations` — that enumerates
+  conversations by metadata (date / repo / PR / action / label) rather than by semantic similarity.
+  This closes the class of temporal, enumerative, aggregative, and verify-a-negative questions that
+  vector search fundamentally cannot answer well (e.g. "what did we work on yesterday?", "every conv
+  that touched repo X this week", "did we work on Y at all?").
+
+User-facing changes:
+
+- New `list_conversations` tool on the investigator agent (`ohtv ask --agent`) with the same filter
+  surface as `ohtv gen objs` multi-conv mode
+  (`since`/`until`/`day`/`week`/`repo`/`pr`/`action`/`label`/`limit`/ `include_sub_conversations`).
+  Reads-only from the warm `gen objs` brief cache; never triggers LLM analysis on a miss
+  (`goal=None` is the signal). - `include_sub_conversations` defaults to `False` (roots-only,
+  matching the post-Issue #125 CLI default). - Hard cap of `LIST_CONVERSATIONS_MAX_LIMIT = 50` on
+  the result list to keep the observation inside the prompt budget; oversize requests are silently
+  capped, not rejected. The `total_matching` count is always returned so the agent knows whether it
+  saw the full set. - System prompt updated to steer the agent toward `list_conversations` for
+  temporal / enumerative / verify-a-negative questions and toward `search_conversations` for
+  similarity questions. - New docs: `docs/guides/search-and-ask.md` — full filter table, observation
+  shape, cache-miss semantics, and an investigator-mode workflow example.
+
+Tests: 2266 unit tests pass (`uv run pytest tests/unit`). Manual smoke test
+
+on a 250-conversation cloud sync (PR #166 comment, T1-T10) all PASS: temporal cue routes to
+  `list_conversations` (T2), enumerative + `repo` filter (T3), `limit` silent cap at 50 (T4),
+  `include_sub_conversations` default + invariant (T5, unit-covered), cache miss → `goal=None`
+  graceful (T6), verify-a-negative cue (T7), system-prompt cues present (T8), docs match
+  implementation (T9), no regression in non-`--agent` commands (T10).
+
+_This commit was created by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+
 ## v0.21.0 (2026-06-04)
 
 ### Chores
