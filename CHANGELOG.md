@@ -1,6 +1,185 @@
 # CHANGELOG
 
 
+## v0.21.0 (2026-06-04)
+
+### Chores
+
+- **worklog**: 22:20z spawned implementation worker for #163; PR #164 merged - bootstrap loop closed
+  ([`18febfc`](https://github.com/jpshackelford/ohtv/commit/18febfc3cc71ad0dc0d8880c263344dcf09711db))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Auto-disable orchestrator after 3rd consecutive quiet cycle
+  ([`eb47113`](https://github.com/jpshackelford/ohtv/commit/eb4711319cd3915211dfe73004f19175cc11b9bf))
+
+3rd consecutive quiet cycle (14:18Z, 14:48Z, 15:17Z): PR #164 still draft+unchanged, expansion queue
+  empty. Per /orchestrate skill, PATCHed automation c202ca20-60d5-4f5b-9d53-3d7308c1d95b to
+  disabled.
+
+Re-enable path documented in WORKLOG entry.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Docs worker entry for PR #165
+  ([`fecc8a8`](https://github.com/jpshackelford/ohtv/commit/fecc8a808f96b4009511093a0cbf7c3d9e8cf343))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Expansion of #162 (telemetry capture for ohtv ask)
+  ([`085f71c`](https://github.com/jpshackelford/ohtv/commit/085f71c612812e9e5675d875733f3a2f3ccf833b))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Expansion worker completed issue #161 (ready)
+  ([`b9dd004`](https://github.com/jpshackelford/ohtv/commit/b9dd00487720a1dfcf5f782205a52c9d6e081f8a))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Merge complete PR #159
+  ([`d8e5792`](https://github.com/jpshackelford/ohtv/commit/d8e57925339be8452a9217344bb8d15ff2c4ce4b))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 14:18Z — all quiet, PR #164 still draft
+  ([`480629a`](https://github.com/jpshackelford/ohtv/commit/480629a0110a06d0cd587ec95bf53c0701e70fa6))
+
+First quiet cycle of new streak (counter 0→1). Expansion queue drained, PR slot held by draft PR
+  #164.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 14:48Z — 2nd quiet cycle + truncation
+  ([`60040c1`](https://github.com/jpshackelford/ohtv/commit/60040c1bc3f736a9b8607725529e82598c8235c4))
+
+Truncated WORKLOG.md from 1752 to 418 lines (16 entries archived to WORKLOG_ARCHIVE_2026-05-30.md).
+  PR #164 still draft (unchanged since 13:22Z) holds the PR slot; expansion queue is empty. Second
+  consecutive quiet cycle — auto-disable precondition (QUIET_COUNT>=2) not yet met this cycle, but
+  will be next cycle if PR #164 stays untouched.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-06-03 23:16Z — spawned testing worker e85cba5 for PR #165
+  ([`1cfdaa0`](https://github.com/jpshackelford/ohtv/commit/1cfdaa02d850dfd7d44e0a2dd13a06d400fc0185))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-06-03 23:53Z — recovered from paused testing worker e85cba5 by
+  spawning 487b7e1 for PR #165
+  ([`ca7a820`](https://github.com/jpshackelford/ohtv/commit/ca7a820bd19433f805ec89195bb57baa50adb433))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator auto-disabled at 2026-05-30T19:18Z — 3 quiet cycles
+  ([`59ad482`](https://github.com/jpshackelford/ohtv/commit/59ad48277e235e98a63f893dc702083a8e5a7307))
+
+- **worklog**: Orchestrator cycle 2026-05-30T18:48Z — 2nd quiet cycle
+  ([`30e616b`](https://github.com/jpshackelford/ohtv/commit/30e616b5b43b28197f03ce28093c3161f590bd1f))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator cycle — spawned expansion worker for #162
+  ([`fa71e9e`](https://github.com/jpshackelford/ohtv/commit/fa71e9e5237d7a3a433156d57f56de6eabfe7296))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned docs worker 88315ec for PR #165
+  ([`d2a82aa`](https://github.com/jpshackelford/ohtv/commit/d2a82aa5d3c24dc21e5f813926d3e3fe3d5b3203))
+
+- **worklog**: Orchestrator spawned expansion worker for #161 at 2026-06-02T13:27Z
+  ([`42da672`](https://github.com/jpshackelford/ohtv/commit/42da6727ef109c8d45bd52ba85a540cbd49ac737))
+
+- **worklog**: Record manual triage — #163 ready, #164 opened, automation re-enabled
+  ([`901fd0c`](https://github.com/jpshackelford/ohtv/commit/901fd0c3841ca8e45c2648b9de9c23725a3f0658))
+
+Adds audit-trail entry for the human-triage session at 2026-06-02 13:22Z–13:30Z (conversation
+  045be10):
+
+- Opened PR #164 (port voice-relay's enable-orchestrator.yml to ohtv) - Manually re-enabled the OHTV
+  Workflow Orchestrator (one-shot bridge) - Bumped #163 priority:medium → priority:high - Added
+  'ready' label to #163, skipping expansion per expand-issue.md skill audit; recorded recommended
+  defaults for the 4 open questions inline so an impl-worker can adopt without escalation
+
+The 13:27Z orchestrator cycle prediction ('expansion target after #161 = #163') is now obsolete;
+  next-up for expansion is #162. Once PR #164 clears the PR slot, #163 wins the impl slot ahead of
+  #160.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Spawn testing worker for PR #164 after re-enable
+  ([`0a71e46`](https://github.com/jpshackelford/ohtv/commit/0a71e463319302841aa55884c2d8e1d98e878c64))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Truncate to 6h productive window + 18:18Z all-quiet cycle
+  ([`be594af`](https://github.com/jpshackelford/ohtv/commit/be594af1604675529e0d6531c733ad5382cc43e4))
+
+Cluster of 6 releases (v0.17.0 → v0.20.0) complete with PR #159 merge. Both slots idle; backlog has
+  only hold-labelled issues (#90, #26). Auto-disable counter 0 → 1. Next quiet cycle at ~19:18Z
+  would disable. Archived 8 entries (08:50Z–11:10Z) to WORKLOG_ARCHIVE_2026-05-30.md.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Worker complete — PR #165 for engaged-human-minutes
+  ([#163](https://github.com/jpshackelford/ohtv/pull/163),
+  [`cdb3632`](https://github.com/jpshackelford/ohtv/commit/cdb3632e650b549b299506a96420cc933079651f))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Continuous Integration
+
+- Add enable-orchestrator workflow ([#164](https://github.com/jpshackelford/ohtv/pull/164),
+  [`4828325`](https://github.com/jpshackelford/ohtv/commit/48283253eff0f5e4f4a89b991cc63d034a37c008))
+
+Auto-re-enables the OHTV Workflow Orchestrator automation (`c202ca20-…`) when a new issue or PR
+  opens, mirroring the same workflow in `jpshackelford/voice-relay`. Run is hardened with `set -euo
+  pipefail`, `curl -sf` + explicit error traps on both API calls, and `exit 1` on unexpected
+  payloads — silent-failure modes should not exist in the workflow whose job is to surface them.
+
+Closes the gap that left the orchestrator dormant for ~66h between the 2026-05-30 19:18Z
+  auto-disable and the 2026-06-02 13:22Z manual re-enable while issues #160–#163 piled up.
+
+### Features
+
+- Engaged-human-minutes per-conversation metric (#163)
+  ([#165](https://github.com/jpshackelford/ohtv/pull/165),
+  [`d8a94da`](https://github.com/jpshackelford/ohtv/commit/d8a94da3a26696823a95cc4ed38e5002cd2e2cf4))
+
+Add a per-conversation engaged-human-minutes metric that estimates how long a human was actively
+  monitoring/steering each conversation, inferred from temporal gaps around each user message. Two
+  related numbers fall out of the same pass — attention_periods (distinct "human was here" windows)
+  and a total_duration_seconds derived from `last_event_ts - first_event_ts`.
+
+Algorithm (timing-only, content-blind): - For each follow-up user message Uᵢ, if the gap from the
+  previous event is ≤ T (default 12 min), record an attended block. - Merge adjacent blocks with
+  seam ≤ T into one attention period. - engaged_seconds = sum of merged period durations.
+
+Changes: - Migration 023 adds `conversation_engagement` table (threshold stored per row so
+  tuning-sweep variants stay distinguishable). - New `engagement` stage registered after
+  `contributions`; `db process all` picks it up automatically. - `--threshold N` flag on `ohtv db
+  process` (consumed only by engagement; silently ignored by other stages). - `ohtv show <id>` gains
+  an `Engaged:` line in text/markdown, and JSON adds `engaged_seconds`, `attention_periods`,
+  `engagement_threshold_seconds`, `total_duration_seconds`. -
+  `scripts/engagement_threshold_sweep.py` for non-destructive offline tuning. - Docs landed in
+  `docs/design/conversation-metrics.md`, `docs/guides/indexing.md`, and
+  `docs/guides/exploration.md`.
+
+Tests: 63 new tests (35 stage, 28 CLI display); full suite 2228 passed, 2
+
+skipped, 3 xfailed. Manual verification on PR comment: 18/18 PASS including all documented CLI
+  invocations and JSON shapes.
+
+Fixes #163
+
+---
+
+_This PR was implemented, reviewed, tested, and merged by AI agents (OpenHands) on behalf of
+  @jpshackelford. The merge was executed inline by the orchestrator (conv `41bc06d`) after two
+  consecutive spawn attempts for a merge worker (`470ea49`, `3bb7299`) stalled with the
+  sandbox=RUNNING / execution=idle / cost=null / updated_at==created_at pattern previously observed
+  on `e85cba5`._
+
+
 ## v0.20.0 (2026-05-30)
 
 ### Chores
