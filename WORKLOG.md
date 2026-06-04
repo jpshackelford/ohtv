@@ -1,5 +1,38 @@
 ## Log
 
+### 2026-06-04 22:38 UTC - Implementation Worker (Issue #181)
+
+**Scope:** Implemented [Issue #181](https://github.com/jpshackelford/ohtv/issues/181) — `feat(cli): Add ohtv messages command to list user messages across conversations`. Opened [PR #183](https://github.com/jpshackelford/ohtv/pull/183) (`feat/messages-command-181`).
+
+**Dependency:** Started off `main @ 52facbd` which already has #180 merged at `9cdbbe2` (PR #182's squash). The command calls `ConversationStore.list_by_event_date_range(...)` directly — the single SQL owner per AGENTS.md item #35, no parallel JOIN.
+
+**Files touched (4):**
+
+| File | LOC | Purpose |
+|------|-----|---------|
+| `src/ohtv/messages.py` | +349 | NEW. `UserMessage` / `ConversationMessages` dataclasses, `extract_user_messages`, `collect_messages`, `truncate_text`, `collapse_to_single_line` |
+| `src/ohtv/cli.py` | +301 | NEW `messages_cmd` Click handler + 3 `_render_messages_*` helpers + `ConversationMessages` TYPE_CHECKING import |
+| `tests/unit/test_messages.py` | +445 | NEW. 27 pure-Python tests (extraction, truncation, single-line collapse, `collect_messages` end-to-end with a real seeded SQLite DB) |
+| `tests/unit/test_cli_messages.py` | +470 | NEW. 19 CliRunner tests (format dispatch, `-1` alias, pagination footer, source filter, `--full` truncation, empty-result hint, `--include-sub-conversations`) |
+
+**AC coverage:** All 12 acceptance criteria from #181 ticked (see PR body). Output formats `text` / `json` / `raw` all implemented, `-1` shorthand for `--format raw`, `--full` disables 500-char truncation in text mode, empty-result path prints the engagement-stage hint, pagination is by conversation grain.
+
+**Test results:**
+- **2660 passed, 2 skipped, 3 xfailed** (baseline 2614 + 46 new). 48.78s.
+- New-files ruff: clean. cli.py ruff error count unchanged at 73 (added `ConversationMessages` to the existing `TYPE_CHECKING` block so the 3 forward-ref F821s I introduced went away).
+- Manual smoke: `ohtv messages --help` renders full flag table; `-D 7 -F json` returns documented shape; `-D 7` prints "No user messages in range." + hint on empty DB; `-D 7 -1` returns empty stdout (pipeline-friendly).
+
+**CI on PR #183:** All four checks PASS — `pytest` (1m7s), `lint` (4s, conventional-commit PR title `feat(cli):…`), `enable-orchestrator` (3s), `pr-review` (was `skipping` while draft; will run now that I flipped to ready).
+
+**State on exit:** PR #183 marked **ready for review** at 22:38 UTC. Docs worker, review-round, QA, and merge are separate workers per the contract — I am NOT continuing past `gh pr ready`. README.md, `docs/guides/exploration.md`, and the `docs/guides/search-and-ask.md` cross-reference remain TODO for the docs worker once CI is fully green.
+
+**Deviations:** None from the AC. One minor implementation choice worth flagging:
+- `total_messages` in the JSON response counts only the **displayed** groups (per the cost-ceiling note in the technical comment — walking every candidate's events to get the full-history total would defeat the lazy-load pattern). The AC didn't pin this either way; the JSON shape is documented in the PR body.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 21:46 UTC - Orchestrator
 
 **Active Workers:**
