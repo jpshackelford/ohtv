@@ -174,8 +174,50 @@ When `--agent` is enabled, the answer is enhanced through multi-turn investigati
 
 **Available tools in investigation mode:**
 - `show_conversation` - Load and examine a specific conversation transcript
-- `search_conversations` - Search for related conversations by query
+- `search_conversations` - Search for related conversations by semantic similarity
+- `list_conversations` - Enumerate conversations by metadata (date / repo / PR / action / label)
 - `get_refs` - Get git references (repos, PRs, issues) for a conversation
+
+### `list_conversations` — metadata-driven enumeration
+
+`list_conversations` complements `search_conversations`. Use it whenever the question is anchored to *what / when* rather than *similar to*:
+
+- **Temporal**: _"what did we work on yesterday?"_, _"every conv from last week"_
+- **Enumerative**: _"list all conversations that touched repo X"_, _"every PR we opened"_
+- **Aggregative**: _"how many conversations landed merges in May?"_
+- **Verifying a negative**: _"did we work on the auth refactor at all?"_
+
+Vector search returns the *most-similar* matches; it cannot reliably enumerate, count, or prove absence. The agent will reach for `list_conversations` for those classes of questions, and for `search_conversations` when the question is about meaning ("how did we…", "explain the…").
+
+**Filter surface** — the same shape as `ohtv gen objs` multi-conversation mode, so anything you can ask the CLI to batch over, the agent can browse:
+
+| Filter | Notes |
+|---|---|
+| `since` / `until` | Accept the full `parse_date_filter` surface: ISO date (`2026-04-15`), relative (`7d`, `2w`, `1m`), or keywords (`today`, `yesterday`). |
+| `day` | A specific day (`YYYY-MM-DD` or `today`) or a small integer for an N-day lookback. |
+| `week` | `today` (this week) or a small integer for an N-week lookback. |
+| `repo` | Full URL, `owner/repo`, or short name. |
+| `pr` | PR URL, `owner/repo#N`, or `repo#N` (precise — `#1` won't match `#10`). |
+| `action` | e.g. `pushed`, `open-pr`, `merged`. |
+| `label` | Cloud-side labels in `key=value` form. |
+| `limit` | Default 20, **hard-capped at `LIST_CONVERSATIONS_MAX_LIMIT = 50`** so the observation stays inside the prompt budget. |
+| `include_sub_conversations` | **Default `False`** (roots-only, matching the post-Issue #125 CLI default — agent-delegated sub-conversations are rolled up into their root). Set to `True` to enumerate every sub. |
+
+**Observation shape** — the agent always sees three counts so it knows whether it's looking at the full set:
+
+- `total_matching` — ground-truth count of conversations matching the filters.
+- `returned` — the capped list of summaries (≤ `limit`, ≤ 50).
+- `truncated` — `True` when `total_matching > len(returned)`.
+
+If you see the agent say _"there are 137 matches and I'm looking at the top 50"_, that's `truncated=True` doing its job. The agent will typically narrow filters (`since=3d`, a specific `repo`, etc.) and re-query rather than ask for a higher `limit`.
+
+**Cache-only reads** — each row carries a `goal` field populated from the **cached `brief` `gen objs` analysis** for that conversation (the same variant `gen objs` multi-conv mode displays). `list_conversations` **never triggers LLM analysis** on a cache miss; instead, `goal=None` is a signal to the agent: _"call `show_conversation` on this id if you want to know what it was about."_ So the practical workflow inside investigation mode is:
+
+1. `list_conversations` to enumerate candidates by metadata.
+2. Sort/filter the rows by `goal` previews + `selected_repository` + `labels`.
+3. `show_conversation` or `get_refs` on the specific ids worth drilling into.
+
+To pre-warm the cache for a date range so `goal` is populated, run `ohtv gen objs` with matching filters (see [analysis.md](analysis.md)) before asking.
 
 **Example with investigation:**
 ```bash
