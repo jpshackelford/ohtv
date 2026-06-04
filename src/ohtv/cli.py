@@ -4614,6 +4614,39 @@ def _format_engaged_line(
     return " ".join(parts)
 
 
+def _format_engaged_markdown_subbullet(
+    engagement: dict | None,
+    duration: timedelta | None,
+) -> str | None:
+    """Build the markdown sub-bullet "4m 24s in 2 periods (8.8%)".
+
+    Same data and same precision as :func:`_format_engaged_line`, but
+    drops the ``of <duration> total`` suffix because the caller (the
+    ``gen objs -F markdown`` parent bullet — Issue #169) already shows
+    duration inline in the parent's metadata. Returns ``None`` when no
+    engagement row is available so the caller can skip the sub-bullet
+    entirely (graceful omission — see Issue #169 / AC).
+    """
+    if engagement is None:
+        return None
+    engaged_seconds = engagement.get("engaged_seconds")
+    periods = engagement.get("attention_periods")
+    if engaged_seconds is None or periods is None:
+        return None
+    engaged_td = timedelta(seconds=int(engaged_seconds))
+    engaged_str = _format_duration(engaged_td) if engaged_td.total_seconds() > 0 else "0s"
+    period_word = "period" if periods == 1 else "periods"
+    parts = [f"{engaged_str} in {periods} {period_word}"]
+
+    # Pct vs. event-derived duration, when we have one. Mirrors the
+    # zero-duration handling in _format_engaged_line: drop the parenthetical
+    # entirely (do NOT render "(0.0%)" or "(nan%)") when total is 0/None.
+    if duration is not None and duration.total_seconds() > 0:
+        pct = (int(engaged_seconds) / duration.total_seconds()) * 100
+        parts.append(f"({pct:.1f}%)")
+    return " ".join(parts)
+
+
 @main.command()
 @click.argument("conversation_id")
 @click.option("--user-messages", "-u", is_flag=True, help="Include user's messages")
@@ -6715,6 +6748,20 @@ def _format_summary_markdown(results: list[dict], *, include_outputs: bool = Tru
 
         # Format as a list item with metadata and goal
         lines.append(f"- **{r['short_id']}** ({meta}): {r['goal']}")
+
+        # Issue #169: render the Engaged sub-bullet first (immediately after
+        # the parent bullet, before refs / labels) so it reads as a
+        # refinement of the parent's inline duration metadata. The
+        # engagement dict is attached upstream in
+        # _run_batch_objectives_analysis when --with-engagement is set;
+        # absence here means either the flag was off or the conversation
+        # has no engagement row (the engagement processing stage has not
+        # been run for it). Either way, omit the sub-bullet entirely.
+        engaged_sub = _format_engaged_markdown_subbullet(
+            r.get("engagement"), r.get("duration")
+        )
+        if engaged_sub is not None:
+            lines.append(f"  - Engaged: {engaged_sub}")
 
         # Add refs/outputs as sub-items if present
         if include_outputs and r.get("outputs"):
@@ -9454,11 +9501,15 @@ def gen() -> None:
     is_flag=True,
     default=False,
     help=(
-        "Include engagement metrics (engaged_seconds, attention_periods, "
-        "engagement_threshold_seconds, total_duration_seconds, "
-        "engagement_ratio) in JSON output. Data is produced by the "
-        "engagement processing stage; missing values render as null. "
-        "No effect for -F table or -F markdown."
+        "Include engagement metrics. For -F markdown, adds an 'Engaged: "
+        "4m 24s in N periods (X.X%)' sub-bullet below each conversation. "
+        "For -F json, adds five engagement fields per item (engaged_seconds, "
+        "attention_periods, engagement_threshold_seconds, "
+        "total_duration_seconds, engagement_ratio). No effect for -F table. "
+        "Data is produced by the engagement processing stage; missing rows "
+        "render as null (json) or are silently omitted (markdown). Run "
+        "'ohtv db process all' (or 'ohtv sync', which runs it automatically) "
+        "to populate."
     ),
 )
 def gen_objs_cmd(
@@ -10035,15 +10086,20 @@ def _run_batch_objectives_analysis(
         for r in results:
             r["outputs"] = _get_conversation_outputs(r["conv_dir"])
 
+    # Issue #168 / #169: when --with-engagement, batch-load engagement
+    # rows for the current page ONCE before the format dispatch. Both
+    # the JSON formatter (#168) and the markdown formatter (#169) read
+    # the per-row engagement dict off ``r["engagement"]``. This is a
+    # single SQL query (or chunked at 900 IDs by
+    # ``_load_engagement_for_ids``) — no N+1 in either format path.
+    engagement_map: dict[str, dict] = {}
+    if with_engagement:
+        engagement_map = _load_engagement_for_ids([r["id"] for r in results])
+        for r in results:
+            r["engagement"] = engagement_map.get(r["id"])
+
     # Output results
     if fmt == "json":
-        # Issue #168: when --with-engagement, batch-load engagement rows
-        # for the current page so the per-item JSON can include the
-        # five engagement fields without an N+1 query.
-        engagement_map: dict[str, dict] = {}
-        if with_engagement:
-            engagement_map = _load_engagement_for_ids([r["id"] for r in results])
-
         json_results = []
         for r in results:
             # Calculate duration_seconds from timedelta
