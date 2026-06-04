@@ -1,5 +1,89 @@
 ## Log
 
+### 2026-06-04 16:50 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `56bb4b1` | testing | PR #178 — telemetry recorder manual test | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Fresh grafted clone at `d6c7248` (16:40Z impl-worker worklog commit). `uv venv` + `uv pip install git+…/lxa.git git+…/ohtv.git` inside the project venv (system-wide `--system` install blocked by `/usr/local/lib/python3.13/site-packages` perms — same finding as prior cycles).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **1432 lines** on entry. Oldest entry now ≈10.5h old. **Truncation still deferred** — 5th consecutive cycle the /truncate-worklog skill's 6h-productive-window matcher yields too little to be worth a separate commit. Same standing recommendation: human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~600 lines in one shot.
+
+**Step 1 — Human Instructions:** None. `grep -B1 -A5 "^## INSTRUCTION:" WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):**
+- Implementation worker `2a8db4a` (spawned 16:19Z for #162): `execution_status=finished, sandbox_status=RUNNING` (post-finish sandbox lag), last update 16:40:14Z → **finished ✓**. Deliverable: PR #178 (ready), commit `3edcaf9` on `feat/issue-162-telemetry`, plus `d6c7248` worklog commit on main.
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered:**
+
+**PR #178 — `feat(telemetry): record ohtv ask sessions to ~/.ohtv/telemetry/`** (closes #162):
+- HEAD `3edcaf9`, branch `feat/issue-162-telemetry`, **ready** (not draft).
+- CI: `lint` ✓, `pytest` ✓ (2592 passed / 2 skipped / 3 xfailed), `pr-review` ✓ SUCCESS, `enable-orchestrator` ✓ — **all green**.
+- `reviewDecision=APPROVED` 🟢 — the pr-review bot upgraded its verdict to actual GitHub `APPROVED` state (second consecutive PR to land in this state, mirroring PR #175). Treat as merge-ready signal alongside the legacy COMMENTED+🟢 tag pattern.
+- `mergeable=MERGEABLE`, `mergeStateStatus=CLEAN`.
+- **Review threads:** 0 (no inline review comments).
+- **Issue-style comments:** 0.
+- **Docs status:** PR includes `docs/reference/telemetry.md` (new, written by impl worker) + AGENTS.md item #34 covering the schema. **Docs are present.** ✅
+- **Manual test status:** **NO test report yet** — impl worker wrote `tests/unit/analysis/test_telemetry.py` + `tests/unit/test_cli_ask_telemetry.py` and they pass, but per the orchestrate skill the blackbox manual test step is a separate, required gating layer regardless of CI/review state ("The testing step is NOT skipped just because review started"). ❌ → gates merge.
+
+**Open PRs:** 1 (#178). **Issues needing expansion:** 0. **Ready, prioritized issues** (other than in-flight #162): #173 (`priority:low`, refactor). **On hold:** #26, #90.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+
+- **PR slot:** "PR exists, ready, CI green, docs updated, **no manual test results**" → **Spawn testing worker.** ✅
+  - Re-test heuristic doesn't apply — this is the **initial** test pass, not a re-test.
+  - Docs-spot-check not needed pre-test — the impl worker authored docs as part of the PR, no review-round changes to spot-check.
+- **Expansion slot:** 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Testing Worker**
+
+- PR: [#178 — feat(telemetry): record ohtv ask sessions to ~/.ohtv/telemetry/](https://github.com/jpshackelford/ohtv/pull/178)
+- Start task: `aed1c92d` → `app_conversation_id = 56bb4b10c0e7436dae2b14e5980daa12` → **READY** on first poll (~20s warm-picker).
+- Conversation: [`56bb4b1`](https://app.all-hands.dev/conversations/56bb4b10c0e7436dae2b14e5980daa12)
+- Verified `execution_status=running, sandbox_status=RUNNING` ~25s after spawn.
+- Plugin spec (unchanged, **23rd successful spawn**): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract (unchanged, V1): `initial_message: {content: [{type:"text", text:"…"}], run: true}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:** `gh pr checkout 178` → read PR diff (focus on `telemetry.py`, `config.py`, `ask` handler try/finally, both investigator recorder kwargs, `docs/reference/telemetry.md`) → design blackbox tests against the documented schema (atomic JSON blob + `sessions.jsonl` index + schema v1 keys + both agent modes + RAG-only `agent: null` + `OHTV_TELEMETRY_DIR` redirect + `OHTV_TELEMETRY_ENABLED=0` opt-out + graceful degradation + ISO-8601-hyphen filename + concurrent-append safety) → `uv run pytest -q` for the full suite → post `## Manual Test Results` PR comment per `/manual-test` skill format → `chore(worklog):` WORKLOG update on main → EXIT. **Explicit OUT-OF-SCOPE:** review, docs spot-check, merge.
+- **Sandbox creds:** Worker has `LITELLM_PROXY_KEY` + `LITELLM_ENDPOINT_URL` available for live `ohtv ask` scenarios; permitted to unit-test scenarios where end-to-end auth is unavailable as long as the test report flags which scenarios were live vs unit-tested.
+- **Note on `selected_repository`:** The spawn payload's top-level `repository` field didn't carry through into the `request.selected_repository` slot (it landed as `null`), continuing a long-running pattern — all 23 spawned workers since the contract was pinned have ignored the missing `selected_repository` because `gh pr checkout` + the prompt's repo context cover the actual workflow. Filed for follow-up only if a worker ever fails because of it.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~17:20Z):** Most likely —
+  - ~60%: Testing worker `56bb4b1` still running. End-to-end `ohtv ask` exercises through both agent modes + concurrency + env-var redirect + opt-out + graceful-degradation is a non-trivial test plan (~30–60 min); first post-spawn check usually finds the worker mid-flight.
+  - ~25%: Testing worker has posted a verdict (most likely ✅ pass given the impl worker reported all ACs met + 2592 tests passing).
+  - ~10%: Testing worker found a real-world snag in the recorder hook (graceful-degradation path or concurrency edge), reports a partial/conditional pass with notes.
+  - ~5%: Sandbox-credential issue prevents live `ohtv ask` scenarios; worker falls back to unit-only and flags it.
+- **2 cycles out (~17:50Z):** Likely test report posted → orchestrator spawns merge worker for #178 (since pr-review already APPROVED and there are 0 review threads). #162 would then close on merge → `ohtv-v0.28.0` released (semantic-release minor bump from `feat(telemetry):`).
+- **3 cycles out (~18:20Z):** Likely #178 merged + released → orchestrator picks up **#173** (`priority:low`, refactor — the last ready-prioritized issue). After #173 the queue dries up; expansion slot becomes the only source of new work.
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** stays pinned. **23 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Plugin spec format unchanged.**
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations`. Polling: `GET /api/v1/app-conversations/start-tasks/search`.
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **Tool install pattern this cycle:** Fresh workspace had **no .venv yet** (different from prior cycles' `uv sync` shape). Used `uv venv` + `source .venv/bin/activate` + `uv pip install git+…/lxa.git git+…/ohtv.git`. System-wide `--system` install still blocked by perms. This is the standalone-tools fallback path; the `uv sync` path is faster when the local checkout has a usable `pyproject.toml`.
+- **PR-review bot verdict:** TWO consecutive PRs (#175, #178) have come through with `reviewDecision=APPROVED` — the COMMENTED+🟢-tag fallback path may be falling out of use. Keep checking both signals.
+- **`ohtv ask` agent-mode family progress:** #161 ✅ shipped as `ohtv-v0.27.0`. #162 (telemetry) → PR #178 in test gating now. #173 (refactor) queued. After #162 lands, the family closes 2/2 (plus the #173 unrelated refactor).
+- **WORKLOG truncation:** 5 consecutive cycles overdue. Recommend human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` (or upstream fix to `/truncate-worklog`).
+
+**Local checkout note:** `main` HEAD on entry at `d6c7248`. This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `56bb4b1` (testing worker) status, looks for a `## Manual Test Results` comment on PR #178, and (if test verdict is pass + no new review threads opened in the interim) dispatches the merge worker.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 16:48 UTC - Implementation worker (Issue #162)
 
 **Worker:** `2a8db4a` — implementation of #162 (`ohtv ask` session telemetry).
