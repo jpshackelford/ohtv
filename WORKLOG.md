@@ -854,3 +854,67 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `487b7e1` (and the de
 _This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-04 00:52 UTC - Orchestrator
+
+**Big-picture event since last cycle (23:53Z):** ✅ **PR #165 MERGED** by @jpshackelford at 00:25:43Z (squash commit `d8a94da3a2`); semantic-release auto-shipped **ohtv 0.21.0** on top (`7c7c4ed`). Issue #163 auto-closed at 00:25:44Z via `Fixes #163`. The previous orchestrator's 23:53Z read that testing worker `487b7e1` was "stalled like `e85cba5`" was **wrong** — `487b7e1` actually posted its `## Manual Test Results` comment at **23:59:45Z** (just before the sandbox auto-paused on a clean exit), a full **PASS / READY TO MERGE** report covering 18 manual test cases + the full unit suite (2228 passed, 2 skipped, 3 xfailed). Human read the report and merged ~26 min later. No additional review/merge worker was needed this cycle.
+
+**Step 0 — Setup:** `uv tool install lxa ohtv` to `~/.local/bin` (stable pattern; system `pip install` still blocked). `gh` via `GH_TOKEN=$github_token` shim (system `GITHUB_TOKEN` empty, lowercase secret populated — also stable). `ohtv sync` skipped; state gather entirely via `gh` + OH search API.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`grep -n "## INSTRUCTION:" WORKLOG.md` matched only routine in-prose mentions).
+
+**Step 2/3 — Active workers re-check at cycle entry:**
+- `/api/v1/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` filtered: only `b4c835b` (this orchestrator, `trigger=automation`, started 00:46:23Z, `exec=running`) was running.
+- `487b7e1` (prior cycle's testing worker for PR #165): `sandbox=PAUSED, exec=null`, `updated=23:59:47Z`. The `updated_at > created_at` delta of ~8 min is the proof-of-life signal that was missing on `e85cba5` (which had `updated == created`). Conclusion: `487b7e1` ran successfully, posted the test report, then auto-paused on exit. Adds an evidence point for the carry-forward `/spawn-conversation` skill fix — distinguish "PAUSED post-success" vs "PAUSED never-started" via `updated_at - created_at` (>30 s = lived).
+- `e85cba5` (23:19Z stalled testing worker): still `PAUSED`, `updated == created`, abandoned correctly.
+- **Both worker slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs:** **0** (PR #165 merged + closed).
+- **Issues needing expansion:** **0** (8th consecutive cycle — `gh issue list --state open` returns only `ready` and `hold` rows).
+- **Ready + prioritized:** **#160, #161, #162** (all `enhancement, ready, priority:medium`). FIFO tiebreak by issue number → **#160 wins**.
+- **On hold:** #26, #90.
+
+**Step 6 — Decision tree:**
+- *Expansion slot:* `CAN_SPAWN_EXPANSION` ✓ + 0 issues need expansion → **slot idle**.
+- *PR slot:* `CAN_SPAWN_PR_WORKER` ✓ + no open PR + ready+prioritized issues exist → **spawn implementation worker for #160** (no `/assess-priority` re-run because priority labels are already set).
+
+**Auto-disable counter:** **0** (productive cycle — worker spawned).
+
+**Active Workers (post-spawn):**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `b4c835b` | orchestrator | this cycle | running |
+| `8fe6274` | implementation | Issue #160 — `list_conversations` agent tool | **NEW** (running, sandbox RUNNING, `updated > created` by ~14 s on first poll) |
+| `487b7e1` | testing | PR #165 (DONE — test report posted, PR merged) | PAUSED, exec=null (clean exit) |
+| `e85cba5` | testing | PR #165 (abandoned, never started) | PAUSED, exec=null, `updated == created` |
+
+**Action Taken:**
+- ✅ Spawned **implementation worker** [`8fe6274`](https://app.all-hands.dev/conversations/8fe6274f8b99431294897449b42c6f66) for Issue #160 — POST `/api/v1/app-conversations` returned start-task `5f47ade7` at 00:50:38Z; start-task hit `status=READY` with `app_conv=8fe6274f…` on first 15 s poll; conv now `sandbox=RUNNING, exec=running`, branch=`main`, repo=`jpshackelford/ohtv`, title auto-named "✨ Add list_conversations tool to ohtv ask --agent" by the platform. Cost null on first poll but `updated=00:51:02Z > created=00:50:48Z` (~14 s delta) — the proof-of-life signal that distinguishes live workers from the `e85cba5`-class dead-on-arrival pattern. Prompt instructs the worker to (1) re-read `gh issue view 160 --comments` for the expansion-phase spec, (2) base from current `main` (noting that `d8a94da` from PR #165 is in tree, plus the `7c7c4ed` 0.21.0 release commit on top), (3) implement on a `feat/list-conversations-tool-160` branch, (4) write tests + run `ruff` + full pytest, (5) open a DRAFT PR with `Fixes #160`, (6) flip to ready only after CI is green, (7) update WORKLOG.md on main and EXIT. Worker explicitly told NOT to do testing/docs/review/merge work — those are separate downstream workers.
+- ⏸ Expansion slot deliberately idle (0 unexpanded issues — 8th consecutive cycle of clean backlog).
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~01:22Z, ~30 min)**: `8fe6274` still implementing. The `--agent` tool surface is non-trivial — need to wire a fourth tool into the `Investigator` (per issue #160 title) with metadata-filter args, write tests, get CI green. Typical first-cycle outcome: still running. Log status, no action.
+- **Cycle after that (~01:52Z, ~60 min)**: Likely outcomes —
+  - ~50%: PR opened, in `draft`, CI pending or running → wait one more cycle.
+  - ~30%: PR open + ready + CI green → spawn **docs worker** (issue #160 adds a new agent tool → user-facing per the "if PR adds CLI/API surface" rule).
+  - ~15%: still implementing → log status.
+  - ~5%: stalled (the now-tracked dead-on-arrival pattern + any model errors).
+- **By ~3 cycles out (~02:22Z)**: PR slot likely in docs/test/review phase. Expansion slot remains idle until a new issue lands.
+
+**Queue if PR for #160 lands cleanly:** #161 → #162 (FIFO tiebreak by issue number; both priority:medium).
+
+**Notes / follow-ups carried forward (unchanged from 23:53Z):**
+- **WORKLOG.md size:** 856 → ~915 lines post-entry. **9 consecutive cycles overdue** on truncation (threshold 300). Per the orchestrate skill, truncation should run on a quiet cycle — this isn't one. The `/truncate-worklog` skill's `is_productive` matcher *still* under-matches the prose-style entries this orchestrator writes; even running it on a quiet cycle won't archive much without a matcher fix. **Recommendation upgraded to "human action"**: a human should either (a) widen the truncate-skill matcher, or (b) post a `## INSTRUCTION: archive WORKLOG.md entries older than 12h` directive that this orchestrator will pick up next cycle and execute manually.
+- **`pip` → `uv tool` for tool install:** Stable across 3 consecutive cycles.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable across 3 consecutive cycles. `export GH_TOKEN=$github_token` is the durable shim.
+- **`GET /api/v1/app-conversations/{id}` returns HTML SPA, not JSON:** Use `/api/v1/app-conversations?ids=…` for single-conv lookups. Stable.
+- **`/spawn-conversation` proof-of-life heuristic (NEW carry-forward):** `updated_at > created_at` by ≥5 s within the first 15 s after start-task hits READY is sufficient to declare the worker alive. `updated == created` after ≥1 min = dead-on-arrival (`e85cba5` pattern). Cost field can be `null` legitimately on the first poll — do NOT gate liveness on cost. Will codify in next available skill-update window.
+
+**Local checkout note:** Workspace `main` is at `7c7c4ed` (`ohtv-v0.21.0`, the release commit on top of `d8a94da` from PR #165). `git pull --ff-only origin main` confirmed `Already up to date` — local matches remote. Shallow clone hides the merge commit from `git log -1` but the version tag confirms tree state.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks impl worker `8fe6274` and decides whether to wait, spawn docs, or escalate.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
