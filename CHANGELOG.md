@@ -1,6 +1,152 @@
 # CHANGELOG
 
 
+## v0.29.0 (2026-06-04)
+
+### Chores
+
+- **worklog**: #180 implementation worker complete (PR #182 ready)
+  ([`4badb10`](https://github.com/jpshackelford/ohtv/commit/4badb10b4aeed8775616765ff0f61f36e1560531))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Docs worker PR #182 — --event-dates README section
+  ([`5a76d85`](https://github.com/jpshackelford/ohtv/commit/5a76d857ce6a625a51686e8f6f4abdf5d542d3cd))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Expansion worker 1498695 completed issue #181
+  ([`2473ab4`](https://github.com/jpshackelford/ohtv/commit/2473ab45467bb3d042f17b7236c9e6501b94a912))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Expansion worker — Issue #180 ready (--event-dates flag)
+  ([`b9ebf0f`](https://github.com/jpshackelford/ohtv/commit/b9ebf0fac14ce85da830691ae84f2145e2afaee8))
+
+- **worklog**: Merge worker — PR #179 squash-merged (#173 closed, release no-op'd)
+  ([`18adbd5`](https://github.com/jpshackelford/ohtv/commit/18adbd5091b6f43412ae7f00de9aa30e67d69752))
+
+Squash-merged PR #179 (refactor: extract _process_engagement_rows helper from
+  _load_engagement_for_ids) at commit fa4056d. Issue #173 auto-closed.
+
+Release workflow ran on the merge commit and correctly did NOT bump the version or create a tag —
+  the 'refactor:' conventional-commit subject is classified as non-version-bumping per the AGENTS.md
+  release contract. Latest tag remains ohtv-v0.28.0.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 19:20Z — spawned expansion worker for #180
+  ([`21c9c65`](https://github.com/jpshackelford/ohtv/commit/21c9c65c1ff1a6008b0b3551c150904d93aa5358))
+
+PR slot idle (no open PR, queue drained after #173 merge); expansion slot picks up #180 (filed
+  18:37Z by @jpshackelford) as the oldest unexpanded issue. #181 (filed 18:38Z) is queued behind it
+  since the proposed 'ohtv messages' command depends on the --event-dates plumbing #180 introduces.
+
+Spawned conversation: 21541ba43d344ca2bedd71dfd5719d61 (verified running, RUNNING sandbox).
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-06-04 20:51Z — spawned testing worker for PR #182
+  ([`8196548`](https://github.com/jpshackelford/ohtv/commit/819654873ace67513f18ba513ec12059b3f14bfa))
+
+- **worklog**: Orchestrator 2026-06-04T17:48Z — spawn impl worker for #173
+  ([`dfa9d0d`](https://github.com/jpshackelford/ohtv/commit/dfa9d0d622727edf10cb82ddffa33c627cbff85a))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-06-04T18:20Z - spawned testing worker for PR #179
+  ([`3924e52`](https://github.com/jpshackelford/ohtv/commit/3924e52293eba448f35b3097833ce6dd4696d9a8))
+
+- **worklog**: Orchestrator 2026-06-04T21:46Z - spawn merge worker for PR #182
+  ([`85cdbfb`](https://github.com/jpshackelford/ohtv/commit/85cdbfb0183a1eda87fcc28d96f1c8e46131dbc8))
+
+- **worklog**: Orchestrator — review worker spawned for PR #182 (1 unresolved suggestion thread)
+  ([`094ea30`](https://github.com/jpshackelford/ohtv/commit/094ea301febc3fd78b98ce7ff0c0050b2291eacc))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator — spawn impl #180 + expansion #181 (parallel)
+  ([`3b862e0`](https://github.com/jpshackelford/ohtv/commit/3b862e03733ac8228192f082410c99455ca135f3))
+
+- **worklog**: Record PR #179 (refactor: _process_engagement_rows helper, Issue #173)
+  ([`13fb544`](https://github.com/jpshackelford/ohtv/commit/13fb5447cb5727a94de6cb9ca01459eb6dfd6721))
+
+- **worklog**: Review worker — PR #182 round 1 (simplified date-filter JOIN condition)
+  ([`66e3425`](https://github.com/jpshackelford/ohtv/commit/66e3425b324ad5e663acd4a92bf66ed6458b781e))
+
+- **worklog**: Testing worker — PR #182 manual blackbox tests ✓ (READY FOR MERGE)
+  ([`6d034ac`](https://github.com/jpshackelford/ohtv/commit/6d034ac43955908223ec1f8df8ec14e5f03b2dc2))
+
+All 7 test groups pass (T1-T7); 2614 unit tests pass; AC1-AC6 verified. Report posted at
+  https://github.com/jpshackelford/ohtv/pull/182#issuecomment-4626107246
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- **filter**: Add --event-dates to filter by engagement timestamps
+  ([`9cdbbe2`](https://github.com/jpshackelford/ohtv/commit/9cdbbe2efa734a1d28a595f9aa4d4f7a463ce5ae))
+
+Closes #180.
+
+Threads a default-off `--event-dates` boolean flag through `list`, `search`, `ask`, `gen objs`, `gen
+  titles`, and `gen run` (explicitly excluded from `refs` — refs are intrinsically
+  action-timestamped). When set, the existing `--since` / `--until` / `-D` / `-W` filters re-target
+  `conversation_engagement.first_event_ts` / `last_event_ts` instead of `conversations.created_at`,
+  surfacing conversations whose engagement landed in the window regardless of when they were
+  originally started.
+
+Implementation highlights: - `ConversationStore.list_by_event_date_range(*, since, until, source,
+  include_subs)` is the single SQL owner of the engagement-overlap predicate (since-only /
+  until-only / interval-overlap branches). - INNER JOIN semantics: conversations without a
+  `conversation_engagement` row are excluded under `--event-dates` (AC5), with an empty-result hint
+  in `list` pointing at `ohtv db process engagement`. - Bare `--event-dates` (no date filter) raises
+  `UsageError` exit 2 via `_validate_event_dates_args`, called early in `gen titles` / `gen run` so
+  their default windows don't silently satisfy the gate (AC6). - Migration 024 adds covering indexes
+  `idx_conv_engagement_last_event_ts` and `idx_conv_engagement_first_event_ts` on
+  `conversation_engagement` so the JOIN stays O(log N) per predicate. - `--exact --event-dates` runs
+  an inline chunked post-filter against `conversation_engagement` (FTS5 has no native date
+  integration); the semantic search path pushes the predicate into
+  `EmbeddingStore.search_conversations(..., event_dates=True)`. - `ohtv ask` captures
+  `flags.event_dates` in its session telemetry blob (#162).
+
+22 new tests across `tests/unit/db/stores/test_conversation_store_event_dates.py` (10 — predicate
+  semantics, missing-engagement exclusion, source filter, roots-only, migration 024 indexes) and
+  `tests/unit/test_cli_event_dates_filter.py` (12 — round-trip behavioral test, validation
+  parametrized across 4 list/gen commands, empty-result hint, search FTS post-filter exclusion,
+  search bare-flag UsageError). AC1–AC7 verified; manual test report posted by testing worker
+  `66a5602` confirmed READY FOR MERGE across all 7 test groups.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Refactoring
+
+- Extract _process_engagement_rows helper from _load_engagement_for_ids
+  ([`fa4056d`](https://github.com/jpshackelford/ohtv/commit/fa4056d92304bf739f581e750f2b43b18613026b))
+
+Pure depth-reduction refactor of `_load_engagement_for_ids` in `src/ohtv/cli.py`. Lifts the inner
+  row-coercion + back-translation block into a new private helper `_process_engagement_rows`,
+  dropping the chunk-loop body to four lines and reducing nested-block depth from 5 to 3.
+
+Behavior is unchanged:
+
+- Same single batched `WHERE conversation_id IN (...)` SELECT per `BATCH_SIZE = 900` ids. The
+  load-bearing `test_chunk_query_count` invariant (1100 ids ⇒ exactly two SELECTs across the chunk
+  boundary) stays green — the helper only consumes `cur.fetchall()`, so the proxy-class connection
+  wrapper still observes the same `execute(...)` call count. - Same dashless ↔ dashed id
+  back-translation via `normalized_to_original` (AGENTS.md item #14). - Same never-raise contract
+  (Issues #167 / #168): the outer `try` / `except Exception: return engagement_map` guard is
+  untouched. - Same `engagement_map[original] = row_dict` mutation semantics (later chunk wins on
+  collision — exactly as before).
+
+Tests: 86 targeted engagement tests pass; full suite 2592 passed, 2 skipped, 3 xfailed; ruff clean.
+  Manual blackbox testing posted on the PR (12/12 PASS).
+
+Pure internal refactor — no user-facing surface change, no docs update required.
+
+Closes #173.
+
+
 ## v0.28.0 (2026-06-04)
 
 ### Chores
