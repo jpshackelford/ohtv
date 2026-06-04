@@ -1749,3 +1749,88 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `5b13c41` (merge work
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-04 18:20 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `2fc1f83` | testing | PR #179 — refactor: extract `_process_engagement_rows` helper (closes #173) | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Workspace clone at `f06f359` on entry; `git pull` brought it to `4a25b0b` then to the 17:55Z impl-worker WORKLOG commit. `uv venv .venv` + `uv pip install` both `lxa` and `ohtv` into the project venv (system-wide `--system` install still blocked by `/usr/local` perms — same recurring pattern). Skipped `ohtv sync` — `gh` + the start-tasks API covered every gating signal this cycle.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **1751 lines** on entry. **7th consecutive cycle** truncation is overdue. The /truncate-worklog skill's 6h-productive-window matcher continues to yield <50 archivable lines (oldest entry now ≈10.5h old; the bulk of pre-15:00Z content sits just outside the rolling window). Same standing recommendation, carried forward yet again: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~800 lines in one commit, or a fix to the matcher to be reverse-chrono / wall-clock-aware. **Deferring once more** to keep the focus on the in-flight PR slot dispatch.
+
+**Step 1 — Human Instructions:** None. `awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):**
+- Implementation worker `871fa09` (spawned 17:48Z for #173): `execution_status=finished, sandbox_status=RUNNING (post-finish lag)`, last update 17:53Z → **finished ✓**. Delivered PR #179 + the 17:55Z self-report on `main` (`refactor/issue-173-engagement-rows` branch, commit `ecf99c7`, +43/−18 LOC in `src/ohtv/cli.py`).
+- Merge worker `5b13c41` (spawned 17:20Z for PR #178): `sandbox_status=PAUSED`, last update 17:21:53Z → **finished ✓** (well-confirmed by `ohtv-v0.28.0` release at 17:21Z and `#162` auto-closing on the squash-merge at 17:20:59Z).
+- Two unrelated `running` conversations on `repo=null` / `repo=jpshackelford/voice-relay`: `0222e1f` (created 18:15:38Z, no repo — likely a parallel user session) and `7703f83` (created 18:16:04Z, no repo — this is the orchestrator's own conv). Neither is an ohtv worker. ✅ Did NOT collide with the spawn target.
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered:**
+
+- **Open PRs:** **1** — PR #179.
+- **PR #179 (`refactor: extract _process_engagement_rows helper from _load_engagement_for_ids`):**
+  - Branch: `refactor/issue-173-engagement-rows`. Created 17:53:04Z by jpshackelford bot. Diff: 1 file, +43/−18 LOC.
+  - `isDraft=false` (ready), `mergeable=MERGEABLE`, `reviewDecision=APPROVED` (the bot approved without leaving threads — clean refactor).
+  - **CI:** all 4 checks ✅ — `pytest` (1m14s) · `lint` (4s) · `enable-orchestrator` (4s) · `pr-review` (2m5s).
+  - **0 PR comments** → **no manual test results yet** (the 17:55Z impl worker only posted a worklog entry on `main`, not a PR comment).
+  - **Docs check:** pure internal refactor — no user-facing surface change (CLI flags, JSON schema, output shape all unchanged). README docs update is **not required** per the orchestrate skill's "Do NOT require docs update if only: internal refactoring" carve-out.
+- **Latest release:** `ohtv-v0.28.0` (from PR #178 merge, ~1h ago). The `refactor:` subject on PR #179 will correctly **skip** the release workflow on merge — no version bump, no CHANGELOG entry (intent for an internal refactor; spec'd this way in the 17:48Z entry's impl-worker prompt).
+- **Issues needing expansion (no `ready`, no `hold`):** **0**.
+- **Ready, prioritized issues remaining:** **0** (#173 is covered by in-flight PR #179; will auto-close on merge).
+- **On hold:** #26 (mcp server), #90 (`ohtv label` batch).
+- **After PR #179 merges:** Ready queue is fully drained. Next pickup source is expansion of new issues if any get filed.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+
+- **PR slot:** "PR exists, ready, CI green, docs updated (or not required), **no manual test results**" → **Spawn testing worker.** ✅
+  - Even though `reviewDecision=APPROVED`, the orchestrator workflow contract requires a `## Manual Test Results` comment on the PR before merge. The approve happened without inline threads, but the test gate is independent.
+- **Expansion slot:** 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Testing Worker**
+
+- PR: [#179 — refactor: extract `_process_engagement_rows` helper from `_load_engagement_for_ids`](https://github.com/jpshackelford/ohtv/pull/179) (`Closes #173`)
+- Start task: `df19b78f` → `app_conversation_id = 2fc1f83dc9e64fcebbf75b34ad5a7db7` → **READY** on the 1st poll (~5s; warm-picker, same fast path as the last 5 spawns).
+- Conversation: [`2fc1f83`](https://app.all-hands.dev/conversations/2fc1f83dc9e64fcebbf75b34ad5a7db7)
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after spawn.
+- Plugin spec (unchanged, **25th successful spawn** in a row): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract (unchanged, V1): `initial_message: {content: [{type:"text", text:"…"}], run: true}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:** `gh pr checkout 179` → `uv sync` → exercise `ohtv list --engagement` on a real DB (the impl worker tested this path with 86 unit tests but the blackbox check is the gate) → exercise both `ohtv list` and `ohtv gen objs` engagement code paths → if available, pick a >900-id set spanning the BATCH_SIZE chunk boundary (else document the limitation) → verify dashed ↔ dashless ID translation (AGENTS.md item #14) → full `uv run pytest -q` with focus on the 86 engagement tests + `test_chunk_query_count` (1100-ids ⇒ two-SELECTs invariant) → post `## Manual Test Results` PR comment → EXIT. **Explicit no-go:** no `gh pr merge`, no `gh pr ready --undo`, no `chore(worklog):` on `main` until the comment is posted.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~18:50Z):** Most likely —
+  - ~65%: Testing worker `2fc1f83` has finished, posted `## Manual Test Results` ✅ PASS on PR #179. Code freshness invariant holds (no commits since 17:53Z impl). Orchestrator's decision tree lands on "PR exists, ready, CI green, test results valid, good rating, **docs valid (not required)**" → **spawn merge worker.** Direct route to merge; no review round expected since the bot already approved without threads.
+  - ~25%: Testing worker still running (the refactor needs no test fix-ups, but warm-up + 2592-test suite run is ~48s plus the blackbox exercises).
+  - ~5%: Testing worker discovered a regression (extremely unlikely given the impl worker's pre-push verification — 86 engagement tests + full suite green before push). Would post a ❌ FAIL report; orchestrator routes to a review-round worker.
+  - ~5%: Truncation-only cycle if all the above stall.
+- **2 cycles out (~19:20Z):** Likely PR #179 merged + worklog entry on `main`. **First all-quiet cycle** of the new idle phase (no ready issues, no PRs in flight). Auto-disable counter → 1.
+- **3 cycles out (~19:50Z):** **Second consecutive all-quiet cycle** → **automation auto-disables** per the orchestrate skill's auto-disable rule (counter ≥ 2). The cron stops until a human re-enables it (e.g. by filing a new issue + manual re-enable, or by adding new `## INSTRUCTION:` items).
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** stays pinned. **25 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY` (header name; no `Bearer` prefix).
+- **Plugin spec format unchanged.**
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations`. Polling: `GET /api/v1/app-conversations/start-tasks/search` (warm-picker again — `READY` on first 5s poll for the 6th cycle running).
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **Tool install pattern this cycle:** workspace had NO `.venv` pre-existing. `uv venv .venv` + `uv pip install git+…/lxa.git git+…/ohtv.git` succeeded into `.venv/bin/`. System-wide `uv pip install --system` blocked by `/usr/local/lib/python3.13/site-packages` perms (known).
+- **PR-review bot verdict trend:** Three PRs in a row (#175 / #178 / #179) → `reviewDecision=APPROVED`. The COMMENTED+🟢-tag fallback path may now be dead. Worth tracking for one more cycle to be sure.
+- **Workflow approaching idle:** With #173 in flight as PR #179, the ready queue empties on merge. Auto-disable likely fires at ~19:50Z if no new issues file.
+- **WORKLOG truncation:** 7 consecutive cycles overdue. Standing recommendation unchanged: human `## INSTRUCTION: archive WORKLOG.md entries older than 10h`.
+- **Spawn-conversation contract quirk:** single-conversation GET (`/api/v1/app-conversations/{id}`) returned an empty body this cycle (could be a transient API hiccup or that endpoint was never wired); the search endpoint with `select(.id == "...")` worked fine as a fallback. Pinning the search-based verification for future cycles.
+- **Refactor-only PR routing observation:** PR #179 is the first `refactor:` PR in a while where the bot approved without threads AND no docs touch is required. This is the cleanest path through the decision tree the orchestrator has seen — impl → ✅ test → merge (3 cycles, no review round). Worth noting as a baseline for future internal-refactor work.
+
+**Local checkout note:** `main` HEAD on entry at `4a25b0b` then pulled to the 17:55Z impl-worker WORKLOG commit. This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `2fc1f83` (testing worker), looks for a `## Manual Test Results` comment on PR #179, and (if pass + no new code commits between test and now) dispatches the merge worker. After PR #179 lands the queue empties; auto-disable approaches.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
