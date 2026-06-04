@@ -954,3 +954,52 @@ _This worklog entry was written by an AI agent (OpenHands) on behalf of @jpshack
 
 ---
 
+
+### 2026-06-04 01:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `3f4e392` | docs | PR #166 - list_conversations agent tool | **NEW** |
+
+**Spawned: Docs Worker**
+- PR: [#166 - feat: add list_conversations tool to ohtv ask --agent investigator](https://github.com/jpshackelford/ohtv/pull/166) (Issue [#160](https://github.com/jpshackelford/ohtv/issues/160))
+- Conversation: [`3f4e392`](https://app.all-hands.dev/conversations/3f4e392934ad46c5aaaf85cb9e1a8afe)
+- Start task `7e70123` → READY in ~10s; `execution_status=running`, `sandbox=RUNNING` at hand-off.
+
+**Step 0 — Setup:** `uv sync` + `uv pip install lxa` succeeded under the project `.venv`. `lxa repo add jpshackelford/ohtv` re-created the unnamed board (cosmetic, same as prior cycles). `ohtv sync` skipped this cycle — going directly via `gh`/`curl` for state since the work is PR-driven.
+
+**Step 0.5 — Housekeeping:** WORKLOG is 956 lines (>>300 threshold). Truncation **deferred to next cycle** — this cycle's primary action is spawning the docs worker, and truncation is non-urgent compared to keeping the PR pipeline moving. Flagged for follow-up.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`grep -A5 "## INSTRUCTION:" WORKLOG.md` returned only historical references inside other entries, no actionable directives).
+
+**Step 2/3 — Active workers at cycle entry:**
+- `/app-conversations/search?execution_status=running&selected_repository=jpshackelford/ohtv` → only this orchestrator (`f6fe160`, started 01:16:25Z). Prior impl worker `8fe6274` ("✨ Add list_conversations tool to ohtv ask --agent") that produced PR #166 = `execution_status=finished`, `sandbox=RUNNING` (terminal; sandbox not yet reaped). **Both worker slots CLEAR at cycle entry.**
+- **Re-enable note:** The automation was auto-disabled at 2026-05-30 19:18Z (51 idle expansion cycles in a row). Since then PR #164 (enable-orchestrator) + PR #165 (engagement metric) merged, plus PR #166 just opened. This `/orchestrate` was invoked manually — automation is presumably re-enabled by the `enable-orchestrator` workflow firing on the recent PR-ready-for-review events. No re-disable action needed.
+
+**Step 4 — State gather:**
+- **Open PRs**: **1** — PR #166 (`feat/list-conversations-tool-160`):
+  - `lxa pr list` → `oA green ready 💬-- 13m 7m ago`
+  - CI: `lint=SUCCESS`, `pytest=SUCCESS`, `pr-review=APPROVED 🟢 Good taste`, `enable-orchestrator=SUCCESS`
+  - 0 issue comments, 1 review (automated APPROVED). `reviewDecision=APPROVED`.
+  - Last commit: `01:03:29Z` (~17m ago at cycle entry).
+  - **Docs check**: Diff is 5 files (`src/ohtv/analysis/agent_tools.py`, `src/ohtv/analysis/investigator.py`, `src/ohtv/cli.py`, 2 test files). README.md NOT touched. `docs/guides/search-and-ask.md` lines 176–178 enumerate the agent's tools as a user-visible list: `show_conversation`, `search_conversations`, `get_refs` — **3 tools, not the new 4.** This is a documented user-visible capability surface (the agent's tool set) that the PR makes incomplete. Docs update **REQUIRED** before testing.
+  - Decision-tree row matched: *"PR exists, ready, CI green, **README/docs not updated** → Spawn docs worker"*.
+- **Issue census** (unchanged structurally since 2026-06-03 22:55Z):
+  - Needs expansion (no `ready`, no `hold`): **0** — all three open non-hold issues are ready.
+  - Ready + prioritized: **#160** (`priority:medium`, now implemented by PR #166), **#161** (`priority:medium`), **#162** (`priority:medium`).
+  - Ready + unprioritized: 0.
+  - On hold: **#26** (`hold`), **#90** (`hold`, `priority:medium`).
+  - Total open: 5.
+
+**Step 5 — Decisions:**
+- **PR slot** → Spawn **docs worker** for PR #166 (chosen this cycle).
+- **Expansion slot** → idle (no issues need expansion). Cannot redirect to implementation because the PR slot is now occupied by the docs worker (one PR worker at a time per the parallel-slots rule). Next-ready candidates if PR #166 lands: #161 (prompt-based agent mode), #162 (ohtv ask telemetry).
+
+**Step 6 — Quiet-cycle check:** This is a **productive cycle** (spawned a worker). The auto-disable two-consecutive-quiet rule does not trigger. The prior "auto-disabled" entry at 2026-05-30 19:18Z remains the terminating quiet marker for that streak — re-enabling cleared it.
+
+**Next check:** ~30 min (cron trigger). Expected next action: testing worker once docs PR comment lands (it will start with `## Documentation updated` for detection).
+
+_This worklog entry was written by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
