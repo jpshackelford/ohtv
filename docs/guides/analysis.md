@@ -207,9 +207,16 @@ Showing 2 of 150 (2/2 cached)
 
 ### Engagement fields (`--with-engagement`)
 
-The `--with-engagement` flag (added in [#172](https://github.com/jpshackelford/ohtv/pull/172), tracks [#168](https://github.com/jpshackelford/ohtv/issues/168)) extends `ohtv gen objs` JSON output with the sustained-attention metric, mirroring the pattern established for `ohtv list --with-engagement` in [#171](https://github.com/jpshackelford/ohtv/pull/171) (see [`docs/guides/exploration.md` § Engagement columns](exploration.md#engagement-columns--with-engagement)) and `ohtv show -F json` in [#165](https://github.com/jpshackelford/ohtv/pull/165).
+The `--with-engagement` flag (added in [#172](https://github.com/jpshackelford/ohtv/pull/172), markdown rendering added in [#174](https://github.com/jpshackelford/ohtv/pull/174), tracks [#168](https://github.com/jpshackelford/ohtv/issues/168) / [#169](https://github.com/jpshackelford/ohtv/issues/169)) extends `ohtv gen objs` output with the sustained-attention metric, mirroring the pattern established for `ohtv list --with-engagement` in [#171](https://github.com/jpshackelford/ohtv/pull/171) (see [`docs/guides/exploration.md` § Engagement columns](exploration.md#engagement-columns--with-engagement)) and `ohtv show -F json` in [#165](https://github.com/jpshackelford/ohtv/pull/165).
 
-**JSON-only.** The flag is a no-op for `-F table` and `-F markdown` — both display formats are unchanged. (Markdown engagement output is tracked separately in [#169](https://github.com/jpshackelford/ohtv/issues/169).) Works in both single-conversation (`ohtv gen objs <id> --json --with-engagement`) and multi-conversation (`ohtv gen objs -F json --with-engagement`) modes.
+**Format support.** In `-F json` mode (both single-conversation and multi-conversation), the flag appends five engagement fields to the payload. In `-F markdown` mode (multi-conversation only), it renders an `Engaged:` sub-bullet immediately below each conversation's parent bullet — for example:
+
+```markdown
+- **abc1234** (2026-05-30 14:00, 50m, 8 events): Investigate failing CI
+  - Engaged: 4m 24s in 2 periods (8.8%)
+```
+
+Conversations without an engagement row are silently omitted (no sub-bullet rendered). The flag remains a no-op for `-F table`.
 
 **Prerequisite:** values come from the [`engagement` indexing stage](indexing.md#engagement-stage). Run `ohtv db process all` (or `ohtv db process engagement`) after syncing. Without it the five fields render as `null` — rows are **never** filtered out and the JSON schema stays stable across rows.
 
@@ -324,7 +331,7 @@ When no engagement row exists for the conversation, the analysis payload still g
 | `-m, --model` | LLM model to use |
 | `--json` | Output as JSON |
 | `--no-outputs` | Don't show outputs (repos, PRs, issues) |
-| `--with-engagement` | Include engagement metrics (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`, `engagement_ratio`) at the top level of the JSON payload. Requires the [`engagement` indexing stage](indexing.md#engagement-stage). No effect for non-JSON output. See [Engagement fields](#engagement-fields--with-engagement). |
+| `--with-engagement` | Include engagement metrics (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`, `engagement_ratio`) at the top level of the JSON payload. Requires the [`engagement` indexing stage](indexing.md#engagement-stage). No effect for table output; single-conversation mode is `--json` only. See [Engagement fields](#engagement-fields--with-engagement). |
 | `--verbose` | Show debug output |
 
 **Options (Multi-Conversation Mode):**
@@ -351,7 +358,7 @@ When no engagement row exists for the conversation, the analysis payload still g
 | `-y, --yes` | Skip confirmation for large result sets (>20 conversations) |
 | `-q, --quiet` | Generate/cache summaries without displaying output |
 | `--include-sub-conversations` | Include sub-conversations created by agent delegation (default: roots only). See note above. |
-| `--with-engagement` | Include engagement metrics (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`, `engagement_ratio`) per item in the JSON array. Requires the [`engagement` indexing stage](indexing.md#engagement-stage). No effect for `-F table` or `-F markdown`. See [Engagement fields](#engagement-fields--with-engagement). |
+| `--with-engagement` | Include engagement metrics. For `-F json`, adds five engagement fields (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`, `engagement_ratio`) per item in the array. For `-F markdown`, adds an `Engaged: 4m 24s in N periods (X.X%)` sub-bullet below each conversation. No effect for `-F table`. Requires the [`engagement` indexing stage](indexing.md#engagement-stage). See [Engagement fields](#engagement-fields--with-engagement). |
 | `--verbose` | Show debug output |
 
 ### Context levels (`gen objs --c` flag)
