@@ -1,5 +1,97 @@
 ## Log
 
+### 2026-06-04 19:20 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `21541ba` | expansion | Issue #180 — `--event-dates` flag | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Workspace `main` at `18adbd5` (the 18:52Z merge-worker commit for PR #179 / Issue #173). `uv sync` populated `.venv/` cleanly; `lxa` installed via `uv pip install git+…/lxa.git` (project-venv path). `ohtv` from local editable checkout. Same install pattern as the 17:48Z and earlier 6 cycles.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **1890 lines** on entry. **7th consecutive cycle** the truncation skill is overdue but the 6h-productive-window matcher continues to yield <50 lines. Standing recommendation unchanged: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~700 lines in one commit. Deferring again.
+
+**Step 1 — Human Instructions:** None. `awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):**
+- Implementation worker `871fa09` (spawned 17:48Z for #173): per the 17:55Z worklog entry → **finished ✓** with draft-PR-to-ready flip on PR #179.
+- Subsequent testing/review/merge workers for PR #179 ran outside this WORKLOG (no entries between 17:55Z and now). End-state on GitHub: **PR #179 squash-merged at 18:50:46Z** by the merge worker (commit `fa4056d`), worklog updated by that worker at 18:52:56Z (`18adbd5` — the current HEAD). Issue #173 auto-closed via `Closes #173`. Release workflow correctly no-op'd on the `refactor:` subject (no tag, no CHANGELOG entry); latest tag remains `ohtv-v0.28.0`.
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered:**
+
+- **Open PRs:** **0** (`gh pr list --state open` → `[]`). The 17:48Z orchestrator's "next pickup source is expansion of new issues if any get filed" prediction landed exactly — two new issues filed by @jpshackelford at 18:37Z and 18:38Z.
+- **Issues needing expansion (no `ready`, no `hold`):**
+  - **#180** (18:37:45Z) — `feat(filter): Add --event-dates flag to filter by event timestamps instead of conversation created_at`. Well-formed proposal with concrete data-layer plan (uses `conversation_engagement` table from migration 023, adds indexes on `first_event_ts` / `last_event_ts`, adds `list_by_event_date_range()` on `ConversationStore`, adds `--event-dates`/`-E` flag via shared decorator). Names the 6 affected commands: `list`, `search`, `ask`, `gen objs`, `gen titles`, `gen run`.
+  - **#181** (18:38:09Z) — `feat(cli): Add ohtv messages command to list user messages across conversations`. Proposes a new `ohtv messages` command that **uses event-timestamp filtering** — so implementation depends on #180's plumbing landing first.
+- **Ready, prioritized issues:** **0** (post-#173 merge, the queue drained as predicted).
+- **On hold:** #26 (mcp server), #90 (`ohtv label` batch) — unchanged.
+
+**Step 4 — Decision (per orchestrate decision tree):**
+
+- **PR slot:** "No open PR + no ready issues" → **nothing to implement.** ✅ (Wait for expansion.)
+- **Expansion slot:** "Issues need expansion (no `ready`, no `hold`)" → **Spawn expansion worker for the oldest unexpanded issue.** ✅ → **#180** wins on `created_at` (issue-number ordering trivially agrees: 180 < 181).
+
+**Selection rationale:** #180 is upstream of #181 in the dependency graph — #181's `ohtv messages` command needs event-timestamp filtering, which is what #180 introduces as a reusable shared-decorator primitive. Expanding #180 first will surface the exact `ConversationStore.list_by_event_date_range()` signature that #181's expansion can then build on without re-discovering it.
+
+**Step 5 — Spawned: Expansion Worker**
+
+- Issue: [#180 — feat(filter): Add --event-dates flag](https://github.com/jpshackelford/ohtv/issues/180)
+- Start task: `29327270` → `app_conversation_id = 21541ba43d344ca2bedd71dfd5719d61` → **READY** on the 2nd poll (~8s).
+- Conversation: [`21541ba`](https://app.all-hands.dev/conversations/21541ba43d344ca2bedd71dfd5719d61)
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after the READY transition.
+- Plugin spec (unchanged, **25th successful spawn** in a row): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract (unchanged, V1): `initial_message: {content: [{type:"text", text:"…"}], run: true}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope (8 expansion tasks, condensed):**
+  1. Verify prerequisite data layer (migration 023 `conversation_engagement`; whether `db scan` populates it; identify `_load_engagement_for_ids` helper just refactored in PR #179).
+  2. Map integration points for all 6 commands listed in the issue (`list` / `search` / `ask` / `gen objs` / `gen titles` / `gen run`) — quote where `--since`/`--until` reaches the store today.
+  3. Confirm new `ConversationStore.list_by_event_date_range(since, until, ...)` signature with overlap semantics; spell out behavior for conversations without engagement rows; note `source='local'` vs `'cloud'` (AGENTS.md item #14 dashed-ID contract).
+  4. Locate existing `--since`/`--until` shared decorator; extend with `--event-dates`/`-E`; check for short-flag collisions; decide error vs no-op when `--event-dates` is bare.
+  5. Confirm next migration number, copy a recent migration as template, verify `ensure_db_ready()` will pick it up (AGENTS.md item #25).
+  6. List specific new tests needed in `tests/unit/test_date_filters.py` / `tests/unit/test_cli_list_engagement.py`.
+  7. Identify README + `docs/guides/` sections to update (impl worker writes them, not expansion).
+  8. Risk call-outs: how does `--event-dates` interact with the `ask` temporal-extraction layer? Should `refs` and `errors` get the flag (issue doesn't list them)?
+- **Deliverables:** rewrite #180 body (Problem / Solution / AC), post a separate `Technical Approach` comment, add `ready` label, suggest `priority:medium` in the comment (do NOT set priority — that's orchestrator's `/assess-priority` job), append `chore(worklog):` entry noting that #181 is queued behind #180.
+- **Blocked-paths spelled out:** engagement table not populated → `needs-info`; approach diverges from issue body → ask human; should be split → `needs-split`. Do NOT add `ready` if blocked.
+- **AI-disclosure footer:** required on both the rewritten body and the Technical Approach comment.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**. (Quiet-cycle window correctly did NOT trigger — there was work to pick up.)
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~19:50Z):** Most likely —
+  - ~55%: Expansion worker `21541ba` still running. The codebase-discovery tasks (verifying migration 023, mapping 6 command integration points, locating the shared decorator) typically take 20–35 min for a thorough expansion. Orchestrator decision tree: no other slots to fill → quiet entry.
+  - ~30%: Expansion completed, `ready` label added on #180. Orchestrator decision tree: "Ready, not prioritized" → run `/assess-priority` inline → spawn implementation worker for #180 (assuming priority assessment puts it in the queue). #181 expansion still slot-blocked unless #180 already finishes — see next bullet.
+  - ~10%: Expansion blocked (issue tagged `needs-info` / `needs-split`). Orchestrator decision: PR slot still empty, expansion slot now free → pick up **#181** as the next-oldest unexpanded issue. (Note: #181 expansion may itself flag dependency on #180 being unblocked first.)
+  - ~5%: Worker crashes or stalls → log status, next cycle re-checks.
+- **2 cycles out (~20:20Z):** Likely #180 implementation in progress (draft PR opened or about to open) AND #181 expansion running in parallel (expansion slot reopens once #180's expansion completes). This is the first opportunity to use both worker slots simultaneously since the 14:30Z and 15:50Z parallel-spawn cycles.
+- **3 cycles out (~20:50Z):** Likely PR for #180 ready + green → docs worker (NEW CLI flag → README update required; `Do NOT skip` per the orchestrate skill's "When Docs Update is Required" list — adding a flag is explicitly user-facing). Then testing → review → merge.
+- **After #180 merges:** #181 should be `ready` by then (expansion worker for #181 will have finished). Orchestrator picks it up. Two-feature mini-cycle should complete within ~3–4 hours barring re-review rounds.
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** stays pinned. **25 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY` (header name; no `Bearer` prefix).
+- **Plugin spec format unchanged.**
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations`. Polling: `GET /api/v1/app-conversations/start-tasks/search`.
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **Tool install pattern this cycle:** identical to 17:48Z — `uv sync` then `uv pip install git+…/lxa.git`.
+- **PR-review bot:** PR #179 was reviewed and approved between 17:55Z (impl worker exit) and 18:50Z (merge). No WORKLOG entries captured for the intervening testing/review/merge workers; the merge worker's 18:52Z commit (`18adbd5`) is the only on-disk record of the full cycle.
+- **WORKLOG gap (17:55Z → 19:20Z):** Three worker conversations (testing, review, merge for PR #179) ran but did NOT append entries to WORKLOG.md. The 18:52Z merge-worker commit message documents the final state. **Carrying forward** as a soft observation — not a problem to fix yet, but worth flagging if the gap pattern repeats.
+- **`ohtv ask` agent-mode family closed:** #161 ✅ (`v0.27.0`), #162 ✅ (`v0.28.0`). #173 ✅ (no version bump — internal refactor, as intended).
+- **Newly-queued work:** #180 (in expansion now), #181 (queued behind #180 by 1 cycle).
+- **WORKLOG truncation:** 7 consecutive cycles overdue. Same standing recommendation.
+
+**Local checkout note:** `main` HEAD on entry at `18adbd5`. This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `21541ba` (expansion worker) status, looks for `ready` label on #180 + a `Technical Approach` comment, and (if ready) prioritizes + spawns impl worker while spawning parallel expansion worker for #181.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 17:55 UTC - Implementation worker (Issue #173)
 
 Conversation: spawned by orchestrator `871fa09` at 17:48Z.
