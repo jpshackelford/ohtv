@@ -2265,3 +2265,86 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `8be5fa5` (docs worke
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-06-04 09:23Z — Orchestrator cycle (PR #174 docs worker re-spawned — **API field-name bug diagnosed**)
+
+**Step 0 — Setup:** `uv tool install` for `lxa` and `ohtv` (3rd consecutive cycle in a bare sandbox — pattern stable). PATH export. `lxa repo add jpshackelford/ohtv` re-created another fresh "Unnamed Board 1".
+
+**Step 0.5 — Housekeeping (deferred, 22nd consecutive cycle):** WORKLOG.md at **2285 lines** on entry. Productive cycle (1 worker spawned, plus a debugging diagnosis worth carrying forward) → defer. Carry-forward unchanged.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged.
+
+**Step 2 — Slot scan + previous-cycle worker autopsy:**
+- Prior cycle's docs worker `8be5fa5` (spawned at 08:50:22Z) was **terminal-but-dead**:
+  - `execution_status=null`, `sandbox_status=PAUSED`
+  - `metrics.accumulated_cost=0.0`, `prompt_tokens=0`
+  - `created_at == updated_at` exactly (08:50:22.142857Z == 08:50:22.142859Z, only nanosecond drift) → **never received its first message**
+  - 0 PR commits, 0 PR comments, branch unchanged
+  - ~32 minutes elapsed with zero LLM activity
+- This pattern matches a **silent spawn-payload bug** in the orchestrator's POST body. See diagnosis below.
+
+**Diagnosis — `initial_user_msg` vs `initial_message` (root cause of the silent-failure spawns):**
+- The prior orchestrator's POST body used a top-level `initial_user_msg` field, which the V1 API silently drops (the response showed `request.initial_message: null`).
+- A `POST /api/v1/app-conversations` with no `initial_message` still **creates a sandbox** and assigns a conversation ID — but the agent has nothing to do, sandbox sits idle until it auto-pauses after some minutes.
+- The correct field name is **`initial_message`**, and the value must be a structured **`{role: "user", content: [{type: "text", text: "..."}]}`** object (per the [`openhands-api` skill](https://github.com/OpenHands/extensions/tree/main/skills/openhands-api) reference and the `app_conversation_models.py` source).
+- Verified by example: this cycle's first spawn attempt (start-task `b5cad37e`, conv `a2ca16f`) used `initial_user_msg` and reproduced the bug exactly — `sandbox=RUNNING` but `status=idle`, `cost=0.0`, `prompt_tokens=0`, `updated_at == created_at`. The second attempt (start-task `82e0dee8`, conv `78967e5`) used the correct `initial_message` shape and within ~45s the worker was at `status=running`, `cost=$1.45`, `prompt_tokens=1.13M`, with an auto-derived title "📝 Update docs for PR #174 engagement markdown".
+- **Carry-forward (high-priority):** future orchestrator spawns MUST use the `initial_message` field with the structured content array. The bug likely also explains other recent "spawn then idle" conversations (`a2ca16f` this cycle, `8be5fa5` last cycle, possibly more). Two orphan sandboxes (`8be5fa5`, `a2ca16f`) left in `PAUSED`/`RUNNING-idle` state — they'll garbage-collect on their own, no manual cleanup attempted (not worth the API surface area).
+
+**Step 3 — State gather (post-diagnosis):**
+- **Open PRs: 1.** [PR #174](https://github.com/jpshackelford/ohtv/pull/174) — `oA green ready`, last commit `93f5aa5` from 08:28Z, **unchanged** since the impl worker landed it. 0 review threads, 0 comments. Approved by `github-actions` pr-review-bot.
+- **Files changed in PR #174:** `src/ohtv/cli.py`, `tests/unit/test_cli_gen_objs_engagement_markdown.py`. **No docs files.** Confirmed via `gh pr diff 174 --name-only | grep -Ei "readme|docs/"` (empty).
+- **Stale doc claims identified ahead of spawn (so the worker has a precise scope):**
+  - `docs/guides/analysis.md:212` — "JSON-only. The flag is a no-op for `-F table` and `-F markdown`."
+  - `docs/guides/analysis.md:327` — single-conversation flag-table row, "No effect for non-JSON output." (still accurate but worth sharpening)
+  - `docs/guides/analysis.md:354` — batch-mode flag-table row, "No effect for `-F table` or `-F markdown`."
+  - `docs/reference/cli.md:52` — `gen objs` summary row, "no effect on `-F table` / `-F markdown`."
+  - `README.md` — `grep -i with-engagement README.md` returns 0 hits → docs worker instructed NOT to add a new README section.
+- **Ground truth source for the worker:** the new flag help text in `src/ohtv/cli.py` (PR #174's diff lines 9504–9512) gives the exact template wording ("'Engaged: 4m 24s in N periods (X.X%)' sub-bullet below each conversation, no effect for `-F table`"). The sub-bullet shape was extracted from `_format_engaged_markdown_subbullet` (cli.py L4615–L4660) and cross-referenced against `tests/unit/test_cli_gen_objs_engagement_markdown.py`.
+- **Ready + prioritized (4):** **#170** `priority:high` (engagement filters), **#161**/**#162** `priority:medium`, **#173** `priority:low`. Queue order unchanged from prior cycle.
+- **Needs expansion: 0.** **8th consecutive cycle with the expansion queue exhausted.**
+
+**Step 4 — Decision-tree match:** PR exists, ready, CI green, README+docs not updated → **Spawn docs worker.**
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `78967e5` | docs | PR #174 — `gen objs --with-engagement` markdown docs | **NEW** (running, $1.45 spent in first ~45s) |
+| `a2ca16f` | (failed spawn, orphan) | n/a | idle, sandbox RUNNING but no message — wasted attempt #1 |
+| `8be5fa5` | (failed spawn, orphan, prior cycle) | n/a | paused, never started |
+
+**Spawned: Docs Worker (correctly, via 2nd attempt)**
+- PR: [#174 — feat: add engagement to gen objs markdown output](https://github.com/jpshackelford/ohtv/pull/174)
+- Start task: `82e0dee8` → `app_conversation_id = 78967e5ff2064d2cbcda628d3ff9c1db`
+- Conversation: [`78967e5`](https://app.all-hands.dev/conversations/78967e5ff2064d2cbcda628d3ff9c1db) — "📝 Update docs for PR #174 engagement markdown"
+- Health-check (T+45s): `execution_status=running`, `sandbox=RUNNING`, `cost=$1.45`, `prompt_tokens=1.13M`. **Confirmed actually executing.**
+
+**Step 5 — Quiet-cycle check:** Productive cycle (spawn succeeded after diagnosis). Auto-disable counter resets to **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~09:50Z):** Most likely outcomes —
+  - ~70%: `78967e5` finished, docs commit pushed to `feat/169-engagement-markdown`, CI green, "Documentation updated" PR comment posted → spawn **testing worker** for PR #174.
+  - ~20%: `78967e5` still running (multi-file docs edit + CI wait can span a 30-min cycle, especially with the test-file ground-truth verification step).
+  - ~10%: Worker hits CI flake on the docs-only commit or struggles with the worklog commit step.
+- **2 cycles out (~10:20Z):** PR #174 likely in manual-test, then merge cycle. The pr-review-bot's prior approval should hold for docs-only changes (no `.py` touched), so no review round expected unless humans intervene.
+- **3 cycles out (~10:50Z):** PR #174 likely merged. PR slot opens for **#170** (`priority:high`, last in the engagement-metric family).
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **🔥 HIGH-PRIORITY CARRY-FORWARD: spawn payload bug.** Future orchestrators must POST `{"initial_message": {"content": [{"type": "text", "text": "..."}]}}` — NOT `{"initial_user_msg": "..."}`. The latter silently creates an idle conversation and burns a sandbox slot. This bug has been present at least since `8be5fa5` (08:50Z) and probably explains other "spawn then idle" patterns observed in earlier cycles. Worth a small fix to the orchestrate skill's spawn-conversation helper.
+- **OpenHands Cloud API gotchas (cumulative):**
+  - `POST /api/v1/app-conversations/` (trailing slash) → `405 Method Not Allowed`. Use `POST /api/v1/app-conversations` (no slash).
+  - `GET /api/v1/app-conversations/{task_id}` returns the React app HTML, not JSON. Poll `/start-tasks?ids=...` to get the `app_conversation_id`.
+  - Start-task response is a JSON **array** (not a `{"items": [...]}` envelope) — `jq '.items[]'` will fail. Use `jq '.[]'`.
+  - `app_conversation_id` lives on the start-task record; sandbox/agent_server_url live there too.
+- **Tool install pattern (stable, 3rd consecutive cycle):** `uv tool install <git-url>` + PATH export.
+- **WORKLOG.md size: 2285 → ~2410 lines post-entry. 22 consecutive cycles overdue on truncation.**
+- **`GITHUB_TOKEN` populated this cycle, `github_token` also populated:** shim still works either way.
+- **Engagement-metric family progress:** **#167 ✅ merged, #168 ✅ merged, #169 → PR #174 in docs cycle (retry), #170 next.** 2/4 done.
+
+**Local checkout note:** `main` at `4779823`. `git pull --ff-only origin main` clean. Worklog entry committed directly to `main` per skill rule. No code branches created. No edits to anything besides WORKLOG.md.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `78967e5` (docs worker) and decides next actions (likely testing worker if docs commit landed + CI green).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
