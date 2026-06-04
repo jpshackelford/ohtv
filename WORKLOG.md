@@ -1,5 +1,86 @@
 ## Log
 
+### 2026-06-04 17:48 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `871fa09` | implementation | Issue #173 — refactor `_load_engagement_for_ids` | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Workspace `main` already at `f06f359` (post-17:21Z merge-worker commit; PR #178 / Issue #162 squash + `ohtv-v0.28.0` release-bot commit + worklog). `uv sync` populated `.venv/` cleanly; `ohtv` available from local checkout, `lxa` installed via `uv pip install git+…/lxa.git` (project-venv path — system-wide `--system` install still blocked by `/usr/local` perms; same pattern as last 6 cycles).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **1651 lines** on entry. **6th consecutive cycle** the truncation skill is overdue but the 6h-productive-window matcher continues to yield <50 lines. Same standing recommendation: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~700 lines in one commit, or a fix to `/truncate-worklog`'s reverse-chrono matcher. Deferring again.
+
+**Step 1 — Human Instructions:** None. `awk '/^\`\`\`/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty.
+
+**Step 2 — Active Workers (pre-this-spawn):**
+- Testing worker `56bb4b1` (spawned 16:50Z for PR #178): `execution_status=null, sandbox_status=PAUSED`, last update 17:11Z → **finished ✓** — posted ✅ PASS report on PR #178 at 17:10Z covering 11 blackbox scenarios + `2592 passed, 2 skipped, 3 xfailed`.
+- Merge worker for PR #178 (logged at 17:21Z without an entry conv ID; the conv id `1cc846c` referenced from the 16:50Z entry was actually the *previous* merge worker for PR #177): `sandbox_status=PAUSED` → **finished ✓**. PR #178 squash-merged at 17:20:59Z, `ohtv-v0.28.0` released, #162 auto-closed.
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — State gathered:**
+
+- **Open PRs:** **0**. PR #178 merged → no in-flight work.
+- **Latest release:** `ohtv-v0.28.0` (~22 min ago). Predecessors: `v0.27.0` (~1h), `v0.26.0` (~4h). Three minor bumps in a single day — the `ohtv ask` agent-mode family (#161 → v0.27.0, #162 → v0.28.0) plus a prior feature wave each triggered semantic-release on their `feat:` squash subjects.
+- **Issues needing expansion (no `ready`, no `hold`):** **0**. Expansion slot has nothing to do this cycle.
+- **Ready, prioritized issues:**
+  - **#173** (`priority:low`) — refactor: reduce nesting in `_load_engagement_for_ids`. Fully expanded with technical-approach comment (helper signature, before/after shape, regression-test list). Pure internal refactor; the `priority:low` rating matches its scope.
+- **On hold:** #26 (mcp server), #90 (`ohtv label` batch).
+- **Selection:** #173 is the only ready-prioritized issue → it wins by default. The 16:50Z orchestrator predicted this exact pickup ("3 cycles out: orchestrator picks up #173").
+
+**Step 4 — Decision (per orchestrate decision tree):**
+
+- **PR slot:** "No open PR + ready issues with priority" → **Spawn implementation worker for #173.** ✅
+- **Expansion slot:** 0 issues need expansion → **stay idle.** ✅
+
+**Step 5 — Spawned: Implementation Worker**
+
+- Issue: [#173 — refactor: reduce nesting in _load_engagement_for_ids](https://github.com/jpshackelford/ohtv/issues/173) (`priority:low`)
+- Start task: `1cc15d90` → `app_conversation_id = 871fa09daf914f738ad1600f785aa2d4` → **READY** on the 1st poll (~5s; warm-picker).
+- Conversation: [`871fa09`](https://app.all-hands.dev/conversations/871fa09daf914f738ad1600f785aa2d4)
+- Verified `execution_status=running, sandbox_status=RUNNING` immediately after spawn.
+- Plugin spec (unchanged, **24th successful spawn** in a row): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Spawn payload contract (unchanged, V1): `initial_message: {content: [{type:"text", text:"…"}], run: true}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Prompt scope:** read #173 description + technical-approach comment by @jpshackelford → branch from `main` (suggested `refactor/issue-173-engagement-rows`) → extract `_process_engagement_rows(rows, normalized_to_original, engagement_map) -> None` immediately above `_load_engagement_for_ids` in `src/ohtv/cli.py` → replace the inner `for row in cur.fetchall(): …` block with a single helper call → outer `try`/`except Exception: return engagement_map` guard stays at the outer level (never-raise contract from Issues #167 / #168) → run the engagement tests first (`test_chunk_query_count` is the load-bearing 1100-ids-⇒-two-SELECTs regression), then full `uv run pytest -q` → draft PR with `Closes #173.` → CI green → flip to ready → `chore(worklog):` WORKLOG update → EXIT. **Explicit OUT-OF-SCOPE:** `_load_engagement_for_conversations` delegator, JSON schema, CLI flags, BATCH_SIZE, dashless ↔ dashed contract (AGENTS.md item #14), README (pure internal refactor with no user-visible behavior change).
+- **Commit-message contract:** PR title must start with `refactor:` so the release workflow correctly skips it (no version bump, no CHANGELOG entry — exactly what we want for an internal refactor).
+- **Diff-size expectation:** ~30 LOC net including the helper docstring.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- **Next cycle (~18:20Z):** Most likely —
+  - ~50%: Implementation worker `871fa09` still running. Refactor + test verification + draft-PR-to-ready dance typically takes 20–40 min; first post-spawn check often catches the worker mid-flight.
+  - ~35%: Draft PR opened, CI in flight. Orchestrator waits (decision tree: "PR exists, draft, CI ..." → wait).
+  - ~10%: PR ready, CI green — docs check: this is a pure internal refactor with NO user-facing surface change, so the docs-update step legitimately short-circuits ("Do NOT require docs update if only: internal refactoring (no user-facing changes)"). Orchestrator can go straight to manual testing.
+  - ~5%: Worker discovers an unexpected coupling (e.g. the row-shape coercion has subtle behavior not captured in tests), reports it via WORKLOG and either delivers a tighter scope or asks for human input.
+- **2 cycles out (~18:50Z):** Likely PR ready + green → orchestrator spawns **testing worker** (since this changes CLI execution paths even though the user-visible surface is unchanged — the engagement-map invariants still need an end-to-end check). Docs spot-check skipped (no docs touched).
+- **3 cycles out (~19:20Z):** Likely test report posted (high confidence ✅ — the issue body is explicit that no test changes are needed and the existing suite is the load-bearing regression). Then review worker (if pr-review bot leaves any threads — likely a 🟢 verdict given the tight scope) or merge worker.
+- **After #173 merges:** **Ready queue is empty.** Expansion slot also empty (0 needs-expansion issues). Orchestrator will enter the quiet-cycle window — first quiet cycle next, then auto-disable on the second consecutive quiet cycle per the orchestrate skill's auto-disable rule. Worth noting for human awareness: the workflow is approaching natural idle.
+
+**Notes / follow-ups carried forward (cumulative):**
+
+- **`initial_message` spawn-payload contract** stays pinned. **24 successful spawns** in a row with `{"initial_message": {"content": [{"type":"text","text":"…"}], "run": true}}`.
+- **Spawn auth header:** `X-Access-Token: $OPENHANDS_API_KEY` (header name; no `Bearer` prefix).
+- **Plugin spec format unchanged.**
+- **Start-task POST endpoint:** `POST /api/v1/app-conversations`. Polling: `GET /api/v1/app-conversations/start-tasks/search`.
+- **`GH_TOKEN` shim:** `export GH_TOKEN="${GITHUB_TOKEN:-$github_token}"` — worked again.
+- **Tool install pattern this cycle:** `uv sync` populated `.venv/` on the cloned checkout cleanly (faster path); `lxa` separately installed via `uv pip install git+…/lxa.git`. System-wide `--system` install blocked by `/usr/local` perms — known.
+- **PR-review bot verdict:** Two PRs in a row (#175, #178) came through with `reviewDecision=APPROVED`. The COMMENTED+🟢-tag fallback path may be falling out of use; keep checking both signals.
+- **`ohtv ask` agent-mode family closed:** #161 ✅ (`v0.27.0`) and #162 ✅ (`v0.28.0`) both landed today. The dual-mode comparison instrument now exists and produces telemetry. Future `ohtv ask` A/B work has the substrate; consumer-side `ohtv telemetry list/show/replay/compare/prune` subcommands remain on the backlog per #162 Non-Goals.
+- **Workflow approaching idle:** After #173 the queue dries up. Next pickup source is expansion of new issues if any get filed.
+- **WORKLOG truncation:** 6 consecutive cycles overdue. Same standing recommendation — a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` is the unblock.
+
+**Local checkout note:** `main` HEAD on entry at `f06f359`. This entry commits only WORKLOG.md as `chore(worklog):`. No code branches touched by orchestrator.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `871fa09` (implementation worker) status, looks for a draft PR for #173 with `Closes #173.`, and (if PR is ready + CI green) routes through the post-impl decision branches.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-04 17:21 UTC - Merge Worker — PR #178 squash-merged
 
 **Worker:** merge conversation for PR #178 (`feat/issue-162-telemetry`).
