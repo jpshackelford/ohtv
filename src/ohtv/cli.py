@@ -2757,6 +2757,18 @@ def _populate_error_info(
 @click.option("--with-errors", "-E", "with_errors", is_flag=True, help="Include error info column (agent/LLM errors)")
 @click.option("--errors-only", "errors_only", is_flag=True, help="Show only conversations with agent/LLM errors")
 @click.option(
+    "--with-engagement",
+    "with_engagement",
+    is_flag=True,
+    default=False,
+    help=(
+        "Include engagement columns (Engaged, Periods, Eng%) and JSON/CSV "
+        "fields. Data comes from the 'engagement' processing stage; rows "
+        "render '-' if 'db process all' has not been run since the "
+        "conversation was synced."
+    ),
+)
+@click.option(
     "--include-sub-conversations",
     "include_sub_conversations",
     is_flag=True,
@@ -2785,6 +2797,7 @@ def list_conversations(
     idle_minutes: int | None,
     with_errors: bool,
     errors_only: bool,
+    with_engagement: bool,
     include_sub_conversations: bool,
     verbose: bool,
 ) -> None:
@@ -2858,10 +2871,17 @@ def list_conversations(
     if show_errors and not errors_only:
         _populate_error_info(config, conversations)
 
+    # Load engagement rows in a single batched query (Issue #167).
+    # Display-only: we never filter rows out — missing rows render as "-".
+    engagement_map: dict[str, dict] | None = None
+    if with_engagement:
+        engagement_map = _load_engagement_for_conversations(conversations)
+
     # Format output
     output_text = _format_list_output(
-        conversations, fmt, total_count, local_count, cloud_count, 
-        refs_map=refs_map, show_errors=show_errors
+        conversations, fmt, total_count, local_count, cloud_count,
+        refs_map=refs_map, show_errors=show_errors,
+        engagement_map=engagement_map,
     )
 
     # Write to file or stdout
@@ -2879,6 +2899,7 @@ def list_conversations(
                 show_errors=show_errors,
                 hide_title=errors_only,
                 idle_minutes=idle_minutes,
+                engagement_map=engagement_map,
             )
         else:
             # For JSON and CSV, use plain print to avoid rich styling
@@ -3981,6 +4002,136 @@ def _load_refs_for_conversations(
     return refs_map
 
 
+def _load_engagement_for_conversations(
+    conversations: list[ConversationInfo],
+) -> dict[str, dict]:
+    """Batch-load ``conversation_engagement`` rows for a list of conversations.
+
+    Returns a dict mapping the **original** conversation id (as stored on
+    ``ConversationInfo.id``, potentially with dashes) to the engagement
+    row as a dict. Missing rows are simply absent from the dict — callers
+    treat absence as "no engagement data, render as '-'".
+
+    The lookup is a single batched SQL query (``WHERE conversation_id IN
+    (?, ?, ...)``) to avoid the N+1 trap when called from ``ohtv list``
+    on large datasets. SQLite limits ``IN (...)`` clauses to ~999
+    parameters by default, so we chunk into batches of 900 to stay well
+    under the limit.
+
+    Issue #167: display-layer only. Never raises — returns an empty dict
+    on any unexpected failure (missing DB, schema mismatch, etc.) so the
+    list path can always render.
+    """
+    from ohtv.filters import normalize_conversation_id
+
+    engagement_map: dict[str, dict] = {}
+    if not conversations:
+        return engagement_map
+
+    try:
+        from ohtv.db import get_db_path, get_ready_connection
+    except Exception:  # pragma: no cover - defensive only
+        return engagement_map
+
+    db_path = get_db_path()
+    if not db_path.exists():
+        return engagement_map
+
+    # Build dashless -> original-id index so the query result can be
+    # mapped back to the caller's id form (LocalSource returns dashed
+    # ids; the DB stores dashless — AGENTS.md item #14).
+    normalized_to_original: dict[str, str] = {}
+    for conv in conversations:
+        normalized = normalize_conversation_id(conv.id)
+        # If two convs in the page normalize to the same id we keep the
+        # first encounter; in practice they would be the same row.
+        normalized_to_original.setdefault(normalized, conv.id)
+
+    BATCH_SIZE = 900  # well below SQLite's default ~999 param ceiling
+    ids = list(normalized_to_original.keys())
+    try:
+        with get_ready_connection(show_progress=False) as conn:
+            for start in range(0, len(ids), BATCH_SIZE):
+                batch = ids[start : start + BATCH_SIZE]
+                placeholders = ",".join("?" * len(batch))
+                cur = conn.execute(
+                    "SELECT conversation_id, engaged_seconds, attention_periods, "
+                    "threshold_seconds, total_duration_seconds "
+                    "FROM conversation_engagement "
+                    f"WHERE conversation_id IN ({placeholders})",
+                    batch,
+                )
+                for row in cur.fetchall():
+                    # sqlite3.Row supports keys(); fall back to indexing
+                    # for plain tuples just in case.
+                    if hasattr(row, "keys"):
+                        row_dict = {k: row[k] for k in row.keys()}
+                    else:
+                        row_dict = {
+                            "conversation_id": row[0],
+                            "engaged_seconds": row[1],
+                            "attention_periods": row[2],
+                            "threshold_seconds": row[3],
+                            "total_duration_seconds": row[4],
+                        }
+                    norm_id = row_dict.get("conversation_id")
+                    original = normalized_to_original.get(norm_id)
+                    if original is not None:
+                        engagement_map[original] = row_dict
+    except Exception:  # pragma: no cover - defensive only
+        return engagement_map
+
+    return engagement_map
+
+
+def _format_eng_pct(
+    engaged_seconds: int | float | None,
+    total_duration_seconds: int | float | None,
+) -> str:
+    """Format the engagement percentage column (e.g. ``30.6%``).
+
+    Returns ``-`` when total is 0, NULL, or missing — matching the
+    fallback semantics of ``_format_engaged_line``. Issue #167.
+    """
+    if engaged_seconds is None or total_duration_seconds is None:
+        return "-"
+    try:
+        total = float(total_duration_seconds)
+    except (TypeError, ValueError):
+        return "-"
+    if total <= 0:
+        return "-"
+    try:
+        engaged = float(engaged_seconds)
+    except (TypeError, ValueError):
+        return "-"
+    return f"{(engaged / total) * 100:.1f}%"
+
+
+def _engagement_ratio(
+    engaged_seconds: int | float | None,
+    total_duration_seconds: int | float | None,
+) -> float | None:
+    """Compute engaged/total as a float in [0, 1] (rounded to 4 decimals).
+
+    Returns ``None`` when total is 0, NULL, or missing. Mirrors
+    ``_format_eng_pct`` but emits a raw number for JSON/CSV.
+    """
+    if engaged_seconds is None or total_duration_seconds is None:
+        return None
+    try:
+        total = float(total_duration_seconds)
+    except (TypeError, ValueError):
+        return None
+    if total <= 0:
+        return None
+    try:
+        engaged = float(engaged_seconds)
+    except (TypeError, ValueError):
+        return None
+    return round(engaged / total, 4)
+
+
 def _format_list_output(
     conversations: list[ConversationInfo],
     fmt: str,
@@ -3990,12 +4141,19 @@ def _format_list_output(
     *,
     refs_map: dict[str, list[str]] | None = None,
     show_errors: bool = False,
+    engagement_map: dict[str, dict] | None = None,
 ) -> str:
     """Format conversation list for output."""
     if fmt == "json":
-        return _format_list_json(conversations, refs_map=refs_map, show_errors=show_errors)
+        return _format_list_json(
+            conversations, refs_map=refs_map, show_errors=show_errors,
+            engagement_map=engagement_map,
+        )
     if fmt == "csv":
-        return _format_list_csv(conversations, refs_map=refs_map, show_errors=show_errors)
+        return _format_list_csv(
+            conversations, refs_map=refs_map, show_errors=show_errors,
+            engagement_map=engagement_map,
+        )
     # Table format is handled separately with rich
     return ""
 
@@ -4005,6 +4163,7 @@ def _format_list_json(
     *,
     refs_map: dict[str, list[str]] | None = None,
     show_errors: bool = False,
+    engagement_map: dict[str, dict] | None = None,
 ) -> str:
     """Format conversations as JSON."""
     items = []
@@ -4026,6 +4185,27 @@ def _format_list_json(
             item["error_types"] = conv.error_types or {}
             item["has_terminal_error"] = conv.has_terminal_error
             item["execution_status"] = conv.execution_status
+        if engagement_map is not None:
+            # Issue #167: emit the same fields ohtv show -F json uses
+            # (PR #165), plus the computed engagement_ratio. Field names
+            # are stable; missing values render as JSON null so schema
+            # is constant across rows.
+            row = engagement_map.get(conv.id)
+            if row is None:
+                item["engaged_seconds"] = None
+                item["attention_periods"] = None
+                item["engagement_threshold_seconds"] = None
+                item["total_duration_seconds"] = None
+                item["engagement_ratio"] = None
+            else:
+                item["engaged_seconds"] = row.get("engaged_seconds")
+                item["attention_periods"] = row.get("attention_periods")
+                item["engagement_threshold_seconds"] = row.get("threshold_seconds")
+                item["total_duration_seconds"] = row.get("total_duration_seconds")
+                item["engagement_ratio"] = _engagement_ratio(
+                    row.get("engaged_seconds"),
+                    row.get("total_duration_seconds"),
+                )
         items.append(item)
     return json.dumps(items, indent=2)
 
@@ -4035,6 +4215,7 @@ def _format_list_csv(
     *,
     refs_map: dict[str, list[str]] | None = None,
     show_errors: bool = False,
+    engagement_map: dict[str, dict] | None = None,
 ) -> str:
     """Format conversations as CSV."""
     output = io.StringIO()
@@ -4044,6 +4225,16 @@ def _format_list_csv(
         headers.append("refs")
     if show_errors:
         headers.extend(["errors", "error_types", "terminal"])
+    if engagement_map is not None:
+        # Issue #167: appended after every other column so existing
+        # consumers see the legacy schema until they opt in.
+        headers.extend([
+            "engaged_seconds",
+            "attention_periods",
+            "engagement_threshold_seconds",
+            "total_duration_seconds",
+            "engagement_ratio",
+        ])
     writer.writerow(headers)
 
     for conv in conversations:
@@ -4068,6 +4259,20 @@ def _format_list_csv(
             row.append(conv.error_count if conv.error_count else "")
             row.append(format_error_type_counts(conv.error_types or {}))
             row.append("yes" if conv.has_terminal_error else "")
+        if engagement_map is not None:
+            er = engagement_map.get(conv.id)
+            if er is None:
+                # All five engagement columns blank.
+                row.extend(["", "", "", "", ""])
+            else:
+                row.append(er.get("engaged_seconds") if er.get("engaged_seconds") is not None else "")
+                row.append(er.get("attention_periods") if er.get("attention_periods") is not None else "")
+                row.append(er.get("threshold_seconds") if er.get("threshold_seconds") is not None else "")
+                row.append(er.get("total_duration_seconds") if er.get("total_duration_seconds") is not None else "")
+                ratio = _engagement_ratio(
+                    er.get("engaged_seconds"), er.get("total_duration_seconds")
+                )
+                row.append(ratio if ratio is not None else "")
         writer.writerow(row)
 
     return output.getvalue()
@@ -4085,6 +4290,7 @@ def _print_list_table(
     show_errors: bool = False,
     hide_title: bool = False,
     idle_minutes: int | None = None,
+    engagement_map: dict[str, dict] | None = None,
 ) -> None:
     """Print conversations as a rich table."""
     from datetime import datetime, timezone
@@ -4119,6 +4325,11 @@ def _print_list_table(
     else:
         table.add_column("Duration", justify="right", no_wrap=True)
     table.add_column("Events", justify="right", no_wrap=True)
+    if engagement_map is not None:
+        # Issue #167: opt-in engagement columns.
+        table.add_column("Engaged", justify="right", no_wrap=True)
+        table.add_column("Periods", justify="right", no_wrap=True)
+        table.add_column("Eng%", justify="right", no_wrap=True)
     if show_errors:
         table.add_column("Errors", no_wrap=True)
     if not hide_title:
@@ -4191,6 +4402,34 @@ def _print_list_table(
             time_col,
             str(conv.event_count),
         ]
+        if engagement_map is not None:
+            # Issue #167: render Engaged / Periods / Eng%, with dim "-"
+            # placeholders when the engagement stage hasn't produced a
+            # row for this conversation.
+            er = engagement_map.get(conv.id)
+            if er is None:
+                eng_engaged = "[dim]-[/dim]"
+                eng_periods = "[dim]-[/dim]"
+                eng_pct = "[dim]-[/dim]"
+            else:
+                engaged_secs = er.get("engaged_seconds")
+                periods = er.get("attention_periods")
+                total_secs = er.get("total_duration_seconds")
+                if engaged_secs is None:
+                    eng_engaged = "[dim]-[/dim]"
+                else:
+                    eng_td = timedelta(seconds=int(engaged_secs))
+                    eng_engaged = (
+                        _format_duration(eng_td)
+                        if eng_td.total_seconds() > 0
+                        else "0s"
+                    )
+                eng_periods = (
+                    str(periods) if periods is not None else "[dim]-[/dim]"
+                )
+                pct_str = _format_eng_pct(engaged_secs, total_secs)
+                eng_pct = pct_str if pct_str != "-" else "[dim]-[/dim]"
+            row.extend([eng_engaged, eng_periods, eng_pct])
         if show_errors:
             row.append(error_text)
         if not hide_title:
