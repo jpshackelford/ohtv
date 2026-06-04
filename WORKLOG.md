@@ -1835,3 +1835,72 @@ EXIT — docs / testing / review / merge are separate orchestrator-spawned conve
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## 2026-06-04 06:50Z — Orchestrator cycle (PR #172 → docs worker spawned)
+
+**Step 0 — Setup:** `uv tool install` was needed for `lxa`/`ohtv` this cycle (system pip blocked by permissions; `--user` unsupported under uv). Used `uv tool install git+https://github.com/jpshackelford/lxa.git` + same for `ohtv` and added `$HOME/.local/bin` to `PATH`. Carry-forward: prior cycles' "try `uv sync` first" only works inside `/workspace/project/ohtv`; for tool binaries on bare environments, `uv tool install` is the correct fallback.
+
+**Step 0.5 — Housekeeping (deferred again):** WORKLOG.md at 1837 lines on entry (>>300, **19 consecutive cycles overdue**). Productive cycle (worker spawned) → deferred per skill rule. Carry-forward recommendation unchanged.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`grep "## INSTRUCTION:" WORKLOG.md` → only historical mentions inside prior log entries; none at the document root awaiting acknowledgement).
+
+**Step 2 — Active workers at cycle entry:** Previous cycle's impl worker `e3d39820` (PR #172 implementation) exited cleanly at ~06:33Z per its own worklog entry. `/app-conversations/search?execution_status=running` returned only `bd4a8c9` (this orchestrator). All other recent worker conv IDs (`4f5a012`, `3a45a77`, `062c740`, `ce2fa77`, `414d420`, `eb59e48`, `8be2f9e`, `6951ef0`) returned `status=null` / `finished` with `sandbox=PAUSED|MISSING|RUNNING` — all terminal. **Both worker slots clear at cycle entry.**
+
+**Step 3 — State gather:**
+- **Open PRs (1):** [PR #172](https://github.com/jpshackelford/ohtv/pull/172) — `feat: add --with-engagement flag to gen objs JSON output`. `lxa` history `oC`, CI **green** (lint ✅ / pytest ✅ / pr-review ✅ / enable-orchestrator ✅), **0 review threads**, **0 comments**, ready (not draft), age 16m, last activity 10m ago.
+- **Diff scope check:** `gh pr diff 172 --name-only` → `src/ohtv/cli.py`, `tests/unit/test_cli_gen_objs_engagement.py`, `uv.lock`. **README.md NOT in the diff.** New user-facing CLI flag → documentation IS required per decision-tree rule *"New flags or options"*.
+- **Existing engagement docs check:** `grep -rn "with-engagement" README.md docs/` → only PR #171's `ohtv list` docs in `docs/guides/exploration.md` (lines 94–205) and `docs/reference/cli.md` (line 37). **No `gen objs` engagement docs exist yet.** `docs/guides/analysis.md` (the canonical home for `gen objs`) has zero engagement mentions.
+- **Issue census:**
+  - **Needs expansion (no `ready`, no `hold`): 0** — **5th consecutive cycle** with the expansion queue fully exhausted. 🎉
+  - **Ready + prioritized: 5** (unchanged from prior cycle): **#168** (in flight as PR #172), **#169**, **#170** (all `priority:high`), **#161**, **#162** (both `priority:medium`).
+  - **On hold:** #26, #90.
+
+**Step 4 — Decisions:**
+- **PR slot** → Spawn **docs worker for PR #172** (`5a0f995`). Decision-tree row matched: *"PR exists, ready, CI green, README not updated → Spawn docs worker"*. Worker prompt:
+  - Pinned `docs/guides/analysis.md` as the primary docs surface (where `gen objs` lives), with `docs/reference/cli.md` as the secondary (one-line entry for the `gen objs` row).
+  - Pointed the worker at `docs/guides/exploration.md` lines 94–205 + `docs/reference/cli.md` line 37 as the PR #171 precedent to mirror.
+  - Pinned the 5 JSON field names (`engaged_seconds`, `attention_periods`, `engagement_threshold_seconds`, `total_duration_seconds`, `engagement_ratio`) for spelling sanity — sourced from PR #172's own diff via `_engagement_json_fields` in `src/ohtv/cli.py`.
+  - Required cross-links to Issue #168 and PR #172 in the new section.
+  - Forbade touching the `ohtv list` docs (PR #171 territory).
+  - Forbade documenting #169 (markdown output) or #170 (engagement filters) — those are separate PRs.
+  - Forbade modifying any Python source / test files.
+  - Required CI green + summary comment on the PR before exit.
+- **Expansion slot** → **IDLE** (6th consecutive cycle). All 7 open issues are `ready` (5) or `hold` (2). Expansion queue stays empty until the engagement-metric family closes and new issues arrive.
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `5a0f995` | docs | PR #172 — `gen objs --with-engagement` README/docs update | **NEW** (running) |
+
+**Spawned: Docs Worker**
+- PR: [#172 — gen objs --with-engagement](https://github.com/jpshackelford/ohtv/pull/172)
+- Conversation: [`5a0f995`](https://app.all-hands.dev/conversations/5a0f995a5ed54aacb9dbd7c23cfb2d47)
+- Start task: `51634cca` (READY in 1 poll, ~5s)
+
+**Step 5 — Quiet-cycle check:** Productive cycle (1 worker spawned, PR slot freshly filled). Auto-disable counter resets to **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~07:20Z):** Likely outcomes —
+  - ~60%: `5a0f995` finished, docs commit pushed, CI green, "Documentation updated" comment posted → spawn **testing worker**.
+  - ~25%: `5a0f995` still running (docs work + CI cycle can take 15–30m).
+  - ~10%: `5a0f995` opened a separate docs PR by mistake — would unwind and re-spawn with stricter "amend the existing PR" instruction.
+  - ~5%: Worker hits a blocker (e.g., CI flake on docs-only commit) — would re-evaluate.
+- **2 cycles out (~07:50Z):** PR #172 likely in manual-test → review → merge cycle.
+- **3 cycles out (~08:20Z):** PR #172 likely merged, PR slot opens for **#169** (next `priority:high`).
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **Tool install pattern (refined again):** On bare environments without a pre-existing `.venv`, `uv tool install <git-url>` is the working pattern; system `pip install` is blocked by permissions, `pip install --user` is rejected by uv, and `uv pip install --system` is also blocked. The full fallback ladder is now: (1) `uv sync` if in a uv project root with existing `.venv`, (2) `uv tool install` for standalone binaries, (3) report blocker if neither works.
+- **WORKLOG.md size: 1837 → ~1920 lines post-entry. 19 consecutive cycles overdue on truncation.**
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 12 consecutive cycles. `export GH_TOKEN=${GITHUB_TOKEN:-$github_token}` shim is durable; passed through to the docs worker prompt.
+- **Engagement-metric family — 1 closed, 1 in flight, 2 in queue:** PR #171 merged (closed #167), PR #172 ready (#168, now in docs cycle). Active queue: **#169 → #170**. Then medium-priority pair: #161, #162.
+- **Plugin spec format unchanged:** `plugins: [{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}]`. 6th successful spawn in this orchestrator instance using this exact shape.
+- **PR #172 currently has 0 review threads + 0 comments + only a github-actions COMMENTED review.** No human or pr-review-bot feedback yet. Docs precede testing per skill rule.
+
+**Local checkout note:** `main` at `f5dfd45`. `git pull --ff-only` clean (already up to date). No stray edits to discard. Worklog entry will be committed directly to `main` per skill rule.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `5a0f995` (docs worker) and decides next actions (likely testing worker if docs commit landed + CI green).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
