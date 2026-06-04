@@ -1,6 +1,100 @@
 # CHANGELOG
 
 
+## v0.25.0 (2026-06-04)
+
+### Chores
+
+- **worklog**: Docs worker for PR #174 completed
+  ([`c7aef2b`](https://github.com/jpshackelford/ohtv/commit/c7aef2b196739d2baae57284893d8359db9a41d0))
+
+- **worklog**: Expansion worker @ 2026-06-04T08:23Z — issue #173 ready
+  ([`ae22b4d`](https://github.com/jpshackelford/ohtv/commit/ae22b4d890821cfe0dc09c3176576999ab897c69))
+
+Added Technical Approach comment to #173 (refactor: reduce nesting in _load_engagement_for_ids) and
+  applied the 'ready' label. Pure issue metadata; no code changes.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Implementation worker @ 2026-06-04T08:20Z — PR #174 open for Issue #169 (engagement
+  in gen objs markdown)
+  ([`23fd17a`](https://github.com/jpshackelford/ohtv/commit/23fd17a94b559a8386686f086caa252471042915))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Merge PR #172 (issue #168) — ohtv-v0.24.0 released
+  ([`5674c2c`](https://github.com/jpshackelford/ohtv/commit/5674c2cf438ee2307d3cdfc7aa4b3f45172750f6))
+
+- **worklog**: Merge worker — PR #174 squash-merged (#169 closed)
+  ([`b2182c1`](https://github.com/jpshackelford/ohtv/commit/b2182c1dc50c9495ef3bba97ca20c88b955650c7))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 09:50Z - spawn testing worker for PR #174
+  ([`aff3f9f`](https://github.com/jpshackelford/ohtv/commit/aff3f9f5f89eba38dbf40c0923194095dda5c9e9))
+
+- **worklog**: Orchestrator @ 2026-06-04T07:50Z — spawned merge worker; PR #172 was human-merged
+  mid-cycle
+  ([`9c92e8b`](https://github.com/jpshackelford/ohtv/commit/9c92e8b2503898ded48c606ff49227326c07a38b))
+
+- **worklog**: Orchestrator @ 2026-06-04T08:20Z — PR #172 merged; spawned impl #169 + expansion #173
+  ([`141d4b8`](https://github.com/jpshackelford/ohtv/commit/141d4b8e3f0b243178f49596b25e6b3747e99f24))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator cycle @ 2026-06-04T08:51Z — PR #174 docs worker spawned
+  ([`4779823`](https://github.com/jpshackelford/ohtv/commit/4779823ef19a6962118afc95a5c20a9065d151d7))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator cycle @ 2026-06-04T09:23Z — PR #174 docs worker re-spawned (API
+  field-name bug diagnosed)
+  ([`e51a611`](https://github.com/jpshackelford/ohtv/commit/e51a611c99fa4dbfb03582f62c44a7996d7e4ab8))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Testing worker — PR #174 manual blackbox test (PASS)
+  ([`96d5697`](https://github.com/jpshackelford/ohtv/commit/96d56974985b887ecf2e291bd5f106552c82b73d))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Truncate to 6h productive window, spawn merge worker for PR #174
+  ([`d67c952`](https://github.com/jpshackelford/ohtv/commit/d67c95228c88bdf238cbe6c511e89d3309953f35))
+
+- Truncated WORKLOG.md from 2464 → ~1000 lines (kept 19 entries, archived 26 across 4 dated archive
+  files).
+
+- Orchestrator 10:20Z cycle: PR #174 met merge criteria → spawned merge worker (conv 002934f).
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- Add engagement to gen objs markdown output
+  ([#169](https://github.com/jpshackelford/ohtv/pull/169),
+  [`f140744`](https://github.com/jpshackelford/ohtv/commit/f140744e5199f30f94d326a0dfbc19c746941a2d))
+
+Adds an `Engaged: <duration> in N period[s] (X.X%)` sub-bullet to `ohtv gen objs --with-engagement
+  -F markdown`, placed immediately below each conversation's parent bullet and above the existing
+  refs / labels lines.
+
+- New helper `_format_engaged_markdown_subbullet` mirrors the precision and grammar of
+  `_format_engaged_line` but drops the `of <duration> total` suffix because the parent bullet
+  already shows duration inline. Returns `None` when the engagement row is missing so the sub-bullet
+  is silently omitted (no `Engaged: -`). - `_run_batch_objectives_analysis` now batch-loads
+  engagement rows ONCE before format dispatch, shared by the JSON (#168) and markdown (#169) paths —
+  no N+1 in either. - `-F table` and flag-off `-F markdown` outputs are byte-identical to pre-#169,
+  regression-tested. - Help text on `--with-engagement` updated to document the markdown effect
+  alongside JSON.
+
+29 new unit tests in `tests/unit/test_cli_gen_objs_engagement_markdown.py`; 2353 unit tests pass.
+  Manual blackbox: 15/15 scenarios pass — see PR comment for the full report.
+
+Engagement-metric family progress: #167 ✅, #168 ✅, #169 ✅ (this); #170 is next.
+
+Closes #169
+
+
 ## v0.24.0 (2026-06-04)
 
 ### Chores
