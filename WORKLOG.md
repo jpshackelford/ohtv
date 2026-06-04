@@ -1717,3 +1717,13 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `062c740` (merge PR #
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-04 05:53 UTC - Merge Worker (PR #171)
+
+✅ Squash-merged PR #171.
+- Merge commit: fe476c776d3fda7e7deade9eb7cb9ef7a5c7b4c6
+- Auto-release: ohtv-v0.23.0 (expected — verify with `gh release view ohtv-v0.23.0 --repo jpshackelford/ohtv` in ~30s)
+- Issue #167 closed by squash commit.
+
+_This entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
