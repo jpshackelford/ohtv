@@ -1352,3 +1352,83 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 
 ---
 
+
+### 2026-06-04 03:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `f157088` | orchestrator | this cycle | running |
+| `55ec09b` | docs | PR #171 — engagement columns for `ohtv list` | **NEW** (running, sandbox RUNNING, proof-of-life ~73s) |
+| `21d93ba` | expansion | Issue #170 — filter conversations by engagement level | **NEW** (running, sandbox RUNNING, proof-of-life ~73s) |
+| `3dbea4a` | implementation | Issue #167 (DONE — PR #171 opened, APPROVED) | finished, sandbox RUNNING (cleanup) |
+| `c13e86c` | expansion | Issue #169 (DONE — `ready` label applied) | finished, sandbox RUNNING (cleanup) |
+
+**Spawned: 2 Workers (parallel — both slots filled this cycle)**
+
+1. **Docs Worker (PR slot)**
+   - PR: [#171 — feat: add engagement columns to ohtv list output](https://github.com/jpshackelford/ohtv/pull/171) (Issue [#167](https://github.com/jpshackelford/ohtv/issues/167))
+   - Conversation: [`55ec09b`](https://app.all-hands.dev/conversations/55ec09bbbf86400facd6cc013b49628d)
+   - Start task `3897b793` → READY in 1 poll (~30s); proof-of-life delta `updated_at - created_at ≈ 73s`.
+
+2. **Expansion Worker (expansion slot)**
+   - Issue: [#170 — Filter conversations by engagement level (`--engaged`, `--min-engaged`)](https://github.com/jpshackelford/ohtv/issues/170) (`priority:high`)
+   - Conversation: [`21d93ba`](https://app.all-hands.dev/conversations/21d93ba00c94446797b0a4ddb0bf9dc8)
+   - Start task `24e7376d` → READY in 1 poll (~30s); proof-of-life delta ~73s. Prompt instructs the worker to read #167–#169's expanded bodies first so flag names, threshold definitions, and field names align with the rest of the engagement-metric family.
+
+**Step 0 — Setup:** `lxa` missing at cycle entry; `ohtv` already present in venv. `uv sync` against project venv succeeded, then `uv pip install git+https://github.com/jpshackelford/lxa.git` installed `lxa`. **Pattern confirmed for the 4th cycle in a row:** inside `/workspace/project/ohtv` → `uv sync` + `uv pip install` against project venv (no sudo, no `--system`). `uv.lock` churn from installing `lxa` (a tool, not a project dep) reverted with `git checkout -- uv.lock` before commit. `lxa repo add` re-created cosmetic "Unnamed Board 1". `OH_API_KEY=$OPENHANDS_API_KEY ohtv sync --since 4h --quiet` completed silently. `GH_TOKEN=$github_token` shim continues working (8 consecutive cycles).
+
+**Step 0.5 — Housekeeping:** WORKLOG.md is **1354 lines** at cycle entry (>>300; **14 consecutive cycles overdue** on truncation). Deferred again — productive cycle filling both slots. Truncation continues flagged for human `## INSTRUCTION:` directive or `/truncate-worklog` matcher fix.
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged. `grep -n "^## INSTRUCTION:" WORKLOG.md` returned no headings (only historical in-prose mentions inside other entries).
+
+**Step 2/3 — Worker status check at cycle entry:**
+- `/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=20` returned only this orchestrator (`f157088`) as `execution_status=running`.
+- `3dbea4a` (impl #167): `sandbox=RUNNING, exec=finished, created=03:20:32Z, updated=03:32:44Z, lifetime≈12m 11s`. PR #171 opened, APPROVED by pr-review bot ("🟢 Good taste"), CI green (lint ✓, pytest ✓), MERGEABLE, CLEAN. **`exec=finished, sandbox=RUNNING` clean-exit variant** confirmed again (2nd observation; first was `20df5c1` last cycle).
+- `c13e86c` (expansion #169): `sandbox=RUNNING, exec=finished, created=03:20:39Z, updated=03:28:00Z, lifetime≈7m 21s`. Issue #169 now has `enhancement, ready, priority:high`. Clean exit.
+- **Both slots CLEAR at cycle entry.**
+
+**Step 4 — State gather:**
+- **Open PRs (1):** [PR #171 — `feat: add engagement columns to ohtv list output`](https://github.com/jpshackelford/ohtv/pull/171):
+  - `state=OPEN, isDraft=false, reviewDecision=APPROVED, mergeable=MERGEABLE, mergeStateStatus=CLEAN`.
+  - CI: `lint=SUCCESS`, `pytest=SUCCESS`, `pr-review=SUCCESS`, last commit at 03:29:46Z.
+  - Changed files: `src/ohtv/cli.py`, `tests/unit/test_cli_list_engagement.py`, `uv.lock`. **No README.md, no `docs/` change** — PR introduces a new user-facing flag (`--with-engagement`) and three new columns/five JSON fields, so docs update is REQUIRED before testing.
+  - 0 PR-level comments. 2 unresolved review threads — both "🟡 Suggestion" advisory comments (non-blocking), bundled with the APPROVED review.
+  - **Decision-tree row matched:** *"PR exists, ready, CI green, README not updated → Spawn docs worker."* (Docs must precede testing per the orchestrate skill's "Test What's Documented" principle.)
+- **Issue census:**
+  - **Needs expansion (no `ready`, no `hold`): 1** — **#170** (engagement-level filters, `priority:high`).
+  - **Ready + prioritized: 4** — **#167** (in flight as PR #171), **#168**, **#169** (both `priority:high`), **#161**, **#162** (both `priority:medium`).
+  - **On hold:** #26, #90.
+
+**Step 5 — Decisions:**
+- **PR slot** → Spawn **docs worker for PR #171**. Justification: APPROVED + CI green + new user-facing CLI flag (`--with-engagement`) + three columns/five JSON fields, but README/`docs/` untouched. Docs must land before testing so the test worker can verify documented behavior.
+- **Expansion slot** → Spawn **expansion worker for #170** (the single unexpanded issue this cycle; closes out the 4-issue engagement-metric family triage cluster). Worker prompt explicitly cross-references #167–#169 expanded bodies for naming coherence.
+- **2 advisory review threads on PR #171:** Left for the docs worker to leave untouched; advisory `🟡` suggestions don't block merge and aren't blocking the workflow. If the eventual review worker decides to address them, that's a separate cycle's call.
+
+**Step 6 — Quiet-cycle check:** Productive cycle (2 workers spawned). Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+- **Next cycle (~04:21Z):** Likely outcomes —
+  - ~60%: `55ec09b` DONE (typical docs worker: 5-15m for README + maybe a guide + comment); `21d93ba` likely still expanding #170 (typical 10–25m). If so: spawn **testing worker for PR #171**.
+  - ~20%: Both workers still running.
+  - ~15%: `55ec09b` DONE and `21d93ba` DONE (#170 ready) → spawn testing worker + nothing for expansion slot (queue empty).
+  - ~5%: Stalled/ghost — unlikely given proof-of-life confirmed for both.
+- **2 cycles out (~04:51Z):** Likely PR #171 with docs comment + test report → review or merge worker. #170 should be `ready`. Queue post-#171 merge: **#168 (high) → #169 (high) → #170 (high once expanded) → #161 (medium) → #162 (medium)**.
+
+**Notes / follow-ups carried forward (cumulative, lightly pruned):**
+- **WORKLOG.md size: 1354 → ~1430 lines post-entry. 14 consecutive cycles overdue on truncation.** Recommendation unchanged: human `## INSTRUCTION: archive WORKLOG.md entries older than 12h` OR `/truncate-worklog` matcher fix. Bullet count intentionally lean.
+- **Tool install pattern (4th consecutive confirming cycle):** `uv sync` + `uv pip install git+...` against project venv (no sudo). Remember `git checkout -- uv.lock` before any worklog-only commit.
+- **`GITHUB_TOKEN` empty, `github_token` populated:** Stable for 8 consecutive cycles. `export GH_TOKEN=$github_token` shim is durable.
+- **`exec=finished, sandbox=RUNNING` clean-exit variant:** Now observed twice (`20df5c1` last cycle, `3dbea4a` + `c13e86c` this cycle). Treat identically to `exec=null, sandbox=PAUSED`.
+- **Engagement-metric family entering closing phase:** PR #171 in docs/test cycle, #168 + #169 in implementation queue (both `priority:high`), #170 being expanded this cycle. The full family will be implementable within 2-3 cycles.
+- **PR #171 plugin spec needed correction:** The API rejects `plugins: ["github:..."]` strings; correct format is `[{"source": "github:owner/repo", "repo_path": "...", "ref": "..."}]`. Documented in this entry for future ref — the `/spawn-conversation` skill already has the correct format; the orchestrator brief example used the human-readable form which doesn't match the API contract. Both spawns succeeded after the fix.
+- **API param-array gotcha:** `start-tasks?ids=A,B` returns 422 (UUID parse error); use `?ids=A&ids=B`. Same pattern for `app-conversations?ids=...`.
+- **Docs detection widening (from 01:52Z, still open):** `gh pr diff --name-only | grep -iE '(readme|docs/)'`.
+
+**Local checkout note:** `main` at `e4078b0`. `git pull --ff-only` clean. `uv.lock` churn reverted before commit. Worklog entry committed directly to `main` per skill rule.
+
+EXIT per orchestrate skill — next cycle (~30 min) checks `55ec09b` (docs PR #171) and `21d93ba` (expansion #170) and decides next actions (likely testing worker for PR #171).
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
