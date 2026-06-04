@@ -3741,6 +3741,20 @@ def ask(
     if investigation_enabled:
         investigation_mode = "cli" if agent else "tools"
 
+    # Issue #161: behavioural-change notice for users with scripted
+    # ``ohtv ask --agent`` invocations. The flag now selects the
+    # prompt-cookbook agent (a different investigation surface than
+    # the original 4-tool custom-tools agent). The "Investigation mode:
+    # cli" banner below surfaces the active mode, but the *semantic*
+    # change of the flag itself only shows up here. Printed to stderr
+    # so JSON / pipe consumers aren't disturbed.
+    if agent:
+        click.echo(
+            "Note: --agent now selects the prompt-cookbook agent (Issue #161). "
+            "Use --agent-tools for the legacy 4-tool agent.",
+            err=True,
+        )
+
     _init_logging(verbose=verbose)
     db_path = get_db_path()
     
