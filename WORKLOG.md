@@ -1231,3 +1231,19 @@ EXIT per orchestrate skill — next cycle (~30 min) checks `1ff3ccc` (merge PR #
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+## Cycle 2026-06-04 02:51Z — PR #166 MERGED
+
+**Action:** Squash-merged PR #166 (`feat: add list_conversations tool to ohtv ask --agent investigator`).
+
+- Squash commit: `ca60a11` on `main`.
+- All merge criteria met before action: APPROVED, CI green (lint-pr-title ✓, pytest ✓), MERGEABLE, docs comment present, manual test report posted with **T1-T10 all PASS** (T5 limited because the 250-row sample had 0 sub-conversations; unit-covered).
+- Squash commit body crafted per the orchestrator brief: `Closes #160`, full user-facing changelog (new tool, `include_sub_conversations=False` default, `LIST_CONVERSATIONS_MAX_LIMIT=50`, `docs/guides/search-and-ask.md`), brief T1-T10 outcome summary, AI-agent disclosure.
+- No code changes — merge-only step as instructed.
+- python-semantic-release will pick up the `feat:` subject on next `main` push → expect a new tag (~`ohtv-v0.22.0`) within ~30s of this push.
+
+**Next orchestration cycle:** Issue #160 closes via the `Closes #160` footer; release-note section will appear in `CHANGELOG.md` under "Features".
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
