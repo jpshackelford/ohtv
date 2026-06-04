@@ -3634,8 +3634,25 @@ def _display_retrieval_breakdown(
 @click.option("--no-temporal", is_flag=True, help="Disable automatic temporal filtering from question")
 @click.option("--explain", is_flag=True, help="Show RAG retrieval breakdown by conversation and embed type")
 @click.option("--explain-only", is_flag=True, help="Show retrieval breakdown without generating an LLM answer")
-@click.option("--agent", is_flag=True, help="Enable multi-turn investigation mode")
-@click.option("--max-steps", type=int, default=5, help="Max investigation steps (with --agent)")
+@click.option(
+    "--agent",
+    "agent",
+    is_flag=True,
+    help=(
+        "Enable multi-turn investigation mode (prompt-cookbook agent, #161). "
+        "Use --agent-tools for the legacy custom-tools agent. Mutually exclusive."
+    ),
+)
+@click.option(
+    "--agent-tools",
+    "agent_tools",
+    is_flag=True,
+    help=(
+        "Use the legacy custom-tools investigation agent (#51). "
+        "Mutually exclusive with --agent."
+    ),
+)
+@click.option("--max-steps", type=int, default=5, help="Max investigation steps (applies to both --agent and --agent-tools)")
 @logging_options
 @click.option("--verbose", "-v", is_flag=True, help="Deprecated; use --log-level DEBUG --log-stderr instead. (Equivalent to --log-level DEBUG --log-stderr.)")
 def ask(
@@ -3650,50 +3667,94 @@ def ask(
     explain: bool,
     explain_only: bool,
     agent: bool,
+    agent_tools: bool,
     max_steps: int,
     verbose: bool,
 ) -> None:
     """Ask a question about your conversations (RAG).
-    
+
     Uses semantic search to find relevant context from your conversations,
     then generates an answer using an LLM. This is like search but provides
     a synthesized answer instead of just listing matches.
-    
+
     Temporal filtering is automatic - questions like "what did we work on
     yesterday?" will only search conversations from that time period.
-    
-    With --agent, enables multi-turn investigation mode where an agent can
-    examine specific conversations and search for additional context to
-    provide a more thorough answer.
+
+    Two agent modes are available (Issue #161):
+
+    \b
+    * ``--agent`` (default for investigation) — prompt-cookbook agent that
+      invokes the ``ohtv`` CLI in-process via a single ``run_ohtv`` tool.
+      Reads only — write-side commands are blocked. ``gen objs`` is
+      forced to cache-only mode automatically.
+    * ``--agent-tools`` — legacy custom-tools agent (#51). Three+ bespoke
+      Python tools (``show_conversation``, ``search_conversations``,
+      ``get_refs``, ``list_conversations``). Kept side-by-side so #162
+      telemetry can compare modes head-to-head.
+
+    The two flags are mutually exclusive. ``--max-steps`` applies to both
+    modes; ``--max-steps 0`` skips the investigation entirely and returns
+    the single-turn RAG answer.
 
     With --explain, shows a per-conversation retrieval breakdown before the
     answer, helping diagnose RAG retrieval quality. With --explain-only,
     shows the breakdown without generating an LLM answer (useful for pure
     retrieval debugging without token cost).
-    
+
     \b
     Before asking, build embeddings with:
       ohtv db embed
-    
+
     \b
     Examples:
       ohtv ask "how did we fix the authentication bug?"
-      ohtv ask "what did we work on yesterday?"          # Auto temporal filter
+      ohtv ask "what did we work on yesterday?"             # Auto temporal filter
       ohtv ask "what changes were made to the API?" --context 10
-      ohtv ask "summarize deployment work" --since 7d    # Last 7 days
+      ohtv ask "summarize deployment work" --since 7d       # Last 7 days
       ohtv ask "show me API changes" --since 2026-04-01 --until 2026-04-15
-      ohtv ask "recent issues" --no-temporal             # Disable auto-filter
-      ohtv ask "api changes" --explain                   # Show retrieval breakdown
-      ohtv ask "api changes" --explain-only              # Retrieval only, skip LLM
-      ohtv ask "explain the auth fix in detail" --agent  # Multi-turn investigation
-      ohtv ask "what PRs were created?" --agent --max-steps 10  # More investigation steps
+      ohtv ask "recent issues" --no-temporal                # Disable auto-filter
+      ohtv ask "api changes" --explain                      # Show retrieval breakdown
+      ohtv ask "api changes" --explain-only                 # Retrieval only, skip LLM
+      ohtv ask "explain the auth fix" --agent               # Prompt-cookbook agent (#161)
+      ohtv ask "explain the auth fix" --agent-tools         # Legacy custom-tools agent
+      ohtv ask "what PRs were created?" --agent --max-steps 10
     """
     from ohtv.db import get_db_path, get_ready_connection
     from ohtv.db.stores import ConversationStore, EmbeddingStore, LinkStore, ReferenceStore, RepoStore
     from ohtv.analysis.rag import RAGAnswerer, RAGRetriever
     from ohtv.filters import parse_date_filter
     from ohtv.config import Config
-    
+
+    # Mutual exclusion (#161): --agent and --agent-tools cannot both be set.
+    if agent and agent_tools:
+        raise click.UsageError(
+            "--agent and --agent-tools are mutually exclusive. "
+            "Pick one: --agent (prompt-cookbook, #161) or --agent-tools (legacy, #51)."
+        )
+
+    # Whether any investigation mode is active.
+    investigation_enabled = (agent or agent_tools) and max_steps > 0
+    # Mode tag is "cli" for --agent, "tools" for --agent-tools; only set
+    # when an investigation will actually run, so --max-steps 0 falls
+    # back to single-turn RAG even if --agent is passed.
+    investigation_mode: str | None = None
+    if investigation_enabled:
+        investigation_mode = "cli" if agent else "tools"
+
+    # Issue #161: behavioural-change notice for users with scripted
+    # ``ohtv ask --agent`` invocations. The flag now selects the
+    # prompt-cookbook agent (a different investigation surface than
+    # the original 4-tool custom-tools agent). The "Investigation mode:
+    # cli" banner below surfaces the active mode, but the *semantic*
+    # change of the flag itself only shows up here. Printed to stderr
+    # so JSON / pipe consumers aren't disturbed.
+    if agent:
+        click.echo(
+            "Note: --agent now selects the prompt-cookbook agent (Issue #161). "
+            "Use --agent-tools for the legacy 4-tool agent.",
+            err=True,
+        )
+
     _init_logging(verbose=verbose)
     db_path = get_db_path()
     
@@ -3826,11 +3887,21 @@ def ask(
             )
             console.print()  # Extra spacing before answer
         
-        # Agent mode: run multi-turn investigation
+        # Agent mode: run multi-turn investigation. The branch is taken
+        # only when an investigation will actually fire — i.e. one of
+        # the two flags is set AND max_steps > 0. --max-steps 0 is a
+        # documented short-circuit for "skip the investigator, return
+        # the single-turn RAG answer" under both modes (#161 Open Q4).
         investigation_result = None
-        if agent:
-            from ohtv.analysis.investigator import InvestigationAgent
-            
+        if (agent or agent_tools) and max_steps == 0:
+            console.print(
+                "[dim]Investigation mode skipped (--max-steps 0); using single-turn RAG answer.[/dim]"
+            )
+        elif investigation_enabled:
+            # Print the mode banner exactly once per invocation so the
+            # behaviour switch is discoverable on first run (#161 Open Q2).
+            console.print(f"[dim]Investigation mode: {investigation_mode}[/dim]")
+
             # Show initial RAG answer before investigation
             console.print()
             console.rule("[bold]Preliminary Search Results[/bold]", style="dim")
@@ -3839,31 +3910,42 @@ def ask(
             console.print()
             console.rule(style="dim")
             console.print(f"\n[bold cyan]🔍 Starting investigation mode...[/bold cyan]")
-            
-            # Build list of conversation directories
+
+            # Build list of conversation directories (only needed by the
+            # legacy tools-mode agent; the CLI-mode agent reaches them
+            # through the in-process ``ohtv`` CLI).
             conversation_dirs = [
                 str(config.local_conversations_dir),
                 str(config.synced_conversations_dir),
             ]
             for extra_path in config.extra_conversation_paths:
                 conversation_dirs.append(str(extra_path))
-            
+
             try:
-                investigator = InvestigationAgent(
-                    model=model or answerer.model,
-                    embed_store=embed_store,
-                    conv_store=conv_store,
-                    link_store=link_store,
-                    ref_store=ref_store,
-                    repo_store=repo_store,
-                    conversation_dirs=conversation_dirs,
-                    config=config,
-                    max_iterations=max_steps,
-                    console=console,
-                )
-                
-                investigation_result = investigator.investigate(question, result)
-                
+                if investigation_mode == "cli":
+                    from ohtv.analysis.investigator_cli import InvestigationAgentCli
+                    investigator = InvestigationAgentCli(
+                        model=model or answerer.model,
+                        max_iterations=max_steps,
+                        console=console,
+                    )
+                    investigation_result = investigator.investigate(question, result)
+                else:
+                    from ohtv.analysis.investigator import InvestigationAgent
+                    investigator_tools = InvestigationAgent(
+                        model=model or answerer.model,
+                        embed_store=embed_store,
+                        conv_store=conv_store,
+                        link_store=link_store,
+                        ref_store=ref_store,
+                        repo_store=repo_store,
+                        conversation_dirs=conversation_dirs,
+                        config=config,
+                        max_iterations=max_steps,
+                        console=console,
+                    )
+                    investigation_result = investigator_tools.investigate(question, result)
+
                 if investigation_result.error:
                     console.print(f"[yellow]Investigation error: {investigation_result.error}[/yellow]")
                     console.print("[dim]Falling back to initial answer.[/dim]")
@@ -3871,7 +3953,7 @@ def ask(
                     # Show investigation summary
                     console.print(f"\n[dim]Investigation complete: {investigation_result.total_iterations} steps, "
                                   f"{len(investigation_result.conversations_examined)} conversations examined[/dim]")
-                    
+
             except Exception as e:
                 console.print(f"[yellow]Investigation failed: {e}[/yellow]")
                 console.print("[dim]Falling back to initial answer.[/dim]")
@@ -7003,8 +7085,11 @@ def _format_summary_markdown(results: list[dict], *, include_outputs: bool = Tru
             meta_parts.append(steps_str)
         meta = ", ".join(meta_parts)
 
-        # Format as a list item with metadata and goal
-        lines.append(f"- **{r['short_id']}** ({meta}): {r['goal']}")
+        # Format as a list item with metadata and goal. The goal field may be
+        # ``None`` for cache-only misses (Issue #161); apply the human-readable
+        # placeholder here so JSON output stays ``null``.
+        goal_text = r["goal"] or "(no goal identified)"
+        lines.append(f"- **{r['short_id']}** ({meta}): {goal_text}")
 
         # Issue #169: render the Engaged sub-bullet first (immediately after
         # the parent bullet, before refs / labels) so it reads as a
@@ -9718,6 +9803,16 @@ def gen() -> None:
 )
 @click.option("--model", "-m", help="LLM model to use for analysis")
 @click.option("--refresh", "-r", "refresh", is_flag=True, help="Force re-analysis (refresh cache)")
+@click.option(
+    "--cache-only",
+    "cache_only",
+    is_flag=True,
+    help=(
+        "Return only cached analyses; never run the LLM. Cache miss yields a "
+        "conversation with goal=null and empty objective fields. Useful for "
+        "scripted reports and the ``ohtv ask --agent`` in-process runner (#161)."
+    ),
+)
 @click.option("--no-outputs", is_flag=True, help="Don't show outputs (repos, PRs, issues modified)")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @logging_options
@@ -9776,6 +9871,7 @@ def gen_objs_cmd(
     context: str | None,
     model: str | None,
     refresh: bool,
+    cache_only: bool,
     no_outputs: bool,
     json_output: bool,
     verbose: bool,
@@ -9882,6 +9978,7 @@ def gen_objs_cmd(
             context=context,
             model=model,
             refresh=refresh,
+            cache_only=cache_only,
             no_outputs=no_outputs,
             verbose=verbose,
             limit=limit,
@@ -9914,6 +10011,7 @@ def gen_objs_cmd(
             context=context,
             model=model,
             refresh=refresh,
+            cache_only=cache_only,
             no_outputs=no_outputs,
             json_output=json_output,
             verbose=verbose,
@@ -9927,6 +10025,7 @@ def _run_batch_objectives_analysis(
     context: str | None = None,
     model: str | None = None,
     refresh: bool = False,
+    cache_only: bool = False,
     no_outputs: bool = False,
     verbose: bool = False,
     limit: int | None = None,
@@ -10154,6 +10253,7 @@ def _run_batch_objectives_analysis(
                 detail=detail,
                 assess=assess,
                 force_refresh=refresh,
+                cache_only=cache_only,
             )
             analysis = analysis_result.analysis
             # Extract display goal: use goal field, or summary for detailed mode,
@@ -10168,7 +10268,13 @@ def _run_batch_objectives_analysis(
             # Fetch labels from database
             labels = _get_conversation_labels(config, conv.id)
             
-            # Build result dict with all analysis fields for display schema rendering
+            # Build result dict with all analysis fields for display schema rendering.
+            # Note: ``goal`` is kept as ``None`` when no analysis is available
+            # (e.g. ``--cache-only`` cache miss, Issue #161). The JSON formatter
+            # passes ``None`` through as JSON ``null`` — that's the contract the
+            # cookbook prompt and ``docs/guides/search-and-ask.md`` document. The
+            # table and markdown formatters apply the human-readable
+            # ``"(no goal identified)"`` placeholder themselves.
             result_dict = {
                 "id": conv.id,
                 "short_id": conv.short_id,
@@ -10177,7 +10283,7 @@ def _run_batch_objectives_analysis(
                 "updated_at": conv.updated_at,
                 "duration": conv.duration,  # timedelta for display formatting
                 "event_count": conv.event_count,
-                "goal": display_goal or "(no goal identified)",
+                "goal": display_goal,
                 "cached": analysis_result.from_cache,
                 "conv_dir": conv_dir,
                 # Include all analysis fields for variant-aware rendering
@@ -10433,6 +10539,13 @@ def _run_batch_objectives_analysis(
     elif fmt == "markdown":
         print(_format_summary_markdown(results, include_outputs=not no_outputs))
     else:
+        # Apply the human-readable goal placeholder for the table renderer.
+        # The result dict carries ``goal=None`` for cache-only misses so
+        # JSON can serialise it as ``null`` (Issue #161); the table is a
+        # human-facing format, so display the placeholder string instead.
+        for r in results:
+            if r.get("goal") is None:
+                r["goal"] = "(no goal identified)"
         _print_summary_table(
             results, total_count, len(errors),
             include_outputs=not no_outputs,
@@ -10460,6 +10573,7 @@ def _run_objectives_analysis(
     context: str | None = None,
     model: str | None = None,
     refresh: bool = False,
+    cache_only: bool = False,
     no_outputs: bool = False,
     json_output: bool = False,
     verbose: bool = False,
@@ -10581,7 +10695,8 @@ def _run_objectives_analysis(
                     context=legacy_context,  # type: ignore[arg-type]
                     detail=detail_level,  # type: ignore[arg-type]
                     assess=has_assess,
-                    force_refresh=refresh
+                    force_refresh=refresh,
+                    cache_only=cache_only,
                 )
                 analysis = result.analysis
                 analysis_cost = result.cost

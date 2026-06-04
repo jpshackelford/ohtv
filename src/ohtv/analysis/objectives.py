@@ -807,6 +807,39 @@ def _warm_key_variant_cache(
         )
 
 
+def _build_empty_objective_analysis(
+    conv_dir: Path,
+    context: StringContextLevel,
+    detail: DetailLevel,
+    assess: bool,
+    event_count: int,
+) -> ObjectiveAnalysis:
+    """Build an empty ObjectiveAnalysis stub for cache-only misses.
+
+    Used by ``analyze_objectives(cache_only=True)`` to return a result
+    without triggering an LLM call. All content fields are left empty
+    (``goal=None``, ``primary_outcomes=[]``, etc.) so downstream JSON
+    renders the conversation with no analysis content.
+    """
+    return ObjectiveAnalysis(
+        conversation_id=conv_dir.name,
+        analyzed_at=datetime.now(timezone.utc),
+        model_used="",
+        event_count=event_count,
+        content_hash="",
+        prompt_hash=None,
+        context_level=context,
+        detail_level=detail,
+        assess=assess,
+        goal=None,
+        status=None,
+        primary_outcomes=[],
+        secondary_outcomes=[],
+        primary_objectives=[],
+        summary=None,
+    )
+
+
 def analyze_objectives(
     conv_dir: Path,
     model: str | None = None,
@@ -814,6 +847,7 @@ def analyze_objectives(
     detail: DetailLevel = "brief",
     assess: bool = False,
     force_refresh: bool = False,
+    cache_only: bool = False,
 ) -> AnalysisResult:
     """Analyze a conversation to extract user objectives.
 
@@ -833,12 +867,19 @@ def analyze_objectives(
         assess: If True, include status assessment (achieved/not_achieved/in_progress)
             for each objective. Requires at least ``outcome`` context (finish action).
         force_refresh: If True, ignore cached analysis
+        cache_only: If True, never call the LLM. On cache hit, returns the cached
+            analysis. On cache miss, returns an :class:`AnalysisResult` whose
+            ``analysis`` has ``goal=None`` and empty list fields, and whose
+            ``from_cache`` is False. Used by Issue #161's in-process agent
+            runner so the agent can browse cached objectives without paying
+            for fresh LLM analyses.
 
     Returns:
         AnalysisResult containing ObjectiveAnalysis and cost metrics
 
     Raises:
-        ValueError: If no messages found in conversation
+        ValueError: If no messages found in conversation (skipped when
+            ``cache_only=True`` to keep the call non-throwing for the agent path)
         RuntimeError: If LLM call fails
     """
     total_start = time.perf_counter()
@@ -869,6 +910,19 @@ def analyze_objectives(
         if cached:
             log.debug("Using cached analysis from %s", cached.analyzed_at)
             return AnalysisResult(analysis=cached, cost=0.0, from_cache=True)
+
+    # Issue #161: ``cache_only`` short-circuit. We've already returned above
+    # on cache hit; reaching this point means there is no cached analysis,
+    # so build an empty stub (goal=None) instead of running the LLM.
+    if cache_only:
+        log.debug("cache_only=True with no cached analysis; returning empty stub")
+        return AnalysisResult(
+            analysis=_build_empty_objective_analysis(
+                conv_dir, effective_context, detail, assess, len(data.events)
+            ),
+            cost=0.0,
+            from_cache=False,
+        )
 
     # Validate we have content
     conv_id = conv_dir.name
