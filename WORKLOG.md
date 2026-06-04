@@ -2,6 +2,47 @@
 
 ## Log
 
+### 2026-06-04 05:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID   | Type    | Working On                                                      | Status |
+|-----------|---------|-----------------------------------------------------------------|--------|
+| `414d420` | re-test | PR #171 — re-test after post-test refactor (04:53:53Z) | **NEW** |
+
+**Step 1 — Human INSTRUCTION check:** 0 unacknowledged (`awk '/^```/{f=!f;next} !f && /^## INSTRUCTION:/{print}' WORKLOG.md` → empty).
+
+**Step 2 — Slot scan:** Latest worker entry (Review-Feedback Worker, 04:55Z) had already exited. No `running` conversations on the API for this repo at scan time. Both slots free.
+
+**Step 3 — State gather:**
+- Open PRs: **1**
+  - [PR #171 — feat: add engagement columns to ohtv list output](https://github.com/jpshackelford/ohtv/pull/171)
+    - Branch: `feat/list-engagement-columns-167` @ `4298f85`
+    - Reviews: **APPROVED** (review threads `PRRT_kwDOR9seq86G84bt` + `PRRT_kwDOR9seq86G84bx` both `isResolved: true`)
+    - CI: ✅ `lint` / `pytest` / `pr-review` / `enable-orchestrator` all pass on `4298f85`
+    - Docs: ✅ updated 03:56:40Z (`docs: document --with-engagement flag for ohtv list`) + comment 03:58:11Z
+    - Initial manual test: ✅ posted 04:28:20Z
+    - **Post-test commit:** 04:53:53Z `refactor(cli): DRY engagement helpers + CSV row builder (PR #171 review)` — touches `src/ohtv/cli.py` (production .py)
+- Issues by label:
+  - Needs expansion (no `ready`, no `hold`): **0**
+  - Ready + priority:high: **#170**, **#169**, **#168** (blocked by PR slot)
+  - Ready + priority:medium: #162, #161
+  - On `hold`: #90, #26
+
+**Step 4 — Decision (PR slot):** Per orchestrate decision tree row *"PR exists, ready, CI green, test results outdated → re-testing worker"*. The 04:53:53Z refactor commit lands after the 04:28:20Z manual test, and the strict heuristic (`Source files changed (.py excluding test_*)`) triggers re-test. The previous worker documented zero behavior change and unchanged unit tests passing, so risk is genuinely low — but the contract is clear and the cost of a quick re-test is small. **Spawned re-testing worker.**
+
+**Step 4 — Decision (expansion slot):** Idle. No issues lack the `ready`/`hold` labels. Three priority:high ready issues exist (#168, #169, #170) but those need the PR slot, which is occupied by the re-test → merge sequence for #171.
+
+**Spawned: Re-Testing Worker**
+- Conversation: [`414d420`](https://app.all-hands.dev/conversations/414d42069adc497aa4acef193e9bbff2)
+- Start-task: `dabc3797…` reached `READY` in ~10s; `execution_status: running`, `sandbox_status: RUNNING`
+- Scope handed to the worker: re-verify `ohtv list --with-engagement` table/JSON/CSV surfaces that the DRY refactor touched, plus full unit suite (expect 2351/2/3). Post a NEW test report (do not edit the 04:28Z one). Exit without merging — next orchestrator cycle will spawn the merge worker if the re-test is clean.
+
+**Step 0.5 — Housekeeping (deferred):** WORKLOG.md is **1606 lines** at cycle entry (>>300; **14 consecutive cycles overdue** on truncation). Deferred again — this is a productive cycle (re-test spawned). The carry-forward recommendation from prior cycles stands: either (a) a human posts `## INSTRUCTION: archive WORKLOG.md entries older than 12h` so the next orchestrator cycle executes it manually, or (b) someone widens the `/truncate-worklog` skill's `is_productive` regex so it matches the prose-style entries this orchestrator writes.
+
+**Next check:** ~30 min. Expected state: re-test worker posted a fresh test report ⇒ spawn merge worker (PR slot stays occupied through merge). After merge, PR slot frees and one of #168/#169/#170 can be implemented.
+
+---
+
 ### 2026-06-04 04:55 UTC - Review-Feedback Worker (PR #171)
 
 ✅ **Addressed both advisory 🟡 review threads on PR #171.**
