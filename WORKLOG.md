@@ -1,6 +1,35 @@
 ## Log
 
 
+### 2026-06-04 13:50 UTC - Implementation Worker
+
+**PR #177 — opened (ready for review).** Issue #161 implementation pushed.
+
+- **Issue:** [#161 — `ohtv ask`: add prompt-based agent mode alongside existing tools-based one; rename current to `--agent-tools`](https://github.com/jpshackelford/ohtv/issues/161)
+- **PR:** [#177 — feat(ask): add prompt-cookbook agent mode alongside legacy tools mode](https://github.com/jpshackelford/ohtv/pull/177)
+- **Branch:** `feat/agent-cli-mode-161` @ `5cbfe5a` (latest), based on `main` @ `f06f359`.
+- **Closes:** #161 (via "Fixes #161" in PR body).
+- **CI:** all green at promotion-to-ready — lint (3s), pytest (1m7s), enable-orchestrator (3s), pr-review skipping (will trigger on the ready transition).
+
+**Shape of the change:** two investigation modes run side-by-side so #162 telemetry can A/B compare them before either is retired.
+
+- `--agent` (NEW DEFAULT) → prompt-cookbook agent → `InvestigationResult.mode="cli"`. Single `run_ohtv(argv)` tool that invokes the local `ohtv` CLI in-process via Click 8.3's `CliRunner` (note: `mix_stderr=False` was removed in 8.2/8.3 — stdout/stderr are split by default).
+- `--agent-tools` (RENAMED) → legacy custom-tools agent (#51) → `InvestigationResult.mode="tools"`. Unchanged behaviour, just behind a renamed flag.
+- Mutually exclusive (Click `UsageError`). `--max-steps 0` short-circuits both modes to single-turn RAG.
+
+**Allow-list for the in-process runner:** `show`, `refs`, `search`, `list`, `errors`, `gen objs`. Everything else is rejected with a structured observation naming the offending command + enumerating the allow-list so the agent can self-correct in one turn. **Block-list** (write-side commands surfaced verbatim in rejection observations): `sync`, `db scan|process|embed|migrate-cache|reset`, `fetch-loc`, `gen titles`, `gen run`, `classify`, `config`. Disjoint allow/block sets are enforced by a unit test.
+
+**`gen objs --cache-only`** is a power-user-friendly first-class CLI flag, not a runner-only convenience: `ohtv gen objs --cache-only -F json` dumps cached objectives without firing the LLM. The runner auto-injects it on every `gen objs` invocation so the agent can never trigger fresh analyses through it. Cache miss returns an `AnalysisResult` with `analysis.goal=None`, empty lists, `cost=0.0`, `from_cache=False`.
+
+**Tests:** 61 new (24 runner + 19 cli investigator + 9 cookbook snapshot + 2 cache-only objectives + 4 CLI flag parsing + 3 dual-mode integration). **Full suite: 2553 passed, 2 skipped, 3 xfailed** — no regressions, no test removals.
+
+**Documentation:** `docs/guides/search-and-ask.md` §"Investigation Mode" rewritten to cover both modes + allow-list table + browse-vs-search guidance; `AGENTS.md` item #33 captures the architectural decisions for future workers (the Click 8.3 reentrancy note + `mix_stderr` gotcha is in there).
+
+**Follow-up tracked:** Issue #162 (the telemetry hookup) is the immediate consumer of `InvestigationResult.mode`. Once it ships and gives us per-question cost/quality data, one of the two modes can be retired.
+
+This commit is a `chore(worklog):` subject so semantic-release ignores it.
+
+
 ### 2026-06-04 12:51 UTC - Merge Worker
 
 **PR #175 — merged.** Squash-merge completed at `2026-06-04T12:50:55Z`. Merge commit: `3c8c52721b4330afbc89887435d1293400fecf0f`.
