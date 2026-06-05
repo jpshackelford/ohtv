@@ -64,7 +64,7 @@ A 5-minute end-to-end walkthrough lives at
 | **Classify** | `classify` | [classification](docs/guides/classification.md) |
 | **Analyze (LLM)** | `gen objs / titles / run`, `prompts` | [analysis](docs/guides/analysis.md), [customizing-prompts](docs/guides/customizing-prompts.md) |
 | **Report** | `report velocity / weekly-counts`, `fetch-loc` | [reporting](docs/guides/reporting.md) |
-| **Search & ask** | `search`, `ask` | [search-and-ask](docs/guides/search-and-ask.md) |
+| **Search & ask** | `search`, `ask`, `messages` | [search-and-ask](docs/guides/search-and-ask.md) |
 
 A flag-by-flag command index is at [docs/reference/cli.md](docs/reference/cli.md).
 For terminology (change_ref, partial_loc, manifest, sandbox, …) see
@@ -170,6 +170,90 @@ ohtv gen objs --event-dates --since 1m
 
 Full per-command flag table:
 [exploration](docs/guides/exploration.md#filtering-by-event-timestamps---event-dates).
+
+## Listing user messages
+
+`ohtv messages` ([#181](https://github.com/jpshackelford/ohtv/issues/181))
+is the third way to find a conversation by what *you* said — the time-shaped
+sibling of `ohtv ask` (semantic RAG over embeddings) and `ohtv search` (FTS5
+keyword). When you only remember roughly *when* you typed something, this
+command lists every user message in a date range, grouped by conversation,
+ordered by most-recent activity first. Pagination is **by conversation**:
+within a displayed conversation, every matching user message renders.
+
+Date filtering uses **engagement event timestamps**, not
+`conversations.created_at` — a conversation started months ago that received a
+user message yesterday surfaces under `-D` or `-D 7`. This is the same
+column-swap mechanism [`--event-dates`](#event-date-filtering) introduces for
+`list` / `search` / `ask`, but for `messages` it is the only mode (no
+`--event-dates` flag, no opt-out — per issue scope). The same engagement-row
+prerequisite applies (run `ohtv db process engagement` or `ohtv sync`).
+
+```bash
+# Default: 10 most recently engaged conversations (no date cap),
+# 500-char truncation per message in text mode.
+ohtv messages
+
+# Time windows — same shortcuts as `ohtv list` and `ohtv refs`
+ohtv messages -D                       # Today
+ohtv messages -D 7                     # Last 7 days
+ohtv messages -W                       # This week
+ohtv messages -W 2                     # Last 2 weeks
+ohtv messages --since 2026-05-01 --until 2026-05-31
+
+# Pagination is by conversation; within a shown conversation
+# ALL in-range user messages render.
+ohtv messages -D 30 -n 25              # First 25 conversations
+ohtv messages -D 30 -n 25 -k 25        # Next page (offset 25)
+ohtv messages -D 30 -A                 # No cap
+
+# Output formats
+ohtv messages -W -F json               # Machine-readable
+ohtv messages -D 7 -1                  # `--format raw` shortcut: one
+                                       # tab-separated <conv>\t<ts>\t<msg>
+                                       # line per message, pipe-friendly
+ohtv messages -D 7 -1 | grep -i auth   # Find auth mentions this week
+ohtv messages -W --full                # Disable the 500-char truncation
+
+# Conversation-level filters compose
+ohtv messages -W --source cloud
+ohtv messages -W --repo jpshackelford/ohtv
+ohtv messages -W -L status=active
+ohtv messages -W --include-sub-conversations  # opt in to delegated subs
+```
+
+**Default text output** — one rule line + header per conversation, indented
+`[timestamp] message` rows under each, then a pagination footer:
+
+```text
+─────────────────────────────────────────────────────────────────
+Conversation: a1b2c3d4 — "Implement Authentication Flow"
+Created: 2026-05-22 10:15 UTC | Events: 47
+
+[2026-05-22 10:15:03] Can you help me implement OAuth2 authentication...
+
+─────────────────────────────────────────────────────────────────
+Showing 2 of 15 candidate conversations (6 messages) | Next: --offset 2
+```
+
+`-F json` emits a single object: `{total_conversations, total_messages,
+offset, limit, conversations: [{id, title, created_at, source, event_count,
+messages: [{timestamp, text}, …]}]}`. JSON and raw modes always carry the
+full message text — the 500-char truncation only applies to `text` mode.
+
+**Gotchas:**
+
+- Like `--event-dates` and the `--engaged` family, the date filter runs against
+  `conversation_engagement.first_event_ts` / `last_event_ts`. Conversations
+  without an engagement row are silently excluded (INNER JOIN). When the
+  candidate pool is empty the command prints a hint pointing at
+  `ohtv db process engagement` (or `ohtv sync`); when candidates exist but
+  the current page is empty (e.g. paged past the message-bearing pool with
+  `--offset`) it prints an offset-aware hint instead.
+- The footer's `total_messages` counts only the *displayed* conversations —
+  pagination is by conversation, so the full-history message count across all
+  candidates is intentionally not computed (would defeat the per-invocation
+  cost ceiling).
 
 ## Configuration
 
