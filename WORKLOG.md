@@ -178,3 +178,59 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-05 13:20 UTC - Orchestrator
+
+User-invoked `/orchestrate` (this conv).
+
+**Step 1 - Human Instructions:** None. No `## INSTRUCTION:` block at top of `WORKLOG.md`. Live worklog is 180 lines — under the 300-line truncation threshold.
+
+**Step 2 - Active Workers:** None to verify. Last spawn (`f66e041`) was 2026-06-05 01:18Z (~12h ago, terminated). The 11:23Z recovery, 11:48Z, 12:17Z, and 12:47Z entries were all inline orchestrator actions, no worker spawns.
+
+**Step 3 - Gather State (authenticated `gh`):**
+
+- **Open PRs:** **0** (post PR #183 merge as `31c45193` at ~11:23Z).
+- **Open issues:** 3 — state has **changed** since the 12:47Z snapshot:
+  - **NEW**: #184 `bug, priority:high` — "Engagement calculation may overcount for long-running conversations" (opened ~9min before this tick by `jpshackelford` via an AI agent)
+  - #90 `enhancement, hold, priority:medium` ("Add `ohtv label` …") — unchanged, still on `hold`
+  - #26 `hold` ("Add an mcp server") — unchanged, still on `hold`
+- **Needs expansion:** **1** — #184 (no `ready`, no `hold`)
+- **Ready without PR:** **0**.
+
+**Step 4 - Decision Tree:**
+
+- **Expansion slot:** **AVAILABLE** → spawn expansion worker for #184.
+- **PR slot:** **idle** — no open PR, no `ready` issues. (No spawn — must wait for expansion to complete.)
+
+**Step 5 - Action:**
+
+✅ **Spawned: Expansion Worker** for [#184 — Engagement calculation may overcount for long-running conversations](https://github.com/jpshackelford/ohtv/issues/184)
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `5af1a20` | expansion | Issue #184 - Engagement overcount | **NEW** running |
+
+- Conversation URL: https://app.all-hands.dev/conversations/5af1a207fd394cf0b912b846ae8dcde1
+- Start-task ID: `595eabd5680c4e149a9b3ceff01e7e2b` → `READY` after ~20s of polling
+- Verified `execution_status=running`, `sandbox_status=RUNNING` before exit
+- Plugin: `github:jpshackelford/.openhands/plugins/ohtv-workflow@feat/ohtv-workflow-plugin`
+
+**Worker scope (per the spawn prompt):**
+- Locate engagement-calculation code under `src/ohtv/db/` (engagement processing stage)
+- Verify the issue's hypothesis: `engagement_threshold_seconds=720` + any-event-resets-timer → entire conversation duration counts as one period when agent emits events more frequently than the threshold
+- Add a comment with Root Cause Analysis (file:line refs), Proposed Fix, Files to modify, and Test Plan
+- Add `ready` label when done; `needs-info` / `needs-split` if blocked
+
+**Step 6 - Auto-disable check:** Not applicable — this cycle **spawned a worker**, not a quiet cycle. Resets any cron quiet-cycle counter back to 0.
+
+**Standing recommendation for next cron tick:**
+- Verify `5af1a207` finished and #184 has the `ready` label (or `needs-info` / `needs-split` if blocked)
+- If `ready` and `priority:high` still set → spawn implementation worker (PR slot is idle, expansion slot will be free)
+- If `5af1a207` is still `running` after ~1h, consider checking conv logs for stuck state
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
