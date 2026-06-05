@@ -1,6 +1,121 @@
 # CHANGELOG
 
 
+## v0.30.0 (2026-06-05)
+
+### Chores
+
+- **worklog**: Docs spot-check for PR #183
+  ([`53ff4dd`](https://github.com/jpshackelford/ohtv/commit/53ff4ddeb4e3d85ee9588ed2d3608bba29d08f95))
+
+- **worklog**: Docs worker for PR #183
+  ([`93c7c97`](https://github.com/jpshackelford/ohtv/commit/93c7c97f523bbe7fdd398885bd5cecd35ef26399))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Implementation worker — PR #183 (Issue #181) opened ready for review
+  ([`4c6d30c`](https://github.com/jpshackelford/ohtv/commit/4c6d30c9c8003a6738a0f261f184d41139251454))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Merge worker — PR #182 squash-merged (Issue #180 closed, ohtv-v0.29.0 released)
+  ([`52facbd`](https://github.com/jpshackelford/ohtv/commit/52facbd4db84a429ac11cdcd72bd5122ce81dc5d))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-06-04T22:24:46Z - spawned impl worker b68bb0d for Issue #181
+  ([`3bfbe3f`](https://github.com/jpshackelford/ohtv/commit/3bfbe3fb3764e3752a96f4cd5caf36d4046b7a5a))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator escalation - merge worker silent-fail confirmed twice on PR #183
+  ([`837e100`](https://github.com/jpshackelford/ohtv/commit/837e1002c186b1824ebac1c2503a5656d784a8df))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator housekeeping - truncate WORKLOG + INSTRUCTION-honoring cycle 04:51Z
+  ([`e86a82c`](https://github.com/jpshackelford/ohtv/commit/e86a82c2c93266c0c97369677b6d99d3d39ac18e))
+
+- Archived 13 entries (2026-06-04 07:50Z to 13:18Z) to WORKLOG_ARCHIVE_2026-06-04.md -
+  Pre-truncation: 3500 lines; post-truncation: 2676 lines (before this entry) - INSTRUCTION header
+  preserved - No worker spawned (INSTRUCTION blocks PR slot for #183; expansion slot empty) - 6th
+  consecutive INSTRUCTION-honoring cycle; auto-disable counter remains 0
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator INSTRUCTION-honoring cycle 02:18Z - skipped PR #183 merge spawn
+  ([`c8d4ccc`](https://github.com/jpshackelford/ohtv/commit/c8d4ccc561fdf3c2ab4ffc5e31d20a8743ad543c))
+
+- **worklog**: Orchestrator INSTRUCTION-honoring cycle 02:48Z - skipped PR #183 merge spawn
+  ([`12528c5`](https://github.com/jpshackelford/ohtv/commit/12528c5839593a7bc70e9510534f895fba2923f6))
+
+- **worklog**: Orchestrator INSTRUCTION-honoring cycle 03:20Z - skipped PR #183 merge spawn (3rd
+  consecutive)
+  ([`9b06f10`](https://github.com/jpshackelford/ohtv/commit/9b06f101d696530cf07e40b23772231224a51370))
+
+- **worklog**: Orchestrator INSTRUCTION-honoring cycle 03:49Z - PR #183 merge spawn skipped (4th
+  consecutive)
+  ([`ea1633b`](https://github.com/jpshackelford/ohtv/commit/ea1633b8d361fb596741c3cffe62ca0cc9cd75ea))
+
+- **worklog**: Orchestrator INSTRUCTION-honoring cycle 04:17Z - PR #183 merge spawn skipped (5th
+  consecutive)
+  ([`e0defce`](https://github.com/jpshackelford/ohtv/commit/e0defce7eff79a10131dc8079552afd9991f3c74))
+
+- **worklog**: Orchestrator retry merge worker for PR #183 (silent-fail recovery)
+  ([`27b0737`](https://github.com/jpshackelford/ohtv/commit/27b0737c5914aea8a876d478ec8f58daee944291))
+
+- **worklog**: Orchestrator spawn docs spot-check for PR #183
+  ([`e61910c`](https://github.com/jpshackelford/ohtv/commit/e61910c8533c1022ff44802533325f06f9d43315))
+
+- **worklog**: Orchestrator spawn merge worker for PR #183
+  ([`3dd8097`](https://github.com/jpshackelford/ohtv/commit/3dd809721bae3c9a8d18ffe5eefa06d65e61e449))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned testing worker for PR #183
+  ([`2320b91`](https://github.com/jpshackelford/ohtv/commit/2320b9134443297644f313d7747f2411923c5672))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator user-invoked cycle 11:18Z - PR #183 merge spawn skipped (7th
+  consecutive)
+  ([`c469310`](https://github.com/jpshackelford/ohtv/commit/c46931061de2e553ac985d72fd793e71b4465c49))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator — spawned docs worker for PR #183
+  ([`3f2d807`](https://github.com/jpshackelford/ohtv/commit/3f2d807b967f546064f3cb02a48523f09b0ef998))
+
+Spawned docs worker conv 05df98c for PR #183 (Issue #181, ohtv messages command). PR is ready + CI
+  green but README/AGENTS.md not updated for the new top-level CLI verb; docs must precede testing
+  per the 'Test What's Documented' principle. Two pr-review bot threads (orange pagination bug +
+  yellow dedup suggestion) deferred to review worker after docs and test pass.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Review round 1 on PR #183
+  ([`c0e2f30`](https://github.com/jpshackelford/ohtv/commit/c0e2f302bac18ce7d905ce038489af89957d6db2))
+
+- **worklog**: Testing worker for PR #183
+  ([`6f28750`](https://github.com/jpshackelford/ohtv/commit/6f2875079ab3a92124b47183ad37765a9b3c4af8))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- **cli**: Add ohtv messages command to list user messages across conversations
+  ([#183](https://github.com/jpshackelford/ohtv/pull/183),
+  [`31c4519`](https://github.com/jpshackelford/ohtv/commit/31c45193806d98ec54f6811c33fc374f25a66146))
+
+Fixes #181.
+
+Merged by OpenHands on behalf of @jpshackelford as part of the 2026-06-05 orchestrator recovery
+  (auth-blocker followed by spawn-picker silent-failure on merge-worker slot, see INSTRUCTION block
+  in WORKLOG.md filed by orchestrator cycle 35eb0aa at 2026-06-05 01:48 UTC for full context).
+
+PR is APPROVED / MERGEABLE / CLEAN with CI green (lint + pytest).
+
+
 ## v0.29.0 (2026-06-04)
 
 ### Chores
