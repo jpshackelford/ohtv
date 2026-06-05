@@ -483,7 +483,7 @@ ohtv report velocity --format csv > velocity.csv
    - `ohtv report efficiency` - human words per LOC ratio
    - CSV export for further analysis
 
-## Engaged Human Minutes (Sustained-Attention Metric — Issue #163)
+## Engaged Human Minutes (Sustained-Attention Metric — Issues #163, #184)
 
 A per-conversation metric capturing **how long a human was actively
 monitoring/steering** the conversation, inferred from the temporal gaps
@@ -491,38 +491,103 @@ around each user message. Distinct from `followup_word_count` (how
 *much* the human said) — engaged minutes captures how *long the human
 was paying attention*.
 
-### Definition
+### Two timing constants
 
-Given a sustained-attention threshold `T` (default: **12 minutes**,
-configurable; see "Threshold tuning" below):
+Issue #184 surfaced a conceptual conflation in the v1 algorithm: a
+single threshold `T` was doing two semantically different jobs. The v2
+algorithm separates them.
+
+| Symbol | Constant | Default | Meaning |
+|---|---|---|---|
+| `T` | `DEFAULT_THRESHOLD_SECONDS` | 12 min | Silence tolerance: "How long can a human be silent during agent activity and still be considered present *at this instant*?" Empirically tuned (#163). |
+| `T_a` | `DEFAULT_SUSTAINED_ATTENTION_SECONDS` | 1 h **(PROVISIONAL)** | Sustained-attention window: "How long can a human plausibly stay continuously engaged in one block before we should assume they walked away?" Empirical tuning pending (#184). |
+
+The defaults are stored on every row (`threshold_seconds`,
+`sustained_attention_seconds`) along with `algorithm_version` so the
+tuning workflow can keep values computed under different threshold
+pairs distinguishable.
+
+The `T_a` default of 1 h was chosen as a defensible placeholder:
+several multiples of `T` (so the constants do not collapse onto each
+other), and large enough to preserve the 30–60 min "real engagement"
+sessions in Issue #184's reference data while clipping the 14–20 h
+overnight outliers that motivated the bug. Re-tuning is intended once
+the corpus analysis described below lands.
+
+### Definition (v2 algorithm)
 
 1. Order events ascending by timestamp; find user-message indices `Uᵢ`.
-2. For each follow-up user message `Uᵢ` (i ≥ 1), look at the gap from
-   the immediately preceding event `Pᵢ` to `Uᵢ`. If `Uᵢ.ts - Pᵢ.ts ≤
-   T`, the human was here: record the **attended block**
-   `(Uᵢ₋₁.ts, Uᵢ.ts)`.
+2. For each follow-up user message `Uᵢ` (i ≥ 1):
+   1. **Silence-tolerance gate.** Look at the gap from the immediately
+      preceding event `Pᵢ` to `Uᵢ`. If `Uᵢ.ts - Pᵢ.ts > T`, the human
+      was not here at `Uᵢ` — skip.
+   2. **Sustained-attention cap.** If the silence gate passed, look at
+      the *user-to-user* gap `Uᵢ.ts - Uᵢ₋₁.ts`. If `≤ T_a`, record
+      the attended block `(Uᵢ₋₁.ts, Uᵢ.ts)` (the v1 behavior). If
+      `> T_a`, record a zero-duration **touch** `(Uᵢ.ts, Uᵢ.ts)`
+      instead — the user genuinely returned, but they cannot
+      plausibly have been monitoring the full span.
 3. Sort attended blocks ascending; merge any two adjacent blocks with
    seam `≤ T` into a single **attention period**.
 4. `engaged_seconds = Σ (period.end - period.start)` over merged periods.
 5. `attention_periods` = number of merged periods.
 
-### Stored in `conversation_engagement` (migration 023)
+### Why v2 (Issue #184)
+
+The v1 algorithm gated only on the silence-tolerance threshold `T` —
+the gap to the *immediately preceding event*. For "set-and-forget
+overnight" conversations the agent fired an event every few minutes
+the entire night, so the silence gate stayed satisfied for the morning
+follow-up. The block then extended unconditionally back to the
+previous user message, crediting 14+ hours of human engagement to a
+conversation that was unattended overnight. Issue #184 surfaced nine
+such rows totalling ~50 hours of inflated engagement.
+
+The v2 cap on `T_a` clips that span: the user genuinely returned (touch
+recorded, `attention_periods` increments), but `engaged_seconds` does
+not inflate.
+
+### Empirical tuning of `T_a` — proposed analysis (Issue #184)
+
+`T` was originally tuned by analyzing the distribution of inter-event
+gaps around follow-up user messages. The proposed analysis for `T_a`
+(deferred to a separate workspace with a larger conversation corpus):
+
+* For each follow-up user message that passes the silence-tolerance
+  gate (i.e., the v1 "attended" set), bucket by the length of
+  *intervening agent activity* between `Uᵢ₋₁` and `Uᵢ`.
+* Observe where the "still present" signal (gap to immediately-
+  preceding event ≤ T at `Uᵢ`) begins to fall off as the intervening
+  agent stretch grows.
+* The empirical `T_a` is the boundary where presence stops being
+  predicted by agent recency — beyond it, the user's return is
+  anomalous enough that the "reading along" credit no longer applies.
+
+Until that analysis lands, the 1 h default is provisional and the
+value-pinning test in `test_engagement.py`
+(`test_default_sustained_attention_window_is_one_hour`) is the single
+source of truth that must be updated alongside.
+
+### Stored in `conversation_engagement` (migrations 023, 024, 025)
 
 | Column                              | Notes                                       |
 |-------------------------------------|---------------------------------------------|
 | `conversation_id`                   | PK; FK → `conversations(id) ON DELETE CASCADE` |
 | `threshold_seconds`                 | `T` used for this row; lets the tuning sweep store distinguishable variants |
+| `sustained_attention_seconds`       | `T_a` used for this row (added in migration 025, Issue #184). Backfills to `3600` for pre-v2 rows. |
+| `algorithm_version`                 | Version of `compute_engagement` that wrote the row (added in migration 025). `1` = pre-#184, `2` = #184 v2. Pre-existing rows backfill to `1` so the next processing pass can detect them as stale. |
 | `first_event_ts` / `last_event_ts`  | ISO-8601, derived from event files (NOT `base_state.updated_at - created_at`) |
 | `total_duration_seconds`            | `last - first`, in whole seconds            |
 | `engaged_seconds`                   | The metric. `0` for fire-and-forget (not NULL) |
 | `attention_periods`                 | Count of merged periods. `0` for fire-and-forget |
 | `follow_up_user_message_count`      | Sanity check, also lets queries filter on "human actually steered" |
-| `attended_user_message_count`       | Count of follow-ups whose gap to prior event ≤ T |
+| `attended_user_message_count`       | Count of follow-ups whose gap to prior event ≤ T. Includes touches (zero-credit follow-ups) under v2. |
 | `processed_at`                      | When this row was written                   |
 | `event_count`                       | Event count at processing time              |
 
-`idx_conv_engagement_threshold` is indexed for filtering during the
-tuning sweep.
+`idx_conv_engagement_threshold` (migration 023) and
+`idx_conv_engagement_attention_window` (migration 025) are indexed for
+filtering during the tuning sweeps.
 
 ### Edge cases pinned by tests
 

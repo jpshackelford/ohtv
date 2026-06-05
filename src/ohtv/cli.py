@@ -8823,10 +8823,28 @@ def db_init(verbose: bool) -> None:
     type=int,
     default=None,
     help=(
-        "Sustained-attention threshold T, in seconds. Only meaningful "
-        "for the 'engagement' stage (Issue #163). Default is the "
-        "stage's DEFAULT_THRESHOLD_SECONDS (12 minutes); the row is "
-        "rewritten when reprocessing with a new threshold."
+        "Silence-tolerance threshold T, in seconds — 'how long can a "
+        "human be silent during agent activity and still be considered "
+        "present at that instant'. Only meaningful for the 'engagement' "
+        "stage (Issue #163). Default is the stage's "
+        "DEFAULT_THRESHOLD_SECONDS (12 minutes); the row is rewritten "
+        "when reprocessing with a new threshold."
+    ),
+)
+@click.option(
+    "--sustained-attention",
+    "sustained_attention_seconds",
+    type=int,
+    default=None,
+    help=(
+        "Sustained-attention window T_a, in seconds — 'how long can a "
+        "human plausibly stay continuously engaged in one block before "
+        "we should assume they walked away'. Caps how far an attended "
+        "block extends back. Only meaningful for the 'engagement' "
+        "stage (Issue #184). Default is the stage's "
+        "DEFAULT_SUSTAINED_ATTENTION_SECONDS (1 hour, PROVISIONAL "
+        "pending empirical tuning); the row is rewritten when "
+        "reprocessing with a new window."
     ),
 )
 @logging_options
@@ -8836,6 +8854,7 @@ def db_process(
     force: bool,
     conversation: str | None,
     threshold_seconds: int | None,
+    sustained_attention_seconds: int | None,
     verbose: bool,
 ) -> None:
     """Run a processing stage on conversations.
@@ -8861,10 +8880,24 @@ def db_process(
     if stage == "all":
         for stage_name in STAGES:
             console.print(f"\n[bold]Running stage: {stage_name}[/bold]")
-            _run_process_stage(stage_name, force, conversation, verbose, threshold_seconds)
+            _run_process_stage(
+                stage_name,
+                force,
+                conversation,
+                verbose,
+                threshold_seconds,
+                sustained_attention_seconds,
+            )
         return
     
-    _run_process_stage(stage, force, conversation, verbose, threshold_seconds)
+    _run_process_stage(
+        stage,
+        force,
+        conversation,
+        verbose,
+        threshold_seconds,
+        sustained_attention_seconds,
+    )
 
 
 def _run_process_stage(
@@ -8873,6 +8906,7 @@ def _run_process_stage(
     conversation: str | None,
     verbose: bool,
     threshold_seconds: int | None = None,
+    sustained_attention_seconds: int | None = None,
 ) -> None:
     """Run a single processing stage."""
     from functools import partial
@@ -8880,6 +8914,7 @@ def _run_process_stage(
     from ohtv.db import get_db_path, get_ready_connection, scan_conversations
     from ohtv.db.stages import STAGES
     from ohtv.db.stages.engagement import (
+        DEFAULT_SUSTAINED_ATTENTION_SECONDS as ENGAGEMENT_DEFAULT_ATTENTION_WINDOW,
         DEFAULT_THRESHOLD_SECONDS as ENGAGEMENT_DEFAULT_THRESHOLD,
     )
     from ohtv.db.stores import ConversationStore, StageStore
@@ -8889,18 +8924,31 @@ def _run_process_stage(
         raise SystemExit(1)
     
     processor = STAGES[stage]
-    # The engagement stage takes an extra keyword (T). Bind it once so
-    # the per-conversation loop below stays generic.
+    # The engagement stage takes two extra keywords (T and T_a). Bind
+    # both once so the per-conversation loop below stays generic.
     if stage == "engagement":
         effective_threshold = (
             threshold_seconds
             if threshold_seconds is not None
             else ENGAGEMENT_DEFAULT_THRESHOLD
         )
-        processor = partial(processor, threshold_seconds=effective_threshold)
-    elif threshold_seconds is not None and verbose:
+        effective_attention_window = (
+            sustained_attention_seconds
+            if sustained_attention_seconds is not None
+            else ENGAGEMENT_DEFAULT_ATTENTION_WINDOW
+        )
+        processor = partial(
+            processor,
+            threshold_seconds=effective_threshold,
+            sustained_attention_seconds=effective_attention_window,
+        )
+    elif (
+        threshold_seconds is not None
+        or sustained_attention_seconds is not None
+    ) and verbose:
         console.print(
-            f"[dim]--threshold is only used by 'engagement'; ignoring for '{stage}'[/dim]"
+            f"[dim]--threshold/--sustained-attention are only used by 'engagement'; "
+            f"ignoring for '{stage}'[/dim]"
         )
     db_path = get_db_path()
     

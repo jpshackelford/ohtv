@@ -1,43 +1,102 @@
-"""Engagement (sustained-attention) processing stage — Issue #163.
+"""Engagement (sustained-attention) processing stage — Issues #163, #184.
 
 Computes a per-conversation **engaged human minutes** metric, plus the
 related **attention periods** count and (normalized) total conversation
 duration. The result is stored in ``conversation_engagement`` (migration
-023) and the stage is registered as ``engagement`` in
-:mod:`ohtv.db.stages`.
+023, extended by migration 025) and the stage is registered as
+``engagement`` in :mod:`ohtv.db.stages`.
 
-Algorithm (timing-only, no content inspection):
+Two distinct timing constants
+=============================
 
-1. Order the events by timestamp ascending and find the indices of all
-   ``MessageEvent``s with ``source == "user"``.
-2. With ``T`` = sustained-attention threshold (default 12 min), walk
-   backward over follow-up user messages (skipping the initial prompt
-   ``U₀``). For each ``Uᵢ`` whose gap to the immediately preceding event
-   ``Pᵢ`` is ``≤ T``, record the attended block ``[Uᵢ₋₁, Uᵢ]``. The
-   gap test gates *whether the human was here*; the block bounds extend
-   back to the previous user message because the human was reading along
-   while the agent worked between turns.
-3. Sort the recorded blocks ascending and merge any two adjacent blocks
-   whose seam gap is ``≤ T`` into a single **attention period**.
-4. ``engaged_seconds`` = sum of merged-period spans (in whole seconds).
+Issue #184 surfaced a conceptual conflation in the v1 algorithm: a
+single threshold ``T`` was doing two semantically different jobs. The
+v2 algorithm separates them and exposes each on the stored row so they
+can be re-tuned (and audited) independently.
+
+``T`` — *silence tolerance* (``DEFAULT_THRESHOLD_SECONDS``)
+    "How long can a human be silent during agent activity and still be
+    considered present at that instant?" Empirically grounded in the
+    distribution of inter-event gaps around follow-up user messages
+    (see ``scripts/engagement_threshold_sweep.py`` / Issue #163).
+    Default: 12 min.
+
+``T_a`` — *sustained-attention window* (``DEFAULT_SUSTAINED_ATTENTION_SECONDS``)
+    "How long can a human plausibly remain in one continuous block of
+    monitoring before we should assume they walked away?" Caps how far
+    an attended block may extend back from ``Uᵢ`` to ``Uᵢ₋₁``.
+
+    **This default is PROVISIONAL.** ``T`` was empirically tuned at
+    introduction; ``T_a`` has not yet been. The proposed corpus
+    analysis (Issue #184 comment thread) is to bucket consecutive
+    user-message gaps by the *length of intervening agent activity* and
+    observe where the "still present" signal (gap to immediately-
+    preceding event ≤ T at the follow-up) begins to fall off. The
+    analysis lives in a separate workspace with a larger conversation
+    corpus; until it lands, the 1-hour default is a defensible
+    placeholder, not an empirically tuned value.
+
+Algorithm (timing-only, no content inspection)
+==============================================
+
+1. Order events ascending by timestamp; find user-message indices
+   ``Uᵢ``.
+2. For each follow-up ``Uᵢ`` (i ≥ 1, skipping the initial prompt
+   ``U₀``):
+
+   * **Silence-tolerance gate (uses ``T``).** Walk left from ``Uᵢ`` to
+     find the immediately preceding parseable event ``Pᵢ`` and check
+     ``Uᵢ.ts − Pᵢ.ts ≤ T``. If false, the human was not present at
+     ``Uᵢ`` — skip; no block recorded.
+   * **Sustained-attention cap (uses ``T_a``).** If the silence gate
+     passes, check the *user-to-user* gap ``Uᵢ.ts − Uᵢ₋₁.ts``. If it
+     is ``≤ T_a``, record the attended block ``[Uᵢ₋₁, Uᵢ]`` (the v1
+     behavior — "reading along" credit). If it exceeds ``T_a``, the
+     user came back but cannot plausibly have been monitoring the
+     whole span; record a zero-duration **touch** ``[Uᵢ, Uᵢ]``
+     instead. ``attention_periods`` still increments — the user
+     genuinely returned — but ``engaged_seconds`` contributes 0 for
+     that span.
+
+3. Sort the recorded blocks ascending and merge any two adjacent
+   blocks whose seam gap is ``≤ T`` into a single attention period.
+4. ``engaged_seconds`` = sum of merged-period spans (whole seconds);
    ``attention_periods`` = number of merged periods.
 
-Edge cases:
+Why the v2 cap is needed
+========================
+
+The v1 algorithm gated only on the gap to the *immediately preceding*
+event. For "set-and-forget overnight" conversations — initial prompt,
+then the agent fires an event every few minutes for hours, then a
+follow-up the next morning — the gap to the immediately preceding
+event stayed under ``T`` the whole time. The block then extended
+unconditionally back to ``Uᵢ₋₁`` and a 14-hour conversation was
+credited as 14 hours of human engagement. Issue #184 collected 9 such
+rows totalling ~50 hours of inflated engagement.
+
+The v2 cap with ``T_a`` clips that span: the user genuinely came back
+(touch is recorded, ``attention_periods`` increments), but they were
+not reading along the whole night, so ``engaged_seconds`` does not
+inflate.
+
+Edge cases
+==========
 
 * Zero or one user message ⇒ ``engaged_seconds = 0``,
   ``attention_periods = 0``. The row is still written (with the metric
   set to zero, not NULL) so fire-and-forget conversations remain
   queryable.
 * Tail handling. Events after the last user message do NOT extend the
-  attention period (the default proposal in the issue's open questions).
-  The pseudocode in the issue is the canonical algorithm.
+  attention period (the default proposal in the original issue).
 * Single-instant period (a follow-up off the initial prompt with zero
   intermediate agent events) counts as one period of 0 seconds — the
   ``attention_periods`` counter is the right signal for "user touched
   the conversation."
 
-The threshold used for the stored row is recorded in
-``threshold_seconds`` so re-tuning is detectable and re-runnable.
+Both thresholds used for the stored row are recorded
+(``threshold_seconds``, ``sustained_attention_seconds``,
+``algorithm_version``) so re-tuning is detectable and re-runnable.
 """
 
 from __future__ import annotations
@@ -56,18 +115,50 @@ log = logging.getLogger("ohtv")
 
 STAGE_NAME = "engagement"
 
-# Default sustained-attention threshold. The original strawman in the
-# issue was 8 minutes; the user's updated guess was 12 minutes ("noticed
-# the message → read response → composed reply"). 12 is shipped as the
-# initial default per the issue's open-question recommendation #3; the
-# tuning sweep (``scripts/engagement_threshold_sweep.py``) will pick the
-# empirical value.
+# Default silence-tolerance threshold (``T``). "How long is a human
+# silent during a period of agent inactivity and still engaged, not
+# absent." Empirically grounded; see Issue #163 + the sweep script.
 DEFAULT_THRESHOLD_SECONDS = 12 * 60
+
+# Default sustained-attention window (``T_a``). "How long can a human
+# plausibly stay continuously engaged in one block before we should
+# assume they walked away from the keyboard." Semantically DISTINCT
+# from ``DEFAULT_THRESHOLD_SECONDS``.
+#
+# *** This value is PROVISIONAL pending empirical analysis. ***
+#
+# Rationale for 1 hour as the initial default:
+#   * Several multiples of ``T`` (12 min), so the constant cannot
+#     collapse onto T's meaning by coincidence.
+#   * The "normal" reference rows in Issue #184 cluster in the
+#     30–60 min engaged range; 60 min retains them while clipping
+#     the 14–20 hour outliers that motivated the bug report.
+#   * Configurable (CLI flag + per-call kwarg), so the empirical
+#     value can be plumbed in once it lands without touching code.
+#
+# The proposed empirical analysis (Issue #184 comment thread): bucket
+# the gap between consecutive user messages by length of intervening
+# agent activity, observe where the "still present" signal (gap to
+# immediately-preceding event ≤ T at the follow-up) begins to fall
+# off. That analysis lives in a separate workspace with a larger
+# conversation corpus.
+DEFAULT_SUSTAINED_ATTENTION_SECONDS = 60 * 60
+
+# Algorithm version stored alongside the metric. Bumped whenever
+# ``compute_engagement`` changes in a way that produces materially
+# different numbers under the same inputs. Migration 025 backfills
+# pre-v2 rows by clearing the stage-tracking record so the next
+# ``ohtv db process engagement`` pass recomputes them automatically.
+#
+#   v1 — Initial algorithm (Issue #163). Single threshold ``T``;
+#        attended blocks extended unconditionally back to ``Uᵢ₋₁``.
+#   v2 — Added the sustained-attention cap ``T_a`` (Issue #184).
+COMPUTE_ENGAGEMENT_VERSION = 2
 
 
 @dataclass(frozen=True)
 class EngagementMetrics:
-    """The engagement numbers for one conversation under one threshold.
+    """The engagement numbers for one conversation under one threshold pair.
 
     ``first_event_ts`` and ``last_event_ts`` are normalized on the
     first/last event JSON timestamps — NOT on
@@ -96,6 +187,7 @@ def compute_engagement(
     events: list[dict],
     *,
     threshold_seconds: int = DEFAULT_THRESHOLD_SECONDS,
+    sustained_attention_seconds: int = DEFAULT_SUSTAINED_ATTENTION_SECONDS,
 ) -> EngagementMetrics:
     """Compute engagement metrics for one conversation's events.
 
@@ -103,16 +195,25 @@ def compute_engagement(
         events: Ordered list of event dicts (as loaded from
             ``events/event-*.json``). Events must be in chronological
             order; the on-disk file naming guarantees this.
-        threshold_seconds: ``T`` in seconds. Default
-            :data:`DEFAULT_THRESHOLD_SECONDS` (12 min). Pass 0 to mark
-            every gap unattended; pass a very large number to merge the
-            whole conversation into a single period.
+        threshold_seconds: ``T`` — silence-tolerance threshold, in
+            seconds. Default :data:`DEFAULT_THRESHOLD_SECONDS` (12 min).
+            Pass ``0`` to mark every gap unattended; pass a very large
+            number to merge the whole conversation into one period
+            *for the silence gate*.
+        sustained_attention_seconds: ``T_a`` — sustained-attention
+            window, in seconds. Default
+            :data:`DEFAULT_SUSTAINED_ATTENTION_SECONDS` (1 h). Caps
+            how far an attended block may extend back from ``Uᵢ`` to
+            ``Uᵢ₋₁``. Pass ``0`` to disable block extension entirely
+            (every attended follow-up records a zero-duration touch);
+            pass a very large number to disable the cap (recovers the
+            v1 behavior). Negative values are clamped to ``0``.
 
     Returns:
-        :class:`EngagementMetrics` for the conversation. Malformed events
-        (missing/wrong-typed timestamp or kind/source fields) are
-        tolerated and silently skipped — the metric degrades gracefully
-        rather than crashing the pipeline.
+        :class:`EngagementMetrics` for the conversation. Malformed
+        events (missing/wrong-typed timestamp or kind/source fields)
+        are tolerated and silently skipped — the metric degrades
+        gracefully rather than crashing the pipeline.
     """
     # Pre-extract (timestamp, is_user_message) for every parseable event.
     # We keep the same index space as `events` so the gap-test uses
@@ -151,10 +252,15 @@ def compute_engagement(
         )
 
     threshold = max(0, int(threshold_seconds))
+    attention_window = max(0, int(sustained_attention_seconds))
 
     # Walk backward over follow-up user messages (skip U₀). For each Uᵢ
-    # whose gap to the immediately preceding parseable event is ≤ T,
-    # record the attended block back to Uᵢ₋₁.
+    # whose gap to the immediately preceding parseable event is ≤ T
+    # (silence-tolerance gate), record an attended block. The block is
+    # `[Uᵢ₋₁, Uᵢ]` when the user-to-user gap is within the sustained-
+    # attention window T_a; otherwise it is a zero-duration touch at
+    # `Uᵢ` (the user returned, but they cannot have been reading along
+    # for the whole gap).
     attended: list[tuple[datetime, datetime]] = []
     for k in range(len(user_idx) - 1, 0, -1):
         u_i = user_idx[k]
@@ -179,12 +285,27 @@ def compute_engagement(
 
         gap_seconds = (u_ts - p_ts).total_seconds()
         if gap_seconds > threshold:
+            # Silence-tolerance gate failed → not attended.
             continue
 
-        block_start_idx = user_idx[k - 1]
-        block_start_ts = parsed[block_start_idx][0]
-        assert block_start_ts is not None
-        attended.append((block_start_ts, u_ts))
+        # Sustained-attention cap (Issue #184). Look at the user-to-
+        # user gap to decide whether the block extends back or
+        # collapses to a touch.
+        prev_user_idx = user_idx[k - 1]
+        prev_user_ts = parsed[prev_user_idx][0]
+        assert prev_user_ts is not None
+        user_gap_seconds = (u_ts - prev_user_ts).total_seconds()
+
+        if user_gap_seconds > attention_window:
+            # The user was silent longer than one continuous
+            # attention session can plausibly cover. Credit the
+            # touch only — they came back, but they were not
+            # reading along the whole time.
+            attended.append((u_ts, u_ts))
+        else:
+            # Normal back-and-forth: extend the block back to the
+            # previous user message ("reading along" credit).
+            attended.append((prev_user_ts, u_ts))
 
     if not attended:
         return EngagementMetrics(
@@ -229,32 +350,38 @@ def process_engagement(
     conversation: Conversation,
     *,
     threshold_seconds: int = DEFAULT_THRESHOLD_SECONDS,
+    sustained_attention_seconds: int = DEFAULT_SUSTAINED_ATTENTION_SECONDS,
 ) -> None:
     """Compute engagement for a conversation and upsert the row.
 
     Reads events from ``<conversation.location>/events/event-*.json``,
     computes :class:`EngagementMetrics`, and upserts them into
-    ``conversation_engagement`` (migration 023). The stage is marked
-    complete regardless of whether any user messages were found — even
-    fire-and-forget conversations get a row (``engaged_seconds = 0``,
-    ``attention_periods = 0``) so downstream queries do not need to
-    LEFT JOIN.
+    ``conversation_engagement`` (migration 023 + 025). The stage is
+    marked complete regardless of whether any user messages were found
+    — even fire-and-forget conversations get a row (``engaged_seconds
+    = 0``, ``attention_periods = 0``) so downstream queries do not
+    need to LEFT JOIN.
 
     Args:
         conn: Database connection.
         conversation: Conversation row from ``ConversationStore``.
-        threshold_seconds: ``T`` to use for this row. Stored on the row
-            so the tuning sweep can keep the per-threshold values
-            distinguishable. The default
-            (:data:`DEFAULT_THRESHOLD_SECONDS`) ships as the initial
-            value per the issue's open-question recommendation; the
-            real default will be picked from the empirical break in
-            the gap histogram.
+        threshold_seconds: ``T`` — silence-tolerance threshold. Stored
+            on the row so the tuning sweep can keep per-threshold
+            values distinguishable.
+        sustained_attention_seconds: ``T_a`` — sustained-attention
+            window cap. Stored on the row alongside ``T`` so re-tuning
+            either constant is detectable. Default is the provisional
+            :data:`DEFAULT_SUSTAINED_ATTENTION_SECONDS` (1 h) pending
+            the empirical analysis described in Issue #184.
     """
     conv_dir = Path(conversation.location)
     events = _load_events(conv_dir / "events")
 
-    metrics = compute_engagement(events, threshold_seconds=threshold_seconds)
+    metrics = compute_engagement(
+        events,
+        threshold_seconds=threshold_seconds,
+        sustained_attention_seconds=sustained_attention_seconds,
+    )
 
     processed_at = datetime.now(timezone.utc).isoformat()
     conn.execute(
@@ -262,6 +389,8 @@ def process_engagement(
         INSERT INTO conversation_engagement (
             conversation_id,
             threshold_seconds,
+            sustained_attention_seconds,
+            algorithm_version,
             first_event_ts,
             last_event_ts,
             total_duration_seconds,
@@ -272,9 +401,11 @@ def process_engagement(
             processed_at,
             event_count
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(conversation_id) DO UPDATE SET
             threshold_seconds = excluded.threshold_seconds,
+            sustained_attention_seconds = excluded.sustained_attention_seconds,
+            algorithm_version = excluded.algorithm_version,
             first_event_ts = excluded.first_event_ts,
             last_event_ts = excluded.last_event_ts,
             total_duration_seconds = excluded.total_duration_seconds,
@@ -288,6 +419,8 @@ def process_engagement(
         (
             conversation.id,
             int(threshold_seconds),
+            int(sustained_attention_seconds),
+            COMPUTE_ENGAGEMENT_VERSION,
             metrics.first_event_ts.isoformat() if metrics.first_event_ts else None,
             metrics.last_event_ts.isoformat() if metrics.last_event_ts else None,
             metrics.total_duration_seconds,
@@ -306,11 +439,13 @@ def process_engagement(
     )
 
     log.debug(
-        "engagement %s: engaged=%ds periods=%d T=%ds follow_ups=%d attended=%d",
+        "engagement %s: engaged=%ds periods=%d T=%ds T_a=%ds v=%d follow_ups=%d attended=%d",
         conversation.id[:8],
         metrics.engaged_seconds,
         metrics.attention_periods,
         threshold_seconds,
+        sustained_attention_seconds,
+        COMPUTE_ENGAGEMENT_VERSION,
         metrics.follow_up_user_message_count,
         metrics.attended_user_message_count,
     )

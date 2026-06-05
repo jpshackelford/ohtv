@@ -161,27 +161,73 @@ the conversation, inferred from the temporal gaps around each user
 message. Distinct from `human_input`, which counts *how much* the human
 said; engagement captures *how long the human was paying attention*.
 
-Each follow-up user message whose gap to the immediately preceding
-event is ≤ `T` (default **12 minutes** = 720 seconds) marks an
-**attended block**; adjacent blocks within `T` of each other are merged
-into a single **attention period**. Results land in the
-`conversation_engagement` table (one row per conversation, migration
-023) with columns `engaged_seconds`, `attention_periods`,
-`threshold_seconds`, and the event-derived
+The stage uses two distinct timing constants (see
+[Issue #184](https://github.com/jpshackelford/ohtv/issues/184) for
+the conceptual split):
+
+* **`T` — silence tolerance** (`--threshold`, default **12 minutes** =
+  720 seconds). "How long can a human be silent during agent activity
+  and still be considered present at that instant?" Empirically tuned;
+  see `scripts/engagement_threshold_sweep.py`.
+* **`T_a` — sustained-attention window** (`--sustained-attention`,
+  default **1 hour** = 3600 seconds, **PROVISIONAL**). "How long can a
+  human plausibly stay continuously engaged in one block before we
+  should assume they walked away?" Caps how far an attended block may
+  extend back from `Uᵢ` to `Uᵢ₋₁`. The default has not yet been
+  empirically tuned — pinning it requires corpus analysis on the
+  distribution of user-to-user gaps versus intervening agent activity
+  (proposed in the Issue #184 thread).
+
+A follow-up user message `Uᵢ` is **attended** when its gap to the
+immediately preceding event is ≤ `T`. If it is, the credit it
+contributes depends on the user-to-user gap `Uᵢ − Uᵢ₋₁`:
+
+* `≤ T_a` → block `[Uᵢ₋₁, Uᵢ]` (the "reading along" credit — normal
+  back-and-forth chat).
+* `> T_a` → zero-duration touch at `Uᵢ` (the user returned, but they
+  cannot plausibly have been monitoring the whole stretch). The
+  `attention_periods` counter still increments; `engaged_seconds`
+  does not.
+
+Adjacent blocks within `T` of each other are then merged into a single
+**attention period**.
+
+Results land in the `conversation_engagement` table (one row per
+conversation, migration 023 + 025) with columns `engaged_seconds`,
+`attention_periods`, `threshold_seconds`, `sustained_attention_seconds`,
+`algorithm_version`, and the event-derived
 `first_event_ts`/`last_event_ts`/`total_duration_seconds`.
 
 ```bash
-# Run with the 12-minute default
+# Run with the defaults (T = 12 min, T_a = 1 h)
 ohtv db process engagement
 
-# Re-run with a custom threshold (in seconds) — overwrites the stored row
+# Re-run with a custom T (silence-tolerance threshold)
 ohtv db process engagement --threshold 600 --force      # T = 10 min
 ohtv db process engagement --threshold 900 --force      # T = 15 min
+
+# Re-run with a custom T_a (sustained-attention window)
+ohtv db process engagement --sustained-attention 1800 --force   # T_a = 30 min
+ohtv db process engagement --sustained-attention 7200 --force   # T_a = 2 h
+
+# Recover the pre-#184 (v1) behavior by disabling the cap
+ohtv db process engagement --sustained-attention 999999999 --force
 ```
+
+**Upgrading from v1 → v2 (Issue #184):** Migration 025 ships with the
+v2 algorithm and **auto-invalidates the cached engagement results** —
+it clears every row in `conversation_stages` with `stage = 'engagement'`
+so the next `ohtv db process engagement` (or `ohtv db process all`, or
+`ohtv sync`-driven processing) recomputes every conversation under the
+v2 algorithm. You do **not** need to remember `--force`. Existing
+engagement rows are preserved (clearly identified by
+`algorithm_version = 1`) until the next processing pass overwrites them.
 
 To pick an empirically-grounded `T` for your corpus, use
 `scripts/engagement_threshold_sweep.py` (non-destructive — it computes
-in memory and writes CSV). See
+in memory and writes CSV). The sweep script uses the default v2 `T_a`;
+to sweep `T_a` independently, run with a fixed `T` and varying
+`--sustained-attention` values. See
 [docs/design/conversation-metrics.md#engaged-human-minutes-sustained-attention-metric--issue-163](../design/conversation-metrics.md#engaged-human-minutes-sustained-attention-metric--issue-163)
 for the algorithm, edge cases, and tuning workflow.
 
