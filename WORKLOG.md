@@ -1,5 +1,17 @@
 ## Log
 
+### 2026-06-05 00:26 UTC - Docs Spot-Check Worker (PR #183)
+
+Ran the tight markdown spot-check on PR #183 (`feat(cli): add ohtv messages command`) following the pagination-guard fix at `dd20ee8`. Source-of-truth check: read the post-fix footer-print line in `src/ohtv/cli.py` (~L6400, `Showing {shown} of {total_conversations} candidate conversations`) and the new regression test `tests/unit/test_cli_messages.py::test_text_footer_uses_candidate_terminology` to lock the exact wording. Confirmed the `README.md` sample on line 236 still carried the OLD wording (`Showing 2 of 15 conversations …`) and that the adjacent Gotchas bullet about the empty-result hint implied the engagement hint always fires (the fix split this into a `total_convs == 0` path and a `total_convs > 0` offset-aware path).
+
+Updated `README.md` with a single-word insertion in the footer sample (`conversations` → `candidate conversations`, preserving the numbers and `--offset` value) and a short clarifier on the Gotchas bullet to surface the two-path split. `AGENTS.md` only carries bare `ohtv messages` usage examples — no footer wording, left untouched. `docs/guides/exploration.md:261` is about `ohtv list`, not `messages`, left untouched per task scope. Smoke-verified `uv run ohtv messages --help` and `pytest tests/unit/test_cli_messages.py -k "footer or pagination or empty"` (**11 passed, 11 deselected**) before committing.
+
+Pushed as `59f8a3d` on `feat/messages-command-181`. CI re-green: pytest + lint both ✅. Posted a single `📋 Docs spot-check — PR #183` comment summarising the changes and the new HEAD SHA. PR #183 remains APPROVED / CLEAN / MERGEABLE and is now ready for the merge worker on the next orchestrator cycle.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-05 00:21 UTC - Orchestrator
 
 **Active Workers:**
