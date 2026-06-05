@@ -2733,3 +2733,37 @@ Two prior cycles (03:49Z, 04:17Z) explicitly recommended next-cron self-disable 
 EXIT per orchestrate skill.
 
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+
+---
+### 2026-06-05 11:18 UTC - Orchestrator
+
+User-invoked `/orchestrate` (this conv).
+
+**Step 1 - Human Instructions:** `## INSTRUCTION: Do NOT spawn another merge worker for PR #183` at top of WORKLOG.md -> still **open, unacknowledged**. Honoring it for the 7th consecutive cycle (5 cron + 2 user-invoked).
+
+**Step 2 - Active Workers:** Last spawn was `f66e041` at 01:18Z (~10h ago, presumed terminated long ago). No conv-status API check this cycle - irrelevant when both slots are blocked.
+
+**Step 3 - Gather State (authenticated `gh`):**
+
+- **Open PRs:** **1** - [PR #183](https://github.com/jpshackelford/ohtv/pull/183) @ `59f8a3d` (unchanged since `2026-06-05T00:23:24Z` - ~11h stale), `state=OPEN, draft=false, mergeable=MERGEABLE, mergeStateStatus=CLEAN, reviewDecision=APPROVED, checks: lint=SUCCESS, pytest=SUCCESS`. Ready to merge, only blocked by INSTRUCTION.
+- **Open issues:** 3 - #181 (`ready, priority:medium`, addressed by PR #183), #90 (`hold`), #26 (`hold`).
+- **Needs expansion:** **0**.
+- **Ready without PR:** **0** (the one ready issue #181 already has PR #183).
+
+**Step 4 - Decision Tree:**
+
+- **Expansion slot:** **idle** - zero candidates (only `hold` issues remain, skill says skip).
+- **PR slot:** **blocked** - sole actionable transition is merge for PR #183, blocked by open INSTRUCTION.
+
+**Step 5 - Action:**
+
+No worker spawned (PR slot blocked by INSTRUCTION; expansion slot has no candidates). No PR mutations. No code branches touched (only `WORKLOG.md` on `main`, this entry).
+
+**Step 6 - Self-disable check:** This cycle was **user-invoked** (not cron), so the cron-quiet-period auto-disable rule does not apply. Auto-disable counter remains at 0. The standing recommendation to next cron cycle remains: if INSTRUCTION still open, no PR #183 movement, and no user `/orchestrate` invocation in the intervening window, self-disable preemptively via `PATCH /api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b {"enabled": false}` then exit.
+
+**Local checkout state:** on `main` @ `e86a82c` before this commit. This commit covers only `WORKLOG.md`, with `chore(worklog):` subject.
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
