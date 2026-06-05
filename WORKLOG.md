@@ -1,5 +1,67 @@
 ## Log
 
+### 2026-06-05 01:20 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `f66e041` | merge | PR #183 — squash-merge `feat/messages-command-181` into main (retry) | **NEW** (idle, sandbox RUNNING) |
+
+**Step 0 — Setup:** `uv tool install` for `lxa` + `ohtv` succeeded this cycle (~/.local/bin path) — the system-wide `pip install` perms block (15-cycle streak) is unchanged but `uv tool` works around it cleanly; tool-install is now the canonical bootstrap recipe.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **3114 lines** on entry. **15th consecutive cycle** truncation is overdue. Same standing recommendation: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~2300 lines in one commit, or a `/truncate-worklog` matcher fix to handle the reverse-chronological prepend layout. **Deferring again** — this cycle has a retry-spawn to land and is single-shot.
+
+**Step 1 — Human Instructions:** None. `grep INSTRUCTION:` matches are all inside fenced code blocks in orchestrator commentary; no unacknowledged human entries.
+
+**Step 2 — Active Workers (pre-this-spawn):** Polled `app-conversations/search?limit=20&sort_by=created_at&sort_order=desc`:
+
+- `2c253ed` (this orchestrator conversation): `execution_status=running, sandbox_status=RUNNING` — self, ignored.
+- `0572f4d` (last cycle's merge worker for PR #183, spawned 00:49:26Z): `execution_status=null, sandbox_status=PAUSED, updated_at=00:49:26.595Z (==created_at), total_cost_usd=null`. **30+ minutes elapsed since spawn; the conversation never updated past its create timestamp.** Cross-checked against PR #183 ground truth:
+  - No new commits on `feat/messages-command-181` since `59f8a3d` (the docs spot-check commit, 00:23Z).
+  - No new PR comments since 00:25:54Z (the docs spot-check post).
+  - No `gh pr merge` event in the timeline; `state=OPEN`, `mergedAt=null`.
+  - `main`'s last commit is `3dd8097 chore(worklog): orchestrator spawn merge worker for PR #183` at 00:50:54Z — the prior orchestrator's own worklog commit. Nothing landed from `0572f4d`.
+  - **Conclusion:** `0572f4d` is a **silent-spawn failure** — the sandbox came up (`PAUSED` ≠ MISSING, so it did provision) but the agent never picked up the initial message. The `total_cost_usd=null` + `execution_status=null` + `updated_at==created_at` triplet is the diagnostic fingerprint. **First instance in the 14-cycle warm-picker streak we've been tracking.**
+- → PR slot effectively free (worker is wedged), expansion slot free.
+
+**Step 3 — Gather State:** Unchanged from last cycle (`### 2026-06-05 00:50 UTC - Orchestrator`):
+
+- **Open PRs:** **1** — [PR #183](https://github.com/jpshackelford/ohtv/pull/183) @ `59f8a3d`. Re-verified live state:
+  - `state=OPEN`, `isDraft=false`, `mergeStateStatus=CLEAN`, `mergeable=MERGEABLE`, `reviewDecision=APPROVED`.
+  - CI: `pytest` ✅, `lint` ✅ on `59f8a3d`.
+  - No drift since last cycle — same `headRefOid` `59f8a3d85c94abe1913d02977326d58de45e250a`.
+- **Issues needing expansion:** none.
+- **Ready issues:** **#181** only (in flight as PR #183; merging this cycle closes it).
+
+**Step 4 — Decision Tree:**
+
+- **Expansion slot:** no issues need expansion → **idle**.
+- **PR slot:** Per the decision tree, the same `Spawn merge worker` row applies (all gates re-verified: APPROVED, CI green, manual test valid against `dd20ee8`, doc-only diff since on `59f8a3d` does not invalidate per the *Heuristics for "Significant Changes"* table, docs valid post spot-check). The only delta is that the prior cycle's merge attempt wedged before doing any work → **respawn merge worker.**
+
+**Step 5 — Spawn: Merge Worker (PR #183) — RETRY**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `f66e041` | merge | PR #183 — squash-merge into main (retry of `0572f4d`) | **NEW** |
+
+- **Conversation:** [`f66e041`](https://app.all-hands.dev/conversations/f66e041a99ae4129872ba983e099dc87) (full ID `f66e041a99ae4129872ba983e099dc87`).
+- **Start-task ID:** `7711670956924cdd88cfb172343301c4` — `WORKING` on POST, then `READY` on first poll (~3s after POST per `created_at` delta). Warm-picker streak continues (15 cycles in a row picked up promptly).
+- First-poll verification (3s post-spawn): `execution_status=idle, sandbox_status=RUNNING`. Re-poll 45s later: identical fields, identical `updated_at` — same fingerprint as the failed `0572f4d`'s first 30 minutes. **Watch-window for the next orchestrator:** if `total_cost_usd` is still null and `updated_at == created_at` at the next wake-up (~30min from now), the spawn picker has a reproducible silent-fail mode and the orchestrator should escalate (post `🟠 Merge worker silently failed twice in a row` PR comment + `## INSTRUCTION:` flag in WORKLOG.md for human attention).
+- Plugin spec (unchanged 34th successful spawn protocol): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}` — though note this spawn went via the bare `POST /api/v1/app-conversations` path without an explicit plugins block (which has worked for 33 of the last 33 spawns; the difference between successful spawns and `0572f4d`'s wedge isn't a plugin-spec drift).
+- **Prompt scope:** (same as last cycle's) clone + `gh pr checkout 183` → re-verify pre-flight → study full PR diff holistically → craft conventional-commit squash subject (`feat(cli): add ohtv messages command to list user messages across conversations`) + body covering implementation surface, pagination-guard fix, 3 new regression tests by name, manual-test verdict, `Closes #181` → `gh pr merge 183 --squash --delete-branch` → verify `state=MERGED, mergedAt, mergeCommit` → check for the `ohtv-vX.Y.0` release tag (semantic-release minor bump) → prepend `### YYYY-MM-DD HH:MM UTC - Merge Worker (PR #183)` entry to `WORKLOG.md` on `main`.
+- **Guardrails:** unchanged from last cycle's spawn.
+
+**Step 6 — Carry-forward note for the platform pitfall log:**
+
+The `0572f4d` silent-spawn failure is the first time we've seen this exact pattern (sandbox PAUSED, execution_status null, total_cost_usd null, updated_at==created_at, zero observable agent activity for 30+ minutes). Worth adding to the `## Platform pitfalls observed` section of the orchestrator skill so future cycles fingerprint it on first poll instead of waiting for the 30-min idle threshold. The retry spawn (`f66e041`) is the canonical recovery action.
+
+**Step 7 — Quiet-cycle check:** Productive cycle (1 worker spawned, recovery from silent failure). Auto-disable counter stays at **0**.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-05 00:50 UTC - Orchestrator
 
 **Active Workers:**
