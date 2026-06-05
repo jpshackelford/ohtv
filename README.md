@@ -233,7 +233,7 @@ Created: 2026-05-22 10:15 UTC | Events: 47
 [2026-05-22 10:15:03] Can you help me implement OAuth2 authentication...
 
 ─────────────────────────────────────────────────────────────────
-Showing 2 of 15 conversations (6 messages) | Next: --offset 2
+Showing 2 of 15 candidate conversations (6 messages) | Next: --offset 2
 ```
 
 `-F json` emits a single object: `{total_conversations, total_messages,
@@ -245,9 +245,11 @@ full message text — the 500-char truncation only applies to `text` mode.
 
 - Like `--event-dates` and the `--engaged` family, the date filter runs against
   `conversation_engagement.first_event_ts` / `last_event_ts`. Conversations
-  without an engagement row are silently excluded (INNER JOIN). On an empty
-  result set the command prints a hint pointing at `ohtv db process engagement`
-  (or `ohtv sync`).
+  without an engagement row are silently excluded (INNER JOIN). When the
+  candidate pool is empty the command prints a hint pointing at
+  `ohtv db process engagement` (or `ohtv sync`); when candidates exist but
+  the current page is empty (e.g. paged past the message-bearing pool with
+  `--offset`) it prints an offset-aware hint instead.
 - The footer's `total_messages` counts only the *displayed* conversations —
   pagination is by conversation, so the full-history message count across all
   candidates is intentionally not computed (would defeat the per-invocation
