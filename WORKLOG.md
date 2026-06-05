@@ -36,6 +36,51 @@ status, exit.
 
 ## Log
 
+### 2026-06-05 02:18 UTC - Orchestrator
+
+🔒 **INSTRUCTION-honoring cycle — PR #183 merge spawn skipped per WORKLOG header**
+
+**Active Workers (verified against API):**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0572f4d` | merge | PR #183 — attempt 1 (00:49) | **STILL WEDGED** — `sandbox=PAUSED, execution_status=null, cost=None, updated_at==created_at` at ~89 min |
+| `f66e041` | merge | PR #183 — attempt 2 (01:18) | **STILL WEDGED** — same fingerprint at ~59 min |
+
+Same silent-fail fingerprint as the prior escalation cycle — no change in either wedged worker, no recovery, no platform-side intervention visible.
+
+**Step 1 — Human Instructions:** The `## INSTRUCTION: Do NOT spawn another merge worker for PR #183 until this instruction is acknowledged` block at the top of `WORKLOG.md` is **still open** (no `[ACKNOWLEDGED]` tag, no human reply on PR #183 since the 01:49Z escalation comment, no manual merge). Honoring it.
+
+**Step 3 — Gather State:**
+
+- **Open PRs:** **1** — [PR #183](https://github.com/jpshackelford/ohtv/pull/183) @ `59f8a3d`. `state=OPEN`, `isDraft=false`, `reviewDecision=APPROVED`, `mergedAt=null`. (GH API `mergeStateStatus` came back `UNKNOWN` this cycle — known transient cache state, not a real regression; the prior cycle's `CLEAN/MERGEABLE` reading is the authoritative one and nothing about the PR has changed since.)
+- **Latest 3 PR comments** (unchanged since 01:49Z): manual-test results (23:49Z), docs spot-check (00:25Z), 🟠 escalation comment (01:49Z). No human reply on the PR.
+- **Issues:** #26 (`hold`), #90 (`hold`), #181 (`ready`, in flight as PR #183). **None need expansion.**
+
+**Step 4 — Decision Tree:**
+
+- **Expansion slot:** no issues need expansion → **idle**. (Standing observation: every open backlog issue is either `hold` or in flight as PR #183.)
+- **PR slot:** decision-tree row is *Spawn merge worker* → **blocked by INSTRUCTION block**. No spawn this cycle.
+
+**Step 5 — Actions Taken:**
+
+1. ❌ **Did NOT spawn a third merge worker** — honoring the open INSTRUCTION block (a 3rd cycle of the silent-fail loop would just waste compute).
+2. ❌ **Did NOT post another PR comment** — the 01:49Z escalation already documents the situation; double-posting on every cron tick would just bury it.
+3. ❌ **Did NOT spawn an expansion worker** — slot has no work.
+4. ✅ Logged this status entry to `WORKLOG.md` on `main`.
+
+**Step 6 — Quiet-cycle counter:** This is an **INSTRUCTION-honoring cycle**, not an "All quiet" cycle (the gating condition is an explicit human-action-required block, not absence of work). Auto-disable counter stays at **0**. If the INSTRUCTION persists for many more cycles the orchestrator can self-disable preemptively to save cron compute — flagging that as a future option but not triggering it yet (this is only the 2nd cycle the INSTRUCTION has been live; one more cycle of grace before considering self-disable is fair).
+
+**Step 7 — Carry-forwards:**
+
+- **Silent-spawn failure mode:** unchanged — both wedged workers still at `sandbox=PAUSED, cost=None, updated_at==created_at` at 59+/89+ min. Confirms the failure mode is **terminal**, not a slow-start (the prior cycle's "30 min watch window" threshold is now ~2x exceeded).
+- **WORKLOG truncation:** 17 cycles overdue. Now at ~3325 lines after this entry. The reverse-chrono-prepend matcher blind spot is still the documented blocker for `/truncate-worklog`. Same standing recommendation: human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` unblocks ~2400 lines in one commit.
+- **Awaiting one of:** (a) human manually squash-merges PR #183 + adds `[ACKNOWLEDGED]` to the INSTRUCTION header, (b) human investigates the OH cloud spawn-picker silent-fail and clears the INSTRUCTION with a `resume normal merge-worker spawns` follow-up block, or (c) a `plugins`-block-explicit merge-worker payload patch lands in `ohtv-workflow`.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-05 01:48 UTC - Orchestrator
 
 🟠 **ESCALATION CYCLE — merge worker silent-fail confirmed reproducible**
