@@ -373,3 +373,49 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-05 17:49 UTC - Orchestrator
+
+User-invoked `/orchestrate` (this conv).
+
+**Step 1 - Human Instructions:** None. No `## INSTRUCTION:` block at top of `WORKLOG.md` (file starts with `## Log`, then the retained 13:25Z entry). Live worklog is 375 lines - still above the 300-line threshold post-truncate (17:17Z), but oldest retained entry is 13:25Z (~4h24m ago), inside the 6h productive-span retention window. Nothing eligible to archive this tick.
+
+**Step 2 - Active Workers:** None to verify. Last orchestrator spawn was `5af1a20` (expansion for #184) at 13:20Z; completed 13:25Z. All subsequent entries (13:47Z, 14:18Z, 14:47Z, 15:16Z, 15:49Z, 16:18Z, 16:46Z, 17:17Z) inline, no spawn.
+
+**Step 3 - Gather State (authenticated `gh`):**
+
+- **Open PRs:** **1** - [PR #185](https://github.com/jpshackelford/ohtv/pull/185) - "fix(engagement): cap block extension on separate T_a window (Issue #184)"
+  - `isDraft: true`, `headRefOid=74bfc9000ea92e8741ce316f674f104e8d2c6e24`, `updatedAt=2026-06-05T14:04:27Z`, last commit `committedDate=14:03:11Z`, 0 comments, `mergeStateStatus=CLEAN`, `reviewDecision=""`.
+  - **Completely unchanged since 17:17Z entry** (~32m ago) and since 14:03Z (~3h 46m since last commit).
+  - All CI green: `lint=pass(3s)`, `pytest=pass(1m12s)`, `enable-orchestrator=pass(3s)`, `pr-review=skipping` (draft).
+- **Open issues:** 3 - identical labels to 17:17Z:
+  - #184 `bug, hold, priority:high` - addressed by PR #185
+  - #90  `enhancement, hold, priority:medium`
+  - #26  `hold`
+- **Needs expansion:** **0**.
+- **Ready without PR:** **0**.
+
+**Step 4 - Decision Tree:**
+
+- **Expansion slot:** **idle** - zero candidates (all open issues on `hold`).
+- **PR slot:** **wait** - PR #185 is `draft` + CI green -> skill table row: _"PR exists, draft, CI green -> Wait (impl worker finishing up)"_. The orchestrator does not flip `draft -> ready`; that is the PR author's call. PR #185's author conv (`a33f0671`) is non-orchestrator, so it owns the transition.
+
+**Step 5 - Action:**
+
+[OK] **No worker spawned.** Identical conclusion to the eight preceding ticks (13:47Z through 17:17Z): expansion slot idle (no work), PR slot occupied by a draft PR being driven by a separate conversation - orchestrator correctly defers.
+
+No code branches touched; only this `WORKLOG.md` entry on `main`.
+
+**Step 6 - Auto-disable check:** This cycle was **user-invoked**, not cron-fired. Per the consistent precedent in the retained 13:47Z -> 17:17Z entries, only consecutive **cron-fired** quiet entries count toward auto-disable. The 13:20Z entry (now archived) was the most recent cron-fired spawn (counter reset); no cron-fired entries have occurred since (all subsequent ticks user-invoked). Auto-disable counter remains at **0**. Not triggered.
+
+**Standing recommendation for next tick (unchanged):**
+- PR #185 still `draft` + CI green -> continue to **wait**.
+- PR #185 moved to `ready` by its author + no docs comment -> spawn **docs worker**.
+- PR #185 has docs comment + no manual test results -> spawn **testing worker**.
+- PR #185 closed/merged + #184 remains `hold` -> both slots idle, quiet cycle.
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
