@@ -340,3 +340,50 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+
+### 2026-06-05 14:47 UTC - Orchestrator
+
+User-invoked `/orchestrate` (this conv).
+
+**Step 1 - Human Instructions:** None at top of `WORKLOG.md`. Live worklog is 342 lines - over the 300-line truncation threshold, but every existing entry falls within a 3.5h window (11:18Z -> 14:18Z), all newer than the skill's 6h archive cutoff. Nothing eligible to archive this tick. Re-check next cycle.
+
+**Step 2 - Active Workers:** None to verify. Last orchestrator spawn was `5af1a20` (expansion for #184) at 13:20Z; completed 13:25Z. The 13:47Z and 14:18Z entries were inline, no spawn.
+
+**Step 3 - Gather State (authenticated `gh`):**
+
+- **Open PRs:** **1** - [PR #185](https://github.com/jpshackelford/ohtv/pull/185) - "fix(engagement): cap block extension on separate T_a window (Issue #184)"
+  - `isDraft: true, mergeable: MERGEABLE, mergeStateStatus: CLEAN, reviewDecision: ""`
+  - All CI green (lint=SUCCESS, pytest=SUCCESS in 1m12s, pr-review=SKIPPED-while-draft, enable-orchestrator=SUCCESS)
+  - **Completely unchanged since 14:18Z entry**: still `headRefOid=74bfc900` @ commit time `14:03:11Z`, `updatedAt=14:04:27Z`, zero comments. Author still the same non-orchestrator OpenHands conv `a33f0671...` referenced in the PR body.
+- **Open issues:** 3 - all still on `hold` with identical labels to 14:18Z:
+  - #184 `bug, hold, priority:high` - being addressed by PR #185
+  - #90  `enhancement, hold, priority:medium`
+  - #26  `hold`
+- **Needs expansion:** **0**.
+- **Ready without PR:** **0**.
+
+**Step 4 - Decision Tree:**
+
+- **Expansion slot:** **idle** - zero candidates (all open issues on `hold`).
+- **PR slot:** **wait** - PR #185 is `draft` + CI green -> skill table row: _"PR exists, draft, CI green -> Wait (impl worker finishing up)"_. The orchestrator does not flip `draft -> ready`; that is the PR author's call. PR #185's author is a separate non-orchestrator conv, so it owns the transition. No docs/test/re-test/review/merge action applies while it remains draft.
+
+**Step 5 - Action:**
+
+[OK] **No worker spawned.** Identical conclusion to the 14:18Z tick: expansion slot idle (no work), PR slot occupied by a draft PR being driven by a separate conversation - orchestrator correctly defers.
+
+No code branches touched; only this `WORKLOG.md` entry on `main`.
+
+**Step 6 - Auto-disable check:** This cycle was **user-invoked**, not cron-fired. Per the consistent precedent (11:48Z, 12:17Z, 12:47Z, 13:47Z, 14:18Z entries), only consecutive **cron-fired** quiet entries count toward auto-disable. The 13:20Z entry was the most recent cron-fired spawn (counter reset); no cron-fired entries have occurred since (all subsequent ticks user-invoked). Auto-disable counter remains at **0**. Not triggered.
+
+**Standing recommendation for next tick (unchanged from 14:18Z):**
+- PR #185 still `draft` + CI green -> continue to **wait**.
+- PR #185 moved to `ready` by its author + no docs comment -> spawn **docs worker**.
+- PR #185 has docs comment + no manual test results -> spawn **testing worker**.
+- PR #185 closed/merged + #184 remains `hold` -> both slots idle, quiet cycle.
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
