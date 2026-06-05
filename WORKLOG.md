@@ -1,5 +1,19 @@
 ## Log
 
+### 2026-06-05 13:25 UTC - Expansion Worker (`#184`)
+
+✅ **Expanded Issue #184** — engagement calculation overcounts long-running conversations
+
+- Issue: [Engagement calculation may overcount for long-running conversations](https://github.com/jpshackelford/ohtv/issues/184)
+- Type: Bug (priority:high)
+- Status: **Ready for implementation** (label `ready` applied)
+- Root cause: `compute_engagement` in `src/ohtv/db/stages/engagement.py:158-187` extends each attended block back to `Uᵢ₋₁` unconditionally; the gap test (`Uᵢ − Pᵢ ≤ T`) at line 180 verifies presence at a single instant via *any* preceding event (agent ActionEvents included), so a 14h overnight agent run with events ≤T apart credits the full duration as engagement. Reproduced synthetically: 280 agent events @ 180s intervals between two user messages → `engaged_seconds = 14.01h, ratio = 100%, periods = 1` (matches the issue's `277bd75c` row exactly).
+- Proposed fix: gate block extension on the **user-to-user** gap (issue hypothesis #3) — `if Uᵢ.ts − Uᵢ₋₁.ts > T: record zero-duration touch (Uᵢ, Uᵢ); else: record (Uᵢ₋₁, Uᵢ)`. ~8 LOC in `engagement.py` + docstring rewrite. Three existing tests (`test_worked_example_from_issue`, `test_two_periods_separated_by_long_gap`, `test_unattended_block_breaks_chain`) lock in the buggy semantics and must be updated; 4 new regression tests proposed (especially: 14h conversation must show <10min engaged, not 14h).
+- No schema migration needed — the `process_engagement` upsert is idempotent; operators must run `ohtv db process engagement --force` after the fix lands to refresh stale rows.
+- Comment: https://github.com/jpshackelford/ohtv/issues/184#issuecomment-4631925560
+
+---
+
 ### 2026-06-05 11:18 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
