@@ -274,13 +274,82 @@ class TestPagination:
 
     def test_text_footer_reports_next_offset_when_paginating(self, seeded_cli_env):
         """When a strict ``-n`` window leaves more conversations
-        behind, the footer surfaces the next ``--offset`` hint."""
+        behind, the footer surfaces the next ``--offset`` hint.
+
+        Also locks down the two-pool footer terminology (#181 review
+        round 1): the denominator is "candidate conversations", not
+        plain "conversations", because it counts engagement-joined
+        candidates (which may include message-free convs).
+        """
         _, out = _invoke(
             "messages", "--since", "2026-05-31", "--until", "2026-06-04",
             "-n", "1",
         )
-        assert "Showing 1 of" in out
+        # Fixture has 4 candidates in range (A, B, C, D — D has only an
+        # action event but its engagement row covers the window).
+        assert "Showing 1 of 4 candidate conversations" in out
         assert "Next: --offset 1" in out
+
+    def test_next_link_does_not_overshoot_when_candidates_have_no_messages(
+        self, seeded_cli_env,
+    ):
+        """Regression for the 🟠 review-bot thread on
+        ``src/ohtv/cli.py:6384`` (Issue #181 review round 1).
+
+        Scenario: 4 candidates in range (A, B, C, D). Candidate sort is
+        ``last_event_ts DESC`` → C, B, D, A. Paging with ``-k 2 -n 2``
+        gives us candidates [D, A]; D has no user messages, so
+        ``shown == 1``. The OLD guard ``(offset + shown) < total`` =
+        ``(2 + 1) < 4`` = True would have emitted ``Next: --offset 3``
+        — pointing past the end of the candidate pool. The new guard
+        ``(offset + limit) < total`` = ``(2 + 2) < 4`` = False
+        correctly suppresses the Next link.
+        """
+        _, out = _invoke(
+            "messages", "--since", "2026-05-31", "--until", "2026-06-04",
+            "-n", "2", "-k", "2",
+        )
+        # We showed 1 of 4 candidates on this page (only A had
+        # messages; D was filtered out by Pass 2).
+        assert "Showing 1 of 4 candidate conversations" in out
+        # Critical regression assertion: no Next link.
+        assert "Next:" not in out
+
+    def test_text_footer_uses_candidate_terminology(self, seeded_cli_env):
+        """Lockdown: the word ``candidate`` appears in the footer so
+        future refactors do not silently revert to plain
+        ``conversations`` (which conflates the two pools — see #181
+        review round 1)."""
+        _, out = _invoke(
+            "messages", "--since", "2026-05-31", "--until", "2026-06-04",
+        )
+        assert "candidate conversations" in out
+
+    def test_empty_page_does_not_show_engagement_hint_when_candidates_exist(
+        self, seeded_cli_env,
+    ):
+        """The engagement-stage hint is for the ``total_convs == 0``
+        path (no candidates → user probably forgot
+        ``ohtv db process engagement``). When candidates exist but the
+        paginated window has zero user messages (#181 review round 1
+        Repro 3), surfacing the engagement hint MISFIRES; show an
+        offset hint instead.
+
+        Scenario: ``-k 2 -n 1`` over the fixture → candidates [D] only,
+        D has no user messages → empty groups, total_convs == 4.
+        """
+        exit_code, out = _invoke(
+            "messages", "--since", "2026-05-31", "--until", "2026-06-04",
+            "-n", "1", "-k", "2",
+        )
+        assert exit_code == 0
+        # New "no messages on this page" wording.
+        assert "No user messages on this page" in out
+        assert "4 candidate conversations in range" in out
+        # Offset-aware hint, NOT the engagement hint.
+        assert "--offset 0" in out
+        # Engagement hint must not fire here.
+        assert "db process engagement" not in out
 
 
 # ===========================================================================

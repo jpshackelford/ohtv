@@ -6376,12 +6376,31 @@ def _render_messages_text(
     console.print(f"[dim]{rule}[/dim]")
 
     # Footer — only the text renderer carries it.
+    #
+    # Two-pool semantics (Issue #181 review round 1): the renderer sees
+    # the messages-bearing *displayed* window (``groups``), while
+    # ``total_conversations`` is the engagement-joined *candidate* pool
+    # (#180's ``list_by_event_date_range`` predicate, after
+    # ``--source`` / ``--repo`` / ``--label`` filtering). The full
+    # messages-bearing pool count would require Pass 2 over every
+    # candidate, which defeats the cost ceiling documented at the top
+    # of :mod:`ohtv.messages`. We therefore:
+    #
+    # 1. Say "candidate conversations" in the denominator so users see
+    #    that the number includes engagement-bearing convs that may
+    #    have had zero in-range user messages (and were dropped from
+    #    the displayed window).
+    # 2. Compute the "Next" guard from ``offset + limit`` (the
+    #    candidate cursor advance), NOT ``offset + shown`` (the
+    #    messages-bearing display count) — otherwise a page where some
+    #    candidates filter out leaks a Next link past the end of the
+    #    candidate pool.
     shown = len(groups)
     parts = [
-        f"Showing {shown} of {total_conversations} conversations",
+        f"Showing {shown} of {total_conversations} candidate conversations",
         f"({total_messages} messages)",
     ]
-    if limit is not None and (offset + shown) < total_conversations:
+    if limit is not None and (offset + limit) < total_conversations:
         parts.append(f"Next: --offset {offset + limit}")
     console.print("[dim]" + " | ".join(parts) + "[/dim]")
 
@@ -6558,17 +6577,46 @@ def messages_cmd(
         offset=offset,
     )
 
-    # Empty-result hint per AC. Mention the engagement-stage caveat
-    # (the engagement-table INNER JOIN in ``list_by_event_date_range``
-    # silently drops convs that haven't been processed yet).
+    # Empty-result hint per AC, split into the two pool-aware cases
+    # (Issue #181 review round 1):
+    #
+    # * ``total_convs == 0`` — genuinely no candidates in the engagement
+    #   table for this range / filter combo. The historical engagement-
+    #   stage hint is the right one here: the user may have forgotten
+    #   to run ``ohtv db process engagement``.
+    #
+    # * ``total_convs > 0`` but ``not groups`` — candidates exist but
+    #   the paginated window of them had zero in-range user messages.
+    #   Either the user walked past the messages-bearing pool with
+    #   ``--offset`` (Repro 1 in the testing report), or filters
+    #   matched a slice of agent-only conversations. The engagement
+    #   hint MISFIRES here; surface an offset hint instead.
     if not groups:
         if fmt == "text":
-            console.print("No user messages in range.")
-            console.print(
-                "[dim]Hint: if you recently synced, run "
-                "'ohtv db process engagement' (or 'ohtv sync') to "
-                "populate event timestamps.[/dim]"
-            )
+            if total_convs == 0:
+                console.print("No user messages in range.")
+                console.print(
+                    "[dim]Hint: if you recently synced, run "
+                    "'ohtv db process engagement' (or 'ohtv sync') to "
+                    "populate event timestamps.[/dim]"
+                )
+            else:
+                console.print(
+                    f"No user messages on this page "
+                    f"({total_convs} candidate conversations in range)."
+                )
+                if offset > 0:
+                    console.print(
+                        "[dim]Hint: try --offset 0 (or drop --offset / "
+                        "--max) to widen the window — some candidates "
+                        "had no in-range user messages.[/dim]"
+                    )
+                else:
+                    console.print(
+                        "[dim]Hint: the candidates in range had no "
+                        "in-range user messages (agent-only "
+                        "conversations or post-filter dropouts).[/dim]"
+                    )
         elif fmt == "json":
             print(_render_messages_json(
                 [],
