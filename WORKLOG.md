@@ -2883,3 +2883,49 @@ EXIT per manual-test skill — orchestrator's next cycle picks up the test comme
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-05 00:03 UTC - Review Worker (PR #183)
+
+Round 1 review pass on PR #183 (`feat/messages-command-181` @ `dd20ee8`, branched from `c50f3a8`). PR was set to draft on entry and back to ready after CI green.
+
+**Threads resolved:**
+
+| Thread | Disposition | Outcome |
+|---|---|---|
+| `PRRT_kwDOR9seq86HNwwx` 🟠 pagination guard (`src/ohtv/cli.py:6384`) | **Accept + extend** | Fixed in `dd20ee8`. Took the bot's one-liner (`offset + limit < total_conversations`) AND addressed the deeper two-pool issue the testing worker flagged in path #12 of the manual test report. |
+| `PRRT_kwDOR9seq86HNww6` 🟡 `_extract_message_content` duplication (`src/ohtv/messages.py:142`) | **Decline (won't-fix)** | Replied with the pragmatic-decoupling rationale: ~10-line pure-function helper, intentionally documented in docstring, shared utility would introduce real coupling for trivial dedup. Resolved. |
+
+**Two-pool fix details (commit `dd20ee8`):**
+
+* `total_conversations` is the engagement-joined *candidate* pool (#180's `list_by_event_date_range` predicate, post `--source/--repo/--label` filters), NOT the messages-bearing displayed pool. Computing the messages-bearing total would require Pass 2 over every candidate (a JSON load per conv) — defeats the cost ceiling documented at the top of `src/ohtv/messages.py`. Went with option (b): honest labeling, not option (a) precomputation.
+* `_render_messages_text` pagination guard now uses `(offset + limit) < total_conversations` (candidate cursor advance) instead of `(offset + shown) < total_conversations` (display count). Fixes the bot's exact bug + the wider class of overshoots when some candidates filter out at Pass 2.
+* Footer denominator reworded: `Showing N of M conversations` → `Showing N of M candidate conversations`. Small wording change, big clarity win on the two-pool semantics.
+* Empty-result hint in `messages_cmd` split: `total_convs == 0` keeps the engagement-stage hint; `total_convs > 0 and not groups` (paginated past the messages-bearing pool, or filter dropouts) surfaces an offset-aware hint. The engagement hint no longer misfires on paginated empty pages — fixes testing report Repro 3.
+
+**Tests added/updated in `tests/unit/test_cli_messages.py`:**
+
+* `test_next_link_does_not_overshoot_when_candidates_have_no_messages` — regression test for the bot's exact bug (with `-k 2 -n 2` over the fixture, OLD guard emits `Next: --offset 3`, NEW guard correctly suppresses it).
+* `test_empty_page_does_not_show_engagement_hint_when_candidates_exist` — covers the engagement-hint misfire on `-k 2 -n 1` (Conv D, no messages).
+* `test_text_footer_uses_candidate_terminology` — lockdown so future refactors don't silently revert the two-pool wording.
+* `test_text_footer_reports_next_offset_when_paginating` — updated to lock down "Showing 1 of 4 candidate conversations" (was the looser "Showing 1 of").
+
+**CI status:** ✅ both checks green on `dd20ee8`.
+
+* `lint` — 3s
+* `pytest` — 1m12s (2611 passed, 2 skipped, 3 xfailed; +3 net new tests over the testing-worker baseline of 2608)
+
+**Guardrails honoured:**
+
+* No README / AGENTS.md edits — docs-spot-check worker's territory.
+* No PR title / description changes — scope unchanged.
+* No new flags or public functions — fix is internal.
+* No edits to `tests/unit/test_messages.py` — pure-function tests unaffected.
+* No `ohtv sync` against the real cloud account.
+* WORKLOG.md updated on `main` only (this entry), never on the PR branch.
+
+**Files touched on PR branch:** `src/ohtv/cli.py` (+62/-8), `tests/unit/test_cli_messages.py` (+71/-2), `uv.lock` (+1/-1 — local editable version bumped to 0.29.0; harmless lock resync). Both review-bot threads now resolved on the PR.
+
+PR `dd20ee8` is back to "ready for review" — orchestrator's next cycle can pick this up for the merge worker.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
