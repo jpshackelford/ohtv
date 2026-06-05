@@ -36,6 +36,63 @@ status, exit.
 
 ## Log
 
+### 2026-06-05 02:48 UTC - Orchestrator
+
+🔒 **INSTRUCTION-honoring cycle (2nd consecutive) — PR #183 merge spawn skipped per WORKLOG header**
+
+User-invoked `/orchestrate` (this conv `cc71d6f2`). A sibling conv `23102f40` was created 42 s earlier (`status=running, sandbox=RUNNING, cost=null`, bare title) and is most likely the cron-scheduled orchestrator running in parallel — flagging here so the next cycle expects two near-simultaneous WORKLOG candidates (this commit lands first; sibling, if it gets that far, will need to rebase).
+
+**Active Workers (verified against API):**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0572f4d` | merge | PR #183 — attempt 1 (2026-06-05 00:49Z) | **STILL WEDGED** at ~119 min — `sandbox=PAUSED, status=null, cost=null, updated_at==created_at` |
+| `f66e041` | merge | PR #183 — attempt 2 (2026-06-05 01:18Z) | **STILL WEDGED** at ~89 min — same fingerprint |
+| `23102f40` | (likely) cron orchestrator (this cycle) | n/a | running, cost=null — racing this entry |
+| `cc71d6f2` | this orchestrator (user `/orchestrate`) | n/a | running |
+
+No state change in either wedged merge worker since the 02:18Z cycle. No human reply on PR #183 since the 01:49Z escalation comment ([#183 issuecomment-4627430705](https://github.com/jpshackelford/ohtv/pull/183#issuecomment-4627430705)). No `[ACKNOWLEDGED]` tag added to the header instruction. No manual squash-merge.
+
+**Step 1 — Human Instructions:** `awk` matcher for `## INSTRUCTION:` outside fenced blocks → still **1 hit, still unacknowledged**. Honoring it.
+
+**Step 3 — Gather State:**
+
+- **Open PRs:** **1** — [PR #183](https://github.com/jpshackelford/ohtv/pull/183) @ `59f8a3d`. `state=OPEN, isDraft=false, reviewDecision=APPROVED, mergedAt=null, mergeable=UNKNOWN, mergeStateStatus=UNKNOWN`. The `UNKNOWN`/`UNKNOWN` pair is GitHub's transient mergeability-recompute cache state; same intermittent reading as the 02:18Z cycle. Pristine merge-ready state confirmed via prior cycles (CLEAN/MERGEABLE).
+- **Issues needing expansion:** **none**. `gh issue list` filtered to `not (ready or hold)` → empty set. All 3 open issues either `ready` (only #181, already in flight as PR #183) or `hold` (#26 mcp-server, #90 `ohtv label`).
+- **Ready, prioritized issues with no PR:** **none** — #181 is the only `ready` issue and its PR exists.
+
+**Step 4 — Decision Tree:**
+
+- **Expansion slot:** **idle** — no issues need expansion. Cannot spawn.
+- **PR slot:** the only actionable PR-state transition is merge for PR #183, which is blocked by the open WORKLOG INSTRUCTION. **Skipping.**
+
+No worker spawned this cycle. No `gh pr ready --undo`, no PR title/description edits, no code branches touched.
+
+**Step 6 — Quiet-cycle / auto-disable check:**
+
+This is **not** an `All quiet` entry — it is an INSTRUCTION-honoring entry, semantically distinct. The auto-disable rule keys on consecutive `All quiet` strings; not triggered. Counter stays at **0**. (The 02:18Z cycle was also INSTRUCTION-honoring; the human-set instruction is the explicit control surface for this state.)
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):**
+
+- ~70%: Instruction still open, both merge workers still wedged, no human action. Another INSTRUCTION-honoring cycle (3rd consecutive).
+- ~20%: Human manually squash-merges PR #183 from the GitHub UI per the instruction's option (1). Next orchestrator cycle sees PR closed, instruction marked `[ACKNOWLEDGED]` or removed, and shifts to expansion-slot idle / waiting on new ready issues. The remaining `hold`-only issue queue means the orchestrator runs 2 consecutive true `All quiet` entries and auto-disables.
+- ~7%: Human drops a `## INSTRUCTION: resume normal merge-worker spawns` block to clear the state. Orchestrator spawns a 3rd merge worker; depends on whether the silent-spawn-fail mode has been platform-side-investigated.
+- ~3%: A 3rd party (e.g., `chore(worklog):` commits from a sibling conv like `23102f40`) lands a WORKLOG change first; this entry rebases or is dropped on push.
+
+**Standing recommendations (carried forward, cumulative):**
+
+- **WORKLOG truncation:** **13 consecutive cycles overdue.** File now at **3310 lines** on entry. Standing recommendation: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~1500 lines in one commit. Deferring once more — the INSTRUCTION-honoring path is short and the truncation should follow the merge-worker silent-fail resolution, not lead it.
+- **Silent merge-spawn fingerprint** unchanged from 01:48Z/02:18Z escalation: `sandbox=PAUSED, execution_status=null, accumulated_cost=null, updated_at==created_at`, no agent activity, no `start-tasks` poll progression past `READY`. Two data points now sustained over ~120 min — consistent with a platform-side regression in the spawn picker for merge-worker payloads specifically (or a coincidence on this exact prompt shape). Not investigated this cycle per instruction scope.
+- **Spawn-payload contract** untested this cycle (no spawns). 32-spawn streak unchanged on the books.
+- **Plugin spec format / auth header / endpoint contract** untested this cycle.
+
+**Local checkout state:** on `main` @ `c8d4ccc` (the 02:18Z INSTRUCTION-honoring WORKLOG commit). This entry commits only `WORKLOG.md` on `main` with `chore(worklog):` subject. No code branches, no PR mutations.
+
+EXIT per orchestrate skill — next scheduled cycle (~30 min) re-checks the INSTRUCTION header, PR #183 state, and wedged merge-worker fingerprints. If human acts on any of the 3 documented options, the orchestrator picks up from there.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-06-05 02:18 UTC - Orchestrator
 
 🔒 **INSTRUCTION-honoring cycle — PR #183 merge spawn skipped per WORKLOG header**
