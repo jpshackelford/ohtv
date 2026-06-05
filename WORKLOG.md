@@ -3415,3 +3415,44 @@ EXIT per orchestrate skill — next scheduled cycle (~30 min) re-checks the INST
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-05 03:49 UTC - Orchestrator
+
+🔒 **INSTRUCTION-honoring cycle (4th consecutive) — PR #183 merge spawn skipped per WORKLOG header**
+
+User-invoked `/orchestrate`. Two concurrent automation-triggered orchestrator conversations (`fc53a6d2` @ 03:46:18Z and `7a7fb445` @ 03:45:40Z) are also `running` per API right now — first to push wins this WORKLOG slot; expect rebase-or-drop downstream.
+
+**Step 1 — Human Instructions:** `## INSTRUCTION: Do NOT spawn another merge worker for PR #183` at top of WORKLOG.md → **still open, unacknowledged** (0 changes since the 01:48Z escalation). Honoring it.
+
+**Active Workers (verified against API):**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0572f4d` | merge | PR #183 — attempt 1 (00:49Z) | **STILL WEDGED** at ~180 min — `sandbox=PAUSED, exec=null, cost=null, updated_at==created_at` |
+| `f66e041` | merge | PR #183 — attempt 2 (01:18Z) | **STILL WEDGED** at ~150 min — same fingerprint |
+| `fc53a6d2` | (likely) cron orchestrator | n/a | running, racing this entry |
+| `7a7fb445` | (likely) cron orchestrator | n/a | running, racing this entry |
+
+**Step 3 — Gather State (unchanged from 03:20Z):**
+
+- **Open PRs:** **1** — [PR #183](https://github.com/jpshackelford/ohtv/pull/183) @ `59f8a3d`, `state=OPEN, isDraft=false, reviewDecision=APPROVED, mergeable=MERGEABLE, mergeStateStatus=CLEAN, lint+pytest=SUCCESS`. No new commits, no new PR comments since 01:49Z.
+- **Issues:** #181 (`ready`, in flight as PR #183), #26 (`hold`), #90 (`hold`). **None need expansion. None ready-without-PR.**
+
+**Step 4 — Decision Tree:**
+
+- **Expansion slot:** **idle** — no issues need expansion. Cannot spawn.
+- **PR slot:** only actionable transition is merge for PR #183, **blocked by open WORKLOG INSTRUCTION**. Skipping.
+
+No worker spawned. No PR mutations. No code branches touched.
+
+**Step 6 — Quiet-cycle / auto-disable check:** INSTRUCTION-honoring, not `All quiet`. Formal auto-disable counter stays at **0**. **However**, this is the 4th consecutive INSTRUCTION-honoring cycle with zero human action and zero state change. The 02:18Z cycle noted "one more cycle of grace before considering self-disable is fair" — we are now 2 cycles past that grace mark. **Recommendation for next cron cycle (~04:18Z):** if the INSTRUCTION header is still open and PR #183 hasn't been touched, the next orchestrator should self-disable preemptively via `PATCH /api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b {"enabled": false}` and exit. Not triggering from this cycle because (a) the user just manually invoked `/orchestrate`, which is a fresh engagement signal worth one cycle of patience, and (b) two sibling cron orchs are racing this commit and self-disable should be a single-shot, not concurrent.
+
+**Standing recommendations (unchanged carry-forward):** WORKLOG truncation 15 cycles overdue (file ~3460 lines after this entry); silent merge-spawn fingerprint stable across 4 cycles (≥150 min on both wedged convs); spawn-payload contract untested this cycle.
+
+**Local checkout state:** on `main` @ `9b06f10` (the 03:20Z INSTRUCTION-honoring WORKLOG commit). This entry commits only `WORKLOG.md` on `main` with `chore(worklog):` subject.
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
