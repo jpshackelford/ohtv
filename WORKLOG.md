@@ -3365,3 +3365,53 @@ PR `dd20ee8` is back to "ready for review" — orchestrator's next cycle can pic
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-05 03:20 UTC - Orchestrator
+
+🔒 **INSTRUCTION-honoring cycle (3rd consecutive) — PR #183 merge spawn skipped per WORKLOG header**
+
+User-invoked `/orchestrate` (this conv `d2813296`). Sibling conv `4c54ce28` (trigger=`automation`, started 03:15:39Z — ~40s earlier) is the cron-scheduled orchestrator running in parallel; whichever commits first wins, the other will need to rebase.
+
+**Active Workers (verified against API at 03:19Z):**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0572f4d` | merge | PR #183 — attempt 1 (2026-06-05 00:49Z) | **STILL WEDGED** at ~151 min — `sandbox=PAUSED, exec=null, cost=$0.00` |
+| `f66e041` | merge | PR #183 — attempt 2 (2026-06-05 01:18Z) | **STILL WEDGED** at ~121 min — same fingerprint |
+| `4c54ce28` | cron orchestrator (this cycle) | n/a | running, cost=$0.00 — racing this entry |
+| `d2813296` | this orchestrator (user `/orchestrate`) | n/a | running |
+
+No state change in either wedged merge worker since the 02:48Z cycle. No human reply on PR #183 since the 01:49Z escalation comment. No `[ACKNOWLEDGED]` tag added. No manual squash-merge.
+
+**Step 1 — Human Instructions:** `## INSTRUCTION: Do NOT spawn another merge worker for PR #183` at top of WORKLOG.md → **still open, unacknowledged**. Honoring it.
+
+**Step 3 — Gather State (unchanged from 02:48Z):**
+
+- **Open PRs:** **1** — [PR #183](https://github.com/jpshackelford/ohtv/pull/183) @ `59f8a3d` (unchanged). `state=OPEN, isDraft=false, reviewDecision=APPROVED, mergeable=UNKNOWN, mergeStateStatus=UNKNOWN, mergedAt=null`. The `UNKNOWN`/`UNKNOWN` reading remains intermittent (GitHub mergeability cache); CLEAN/MERGEABLE confirmed in prior cycles.
+- **Issues needing expansion:** **none** (no open issue lacks both `ready` and `hold` labels).
+- **Ready, prioritized, no PR:** **none** — #181 is the only `ready` issue and PR #183 covers it.
+- **Held issues:** #26 (mcp-server), #90 (`ohtv label`) — both have `hold` label, skipped.
+
+**Step 4 — Decision Tree:**
+
+- **Expansion slot:** **idle** — no issues need expansion. Cannot spawn.
+- **PR slot:** the only actionable PR-state transition is merge for PR #183, **blocked by open WORKLOG INSTRUCTION**. Skipping.
+
+No worker spawned. No PR mutations. No code branches touched.
+
+**Step 6 — Quiet-cycle / auto-disable check:** This is INSTRUCTION-honoring, not `All quiet`. Auto-disable counter stays at **0**.
+
+**Cycle expectations for next 1–3 cycles (~30–90 min):** Unchanged from 02:48Z forecast — ~70% another INSTRUCTION-honoring cycle, ~20% human manually merges PR #183, ~7% human drops a `resume normal merge-worker spawns` block, ~3% sibling-conv race lands a different WORKLOG change first.
+
+**Standing recommendations (carried forward, cumulative):**
+
+- **WORKLOG truncation:** **14 consecutive cycles overdue.** File now at **3367 lines** on entry. Standing recommendation: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~1500 lines. Continuing to defer — the INSTRUCTION-honoring path is short and truncation should follow the merge-worker silent-fail resolution.
+- **Silent merge-spawn fingerprint** unchanged across 3 INSTRUCTION-honoring cycles now: `sandbox=PAUSED, exec=null, cost=$0.00, updated_at==created_at`. ~150 min sustained on `0572f4d`, ~120 min on `f66e041`. Consistent with a platform-side regression in the spawn picker for the merge-worker payload shape.
+- **Spawn-payload contract** untested this cycle (no spawns).
+
+**Local checkout state:** on `main` @ `12528c5` (the 02:48Z INSTRUCTION-honoring WORKLOG commit). This entry commits only `WORKLOG.md` on `main` with `chore(worklog):` subject. No code branches, no PR mutations.
+
+EXIT per orchestrate skill — next scheduled cycle (~30 min) re-checks the INSTRUCTION header, PR #183 state, and wedged merge-worker fingerprints. If human acts on any of the 3 documented options in the header, the orchestrator picks up from there.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
