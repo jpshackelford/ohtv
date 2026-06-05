@@ -1,5 +1,77 @@
 ## Log
 
+### 2026-06-05 00:50 UTC - Orchestrator
+
+**Active Workers:**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0572f4d` | merge | PR #183 — squash-merge `feat/messages-command-181` into main | **NEW** (running, verified) |
+
+**Step 0 — Setup:** Skipped `uv venv` / `lxa repo add` / `ohtv sync` again — all decisions this cycle are off `gh` + the OH API directly. **13th consecutive cycle** the system-wide install path stays blocked by `/usr/local/lib/python3.13/site-packages` perms; project-local install remains the standing pattern.
+
+**Step 0.5 — Housekeeping:** WORKLOG.md at **3042 lines** on entry. **14th consecutive cycle** truncation is overdue. Same standing recommendation: a human `## INSTRUCTION: archive WORKLOG.md entries older than 10h` would unblock ~2200 lines in one commit, or a `/truncate-worklog` matcher fix to handle the reverse-chronological layout (entries are prepended after `## Log`, not appended at EOF). **Deferring again** — PR slot has actionable work this cycle and the merge is single-shot.
+
+**Step 1 — Human Instructions:** None. `grep INSTRUCTION:` matches are all inside fenced code blocks in orchestrator commentary; no unacknowledged human entries.
+
+**Step 2 — Active Workers (pre-this-spawn):** Polled `app-conversations/search?limit=30` filtered to `execution_status=running OR sandbox_status=RUNNING`:
+
+- `72fe479` (this very orchestrator conversation): `execution_status=running, sandbox_status=RUNNING, updated 00:46:17Z` — self, ignored.
+- `7a860aa` (docs spot-check worker for PR #183 spawned at 00:21Z): `execution_status=finished, sandbox_status=RUNNING, updated 00:26:49Z` → **finished ✓** — pushed commit `59f8a3d` *"docs: update README footer wording after pagination fix"* on `feat/messages-command-181` and posted a single `📋 Docs spot-check — PR #183` comment at 00:25:54Z. The PR comment narrative + worklog entry at line 3 of WORKLOG.md (`### 2026-06-05 00:26 UTC - Docs Spot-Check Worker (PR #183)`) confirm the README footer-line change (`Showing 2 of 15 conversations …` → `Showing 2 of 15 candidate conversations …`) and the gotchas-bullet clarifier landed cleanly. Worker honoured the WORKLOG-prepend instruction this cycle (the carry-forward from last cycle is now closed for this single worker — keeping the explicit recipe in spawn prompts going forward).
+- → **PR slot free**; **expansion slot free**.
+
+**Step 3 — Gather State:**
+
+- **Open PRs:** **1** — [PR #183](https://github.com/jpshackelford/ohtv/pull/183) `feat(cli): add ohtv messages command to list user messages across conversations`. Branch `feat/messages-command-181` @ HEAD `59f8a3d85c94abe1913d02977326d58de45e250a`.
+  - State: `isDraft=false`, `mergeStateStatus=CLEAN`, `mergeable=MERGEABLE`, `reviewDecision=APPROVED`.
+  - CI on `59f8a3d`: `pytest` ✅ (1m9s), `lint` ✅ (4s). `pr-review` + `enable-orchestrator` did NOT re-run on the docs-only push (no required-check change — APPROVED carries forward from `dd20ee8`).
+  - Four commits on branch: `f02b325` impl → `c50f3a8` docs → `dd20ee8` fix → `59f8a3d` docs spot-check.
+  - PR comments timeline: implementation post (22:35Z), `📝 Docs worker` (22:57Z), `## Manual Test Results` (23:49Z), `📋 Docs spot-check` (00:25Z).
+  - Bot reviews: 🟡 COMMENTED on `c50f3a8` (22:43Z), 🟢 APPROVED *"Good taste"* on `dd20ee8` (00:06Z). The 🟠 pagination thread is resolved by `dd20ee8`. The 🟡 `_extract_message_content` dedup thread is non-blocking and out of scope per spot-check.
+- **Issues needing expansion:** none (#26 mcp-server, #90 `ohtv label` both carry `hold` and remain there).
+- **Ready issues:** **#181** only, and it's in flight as PR #183 (merging this cycle closes it).
+
+**Step 4 — Decision Tree (per orchestrate skill):**
+
+- **Expansion slot:** no issues need expansion → **idle**.
+- **PR slot:** Per the decision tree:
+
+  > PR exists, ready, CI green, test results valid, good rating, docs valid → Spawn **merge worker**
+
+  Re-checking each gate against the live state:
+  - ✅ **PR exists, ready** — `isDraft=false`
+  - ✅ **CI green** — pytest + lint both SUCCESS on `59f8a3d`
+  - ✅ **Test results valid** — manual test results at 23:49Z were on `dd20ee8`. The only commit since (`59f8a3d`) is README-only — per the orchestrate skill's *Heuristics for "Significant Changes"* table, doc-only commits do NOT invalidate prior test results. The pagination-bug finding noted in the test report was fully addressed by `dd20ee8` and locked by 3 new regression tests, the 🟢 APPROVED bot review on `dd20ee8` independently confirms.
+  - ✅ **Good rating** — `reviewDecision=APPROVED` (bot's *"Good taste"*)
+  - ✅ **Docs valid** — README footer wording matches code as of `59f8a3d`. Both `total_convs == 0` and `total_convs > 0` paths of the empty-result hint are now documented in the Gotchas bullet.
+
+  → **Spawn merge worker.**
+
+**Step 5 — Spawn: Merge Worker (PR #183)**
+
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `0572f4d` | merge | PR #183 — squash-merge into main | **NEW** |
+
+- **Conversation:** [`0572f4d`](https://app.all-hands.dev/conversations/0572f4dafd6242b9bf418e9a268ddb6f) (full ID `0572f4dafd6242b9bf418e9a268ddb6f`).
+- **Start-task ID:** `7ea3df0cf3b940febeaf4f030c193a0f` — `READY` on 1st poll (~12s after POST). **13-cycle warm-picker streak holds.**
+- First-poll verification: `execution_status=idle, sandbox_status=RUNNING` immediately after READY (idle is the normal pre-task-pickup state, RUNNING confirms sandbox is live).
+- Plugin spec (unchanged, **33rd successful spawn** in a row): `{"source": "github:jpshackelford/.openhands", "repo_path": "plugins/ohtv-workflow", "ref": "feat/ohtv-workflow-plugin"}`.
+- Auth header: `X-Access-Token: $OPENHANDS_API_KEY`.
+- **Endpoint reminder logged again:** `POST /api/v1/app-conversations` (NO `/start` suffix — the `/start` endpoint returns 404 *Method Not Allowed*). Carry-forward note from the 2026-06-04 entry remains accurate; this cycle's first POST hit the same pitfall briefly before the retry to the correct endpoint succeeded. Pinning the no-`/start` recipe explicitly in the next spawn-conversation skill revision would close this.
+- **Prompt scope:** clone + `gh pr checkout 183` → re-verify pre-flight (`mergeStateStatus=CLEAN, mergeable=MERGEABLE, reviewDecision=APPROVED, isDraft=false, headRefOid=59f8a3d`) and **abort with a PR comment if any field has drifted** → study full PR diff holistically → craft conventional-commit squash subject (`feat(cli): add ohtv messages command to list user messages across conversations` — verbatim PR title) + body covering implementation surface, pagination-guard fix, docs update, 3 new regression tests by name, manual-test verdict, `Closes #181` → `gh pr merge 183 --squash --delete-branch` → verify `state=MERGED, mergedAt, mergeCommit` → prepend `### YYYY-MM-DD HH:MM UTC - Merge Worker (PR #183)` entry to `WORKLOG.md` on `main` using the explicit `python3 -c` prepend recipe (carry-forward fix from last 3 worker rounds).
+- **Guardrails:** NO source-code or test edits, NO `gh pr edit` (title/description final), NO `gh pr ready --undo`, squash subject MUST start with `feat(cli):` (semantic-release minor bump per AGENTS.md release contract — should produce tag `ohtv-vX.Y.0` within ~30s of merge), abort-and-comment if pre-flight drifts, WORKLOG.md goes to `main`.
+
+**Step 6 — Post-merge note (anticipated, not actioned this cycle):**
+
+Once `0572f4d` lands the squash-merge, the GitHub Actions `release.yml` workflow will run on `main`, bump `pyproject.toml` + `src/ohtv/__init__.py`, append a `## [X.Y.0]` section to `CHANGELOG.md`, push a new `ohtv-vX.Y.0` tag, and create the GitHub Release — all autonomously and idempotently. The orchestrator's next cycle will see a clean PR slot (0 open PRs) and a clean ready-queue (0 ready issues), and will be a genuine "All quiet" cycle. **Auto-disable counter currently at 0**; first quiet cycle next will bring it to 1. The "two consecutive quiet" trigger therefore won't fire until at least two cycles after merge.
+
+**Step 7 — Quiet-cycle check:** Productive cycle (1 worker spawned). Auto-disable counter stays at **0**.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-06-05 00:26 UTC - Docs Spot-Check Worker (PR #183)
 
 Ran the tight markdown spot-check on PR #183 (`feat(cli): add ohtv messages command`) following the pagination-guard fix at `dd20ee8`. Source-of-truth check: read the post-fix footer-print line in `src/ohtv/cli.py` (~L6400, `Showing {shown} of {total_conversations} candidate conversations`) and the new regression test `tests/unit/test_cli_messages.py::test_text_footer_uses_candidate_terminology` to lock the exact wording. Confirmed the `README.md` sample on line 236 still carried the OLD wording (`Showing 2 of 15 conversations …`) and that the adjacent Gotchas bullet about the empty-result hint implied the engagement hint always fires (the fix split this into a `total_convs == 0` path and a `total_convs > 0` offset-aware path).
