@@ -2054,3 +2054,50 @@ EXIT.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-06 18:18 UTC - Orchestrator
+
+User-invoked `/orchestrate` (this conv).
+
+**Active Workers (post-spawn):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `90e521d` | testing | PR #185 - engagement v2 | **NEW** |
+
+**Step 1 — Human Instructions:** None (`grep -c "^## INSTRUCTION:" WORKLOG.md` = 0).
+
+**Step 2 — Active Workers (pre-spawn):** None for ohtv. Initial API query at 18:17Z showed only `728d0885…` (the docs worker spawned by the 18:15Z tick — created 18:15:32Z, default title, `trigger:null`, repo `jpshackelford/ohtv`); confirmed via WORKLOG it had pushed its commit but not yet written its completion entry. Docs worker's 18:25Z completion entry was appended to WORKLOG before this orchestrator entry — its commit `612c5f1a` is on the PR tip.
+
+**Step 3 — Gather State (`gh`):**
+
+- **Open PRs:** **1** — [PR #185](https://github.com/jpshackelford/ohtv/pull/185) "fix(engagement): cap block extension on separate T_a window (Issue #184)"
+  - `isDraft: false` (flipped by human at 18:11:48Z), `headRefOid=612c5f1a` (docs commit on tip), `updatedAt=2026-06-06T18:18:01Z`, **2 commits**, **0 PR-level comments**.
+  - CI: lint ✓, pytest ✓ (1m12s), enable-orchestrator ✓, **pr-review ✓ APPROVED** with 🟢 _"Good taste"_ / 🟡 MEDIUM risk (46 algorithm tests + 7 migration tests).
+  - Changed files: `README.md` (docs worker callout), `AGENTS.md`, `docs/design/conversation-metrics.md`, `docs/guides/indexing.md`, `src/ohtv/cli.py`, `src/ohtv/db/migrations/025_sustained_attention.py`, `src/ohtv/db/stages/engagement.py`, 2 test files, `uv.lock`.
+- **Open issues:** 3 — all on `hold` (unchanged): #184 `bug,hold,priority:high`, #90 `enhancement,hold,priority:medium`, #26 `hold`.
+- **Needs expansion:** 0. **Ready without PR:** 0.
+
+**Step 4 — Decision:**
+
+- **Expansion slot:** idle — all open issues on `hold`.
+- **PR slot:** **Spawn testing worker** per decision-tree row _"PR exists, ready, CI green, docs updated, no manual test results → Spawn testing worker"_.
+  - PR ready (not draft), CI green on tip `612c5f1a`, README updated by docs worker, 0 PR-level comments → no manual test results exist yet. Bot review approval does NOT substitute for manual testing — per skill: _"Even if this PR already has review comments, testing is still required."_
+
+**Step 5 — Action:**
+
+✅ **Spawned: Testing Worker** `90e521d`
+- PR: [#185](https://github.com/jpshackelford/ohtv/pull/185)
+- Conversation: [`90e521d`](https://app.all-hands.dev/conversations/90e521dd526440929ebabcd1bff73221)
+- Start task `4f3f9fd3…` → `READY` after ~25s. Sandbox `RUNNING`, execution `running`.
+- Worker instructed to: checkout PR branch, `uv sync`, verify README/AGENTS examples are copy-pasteable, design CLI-level blackbox tests around the engagement-block-extension fix (using `tests/unit/db/stages/test_engagement.py` scenarios as a guide), run full `uv run pytest`, post structured `/manual-test` report as PR comment, then EXIT.
+- **Explicit CLI-only constraint passed to worker** (from user prompt): tests must run through the `ohtv` CLI, not via Python REPL or `from ohtv.cli import ...` calls.
+
+**Step 6 — Auto-disable check:** User-invoked AND resulted in a spawn → counter does not apply; not triggered.
+
+**Housekeeping:** Worklog 2056 lines pre-append. Productive entries this cycle (18:15 docs spawn, 18:25 docs completion, this 18:18 testing spawn) restore healthy productive density — truncation can wait.
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
