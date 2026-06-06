@@ -2025,3 +2025,32 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-06 18:25 UTC - Docs Worker (PR #185)
+
+Docs worker `728d088` completed README update for [PR #185](https://github.com/jpshackelford/ohtv/pull/185).
+
+**Decision:** README needed a minimal callout. Filter flags (`--engaged` / `--min-engaged` / `--min-engagement-ratio` / `--no-engaged`) are semantically unchanged, but engagement *values* shift after migration 025 (overnight runs stop crediting 14h of phantom attention). Worth a heads-up on first user view.
+
+**What was added:**
+- 6-line blockquote callout at the end of the README "Engagement filtering" section.
+- Explains: v2 algorithm via #185, migration 025 auto-invalidates cached rows, filter flags unchanged, values shrink for long-idle conversations, link to `docs/guides/indexing.md#engagement-stage` for tuning details and the `--sustained-attention` knob.
+
+**Deliberately NOT added:**
+- No re-explanation of `T` vs `T_a` (lives in `docs/design/conversation-metrics.md`).
+- No `--sustained-attention` flag table (README doesn't document `db process` flags as a general policy; canonical home is `docs/guides/indexing.md`).
+- No example-command changes — the existing engagement examples still produce the documented effect under v2.
+
+**Commit:** [`612c5f1`](https://github.com/jpshackelford/ohtv/pull/185/commits/612c5f1) — `docs: README callout for engagement v2 behavior change (#185)` — +9/-0 on README.md only.
+
+**CI:** ✓ lint ✓ pytest (full suite 1m11s, both green on tip of branch).
+
+**PR comment posted:** [#issuecomment-4639951876](https://github.com/jpshackelford/ohtv/pull/185#issuecomment-4639951876).
+
+Docs slot now free. Manual testing is the next worker per the decision tree (PR is ready, CI green, docs updated, no manual test results yet).
+
+EXIT.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
