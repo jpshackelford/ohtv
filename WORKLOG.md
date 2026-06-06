@@ -2129,3 +2129,63 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-06 18:49 UTC - Orchestrator
+
+User-invoked `/orchestrate`.
+
+**Active Workers (post-spawn):**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `f21e1cb` | merge | PR #185 - sustained attention v2 | **NEW** |
+
+**Step 1 — Human Instructions:** None (`grep -c "^## INSTRUCTION:" WORKLOG.md` = 0; file still starts with `## Log`).
+
+**Step 2 — Active Workers (pre-spawn):**
+- `90e521d` testing worker → `execution_status=finished` at 18:30:02Z (posted manual test report, then exited cleanly).
+- `728d088` docs worker → `sandbox_status=PAUSED` since 18:19:40Z (docs commit `612c5f1a` already on PR tip).
+- No other ohtv conversations in running slice.
+- **PR slot: free.** Expansion slot: idle (all open issues on `hold`).
+
+**Step 3 — Gather State (`gh` + GraphQL):**
+
+- **Open PRs:** **1** — [PR #185](https://github.com/jpshackelford/ohtv/pull/185) "fix(engagement): cap block extension on separate T_a window (Issue #184)"
+  - `isDraft: false`, `mergeable: MERGEABLE`, `headRefOid=612c5f1acf78620bc9da193bd0f27ad8a5d4ddbe` (docs callout commit, 18:16:30Z).
+  - CI: lint ✓, pytest ✓ (1m12s on tip).
+  - **Reviews:** 1 — `github-actions` APPROVED at 18:15:59Z (🟢 _Good taste_, 🟡 MEDIUM risk).
+  - **Review threads (GraphQL):** `[]` — no inline change requests, nothing to address.
+  - **Comments:** 2 — (1) human-attributed "Documentation updated…" at 18:18:01Z (actually the docs-worker summary), (2) `## Manual Test Results for PR #185` at 18:30:00Z (testing-worker output, AI-disclosed).
+  - **Manual test rating:** ✅ "All functionality works as documented." Full unit suite 2 681 passed / 2 skipped / 3 xfailed in 46.92s. Engagement-specific tests 53/53 pass. CLI-only blackbox tests confirmed `--sustained-attention` round-trips on every reprocess, migration 025 auto-invalidates cached rows, and README + indexing-guide examples are copy-pasteable.
+- **Open issues:** 3 — all on `hold` (unchanged across all recent ticks): #184 `bug,hold,priority:high`, #90 `enhancement,hold,priority:medium`, #26 `hold`.
+- **Needs expansion:** 0. **Ready without PR:** 0.
+
+**Step 4 — Decision:**
+
+- **Expansion slot:** idle — zero candidates.
+- **PR slot:** **Spawn merge worker** per decision-tree row _"PR exists, ready, test results valid, good rating, docs valid → Spawn merge worker"_. All four gates satisfied:
+  - CI green ✓
+  - Bot review APPROVED ✓ (no human review pending; no review threads)
+  - Docs updated and verified by testing worker ✓
+  - Manual test rating ✅ on tip `612c5f1a` ✓
+
+The docs commit (`612c5f1a`) post-dates the bot review (`18:15:59Z` vs `18:16:30Z`), but the post-review change is README-only (no code) and was explicitly verified by the testing worker against the v2 algorithm. No re-review needed; no re-test needed.
+
+**Step 5 — Action:**
+
+✅ **Spawned: Merge Worker** `f21e1cb`
+- PR: [#185](https://github.com/jpshackelford/ohtv/pull/185)
+- Conversation: [`f21e1cb`](https://app.all-hands.dev/conversations/f21e1cbcdca3447e825a467086805cd0)
+- Start task `960ec392…` → `READY` after ~25s. Sandbox `RUNNING`, execution `running`.
+- Worker instructed to: study full PR diff, polish PR description if needed, craft a conventional-commits squash-merge body (`fix(engagement): …` + summary + `Closes #184` + co-author trailers), squash-merge via `gh pr merge 185 --squash`, verify merge, log completion to `WORKLOG.md` on main. Explicitly NOT in scope: introducing new behavior changes during merge prep.
+
+**Step 6 — Auto-disable check:** User-invoked AND resulted in a spawn → counter does not apply; not triggered.
+
+**Housekeeping:** WORKLOG.md ~2132 lines pre-append. Will assess truncation after the merge worker completes and the PR/issue surface clears — at that point a productive-span anchor will exist (docs 18:25Z, testing 18:30Z, merge ~18:5xZ) for the truncation skill to retain a focused 6h window.
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+<!-- orchestrator-status: spawn -->
+
+---
