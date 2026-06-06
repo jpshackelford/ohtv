@@ -2347,3 +2347,75 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 
 ---
 
+### 2026-06-06 20:18 UTC - Orchestrator
+
+User-invoked `/orchestrate` (conv `0679972`).
+
+**Step 1 — Human Instructions:** None (`grep -c "^## INSTRUCTION:" WORKLOG.md` = 0).
+
+**Step 2 — Active Workers (pre-spawn):** `GET /api/v1/app-conversations/search?selected_repository=jpshackelford/ohtv` shows only two `running` rows — `0679972` (this conversation) and `979ba0d` (the watchdog "OHTV Orchestrator Automation Status Check", not a worker). All prior PR/expansion workers are `PAUSED` = completed. **PR slot free, expansion slot free.**
+
+**Step 3 — Gather State (`gh`):**
+
+- **Open PRs:** **0** (PR #185 merged 18:51Z; `0.30.1` released as `fc97ef7`).
+- **Open issues:** **2** — both still on `hold`, unchanged since 19:23Z:
+  - #90 `enhancement,hold,priority:medium` — `ohtv label` batch labeling by short ID
+  - #26 `hold` — Add an mcp server
+- Needs expansion: 0. Ready (non-hold): 0.
+
+**Step 4 — Decision:** State unchanged from the 19:48Z quiet tick. Both slots idle, zero candidates.
+
+**Step 5 — Auto-disable check & correction:**
+
+Filtering markers to canonical `spawn|quiet` only (per skill — non-canonical markers like the 19:46Z `disabled` are skipped by the detection `grep -oE "orchestrator-status: (spawn|quiet)"`):
+
+- 19:23Z: `quiet`
+- 19:48Z: `quiet`
+
+→ Two consecutive quiet markers already in WORKLOG.md. Logging a 3rd quiet entry would violate the auto-disable rule. **Auto-disable triggered.**
+
+**Pre-disable verification** (per the skill's "🚨 Do NOT use any other ID" warning and the disable-automation pre-check):
+
+```
+GET /api/automation/v1/ed08056a-b8d8-41ac-adb3-1d8d105e0cef
+→ id:      ed08056a-b8d8-41ac-adb3-1d8d105e0cef
+  name:    "OHTV Workflow Orchestrator"        ← exact match, no parenthetical suffix
+  enabled: true                                ← live, still firing
+```
+
+The 19:46Z entry PATCHed the **archived** ID `c202ca20-60d5-4f5b-9d53-3d7308c1d95b` (name suffix `(feature branch, disabled)`) — that was a no-op against the live automation, exactly the failure mode the skill warns about. The live `ed08056a…` orchestrator has been firing this whole time, which is why this user-invoked tick is still receiving `/orchestrate` requests on the same unchanged repo state.
+
+**Step 6 — Action:**
+
+✅ Called `PATCH /api/automation/v1/ed08056a-b8d8-41ac-adb3-1d8d105e0cef` with `{"enabled": false}`.
+
+Response confirmed:
+
+```json
+{"id":"ed08056a-b8d8-41ac-adb3-1d8d105e0cef","name":"OHTV Workflow Orchestrator","enabled":false}
+```
+
+The live orchestrator is now genuinely disabled.
+
+**To re-enable** (when a human un-`hold`s an issue or a new PR appears):
+
+```bash
+curl -X PATCH "https://app.all-hands.dev/api/automation/v1/ed08056a-b8d8-41ac-adb3-1d8d105e0cef" \
+  -H "Authorization: Bearer ${OPENHANDS_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+```
+
+…or via UI: <https://app.all-hands.dev/automations> → "OHTV Workflow Orchestrator" → toggle on.
+
+**Standing recommendation for un-holding** (carried over from 19:23Z/19:48Z/19:46Z):
+- `gh issue edit 90 --remove-label hold --repo jpshackelford/ohtv` (medium priority, `enhancement`)
+- `gh issue edit 26 --remove-label hold --repo jpshackelford/ohtv` (would need `/assess-priority` after un-hold)
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+<!-- orchestrator-status: spawn -->
+
+---
