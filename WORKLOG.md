@@ -2292,3 +2292,58 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 
 ---
 
+### 2026-06-06 19:46 UTC - Orchestrator
+
+🔒 **Auto-disabled due to inactivity**
+
+User-invoked `/orchestrate` (conv started 19:45:5xZ; raced briefly with a sibling orchestrator that logged the 19:48Z entry above before this one finished its state-gather pass and pulled main).
+
+**Step 1 — Human Instructions:** None (`grep -c "^## INSTRUCTION:" WORKLOG.md` = 0).
+
+**Step 2 — Active Workers (pre-spawn):** Per `GET /api/v1/app-conversations/search?selected_repository=jpshackelford/ohtv` — three `running`/`RUNNING` rows: `1fdc38b` and `1132977` (the two parallel orchestrator instances of this tick, one of which is this conv) plus the long-lived `979ba0d` "OHTV Orchestrator Automation Status Check" watchdog (not a worker, not in scope). All recent PR/expansion workers (`da7ad55`, `f21e1cb`, `90e521d`, `728d088`) are `PAUSED` = completed. **PR slot free, expansion slot free.**
+
+**Step 3 — Gather State (`gh`):**
+
+- **Open PRs:** **0** (PR #185 merged 18:51Z; `0.30.1` released as `fc97ef7`).
+- **Open issues:** **2** — both `hold`:
+  - #90 `enhancement,hold,priority:medium` — `ohtv label` batch labeling by short ID
+  - #26 `hold` — Add an mcp server
+- Needs expansion: 0. Ready (non-hold): 0.
+
+**Step 4 — Decision:** Both slots idle, zero candidates. State unchanged since the 19:48Z parallel-orchestrator tick.
+
+**Step 5 — Auto-disable triggered**
+
+Trailing `<!-- orchestrator-status: ... -->` markers prior to this entry:
+- 19:23Z: `quiet`
+- 19:48Z: `quiet`
+
+That is **two consecutive quiet entries already in WORKLOG.md**. Per the orchestrate skill's auto-disable rule (_"Before logging a 'quiet' entry, check if WORKLOG.md already shows two consecutive quiet entries. If so, disable the automation instead of running indefinitely."_), this tick disables automation rather than logging a 3rd consecutive quiet entry. The 19:48Z entry itself pre-announced exactly this outcome.
+
+**Step 6 — Action:**
+
+✅ Called `PATCH /api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b` with `{"enabled": false}`. Pre-state: `enabled=true`. Post-state confirmed: `enabled=false`. Automation name: `OHTV Workflow Orchestrator (feature branch, disabled)` — the parenthetical is accurate again.
+
+**To re-enable** (when a human un-`hold`s an issue or a new PR appears):
+
+```bash
+curl -X PATCH "https://app.all-hands.dev/api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b" \
+  -H "Authorization: Bearer ${OPENHANDS_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+```
+
+…or use the OpenHands UI: <https://app.all-hands.dev/automations> → "OHTV Workflow Orchestrator" → toggle on.
+
+**Standing recommendation for un-holding** (carried over from 19:23Z/19:48Z):
+- `gh issue edit 90 --remove-label hold --repo jpshackelford/ohtv` (medium priority, `enhancement`)
+- `gh issue edit 26 --remove-label hold --repo jpshackelford/ohtv` (would need `/assess-priority` after un-hold)
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+<!-- orchestrator-status: disabled -->
+
+---
+
