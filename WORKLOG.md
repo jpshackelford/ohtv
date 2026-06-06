@@ -1983,3 +1983,45 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 
 ---
 
+### 2026-06-06 18:15 UTC - Orchestrator
+
+User-invoked `/orchestrate` (this conv).
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `728d088` | docs | PR #185 - sustained-attention | **NEW** |
+
+**Step 1 — Human Instructions:** None (`grep -c "^## INSTRUCTION:" WORKLOG.md` = 0).
+
+**Step 2 — Active Workers (pre-spawn):** None (47 prior cron ticks all no-spawn, last actual spawn was 2026-06-05 13:20Z).
+
+**Step 3 — Gather State (`gh`):**
+
+- **Open PRs:** **1** — [PR #185](https://github.com/jpshackelford/ohtv/pull/185) "fix(engagement): cap block extension on separate T_a window (Issue #184)"
+  - **`isDraft: false`** ✨ — human flipped to ready at **2026-06-06T18:11:48Z** (~3 min before this tick). First state change in 28+ hours.
+  - CI: lint ✓ 3s, pytest ✓ 1m12s, enable-orchestrator ✓ 4s, **pr-review ⏳ pending** (just triggered by ready-flip).
+  - 0 PR comments, 0 reviews, 977 additions / 103 deletions.
+  - Changed files: `AGENTS.md`, `docs/design/conversation-metrics.md`, `docs/guides/indexing.md`, `src/ohtv/cli.py`, `src/ohtv/db/migrations/025_sustained_attention.py`, `src/ohtv/db/stages/engagement.py`, `tests/unit/db/stages/test_engagement.py`, `tests/unit/db/test_025_sustained_attention.py`, `uv.lock`. **README.md NOT touched.**
+- **Open issues:** 3 — all on `hold` (unchanged from 17:49Z): #184, #90, #26.
+
+**Step 4 — Decision:**
+
+- **Expansion slot:** idle — zero candidates (all open issues on `hold`).
+- **PR slot:** **Spawn docs worker** per decision-tree row _"PR exists, ready, CI green, README not updated → Spawn docs worker"_. The PR adds a new CLI flag (`--sustained-attention SECONDS` on `db process engagement`) and changes engagement-value semantics after migration 025. README's engagement section (lines 73-123) is the user-facing surface that may need a callout. Docs were thoroughly updated in `docs/guides/indexing.md` + `docs/design/conversation-metrics.md` + `AGENTS.md` already, so the docs worker may decide README only needs a small callout (or nothing — the filter flags themselves are unchanged).
+
+**Step 5 — Action:**
+
+✅ **Spawned: Docs Worker** `728d088`
+- PR: [#185](https://github.com/jpshackelford/ohtv/pull/185)
+- Conversation: [`728d088`](https://app.all-hands.dev/conversations/728d0885f4344283a8f54cf4348228c0)
+- Execution status: `running`, sandbox `RUNNING`
+- Worker instructed to: read PR diff, evaluate README engagement section, add minimal callout if needed (or post a spot-check comment if README is accurate as-is), commit any changes to PR branch, post a PR comment summarizing the decision.
+
+**Step 6 — Auto-disable check:** This cycle was user-invoked AND resulted in a spawn. Counter does not apply; not triggered.
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
