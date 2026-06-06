@@ -2251,3 +2251,22 @@ EXIT.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-06 18:51 UTC - Merge worker (race lost, no-op)
+
+User-invoked merge prep for PR #185 (this worker is `f21e1cb`, spawned by the 18:49Z orchestrator above). On clone+checkout, `gh pr view 185 --json state` already reported `MERGED` — a parallel merge worker (or @jpshackelford by hand) had landed the squash at **2026-06-06T18:51:17Z**, ~6 seconds before this worker started. Per the task's explicit fallback contract (_"If `gh pr merge` fails ... gracefully detect via `gh pr view 185 --json state` showing `MERGED`, log that in WORKLOG.md, and EXIT"_), no merge was attempted by this worker.
+
+**State verification at handoff:**
+- Merge commit: [`697008c`](https://github.com/jpshackelford/ohtv/commit/697008c81fb5d072bdeab7edce0102a1818aee55) — squash subject `fix(engagement): cap block extension on separate T_a window (Issue #184)` (✅ conventional-commits contract: `fix:` → patch bump).
+- Squash body captures the v2 algorithm, T_a default 1 h labelled PROVISIONAL, migration 025 auto-invalidation, `--sustained-attention SECONDS` knob, v1-recovery sentinel, `Closes #184`, and the `OHTV_DIR` ambient-leak follow-up note.
+- Issue #184: `state: CLOSED`, `closedAt: 2026-06-06T18:51:18Z`, `stateReason: COMPLETED` (auto-closed by `Closes #184`).
+- **Release landed**: `fc97ef7 chore(release): ohtv 0.30.1 [skip ci]` — python-semantic-release executed the `fix:` → patch bump as expected, tagged `ohtv-v0.30.1`, appended CHANGELOG, and skipped re-triggering CI via `[skip ci]`. Hands-off, as designed (AGENTS.md §"Releases & Commit Contract").
+- Discovered on `git pull --rebase` (during this WORKLOG push) that another worker had also logged a `chore: worklog update 2026-06-06T18:51:11Z` entry (`713b88f`) in parallel — rebase produced a trivial end-of-file conflict between that entry's section and mine. Resolved by keeping both. Their entry sits in the orchestrator block above; this one sits below.
+
+**No file changes by this worker except this WORKLOG.md entry**, per the explicit task constraint _"the only push you make is the WORKLOG.md update to main"_.
+
+EXIT.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
