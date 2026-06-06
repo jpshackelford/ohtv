@@ -118,6 +118,15 @@ all` (or `ohtv db process engagement` for just this stage) after syncing —
 are excluded by `--engaged`, `--min-engaged`, and `--min-engagement-ratio`,
 and **included** by `--no-engaged`.
 
+> **Upgrading?** The engagement algorithm was upgraded to v2 in
+> [#185](https://github.com/jpshackelford/ohtv/pull/185) to stop crediting
+> "set-and-forget overnight" runs with hours of phantom attention. Migration
+> 025 auto-invalidates cached engagement rows; the next `ohtv sync` or
+> `ohtv db process engagement` recomputes every conversation under v2. Filter
+> flags are unchanged, but engagement *values* for long-idle conversations
+> will shrink. Tuning details (incl. the `--sustained-attention SECONDS`
+> knob): [docs/guides/indexing.md#engagement-stage](docs/guides/indexing.md#engagement-stage).
+
 Full details and per-command flag tables:
 [exploration](docs/guides/exploration.md#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio)
 · [analysis](docs/guides/analysis.md#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio).
