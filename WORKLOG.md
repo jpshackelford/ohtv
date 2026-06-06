@@ -418,7 +418,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-05 18:16 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -465,8 +464,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-05 18:47 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -513,8 +510,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-05 19:20 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -561,7 +556,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-05 19:47 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -608,7 +602,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-05 20:18 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -656,7 +649,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-05 20:48 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -704,7 +696,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-05 21:17 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -752,7 +743,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-05 21:46 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -800,7 +790,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-05 22:17 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -848,8 +837,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-05 22:46 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -897,7 +884,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-05 23:16 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -945,7 +931,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-05 23:47 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -993,7 +978,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-06 00:17 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1088,7 +1072,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-06 01:17 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1136,7 +1119,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-06 01:48 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1184,7 +1166,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-06 02:17 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1232,7 +1213,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-06 02:47 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1270,7 +1250,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-06 03:19 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1310,8 +1289,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 03:48 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1351,7 +1328,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-06 04:18 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv, `42fb01fa`).
@@ -1391,8 +1367,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 04:46 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1432,8 +1406,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 05:19 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv, `7da30ab3`).
@@ -1473,8 +1445,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 05:46 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1514,9 +1484,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
-
 ### 2026-06-06 12:18 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1551,8 +1518,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 12:46 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1587,8 +1552,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 13:18 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1623,8 +1586,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 13:49 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1659,9 +1620,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
-
 ### 2026-06-06 14:20 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1699,8 +1657,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 14:48 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1740,8 +1696,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 15:16 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1783,8 +1737,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 15:48 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1826,8 +1778,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 16:18 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1865,8 +1815,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 16:47 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1904,8 +1852,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 17:16 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1943,8 +1889,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-
 ### 2026-06-06 17:49 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -1982,7 +1926,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-06 18:15 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -2025,36 +1968,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
-### 2026-06-06 18:25 UTC - Docs Worker (PR #185)
-
-Docs worker `728d088` completed README update for [PR #185](https://github.com/jpshackelford/ohtv/pull/185).
-
-**Decision:** README needed a minimal callout. Filter flags (`--engaged` / `--min-engaged` / `--min-engagement-ratio` / `--no-engaged`) are semantically unchanged, but engagement *values* shift after migration 025 (overnight runs stop crediting 14h of phantom attention). Worth a heads-up on first user view.
-
-**What was added:**
-- 6-line blockquote callout at the end of the README "Engagement filtering" section.
-- Explains: v2 algorithm via #185, migration 025 auto-invalidates cached rows, filter flags unchanged, values shrink for long-idle conversations, link to `docs/guides/indexing.md#engagement-stage` for tuning details and the `--sustained-attention` knob.
-
-**Deliberately NOT added:**
-- No re-explanation of `T` vs `T_a` (lives in `docs/design/conversation-metrics.md`).
-- No `--sustained-attention` flag table (README doesn't document `db process` flags as a general policy; canonical home is `docs/guides/indexing.md`).
-- No example-command changes — the existing engagement examples still produce the documented effect under v2.
-
-**Commit:** [`612c5f1`](https://github.com/jpshackelford/ohtv/pull/185/commits/612c5f1) — `docs: README callout for engagement v2 behavior change (#185)` — +9/-0 on README.md only.
-
-**CI:** ✓ lint ✓ pytest (full suite 1m11s, both green on tip of branch).
-
-**PR comment posted:** [#issuecomment-4639951876](https://github.com/jpshackelford/ohtv/pull/185#issuecomment-4639951876).
-
-Docs slot now free. Manual testing is the next worker per the decision tree (PR is ready, CI green, docs updated, no manual test results yet).
-
-EXIT.
-
-_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-
 ### 2026-06-06 18:18 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -2101,7 +2014,34 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+### 2026-06-06 18:25 UTC - Docs Worker (PR #185)
 
+Docs worker `728d088` completed README update for [PR #185](https://github.com/jpshackelford/ohtv/pull/185).
+
+**Decision:** README needed a minimal callout. Filter flags (`--engaged` / `--min-engaged` / `--min-engagement-ratio` / `--no-engaged`) are semantically unchanged, but engagement *values* shift after migration 025 (overnight runs stop crediting 14h of phantom attention). Worth a heads-up on first user view.
+
+**What was added:**
+- 6-line blockquote callout at the end of the README "Engagement filtering" section.
+- Explains: v2 algorithm via #185, migration 025 auto-invalidates cached rows, filter flags unchanged, values shrink for long-idle conversations, link to `docs/guides/indexing.md#engagement-stage` for tuning details and the `--sustained-attention` knob.
+
+**Deliberately NOT added:**
+- No re-explanation of `T` vs `T_a` (lives in `docs/design/conversation-metrics.md`).
+- No `--sustained-attention` flag table (README doesn't document `db process` flags as a general policy; canonical home is `docs/guides/indexing.md`).
+- No example-command changes — the existing engagement examples still produce the documented effect under v2.
+
+**Commit:** [`612c5f1`](https://github.com/jpshackelford/ohtv/pull/185/commits/612c5f1) — `docs: README callout for engagement v2 behavior change (#185)` — +9/-0 on README.md only.
+
+**CI:** ✓ lint ✓ pytest (full suite 1m11s, both green on tip of branch).
+
+**PR comment posted:** [#issuecomment-4639951876](https://github.com/jpshackelford/ohtv/pull/185#issuecomment-4639951876).
+
+Docs slot now free. Manual testing is the next worker per the decision tree (PR is ready, CI green, docs updated, no manual test results yet).
+
+EXIT.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-06-06 18:27 UTC - Orchestrator (dedup)
 
 User-invoked `/orchestrate` (conv `728d088`) — **second orchestrator running in the same cron window**. Discovered the race only after attempting to push: parallel orchestrator had already landed three commits on `main` (`72f3826`, `ef2a0a9`, `50dd64f`) covering exactly the same state transitions this tick was about to log. Aborted my rebase, dropped my redundant entry, and re-reading the existing log confirms the PR slot is fully accounted for:
@@ -2129,7 +2069,6 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
-
 ### 2026-06-06 18:49 UTC - Orchestrator
 
 User-invoked `/orchestrate`.
@@ -2183,7 +2122,47 @@ The docs commit (`612c5f1a`) post-dates the bot review (`18:15:59Z` vs `18:16:30
 **Housekeeping:** WORKLOG.md ~2132 lines pre-append. Will assess truncation after the merge worker completes and the PR/issue surface clears — at that point a productive-span anchor will exist (docs 18:25Z, testing 18:30Z, merge ~18:5xZ) for the truncation skill to retain a focused 6h window.
 
 ---
+### 2026-06-06 18:51 UTC - Merge worker - PR #185 merged ✅
 
+<!-- orchestrator-status: spawn -->
+
+Squash-merged PR #185 (`fix(engagement): cap block extension on separate T_a window (Issue #184)`) into `main`.
+
+- **Merge SHA:** `697008c81fb5d072bdeab7edce0102a1818aee55`
+- **Closes:** #184
+- **Merged at:** 2026-06-06T18:51:17Z
+- **Pre-merge state:** `mergeable=MERGEABLE`, `reviewDecision=APPROVED`, CI green, manual test report ✅ ("All functionality works as documented", 2681 passed / 2 skipped / 3 xfailed).
+- **PR description polish:** Appended a `README.md` entry to the "Files changed" list to reflect the docs-worker commit `612c5f1a` (engagement v2 upgrade callout) before merging — no behavior changes.
+- **Squash subject:** `fix(engagement): cap block extension on separate T_a window (Issue #184)` — patch bump per the release contract on the next push to `main` (release workflow will run on this merge commit).
+- **Squash body highlights:** v2 algorithm (T_a as a second gate after silence-tolerance), migration 025 (adds `sustained_attention_seconds`/`algorithm_version` columns + auto-invalidates engagement stage rows so re-process happens without `--force`), new `--sustained-attention SECONDS` CLI knob (default 3600 = 1 h, **PROVISIONAL** pending empirical tuning), v1 recovery via `--sustained-attention 999999999`. Co-authored-by: openhands.
+
+**Follow-up to file (not a regression of this PR):** ambient `OHTV_DIR` leak between `tests/unit/test_extra_paths.py` and `tests/unit/test_gen_objs_batch.py` — causes incidental failures when pytest inherits a populated `OHTV_DIR` from a manual-test session. Surfaced in the manual QA report at 18:30Z; not introduced by this PR. Worth a tracking issue (no existing one was found during merge prep).
+
+**Documented behavior, not a bug:** `--sustained-attention 0` collapses block-extension but does not zero out conversations with adjacent user messages within `T` — the period-merge step still applies. (Called out in the squash body so it doesn't get re-litigated.)
+
+EXIT.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+### 2026-06-06 18:51 UTC - Merge worker (race lost, no-op)
+
+User-invoked merge prep for PR #185 (this worker is `f21e1cb`, spawned by the 18:49Z orchestrator above). On clone+checkout, `gh pr view 185 --json state` already reported `MERGED` — a parallel merge worker (or @jpshackelford by hand) had landed the squash at **2026-06-06T18:51:17Z**, ~6 seconds before this worker started. Per the task's explicit fallback contract (_"If `gh pr merge` fails ... gracefully detect via `gh pr view 185 --json state` showing `MERGED`, log that in WORKLOG.md, and EXIT"_), no merge was attempted by this worker.
+
+**State verification at handoff:**
+- Merge commit: [`697008c`](https://github.com/jpshackelford/ohtv/commit/697008c81fb5d072bdeab7edce0102a1818aee55) — squash subject `fix(engagement): cap block extension on separate T_a window (Issue #184)` (✅ conventional-commits contract: `fix:` → patch bump).
+- Squash body captures the v2 algorithm, T_a default 1 h labelled PROVISIONAL, migration 025 auto-invalidation, `--sustained-attention SECONDS` knob, v1-recovery sentinel, `Closes #184`, and the `OHTV_DIR` ambient-leak follow-up note.
+- Issue #184: `state: CLOSED`, `closedAt: 2026-06-06T18:51:18Z`, `stateReason: COMPLETED` (auto-closed by `Closes #184`).
+- **Release landed**: `fc97ef7 chore(release): ohtv 0.30.1 [skip ci]` — python-semantic-release executed the `fix:` → patch bump as expected, tagged `ohtv-v0.30.1`, appended CHANGELOG, and skipped re-triggering CI via `[skip ci]`. Hands-off, as designed (AGENTS.md §"Releases & Commit Contract").
+- Discovered on `git pull --rebase` (during this WORKLOG push) that another worker had also logged a `chore: worklog update 2026-06-06T18:51:11Z` entry (`713b88f`) in parallel — rebase produced a trivial end-of-file conflict between that entry's section and mine. Resolved by keeping both. Their entry sits in the orchestrator block above; this one sits below.
+
+**No file changes by this worker except this WORKLOG.md entry**, per the explicit task constraint _"the only push you make is the WORKLOG.md update to main"_.
+
+EXIT.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-06-06 18:52 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
@@ -2228,45 +2207,42 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 
 ---
 
-### 2026-06-06 18:51 UTC - Merge worker - PR #185 merged ✅
+### 2026-06-06 19:23 UTC - Orchestrator
 
-<!-- orchestrator-status: spawn -->
+User-invoked `/orchestrate`.
 
-Squash-merged PR #185 (`fix(engagement): cap block extension on separate T_a window (Issue #184)`) into `main`.
+**Step 1 — Human Instructions:** None (`grep -c "^## INSTRUCTION:" WORKLOG.md` = 0).
 
-- **Merge SHA:** `697008c81fb5d072bdeab7edce0102a1818aee55`
-- **Closes:** #184
-- **Merged at:** 2026-06-06T18:51:17Z
-- **Pre-merge state:** `mergeable=MERGEABLE`, `reviewDecision=APPROVED`, CI green, manual test report ✅ ("All functionality works as documented", 2681 passed / 2 skipped / 3 xfailed).
-- **PR description polish:** Appended a `README.md` entry to the "Files changed" list to reflect the docs-worker commit `612c5f1a` (engagement v2 upgrade callout) before merging — no behavior changes.
-- **Squash subject:** `fix(engagement): cap block extension on separate T_a window (Issue #184)` — patch bump per the release contract on the next push to `main` (release workflow will run on this merge commit).
-- **Squash body highlights:** v2 algorithm (T_a as a second gate after silence-tolerance), migration 025 (adds `sustained_attention_seconds`/`algorithm_version` columns + auto-invalidates engagement stage rows so re-process happens without `--force`), new `--sustained-attention SECONDS` CLI knob (default 3600 = 1 h, **PROVISIONAL** pending empirical tuning), v1 recovery via `--sustained-attention 999999999`. Co-authored-by: openhands.
+**Step 2 — Active Workers (pre-spawn):**
+- Merge worker `f21e1cb` — completed at 18:51Z (race-lost no-op, logged exit).
+- Merge worker `da7ad55` — spawned 18:52Z by parallel orchestrator; would self-exit per graceful no-op contract (PR was already `MERGED` on its entry).
+- No active ohtv workers expected. PR slot **free**, expansion slot **free**.
 
-**Follow-up to file (not a regression of this PR):** ambient `OHTV_DIR` leak between `tests/unit/test_extra_paths.py` and `tests/unit/test_gen_objs_batch.py` — causes incidental failures when pytest inherits a populated `OHTV_DIR` from a manual-test session. Surfaced in the manual QA report at 18:30Z; not introduced by this PR. Worth a tracking issue (no existing one was found during merge prep).
+**Step 3 — Gather State (`gh`):**
 
-**Documented behavior, not a bug:** `--sustained-attention 0` collapses block-extension but does not zero out conversations with adjacent user messages within `T` — the period-merge step still applies. (Called out in the squash body so it doesn't get re-litigated.)
+- **Open PRs:** **0** — PR #185 squash-merged at 18:51:17Z as `697008c`; release `fc97ef7` (`chore(release): ohtv 0.30.1 [skip ci]`) followed on the next push. Engagement v2 (#184) shipped.
+- **Open issues:** **2** — both on `hold`:
+  - #90 `enhancement,hold,priority:medium` — Add `ohtv label` to apply labels to a batch of conversations by short ID
+  - #26 `hold` — Add an mcp server
+- **Needs expansion:** 0. **Ready without PR:** 0.
 
-EXIT.
+**Step 4 — Decision:**
+
+- **Expansion slot:** idle — zero candidates (all open issues on `hold`).
+- **PR slot:** idle — no open PR, no ready non-hold issues to start one.
+
+**Step 5 — Action:**
+
+✅ **All quiet** — first quiet entry since the 18:15Z productive burst (docs → testing → review → merge → release). All workflow gates cleared cleanly.
+
+**Step 6 — Housekeeping:** Ran `truncate-worklog` algorithm. Cutoff resolved to 2026-06-05 13:25Z (oldest productive anchor still inside the 6h-productive-span window) → **0 entries archived** (all 53 entries within the kept window). Re-serialization normalized separator whitespace (2272 → 2206 lines). Next productive cluster will let the window slide forward and finally archive the 2026-06-05 entries.
+
+**Step 7 — Auto-disable check:** This is the **1st** quiet entry in the recent log (preceding 8 orchestrator entries were all productive spawns). Counter = 1 of 2 → **not triggered**. If next cron tick is also quiet, the one after will auto-disable per skill.
+
+**Standing recommendation (to unblock work):** All open issues are on `hold`. To resume implementation work, remove `hold` from a priority-labelled issue:
+- `gh issue edit 90 --remove-label hold --repo jpshackelford/ohtv` (medium priority, `enhancement`)
+- `gh issue edit 26 --remove-label hold --repo jpshackelford/ohtv` (no priority yet — would need `/assess-priority` after un-hold)
+
+EXIT per orchestrate skill.
 
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
-
-### 2026-06-06 18:51 UTC - Merge worker (race lost, no-op)
-
-User-invoked merge prep for PR #185 (this worker is `f21e1cb`, spawned by the 18:49Z orchestrator above). On clone+checkout, `gh pr view 185 --json state` already reported `MERGED` — a parallel merge worker (or @jpshackelford by hand) had landed the squash at **2026-06-06T18:51:17Z**, ~6 seconds before this worker started. Per the task's explicit fallback contract (_"If `gh pr merge` fails ... gracefully detect via `gh pr view 185 --json state` showing `MERGED`, log that in WORKLOG.md, and EXIT"_), no merge was attempted by this worker.
-
-**State verification at handoff:**
-- Merge commit: [`697008c`](https://github.com/jpshackelford/ohtv/commit/697008c81fb5d072bdeab7edce0102a1818aee55) — squash subject `fix(engagement): cap block extension on separate T_a window (Issue #184)` (✅ conventional-commits contract: `fix:` → patch bump).
-- Squash body captures the v2 algorithm, T_a default 1 h labelled PROVISIONAL, migration 025 auto-invalidation, `--sustained-attention SECONDS` knob, v1-recovery sentinel, `Closes #184`, and the `OHTV_DIR` ambient-leak follow-up note.
-- Issue #184: `state: CLOSED`, `closedAt: 2026-06-06T18:51:18Z`, `stateReason: COMPLETED` (auto-closed by `Closes #184`).
-- **Release landed**: `fc97ef7 chore(release): ohtv 0.30.1 [skip ci]` — python-semantic-release executed the `fix:` → patch bump as expected, tagged `ohtv-v0.30.1`, appended CHANGELOG, and skipped re-triggering CI via `[skip ci]`. Hands-off, as designed (AGENTS.md §"Releases & Commit Contract").
-- Discovered on `git pull --rebase` (during this WORKLOG push) that another worker had also logged a `chore: worklog update 2026-06-06T18:51:11Z` entry (`713b88f`) in parallel — rebase produced a trivial end-of-file conflict between that entry's section and mine. Resolved by keeping both. Their entry sits in the orchestrator block above; this one sits below.
-
-**No file changes by this worker except this WORKLOG.md entry**, per the explicit task constraint _"the only push you make is the WORKLOG.md update to main"_.
-
-EXIT.
-
-_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
-
----
