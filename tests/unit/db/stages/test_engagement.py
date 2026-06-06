@@ -18,6 +18,8 @@ import pytest
 from ohtv.db.migrations import migrate
 from ohtv.db.models import Conversation
 from ohtv.db.stages.engagement import (
+    COMPUTE_ENGAGEMENT_VERSION,
+    DEFAULT_SUSTAINED_ATTENTION_SECONDS,
     DEFAULT_THRESHOLD_SECONDS,
     STAGE_NAME,
     EngagementMetrics,
@@ -87,6 +89,18 @@ class TestComputeEngagement:
     def test_default_threshold_is_12_minutes(self):
         """T = 12 min per Issue #163 open question #3 default."""
         assert DEFAULT_THRESHOLD_SECONDS == 12 * 60
+
+    def test_default_sustained_attention_window_is_one_hour(self):
+        """T_a = 1 h provisional default per Issue #184.
+
+        Pin the documented placeholder. When empirical analysis lands
+        and we re-tune, this assertion should be updated alongside.
+        """
+        assert DEFAULT_SUSTAINED_ATTENTION_SECONDS == 60 * 60
+
+    def test_compute_engagement_version_is_v2(self):
+        """Algorithm version is v2 (Issue #184 sustained-attention cap)."""
+        assert COMPUTE_ENGAGEMENT_VERSION == 2
 
     def test_empty_events(self):
         result = compute_engagement([], threshold_seconds=480)
@@ -198,22 +212,48 @@ class TestComputeEngagement:
         assert result.follow_up_user_message_count == 2
         assert result.attended_user_message_count == 2
 
-    def test_unattended_block_breaks_chain(self):
-        """A follow-up too far after the prior event is NOT attended."""
+    def test_back_from_lunch_records_touch_only_v2(self):
+        """v2 (Issue #184): the silence gate alone no longer credits the gap.
+
+        v1 cared only about the gap to the *immediately preceding event*,
+        so a 3-hour quiet stretch followed by a "back from lunch"
+        follow-up — with an agent ping just before — credited the
+        entire 3 hours as engagement.
+
+        v2 additionally caps the block extension on the user-to-user
+        gap (T_a, default 1 h). U₁ is still attended (the user
+        returned), so ``attention_periods`` increments to 1, but the
+        block collapses to a zero-duration touch at ``U₁``.
+        """
         events = [
             _user(0, "go"),
             _agent(10),
             # Long unattended gap (3 hours).
             _agent(10_800),
-            _user(10_850, "back from lunch"),  # gap 50 ≤ T → attended
+            _user(10_850, "back from lunch"),  # gap 50 ≤ T → silence gate passes
         ]
-        # T = 5 min = 300s. Gap to immediately prior event (10800)
-        # is 50s ≤ T, so U₁ IS attended → block (U₀=0, U₁=10850).
-        # But the human wasn't actually here during 10-10800. The
-        # algorithm is intentionally simple — it gates on the gap
-        # to the IMMEDIATELY preceding event, not the gap chain.
-        # Block A spans (0, 10850); single period.
+        # T = 5 min = 300s, T_a = 1 h = 3600s (default).
+        # Silence gate: gap to immediately prior event (10800) = 50s ≤ T → pass.
+        # Sustained-attention cap: user-to-user gap = 10850s > T_a → touch only.
         result = compute_engagement(events, threshold_seconds=300)
+        assert result.attention_periods == 1  # user returned: still 1 period
+        assert result.engaged_seconds == 0    # but 0s credited
+
+    def test_back_from_lunch_v1_behavior_recoverable_with_huge_t_a(self):
+        """Pass a huge T_a to recover v1 semantics — used by the sweep script."""
+        events = [
+            _user(0, "go"),
+            _agent(10),
+            _agent(10_800),
+            _user(10_850, "back from lunch"),
+        ]
+        # T_a = ∞ (huge) disables the cap. v1 behavior: block extends
+        # back to U₀, crediting the entire 10850s.
+        result = compute_engagement(
+            events,
+            threshold_seconds=300,
+            sustained_attention_seconds=10**9,
+        )
         assert result.attention_periods == 1
         assert result.engaged_seconds == 10_850
 
@@ -289,6 +329,170 @@ class TestComputeEngagement:
         assert result.attended_user_message_count == 2
         assert result.attention_periods == 2
         assert result.engaged_seconds == 30 + 30  # 60s
+
+    # ------------------------------------------------------------------
+    # Issue #184 — sustained-attention cap (T_a)
+    # ------------------------------------------------------------------
+    #
+    # These tests pin the new "second threshold" behavior. The
+    # conceptual distinction (documented in the module docstring):
+    #
+    #   T   = silence tolerance     ("is the human at the keyboard
+    #                                 *right now*, given recent activity")
+    #   T_a = sustained-attention   ("can the human plausibly have been
+    #         window                 monitoring this entire block")
+    #
+    # T_a's default is provisional; the value-pinning test above
+    # (``test_default_sustained_attention_window_is_one_hour``) will
+    # be updated alongside that value if empirical analysis re-tunes
+    # it.
+
+    def test_overnight_agent_run_does_not_inflate_engagement(self):
+        """Headline scenario from Issue #184: 14 h conv ≠ 14 h engaged.
+
+        The motivating bug: a set-and-forget overnight conversation
+        with an agent event every ~3 min and a follow-up the next
+        morning. v1 credited the entire 14 hours as engagement
+        because every internal gap stayed under T. v2 caps it.
+        """
+        # U₀ at 0; agent ActionEvent every 180 s for 14 h; U₁ at ≈14 h.
+        events: list[dict] = [_user(0, "kick off overnight job")]
+        for i in range(1, 281):
+            events.append(_action(i * 180))
+        events.append(_user(50_430, "back the next morning"))
+
+        # Default T (12 min) + default T_a (1 h).
+        result = compute_engagement(events)
+
+        # The user genuinely returned → 1 touch period.
+        assert result.attention_periods == 1
+        assert result.attended_user_message_count == 1
+        # But the block did NOT extend back 14 h — the cap clipped it
+        # to a zero-duration touch.
+        assert result.engaged_seconds == 0, (
+            "Issue #184 regression: 14 h overnight conversation should "
+            "not credit 14 h of engagement"
+        )
+        # Sanity: the conversation duration metric (independent of the
+        # engagement block bookkeeping) still reports the full span.
+        assert result.total_duration_seconds == 50_430
+
+    def test_user_silent_longer_than_attention_window_records_touch(self):
+        """Minimal version of the headline case.
+
+        Silence gate passes (recent agent ping → gap small) but the
+        user-to-user gap exceeds T_a → record a zero-duration touch
+        at ``Uᵢ``, not a block back to ``Uᵢ₋₁``.
+        """
+        events = [
+            _user(0, "start"),
+            _agent(5),
+            _agent(9_999),
+            _user(10_000, "much later"),
+        ]
+        # T = 720 s (default); T_a = 1 h = 3600 s (default).
+        # Silence gate: 10000 - 9999 = 1 s ≤ T → passes.
+        # Cap: 10000 - 0 = 10000 s > T_a → touch only.
+        result = compute_engagement(events)
+        assert result.attention_periods == 1
+        assert result.attended_user_message_count == 1
+        assert result.engaged_seconds == 0
+
+    def test_user_gap_exactly_at_attention_window_still_extends(self):
+        """``≤ T_a`` is the rule; equality keeps the block extension."""
+        events = [
+            _user(0, "start"),
+            _agent(60),
+            _agent(3590),
+            _user(3600, "exactly at cap"),
+        ]
+        # T_a = 3600. user_gap = 3600. Boundary: 3600 ≤ 3600 → extend.
+        result = compute_engagement(events)
+        assert result.attention_periods == 1
+        assert result.engaged_seconds == 3600
+
+    def test_user_gap_one_second_past_attention_window_collapses(self):
+        """One second past T_a → touch only."""
+        events = [
+            _user(0, "start"),
+            _agent(60),
+            _agent(3600),
+            _user(3601, "one past cap"),
+        ]
+        # user_gap = 3601 > T_a = 3600 → touch.
+        result = compute_engagement(events)
+        assert result.attention_periods == 1
+        assert result.engaged_seconds == 0
+
+    def test_back_to_back_user_messages_within_window_unchanged(self):
+        """Normal back-and-forth must keep v1 behavior."""
+        events = [
+            _user(0, "first"),
+            _agent(30),
+            _user(60, "second"),
+            _agent(90),
+            _user(120, "third"),
+        ]
+        # All user-to-user gaps are 60 s, well under T_a.
+        result = compute_engagement(events)
+        assert result.attention_periods == 1
+        assert result.engaged_seconds == 120
+        assert result.attended_user_message_count == 2
+
+    def test_short_session_then_overnight_then_short_session(self):
+        """Two real touches separated by an overnight gap.
+
+        Both real conversation bursts get full credit; the overnight
+        bridge does not inflate them into a single 8-hour period.
+        """
+        events = [
+            # Evening burst: ~5 min of work
+            _user(0, "evening kick off"),
+            _agent(30),
+            _user(60, "tweak"),
+            _agent(90),
+            _user(300, "ship it"),
+            _agent(305),
+            # Overnight: agent keeps poking every 5 min for 8 h
+            *[_action(305 + i * 300) for i in range(1, 96)],
+            # Morning: user returns
+            _user(28_900, "morning back"),
+            _agent(28_910),
+            _user(29_000, "next thing"),
+        ]
+        # Default T = 720, T_a = 3600. All four follow-ups pass the
+        # silence gate (their immediately-preceding event is close):
+        #   * U₁: gap 30 → block (0, 60) [user_gap 60 ≤ T_a]
+        #   * U₂: gap 210 → block (60, 300) [user_gap 240 ≤ T_a]
+        #   * U₃: gap 95 → touch (28900, 28900) [user_gap 28600 > T_a]
+        #   * U₄: gap 90 → block (28900, 29000) [user_gap 100 ≤ T_a]
+        result = compute_engagement(events)
+        # Evening (0,60)+(60,300) merge into (0,300); morning touch
+        # (28900,28900) and block (28900,29000) merge into (28900,29000).
+        # Seam (28900-300) = 28600 > T → two distinct periods.
+        assert result.attention_periods == 2
+        # Evening: 300 s; morning: 100 s. Touch contributes 0.
+        assert result.engaged_seconds == 300 + 100
+        # All four follow-ups are attended (passed the silence gate).
+        # The touch counts toward attended even though it credits 0 s.
+        assert result.attended_user_message_count == 4
+
+    def test_attention_window_zero_disables_block_extension(self):
+        """T_a = 0: every attended follow-up is a zero-duration touch."""
+        events = [
+            _user(0, "a"),
+            _agent(30),
+            _user(60, "b"),
+        ]
+        # Silence gate passes (gap 30 ≤ default T) but T_a=0 → touch only.
+        result = compute_engagement(
+            events,
+            threshold_seconds=300,
+            sustained_attention_seconds=0,
+        )
+        assert result.attention_periods == 1
+        assert result.engaged_seconds == 0
+        assert result.attended_user_message_count == 1
 
     def test_threshold_zero_marks_every_gap_unattended(self):
         """T = 0: even a 1-second gap is unattended → engaged = 0."""
@@ -490,6 +694,9 @@ class TestProcessEngagement:
         row = _get_row(db_conn, "conv1")
         assert row is not None
         assert row["threshold_seconds"] == 300
+        # Issue #184: T_a + algorithm_version are written on every row.
+        assert row["sustained_attention_seconds"] == DEFAULT_SUSTAINED_ATTENTION_SECONDS
+        assert row["algorithm_version"] == COMPUTE_ENGAGEMENT_VERSION
         assert row["engaged_seconds"] == 60
         assert row["attention_periods"] == 1
         assert row["follow_up_user_message_count"] == 1
@@ -499,6 +706,26 @@ class TestProcessEngagement:
         assert row["last_event_ts"]
         assert row["total_duration_seconds"] == 90
         assert row["processed_at"]
+
+    def test_writes_custom_sustained_attention_window(self, db_conn, tmp_path):
+        """T_a can be overridden per-call and is recorded on the row."""
+        conv_dir = tmp_path / "conv-ta"
+        _write_events(conv_dir, [_user(0, "a"), _agent(30), _user(60, "b")])
+        conv = _register_conversation(db_conn, "convta", conv_dir, event_count=3)
+
+        process_engagement(
+            db_conn,
+            conv,
+            threshold_seconds=300,
+            sustained_attention_seconds=1800,
+        )
+
+        row = _get_row(db_conn, "convta")
+        assert row["threshold_seconds"] == 300
+        assert row["sustained_attention_seconds"] == 1800
+        assert row["algorithm_version"] == COMPUTE_ENGAGEMENT_VERSION
+        # User-to-user gap 60 ≤ 1800 → block extends.
+        assert row["engaged_seconds"] == 60
 
     def test_fire_and_forget_row_present_with_zeros(self, db_conn, tmp_path):
         conv_dir = tmp_path / "conv-ff"
@@ -582,6 +809,8 @@ class TestProcessEngagement:
             "follow_up_user_message_count",
             "attended_user_message_count",
             "threshold_seconds",
+            "sustained_attention_seconds",
+            "algorithm_version",
             "total_duration_seconds",
             "event_count",
         ):
