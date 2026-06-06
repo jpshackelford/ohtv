@@ -2189,3 +2189,27 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 <!-- orchestrator-status: spawn -->
 
 ---
+
+### 2026-06-06 18:51 UTC - Merge worker - PR #185 merged ✅
+
+<!-- orchestrator-status: spawn -->
+
+Squash-merged PR #185 (`fix(engagement): cap block extension on separate T_a window (Issue #184)`) into `main`.
+
+- **Merge SHA:** `697008c81fb5d072bdeab7edce0102a1818aee55`
+- **Closes:** #184
+- **Merged at:** 2026-06-06T18:51:17Z
+- **Pre-merge state:** `mergeable=MERGEABLE`, `reviewDecision=APPROVED`, CI green, manual test report ✅ ("All functionality works as documented", 2681 passed / 2 skipped / 3 xfailed).
+- **PR description polish:** Appended a `README.md` entry to the "Files changed" list to reflect the docs-worker commit `612c5f1a` (engagement v2 upgrade callout) before merging — no behavior changes.
+- **Squash subject:** `fix(engagement): cap block extension on separate T_a window (Issue #184)` — patch bump per the release contract on the next push to `main` (release workflow will run on this merge commit).
+- **Squash body highlights:** v2 algorithm (T_a as a second gate after silence-tolerance), migration 025 (adds `sustained_attention_seconds`/`algorithm_version` columns + auto-invalidates engagement stage rows so re-process happens without `--force`), new `--sustained-attention SECONDS` CLI knob (default 3600 = 1 h, **PROVISIONAL** pending empirical tuning), v1 recovery via `--sustained-attention 999999999`. Co-authored-by: openhands.
+
+**Follow-up to file (not a regression of this PR):** ambient `OHTV_DIR` leak between `tests/unit/test_extra_paths.py` and `tests/unit/test_gen_objs_batch.py` — causes incidental failures when pytest inherits a populated `OHTV_DIR` from a manual-test session. Surfaced in the manual QA report at 18:30Z; not introduced by this PR. Worth a tracking issue (no existing one was found during merge prep).
+
+**Documented behavior, not a bug:** `--sustained-attention 0` collapses block-extension but does not zero out conversations with adjacent user messages within `T` — the period-merge step still applies. (Called out in the squash body so it doesn't get re-litigated.)
+
+EXIT.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
