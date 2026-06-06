@@ -1,6 +1,303 @@
 # CHANGELOG
 
 
+## v0.30.1 (2026-06-06)
+
+### Bug Fixes
+
+- **engagement**: Cap block extension on separate T_a window (Issue #184)
+  ([`697008c`](https://github.com/jpshackelford/ohtv/commit/697008c81fb5d072bdeab7edce0102a1818aee55))
+
+The v1 engagement algorithm reused the silence-tolerance threshold `T` (12 min) as the only gate for
+  crediting an attended block, which inflated long-running set-and-forget conversations by 14+ hours
+  each (~50 h across 9 rows surfaced in #184). v2 introduces a separate sustained-attention window
+  `T_a` as a second gate after the silence-tolerance check: when the user-to-user gap exceeds `T_a`
+  the block collapses to a zero-duration touch at `U_i` (attention_periods still increments,
+  engaged_seconds does not). Migration 025 adds `sustained_attention_seconds` and
+  `algorithm_version` columns to `conversation_engagement`, indexes the new column, and `DELETE`s
+  engagement rows from `conversation_stages` so every conversation auto-recomputes under v2 on the
+  next `ohtv sync` / `ohtv db process engagement` — no `--force` required.
+
+New CLI knob: `ohtv db process engagement --sustained-attention SECONDS` (also flows through `db
+  process all`). Default is 3600 s (1 h), labelled **PROVISIONAL** — pinning the empirical value
+  requires the corpus analysis described in the #184 thread (bucket user-to-user gaps by intervening
+  agent-activity length). Pass `--sustained-attention 999999999` to recover pre-v2 behavior for the
+  sweep workflow. `--sustained-attention 0` collapses block-extension but does not zero out
+  conversations with adjacent user messages within `T` — the period-merge step still applies. This
+  is documented behavior, not a bug.
+
+Manual QA on 50 cloud conversations passed all 15 scenarios (schema, defaults, knob round-trip,
+  filter parity, auto-invalidation, idempotency, display); the full unit suite passes (2681 passed,
+  2 skipped, 3 xfailed). Follow-up: an ambient `OHTV_DIR` leak between `test_extra_paths.py` and
+  `test_gen_objs_batch.py` causes incidental failures when pytest inherits a populated `OHTV_DIR` —
+  unrelated to this PR; a tracking issue should be filed.
+
+Closes #184.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Chores
+
+- Worklog update 2026-06-06T16:18:00Z
+  ([`e135966`](https://github.com/jpshackelford/ohtv/commit/e135966f2c64539b19344b85d23c5fa4200f65f4))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- Worklog update 2026-06-06T17:16Z
+  ([`9326a6c`](https://github.com/jpshackelford/ohtv/commit/9326a6c38bbb8a707f852bb715b772398386e896))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- Worklog update 2026-06-06T17:50:20Z
+  ([`576d266`](https://github.com/jpshackelford/ohtv/commit/576d266a51dcd8a21d684cce7df8da9a5c6a6693))
+
+- Worklog update 2026-06-06T18:51:11Z
+  ([`713b88f`](https://github.com/jpshackelford/ohtv/commit/713b88f66f4f6c2fc8633eb02e52d22294b6ce14))
+
+Spawned merge worker f21e1cb for PR #185 (engagement v2 / Issue #184). All four merge gates
+  satisfied: CI green, bot review APPROVED, docs updated, manual test rating green.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: 2026-06-06t18:18z - spawn testing worker for PR #185
+  ([`50dd64f`](https://github.com/jpshackelford/ohtv/commit/50dd64f794a0929b7c7c98479958e7b38bcd92ec))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: 2026-06-06t18:27z - dedup tick, defer to parallel orchestrator + testing worker
+  ([`099d988`](https://github.com/jpshackelford/ohtv/commit/099d98823e21d6f2cb23ce0048cdc9f10f280036))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: All quiet at 13:47Z — #184 re-held by human, both slots idle
+  ([`6e0c033`](https://github.com/jpshackelford/ohtv/commit/6e0c033bde61e3c85e69bb80a45ff361b5f059e4))
+
+- **worklog**: Archive 2026-06-04 13:50Z → 2026-06-05 04:51Z entries
+  ([`621478e`](https://github.com/jpshackelford/ohtv/commit/621478e5b31758d2b7f99f3418ba982b47f35495))
+
+Archived 47 entries (including the now-resolved 2026-06-05 01:48Z INSTRUCTION block) so the live
+  WORKLOG.md stays well within the orchestrator's 10-minute per-tick budget. The auth-blocker outage
+  from ~05:00Z–11:00Z masked accumulated entries that should have been archived earlier; catching up
+  now.
+
+INSTRUCTION block was resolved via option-1 exit (PR #183 squash-merged at 31c45193); full block
+  preserved in this archive for audit.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Archive pre-13:25Z status entries + 17:17Z orchestrator tick
+  ([`43a7902`](https://github.com/jpshackelford/ohtv/commit/43a7902462d5d786dcd0b0af8d2d48de2af803e5))
+
+[skip ci]
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Docs worker completed for PR #185
+  ([`ef2a0a9`](https://github.com/jpshackelford/ohtv/commit/ef2a0a915ca8ee9286862ac72c755da1f6640c16))
+
+- **worklog**: Expansion worker completed #184 — engagement overcount root-caused, ready
+  ([`19e8c88`](https://github.com/jpshackelford/ohtv/commit/19e8c8894e0cc8509e56459742f0dd1a750c5657))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator 2026-06-06T18:16:50Z — spawn docs worker for PR #185
+  ([`72f3826`](https://github.com/jpshackelford/ohtv/commit/72f3826e69354c9b0232cb980eda75d49e591df8))
+
+- **worklog**: Orchestrator quiet tick 2026-06-05T16:18:55Z
+  ([`823ebfc`](https://github.com/jpshackelford/ohtv/commit/823ebfc6ba54e27a17a59b4ec67fa46239089b6e))
+
+- **worklog**: Orchestrator quiet tick 2026-06-05T23:16Z
+  ([`df18df6`](https://github.com/jpshackelford/ohtv/commit/df18df6aa5bef3690aac20f25030b12a7d7a2f7a))
+
+- **worklog**: Orchestrator quiet tick 2026-06-05T23:47Z
+  ([`870b596`](https://github.com/jpshackelford/ohtv/commit/870b59605ad2a5f2b056ca295e5c1e1b50e6288f))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator quiet tick 2026-06-06T00:17Z
+  ([`6a2aafb`](https://github.com/jpshackelford/ohtv/commit/6a2aafbcf0ea4aea35b5cfdc8171d6adf174d6ad))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator status 2026-06-05T11:48Z — all quiet, both slots idle
+  ([`aa1d6ff`](https://github.com/jpshackelford/ohtv/commit/aa1d6ff3ded80df2f7b29655ad3003a808bf1870))
+
+- **worklog**: Orchestrator status 2026-06-05T12:17Z — all quiet (user-invoked)
+  ([`30ba903`](https://github.com/jpshackelford/ohtv/commit/30ba9032f82cdc7b9ce54a52d40890b6c2ad1ec2))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator status 2026-06-05T12:47Z — all quiet (user-invoked)
+  ([`0cf09aa`](https://github.com/jpshackelford/ohtv/commit/0cf09aabc424aaf5e2a8ab34e523251f60b38c11))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator status 2026-06-05T17:50:48Z
+  ([`5e6dc55`](https://github.com/jpshackelford/ohtv/commit/5e6dc55f956b06751f87246f2b838c45b28a0962))
+
+- **worklog**: Orchestrator status 2026-06-05T18:16:48Z
+  ([`1990bc7`](https://github.com/jpshackelford/ohtv/commit/1990bc7bfe912edf328c32aabe9c8af634104ab2))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator status 2026-06-05T18:47:00Z
+  ([`f29e2f3`](https://github.com/jpshackelford/ohtv/commit/f29e2f3b9150d44ecff06ebd29cb269aa99e4698))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator status 2026-06-05T19:20:00Z
+  ([`a836755`](https://github.com/jpshackelford/ohtv/commit/a836755853bf17c2397ed6993d4a4115d45f87fa))
+
+- **worklog**: Orchestrator status 2026-06-05T19:47:00Z
+  ([`d867970`](https://github.com/jpshackelford/ohtv/commit/d867970038447a2890ae4f6c511c2138cc127dd7))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator status 2026-06-05T20:18:00Z
+  ([`89431cb`](https://github.com/jpshackelford/ohtv/commit/89431cbb67316f6285a18b578d1443c27da18aab))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator status 2026-06-05T20:48:21Z
+  ([`4ce008a`](https://github.com/jpshackelford/ohtv/commit/4ce008a7798ece6199252df540b81247a6466778))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator status 2026-06-05T21:17Z
+  ([`fedfb16`](https://github.com/jpshackelford/ohtv/commit/fedfb16363b2fe26511e869869f3993ca18a7011))
+
+- **worklog**: Orchestrator status 2026-06-06T15:51:09Z
+  ([`3a5e95a`](https://github.com/jpshackelford/ohtv/commit/3a5e95ab09196287c12288cf1cbc235a87d0dc40))
+
+- **worklog**: Orchestrator tick 12:18Z
+  ([`f257b4c`](https://github.com/jpshackelford/ohtv/commit/f257b4cbb934e4680bb0dd89c592bb4b32007b98))
+
+PR #185 still draft, all issues on hold. No worker spawned.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 12:46Z
+  ([`d078db0`](https://github.com/jpshackelford/ohtv/commit/d078db0210b574641b2a5bc6c007bbe332113917))
+
+- **worklog**: Orchestrator tick 13:18Z
+  ([`f08bb43`](https://github.com/jpshackelford/ohtv/commit/f08bb436145e84f5bb9f4100b3e47a7f0a416c13))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-06-05T13:20Z — spawn expansion for #184
+  ([`73ff83f`](https://github.com/jpshackelford/ohtv/commit/73ff83f59eecd1c021a24b9816cc5189975ca400))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-06-05T16:46Z - PR #185 still draft+green, no action
+  ([`8545ad0`](https://github.com/jpshackelford/ohtv/commit/8545ad0fbd85d672b774a775b416e6c3502bd1c2))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-06-05T21:46Z
+  ([`db5c148`](https://github.com/jpshackelford/ohtv/commit/db5c148a871f24115efd358746e99442c2f55739))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-06-06T00:47Z [skip ci]
+  ([`bac6574`](https://github.com/jpshackelford/ohtv/commit/bac6574ed1f9937ef41b18dcedb6a6c0c4044a83))
+
+- **worklog**: Orchestrator tick 2026-06-06T01:17Z
+  ([`3405049`](https://github.com/jpshackelford/ohtv/commit/3405049c2cf611656316a5fe18ce21db05eb9302))
+
+- **worklog**: Orchestrator tick 2026-06-06T01:48Z - quiet, PR #185 still draft
+  ([`24e04b3`](https://github.com/jpshackelford/ohtv/commit/24e04b3b286f7a087bca850ffaa212f5d3659f3c))
+
+- **worklog**: Orchestrator tick 2026-06-06T02:17Z - quiet, PR #185 still draft
+  ([`ce0e05d`](https://github.com/jpshackelford/ohtv/commit/ce0e05d81c02fcb87e8b800a44774f0103ccdabb))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-06-06T02:47Z - quiet, PR #185 still draft
+  ([`2478026`](https://github.com/jpshackelford/ohtv/commit/247802617ea6c08e5ba99b33cdf3829e083ddd2f))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-06-06T03:19Z
+  ([`430387c`](https://github.com/jpshackelford/ohtv/commit/430387c1698208f771e9e77346d99806db714f17))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-06-06T03:48Z
+  ([`d19f18c`](https://github.com/jpshackelford/ohtv/commit/d19f18ce4e8c5c2b8de0d2eee89d935e9048f1af))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-06-06T04:18:52Z
+  ([`b90714a`](https://github.com/jpshackelford/ohtv/commit/b90714abbecc833164bcce08607731028019b9af))
+
+- **worklog**: Orchestrator tick 2026-06-06T04:46Z [skip ci]
+  ([`b886598`](https://github.com/jpshackelford/ohtv/commit/b886598e3a817bf308eb5815b837b01fb0f6b6c0))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-06-06T05:19Z - no action (PR #185 draft, all issues hold)
+  ([`0b3f49d`](https://github.com/jpshackelford/ohtv/commit/0b3f49d20aeb4866f825f507ca803a50d77a940d))
+
+- **worklog**: Orchestrator tick 2026-06-06T05:46Z - no action (PR #185 draft, all issues hold)
+  ([`4de64c4`](https://github.com/jpshackelford/ohtv/commit/4de64c4b93fc0739becab9392b90ff8badcc0a73))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-06-06T13:49Z
+  ([`02eaf96`](https://github.com/jpshackelford/ohtv/commit/02eaf963586f4d6773c94da0f3dfd9af8e4b8f10))
+
+- **worklog**: Orchestrator tick 2026-06-06T14:20Z
+  ([`1d0dd4f`](https://github.com/jpshackelford/ohtv/commit/1d0dd4fc5b06f025617c98309f7128737cdacf6a))
+
+- **worklog**: Orchestrator tick 2026-06-06T14:48Z
+  ([`0459989`](https://github.com/jpshackelford/ohtv/commit/04599894f31b79cc5deb903be7da455b91c43d3e))
+
+- **worklog**: Orchestrator tick 2026-06-06T15:16Z
+  ([`0e516a5`](https://github.com/jpshackelford/ohtv/commit/0e516a5d5d4e7a77968b9b81312ac4a7e230d9f8))
+
+- **worklog**: Orchestrator tick 2026-06-06T16:47Z
+  ([`b4b4b30`](https://github.com/jpshackelford/ohtv/commit/b4b4b306242b2755d808d3dd66a43acf5fa7e0f3))
+
+- **worklog**: Orchestrator tick 22:17Z - PR #185 still draft, both slots idle
+  ([`981ddef`](https://github.com/jpshackelford/ohtv/commit/981ddefd9e36cee9b68dd1e0ca3d5d0094230ac4))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 22:46Z - PR #185 still draft, both slots idle
+  ([`0aeb569`](https://github.com/jpshackelford/ohtv/commit/0aeb569e4ec4e7614191bc46a64fb9dd0ee6bc6a))
+
+- **worklog**: Tick at 14:47Z - PR #185 still draft + green, both slots idle
+  ([`2eba48a`](https://github.com/jpshackelford/ohtv/commit/2eba48a286ff2e70a18589466421c3a08ef79085))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Tick at 15:16Z - PR #185 still draft + green, both slots idle
+  ([`c6a1033`](https://github.com/jpshackelford/ohtv/commit/c6a10333c25e37e0a3336e54545b67698b361bd2))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Tick at 15:49Z - PR #185 still draft + green, both slots idle
+  ([`7dcf208`](https://github.com/jpshackelford/ohtv/commit/7dcf2084f3f57f54abf9f23c3c87b2911ea86903))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Truncate + remove resolved INSTRUCTION block
+  ([`28df659`](https://github.com/jpshackelford/ohtv/commit/28df659acb1637bd9694b75d832868ef085a97ba))
+
+Live WORKLOG.md shrunk from 2769 → 70 lines. Old entries moved to WORKLOG_ARCHIVE_2026-06-05.md
+  (sibling commit). INSTRUCTION block from 01:48Z removed per its own option-1 exit path now that PR
+  #183 is merged (31c45193). New 11:23Z recovery entry documents the post-auth recovery for the next
+  orchestrator cycle.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Wait at 14:18Z — PR #185 (draft) addresses #184, all issues on hold
+  ([`2df7d1c`](https://github.com/jpshackelford/ohtv/commit/2df7d1caa11f3462df1aba8f4db00b5b24d95f0f))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+
 ## v0.30.0 (2026-06-05)
 
 ### Chores
