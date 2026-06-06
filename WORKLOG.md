@@ -2101,3 +2101,31 @@ EXIT per orchestrate skill.
 _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
 
 ---
+
+### 2026-06-06 18:27 UTC - Orchestrator (dedup)
+
+User-invoked `/orchestrate` (conv `728d088`) — **second orchestrator running in the same cron window**. Discovered the race only after attempting to push: parallel orchestrator had already landed three commits on `main` (`72f3826`, `ef2a0a9`, `50dd64f`) covering exactly the same state transitions this tick was about to log. Aborted my rebase, dropped my redundant entry, and re-reading the existing log confirms the PR slot is fully accounted for:
+
+| Conv ID   | Role                    | Status (per WORKLOG + API) |
+|-----------|-------------------------|-----------------------------|
+| `728d088` | this orchestrator       | exiting now                 |
+| docs worker (commit `612c5f1a` on PR tip) | completed at 18:25Z | done — README callout merged into PR branch |
+| `90e521d` | testing worker          | **running** (spawned at 18:18Z by parallel orchestrator) |
+
+**Cross-check on PR #185 (re-verified at 18:27Z):**
+- `isDraft: false`, CI lint ✓ pytest ✓, `mergeable: MERGEABLE`, `headRefOid=612c5f1a…`.
+- Reviews: 1 (`github-actions` APPROVED 🟡 MEDIUM).
+- Comments: 1 from @jpshackelford at 18:18:01Z ("Documentation updated…") — but the docs commit on the branch is `612c5f1a` authored by the docs worker, so the PR-level comment is actually the human's summary of the worker's commit.
+- **No `Manual Test Results` comment yet** — testing worker `90e521d` is responsible.
+
+**Note on identity confusion in the 18:15Z parallel-orchestrator entry:** that entry identifies `728d088` as the docs worker. That's this conversation's ID, but this conversation received `/orchestrate` as its user message and never executed a docs prompt. The actual docs work IS on the PR (commit `612c5f1a`), so the work happened — the parallel orchestrator likely misattributed the conv ID when it inspected the running set. Flagging here for log-readers; no corrective action.
+
+**Action this tick:** None. PR slot occupied (testing worker `90e521d` running), expansion slot idle (all issues on `hold`). State is already correctly captured by the 18:15Z/18:25Z/18:18Z entries above.
+
+**Recommendation for next tick:** Watch `90e521d`. When it posts a `Manual Test Results` comment and exits, the decision tree advances to: _"PR exists, ready, CI green, test results valid, review approved → Spawn merge worker"_ (the bot review of 🟢 _"Good taste"_ APPROVED satisfies the review-approval gate; no human review pending per PR view).
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
