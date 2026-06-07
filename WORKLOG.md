@@ -3193,3 +3193,66 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 <!-- orchestrator-status: quiet -->
 
 ---
+
+### 2026-06-07 13:19 UTC - Orchestrator
+
+User-invoked `/orchestrate` (concurrent peers `be18625d`, `b664a227`, `14b76de9` running per API; this conv unknown to the worklog).
+
+**Step 1 — Human Instructions:** None (`grep -c "^## INSTRUCTION:" WORKLOG.md` = 0).
+
+**Step 2 — Active Workers:** `/api/v1/app-conversations/search?selected_repository=jpshackelford/ohtv&limit=10` returns 3 `running` rows: `be18625d` / `b664a227` (both `trigger=automation`) and `14b76de9` (`trigger=null`). `grep -E "(be18625d|b664a227|14b76de9)" WORKLOG.md` returns empty — none have prior worklog entries, so none hold a worker slot per the orchestrate skill's contract. **Both expansion and PR slots are free.**
+
+**Step 3 — Live automation pre-check:**
+- `c202ca20-60d5-4f5b-9d53-3d7308c1d95b` ("OHTV Workflow Orchestrator (feature branch, disabled)") → was `enabled=true` at tick entry, **disabled this tick** per Step 7 below (this is the ID the skill identifies as "this orchestrator's automation ID"; the name's "disabled" tag was stale).
+- `ed08056a-b8d8-41ac-adb3-1d8d105e0cef` ("OHTV Workflow Orchestrator") → `enabled=false` (unchanged since 20:18Z 2026-06-06 auto-disable, ~17h ago).
+
+**Step 4 — Gather State (`gh`):**
+
+- **Open PRs:** **0** (`gh pr list … --state open` → `[]`).
+- **Open issues:** **3** — all still on `hold`, unchanged since the 12:46Z tick:
+  - #186 `enhancement,hold` — Empirically tune default for `--sustained-attention SECONDS` (v2 engagement algorithm)
+  - #90 `enhancement,hold,priority:medium` — `ohtv label` batch labeling by short ID
+  - #26 `hold` — Add an mcp server
+- Needs expansion: 0. Ready (non-hold): 0.
+
+**Step 5 — Decision:**
+
+- **Expansion slot:** idle — zero candidates (all 3 open issues on `hold`).
+- **PR slot:** idle — no open PR, no ready non-hold issues.
+
+**Step 6 — Action:** ✅ **All quiet** — state unchanged from the 12:46Z tick (the **15th** consecutive canonical quiet). No worker spawned.
+
+**Step 7 — Auto-disable executed:** The trailing `<!-- orchestrator-status: quiet -->` markers immediately preceding this entry total **fourteen** consecutive `quiet` (20:30Z, 20:46Z, 21:18Z, 23:18Z 2026-06-06, 01:18Z, 01:47Z, 02:17Z, 02:47Z, 03:17Z, 10:18Z, 10:46Z, 11:16Z, 12:19Z, 12:46Z 2026-06-07) — well past the 2-quiet-then-disable threshold from the skill's "Auto-Disable on Consecutive Quiet Periods" section. Per the orchestrate skill, **this orchestrator's automation ID is `c202ca20-60d5-4f5b-9d53-3d7308c1d95b`**, and `PATCH /api/automation/v1/c202ca20-…` with `{"enabled": false}` succeeded (server-confirmed `enabled: false`). The sibling cron `ed08056a-…` was already disabled (20:18Z 2026-06-06). Both orchestrator automations are now off; the three `running` peers visible in Step 2 are already in-flight and will run to completion, but no new cron-spawned ticks will be scheduled.
+
+**Step 8 — Housekeeping:** Worklog is now 3195 lines (>300). Most recent productive event (the 2026-06-06 20:09Z PR-185 merge-worker spawn) is ~17h ago — well past the 6h retention window. **Deferring truncation again** this tick: three concurrent `running` peers (`be18625d`, `b664a227`, `14b76de9`) could still push WORKLOG updates, and a large truncation diff would amplify the conflict surface. Truncation should land on the first tick with a confirmed-clean concurrent landscape — likely the next manual `/orchestrate` after the running peers finish, now that both crons are off.
+
+**To re-enable cron orchestration:**
+
+```bash
+# Skill-canonical orchestrator (just disabled this tick):
+curl -X PATCH "https://app.all-hands.dev/api/automation/v1/c202ca20-60d5-4f5b-9d53-3d7308c1d95b" \
+  -H "Authorization: Bearer ${OPENHANDS_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+
+# Production orchestrator (disabled since 20:18Z 2026-06-06):
+curl -X PATCH "https://app.all-hands.dev/api/automation/v1/ed08056a-b8d8-41ac-adb3-1d8d105e0cef" \
+  -H "Authorization: Bearer ${OPENHANDS_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+```
+
+**Standing recommendation for un-holding** (carried over from 12:46Z):
+- `gh issue edit 90 --remove-label hold --repo jpshackelford/ohtv` (medium priority, `enhancement`) — most ready to pick up
+- `gh issue edit 186 --remove-label hold --repo jpshackelford/ohtv` (depends on an empirical tuning study; see AGENTS.md item #35)
+- `gh issue edit 26 --remove-label hold --repo jpshackelford/ohtv` (would need `/assess-priority` after un-hold)
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+<!-- orchestrator-status: quiet -->
+<!-- orchestrator-auto-disabled: c202ca20-60d5-4f5b-9d53-3d7308c1d95b -->
+
+---
+
