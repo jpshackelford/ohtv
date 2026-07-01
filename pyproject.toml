@@ -12,10 +12,14 @@ dependencies = [
     "httpx>=0.27",
     "numpy>=2.0,<3.0",
     "openhands-sdk>=1.16.1",
+    "ohtv-utils",
     "pyyaml>=6.0",
     "rich>=13.0",
     "tomli_w>=1.0",
 ]
+
+[tool.uv.sources]
+ohtv-utils = { path = "ohtv-utils", editable = true }
 
 [project.optional-dependencies]
 charts = ["matplotlib>=3.8"]

@@ -6,7 +6,6 @@ This stage:
 3. Stores results in the database with appropriate link types
 """
 
-import re
 import sqlite3
 from pathlib import Path
 
@@ -18,6 +17,8 @@ from ohtv.db.stores import (
     RepoStore,
     StageStore,
 )
+# Import URL parsing utilities from ohtv-utils
+from ohtv_utils.extraction.refs import parse_ref_url, parse_repo_url
 
 
 STAGE_NAME = "refs"
@@ -97,127 +98,41 @@ def process_refs(conn: sqlite3.Connection, conversation: Conversation) -> None:
 def _parse_repo_url(url: str) -> Repository | None:
     """Parse a repository URL into a Repository model.
     
+    Uses ohtv-utils parse_repo_url and converts dict result to Repository model.
     Returns Repository or None if unparseable.
     """
-    # Normalize URL
-    url = url.rstrip("/")
-    if url.endswith(".git"):
-        url = url[:-4]
+    repo_dict = parse_repo_url(url)
+    if repo_dict is None:
+        return None
     
-    # GitHub pattern
-    match = re.match(r"https://github\.com/([^/]+)/([^/]+)", url)
-    if match:
-        owner, repo = match.groups()
-        return Repository(
-            id=None,
-            canonical_url=f"https://github.com/{owner}/{repo}",
-            fqn=f"{owner}/{repo}",
-            short_name=repo,
-        )
-    
-    # GitLab pattern (handles nested groups)
-    match = re.match(r"https://gitlab\.com/(.+)/([^/]+)", url)
-    if match:
-        group_path, repo = match.groups()
-        return Repository(
-            id=None,
-            canonical_url=f"https://gitlab.com/{group_path}/{repo}",
-            fqn=f"{group_path}/{repo}",
-            short_name=repo,
-        )
-    
-    # Bitbucket pattern
-    match = re.match(r"https://bitbucket\.org/([^/]+)/([^/]+)", url)
-    if match:
-        owner, repo = match.groups()
-        return Repository(
-            id=None,
-            canonical_url=f"https://bitbucket.org/{owner}/{repo}",
-            fqn=f"{owner}/{repo}",
-            short_name=repo,
-        )
-    
-    return None
+    return Repository(
+        id=None,
+        canonical_url=repo_dict["canonical_url"],
+        fqn=repo_dict["fqn"],
+        short_name=repo_dict["short_name"],
+    )
 
 
 def _parse_ref_url(url: str, ref_type: RefType) -> Reference | None:
     """Parse an issue/PR URL into a Reference model.
     
+    Uses ohtv-utils parse_ref_url and converts dict result to Reference model.
     Returns Reference or None if unparseable.
     """
-    # GitHub PR
-    match = re.match(r"https://github\.com/([^/]+)/([^/]+)/pull/(\d+)", url)
-    if match:
-        owner, repo, number = match.groups()
-        return Reference(
-            id=None,
-            ref_type=ref_type,
-            url=url,
-            fqn=f"{owner}/{repo}#{number}",
-            display_name=f"{repo} #{number}",
-        )
+    # Convert RefType enum to string for ohtv-utils
+    ref_type_str = "pr" if ref_type == RefType.PR else "issue"
     
-    # GitHub issue
-    match = re.match(r"https://github\.com/([^/]+)/([^/]+)/issues/(\d+)", url)
-    if match:
-        owner, repo, number = match.groups()
-        return Reference(
-            id=None,
-            ref_type=ref_type,
-            url=url,
-            fqn=f"{owner}/{repo}#{number}",
-            display_name=f"{repo} #{number}",
-        )
+    ref_dict = parse_ref_url(url, ref_type_str)
+    if ref_dict is None:
+        return None
     
-    # GitLab MR
-    match = re.match(r"https://gitlab\.com/(.+)/([^/]+)/-/merge_requests/(\d+)", url)
-    if match:
-        group_path, repo, number = match.groups()
-        return Reference(
-            id=None,
-            ref_type=ref_type,
-            url=url,
-            fqn=f"{group_path}/{repo}!{number}",
-            display_name=f"{repo} !{number}",
-        )
-    
-    # GitLab issue
-    match = re.match(r"https://gitlab\.com/(.+)/([^/]+)/-/issues/(\d+)", url)
-    if match:
-        group_path, repo, number = match.groups()
-        return Reference(
-            id=None,
-            ref_type=ref_type,
-            url=url,
-            fqn=f"{group_path}/{repo}#{number}",
-            display_name=f"{repo} #{number}",
-        )
-    
-    # Bitbucket PR
-    match = re.match(r"https://bitbucket\.org/([^/]+)/([^/]+)/pull-requests/(\d+)", url)
-    if match:
-        owner, repo, number = match.groups()
-        return Reference(
-            id=None,
-            ref_type=ref_type,
-            url=url,
-            fqn=f"{owner}/{repo}#{number}",
-            display_name=f"{repo} #{number}",
-        )
-    
-    # Bitbucket issue
-    match = re.match(r"https://bitbucket\.org/([^/]+)/([^/]+)/issues/(\d+)", url)
-    if match:
-        owner, repo, number = match.groups()
-        return Reference(
-            id=None,
-            ref_type=ref_type,
-            url=url,
-            fqn=f"{owner}/{repo}#{number}",
-            display_name=f"{repo} #{number}",
-        )
-    
-    return None
+    return Reference(
+        id=None,
+        ref_type=ref_type,
+        url=ref_dict["url"],
+        fqn=ref_dict["fqn"],
+        display_name=ref_dict["display_name"],
+    )
 
 
 def _determine_link_type(interactions: set[str]) -> LinkType:
