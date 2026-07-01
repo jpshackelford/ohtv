@@ -1,5 +1,24 @@
 ## Log
 
+### 2026-07-01 19:32 UTC - Expansion Worker (Issue #187)
+
+✅ **Expanded Issue #187** — Extract core extraction utilities to standalone package
+
+- Issue: [Extract core extraction utilities to standalone package](https://github.com/jpshackelford/ohtv/issues/187)
+- Type: Enhancement
+- Status: **Ready for implementation** (label `ready` applied)
+- Verified technical feasibility: Core extraction utilities (`extract_message_content`, `extract_action_summary`, `extract_observation_content`, `compute_engagement`, `count_human_input`) are pure functions with **zero ohtv-specific dependencies** (stdlib only)
+- Package structure: `ohtv-utils` with `extraction/` and `metrics/` modules
+- Key decisions:
+  - Extract pure functions only (not DB-writing wrappers)
+  - URL parsers return dicts (not model objects) for zero dependencies
+  - Keep context-dependent functions (`build_transcript_from_context`) in ohtv
+  - Separate repository for independent release cycle
+  - Start at version 0.1.0
+- Complexity: Low-Medium (2-3 days) — functions already isolated, minimal adaptation needed
+- Comment with detailed implementation plan: https://github.com/jpshackelford/ohtv/issues/187#issuecomment-4859381590
+
+---
 ### 2026-06-05 13:25 UTC - Expansion Worker (`#184`)
 
 ✅ **Expanded Issue #184** — engagement calculation overcounts long-running conversations
