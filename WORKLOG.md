@@ -1,6 +1,38 @@
 ## Log
 
 
+### 2026-07-01 21:55 UTC - Expansion Worker (Issue #191)
+
+✅ **Expanded Issue #191** — Cache LLM synthesis results to avoid redundant calls
+
+- Issue: [Cache LLM synthesis results to avoid redundant calls](https://github.com/jpshackelford/ohtv/issues/191)
+- Type: Enhancement
+- Status: ✅ **Ready for implementation**
+- Technical approach: Add centralized `conversation_synthesis` DB table for caching titles/objectives with invalidation based on conversation updates
+- Implementation: ~6-9 days (Medium complexity) — DB migration, cache store class, integrate with gen commands, add cache management
+- Key details: Schema version bump for prompt invalidation, multi-model support, cache hit statistics
+
+**What was done:**
+1. ✅ Explored existing caching infrastructure (`AnalysisCacheManager`, analysis_cache table)
+2. ✅ Analyzed title generation (`titles.py`) and objectives (`objectives.py`) integration points
+3. ✅ Reviewed database migration patterns and current schema
+4. ✅ Restructured issue body with clear Problem/Solution/Acceptance Criteria sections
+5. ✅ Added comprehensive technical approach comment with:
+   - Architecture integration (how new cache relates to existing file-based cache)
+   - Complete database schema (migration 026)
+   - Core implementation code examples (`SynthesisCacheStore` class)
+   - Integration points (8 files to modify)
+   - Testing strategy (unit + integration tests)
+   - Phased implementation plan (5 phases)
+   - Complexity assessment and risk analysis
+6. ✅ Added `ready` label to issue
+
+**Next steps:** Issue is ready for implementation. The technical approach provides complete schema, code examples, and phased plan.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-07-01 21:28 UTC - Expansion Worker (Issue #190)
 
 ✅ **Expanded Issue #190** — Enhance 'ohtv list' with engagement and outcome summary
