@@ -1,5 +1,23 @@
 ## Log
 
+### 2026-07-01 20:53 UTC - Issue Expansion
+
+✅ **Expanded Issue #189** - Add 'ohtv report worklog' command
+
+Added comprehensive technical approach comment covering:
+- Data layer integration (engagement metrics, refs, event loading)
+- Context extraction utilities from `analysis/transcript.py`
+- LLM synthesis pattern following `analysis/titles.py`
+- Rendering approach (HTML/markdown/text templates)
+- CLI integration following existing `report velocity` pattern
+- Implementation checklist (5 phases, 5-7 days total)
+- Key design decisions (batch synthesis, timezone handling, no caching)
+
+**Status**: Issue marked as `ready` for implementation.
+**Issue URL**: https://github.com/jpshackelford/ohtv/issues/189
+
+<!-- orchestrator-status: quiet -->
+
 ### 2026-06-06 19:46 UTC - Orchestrator
 
 🔒 **Auto-disabled due to inactivity**
