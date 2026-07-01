@@ -1,5 +1,29 @@
 ## Log
 
+
+### 2026-07-01 21:28 UTC - Expansion Worker (Issue #190)
+
+✅ **Expanded Issue #190** — Enhance 'ohtv list' with engagement and outcome summary
+
+- Issue: [Enhance 'ohtv list' with engagement and outcome summary](https://github.com/jpshackelford/ohtv/issues/190)
+- Type: Enhancement
+- Status: ✅ **Ready for implementation**
+- Technical approach: Add `--with-outcomes` flag and `--enriched` shorthand following same pattern as `--with-engagement`
+- Implementation: ~8 hours (1 day) — batch data loading, CLI flags, table/JSON/CSV formatters
+- Key details: Use `change_refs` + `conversation_contributions` tables for PR state, display with ✓/→ indicators
+
+**What was done:**
+1. ✅ Explored codebase to understand current `list` command architecture
+2. ✅ Verified data model (`change_refs`, `conversation_contributions`, engagement pattern)
+3. ✅ Rewrote issue body with structured Problem/Solution/Acceptance Criteria
+4. ✅ Added detailed technical approach comment with implementation plan, SQL queries, and edge cases
+5. ✅ Added `ready` label to issue
+
+**Next steps:** Issue is ready for implementation. The technical approach provides specific line numbers, function signatures, and SQL patterns to follow.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
 ### 2026-07-01 19:27 UTC - Orchestrator
 
 User-invoked `/orchestrate` (this conv).
