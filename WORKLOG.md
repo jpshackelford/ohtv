@@ -1335,3 +1335,31 @@ Following "Test What's Documented" principle - code changed after test, so re-te
 **Worker Task:** Verify fixes and resolve all 13 review threads (no code changes)
 
 ---
+
+---
+### 2026-07-02 10:49 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `eae8878d` | merge | PR #194 - JIT fetch mode | **NEW** |
+
+**Spawned: Merge Worker**
+- PR: [#194 - Add just-in-time (lazy) fetch mode](https://github.com/jpshackelford/ohtv/pull/194)
+- Conversation: [`eae8878d`](https://app.all-hands.dev/conversations/eae8878d3a494641ada1d3733cf6199b)
+- Reason: PR is approved (✅ green CI, docs updated, manual tests passed, good taste rating)
+
+**Current State:**
+- Open PRs: 1 (#194 - ready to merge)
+- Issues on hold: 3 (#26, #90, #186)
+- Ready issues: 2 (#189, #190 - available for implementation after merge)
+- Need expansion: 0
+
+**Next Steps:**
+- After PR #194 merges, ready issues #189 and #190 are available for implementation
+- Both have priority:medium labels
+
+EXIT per orchestrate skill.
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
