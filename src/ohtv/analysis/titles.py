@@ -577,22 +577,29 @@ def generate_titles_with_cache(
         
         needs_synthesis: list[tuple[str, str, str]] = []
         
-        # Check cache for each conversation
-        for conv_id, updated_at, description in conversations:
-            if not force_refresh:
-                cached_title = store.get_cached_title(
-                    conv_id, updated_at, effective_model, SYNTHESIS_SCHEMA_VERSION
-                )
-                if cached_title:
-                    result.titles[conv_id] = cached_title
+        # Batch check cache for all conversations (unless force refresh)
+        if not force_refresh:
+            conv_pairs = [(conv_id, updated_at) for conv_id, updated_at, _ in conversations]
+            cached_titles = store.get_cached_titles_batch(
+                conv_pairs, effective_model, SYNTHESIS_SCHEMA_VERSION
+            )
+            
+            # Process results and identify cache misses
+            for conv_id, updated_at, description in conversations:
+                # Normalize ID for lookup (batch method returns normalized IDs)
+                normalized_id = conv_id.replace("-", "")
+                if normalized_id in cached_titles:
+                    result.titles[conv_id] = cached_titles[normalized_id]
                     result.was_cached[conv_id] = True
                     result.cache_hits += 1
                     log.debug("Cache hit for %s", conv_id)
-                    continue
-            
-            # Cache miss or force refresh
-            needs_synthesis.append((conv_id, updated_at, description))
-            result.cache_misses += 1
+                else:
+                    needs_synthesis.append((conv_id, updated_at, description))
+                    result.cache_misses += 1
+        else:
+            # Force refresh: all conversations need synthesis
+            needs_synthesis = list(conversations)
+            result.cache_misses = len(conversations)
         
         # Synthesize uncached titles in batch
         if needs_synthesis:

@@ -75,6 +75,69 @@ class SynthesisCacheStore:
         
         return None  # Cache invalid
     
+    def get_cached_titles_batch(
+        self,
+        conversations: list[tuple[str, str]],
+        model: str,
+        version: str
+    ) -> dict[str, str]:
+        """Get cached titles for multiple conversations in one query.
+        
+        Args:
+            conversations: List of (conv_id, conv_updated_at) tuples
+            model: LLM model name
+            version: Synthesis schema version
+        
+        Returns:
+            Dictionary mapping conversation IDs to cached titles
+            (only includes valid cache hits)
+        """
+        if not conversations:
+            return {}
+        
+        # Normalize conversation IDs and build lookup map
+        normalized_pairs = [
+            (conv_id.replace("-", ""), conv_updated_at)
+            for conv_id, conv_updated_at in conversations
+        ]
+        
+        # Build expected (id, updated_at) map for validation
+        expected = {norm_id: updated_at for norm_id, updated_at in normalized_pairs}
+        
+        # SQLite has a default limit of 999 bind parameters (SQLITE_MAX_VARIABLE_NUMBER)
+        # We use 1 param per conversation ID + 2 for model/version
+        # So chunk at 900 conversations to stay under the limit
+        CHUNK_SIZE = 900
+        
+        result = {}
+        normalized_ids = list(expected.keys())
+        
+        for i in range(0, len(normalized_ids), CHUNK_SIZE):
+            chunk_ids = normalized_ids[i:i + CHUNK_SIZE]
+            
+            # Build IN clause with placeholders
+            placeholders = ",".join("?" for _ in chunk_ids)
+            query = f"""
+                SELECT conversation_id, conversation_updated_at, 
+                       synthesized_title
+                FROM conversation_synthesis
+                WHERE conversation_id IN ({placeholders})
+                  AND synthesis_model = ?
+                  AND synthesis_version = ?
+                  AND synthesized_title IS NOT NULL
+            """
+            
+            params = chunk_ids + [model, version]
+            cursor = self.conn.execute(query, params)
+            
+            # Validate that updated_at matches before including in results
+            for row in cursor:
+                conv_id, cached_updated_at, title = row
+                if expected.get(conv_id) == cached_updated_at:
+                    result[conv_id] = title
+        
+        return result
+    
     def upsert_title(
         self,
         conv_id: str,

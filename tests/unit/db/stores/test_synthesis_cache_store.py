@@ -274,6 +274,87 @@ def test_multi_model_caching_no_collision(db):
     assert cached_haiku == "Title from Haiku"
 
 
+def test_get_cached_titles_batch(db):
+    """Test batch cache lookup for multiple conversations."""
+    store = SynthesisCacheStore(db)
+    
+    # Insert test conversations
+    db.execute("INSERT INTO conversations (id, updated_at) VALUES (?, ?)", 
+               ("conv1", "2024-01-01T00:00:00Z"))
+    db.execute("INSERT INTO conversations (id, updated_at) VALUES (?, ?)", 
+               ("conv2", "2024-01-02T00:00:00Z"))
+    db.execute("INSERT INTO conversations (id, updated_at) VALUES (?, ?)", 
+               ("conv3", "2024-01-03T00:00:00Z"))
+    db.commit()
+    
+    # Cache titles for conv1 and conv2
+    store.upsert_title(
+        "conv1", "2024-01-01T00:00:00Z", "Title 1",
+        "gpt-4o-mini", "v1", 10
+    )
+    store.upsert_title(
+        "conv2", "2024-01-02T00:00:00Z", "Title 2",
+        "gpt-4o-mini", "v1", 10
+    )
+    db.commit()
+    
+    # Batch lookup all three
+    conversations = [
+        ("conv1", "2024-01-01T00:00:00Z"),
+        ("conv2", "2024-01-02T00:00:00Z"),
+        ("conv3", "2024-01-03T00:00:00Z"),
+    ]
+    cached = store.get_cached_titles_batch(
+        conversations, "gpt-4o-mini", "v1"
+    )
+    
+    # Should find conv1 and conv2 but not conv3
+    assert cached["conv1"] == "Title 1"
+    assert cached["conv2"] == "Title 2"
+    assert "conv3" not in cached
+
+
+def test_get_cached_titles_batch_empty(db):
+    """Test batch lookup with empty input."""
+    store = SynthesisCacheStore(db)
+    
+    cached = store.get_cached_titles_batch([], "gpt-4o-mini", "v1")
+    assert cached == {}
+
+
+def test_get_cached_titles_batch_model_filter(db):
+    """Test batch lookup filters by model correctly."""
+    store = SynthesisCacheStore(db)
+    
+    # Insert test conversation
+    db.execute("INSERT INTO conversations (id, updated_at) VALUES (?, ?)", 
+               ("conv1", "2024-01-01T00:00:00Z"))
+    db.commit()
+    
+    # Cache with two different models
+    store.upsert_title(
+        "conv1", "2024-01-01T00:00:00Z", "Title from GPT",
+        "gpt-4o-mini", "v1", 10
+    )
+    store.upsert_title(
+        "conv1", "2024-01-01T00:00:00Z", "Title from Haiku",
+        "haiku", "v1", 8
+    )
+    db.commit()
+    
+    # Batch lookup for GPT model only
+    conversations = [("conv1", "2024-01-01T00:00:00Z")]
+    cached_gpt = store.get_cached_titles_batch(
+        conversations, "gpt-4o-mini", "v1"
+    )
+    cached_haiku = store.get_cached_titles_batch(
+        conversations, "haiku", "v1"
+    )
+    
+    assert cached_gpt["conv1"] == "Title from GPT"
+    assert cached_haiku["conv1"] == "Title from Haiku"
+
+
 def test_id_normalization(db):
     """Test that conversation IDs are normalized (dashes removed)."""
     store = SynthesisCacheStore(db)
