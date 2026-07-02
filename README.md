@@ -15,7 +15,7 @@ trajectories — from both the cloud product and local CLI sessions.
 - 📚 **Index** them into a local SQLite database (refs, actions, contributions, human input, engagement)
 - 🤖 **Analyze** with LLMs (objectives, summaries, weekly reports, auto-titles)
 - 🎯 **Filter** by engagement (`--engaged` / `--no-engaged` / `--min-engaged 5m` / `--min-engagement-ratio 25`) on `list` and every `gen` subcommand
-- 📈 **Report** velocity (merged-PRs × LOC × human-words) as tables, CSV, or 3-panel charts
+- 📈 **Report** velocity (merged-PRs × LOC × human-words) as tables, CSV, or 3-panel charts; daily/weekly worklogs with LLM-synthesized summaries
 - 🔍 **Search & ask** semantically via embeddings + RAG (with optional multi-step agent mode)
 - 🐙 **Backfill LOC** for every PR/push contribution via the GitHub API
 
@@ -47,11 +47,12 @@ ohtv refs <conversation_id>
 export LLM_API_KEY=...
 ohtv gen objs
 
-# 4. Backfill LOC and run a weekly velocity report
+# 4. Backfill LOC and run reports
 export GITHUB_TOKEN=$(gh auth token)
 ohtv fetch-loc
-ohtv report velocity
+ohtv report velocity                           # Weekly velocity table
 ohtv report velocity --chart velocity.png --since 12w
+ohtv report worklog --week --serve             # HTML worklog with synthesis
 ```
 
 ### Option 2: JIT (Just-In-Time) fetch mode
@@ -86,7 +87,7 @@ A 5-minute end-to-end walkthrough lives at
 | **Explore** | `list`, `show`, `refs`, `errors` | [exploration](docs/guides/exploration.md) |
 | **Classify** | `classify` | [classification](docs/guides/classification.md) |
 | **Analyze (LLM)** | `gen objs / titles / run`, `prompts` | [analysis](docs/guides/analysis.md), [customizing-prompts](docs/guides/customizing-prompts.md) |
-| **Report** | `report velocity / weekly-counts`, `fetch-loc` | [reporting](docs/guides/reporting.md) |
+| **Report** | `report velocity / weekly-counts / worklog`, `fetch-loc` | [reporting](docs/guides/reporting.md) |
 | **Search & ask** | `search`, `ask`, `messages` | [search-and-ask](docs/guides/search-and-ask.md) |
 
 A flag-by-flag command index is at [docs/reference/cli.md](docs/reference/cli.md).
@@ -338,6 +339,121 @@ full message text — the 500-char truncation only applies to `text` mode.
   pagination is by conversation, so the full-history message count across all
   candidates is intentionally not computed (would defeat the per-invocation
   cost ceiling).
+
+## Worklog Reports
+
+`ohtv report worklog` ([#189](https://github.com/jpshackelford/ohtv/issues/189))
+generates daily or weekly worklogs with LLM-synthesized summaries, showing what
+was accomplished during a time period with PR/issue links, engagement metrics,
+and human-readable outcomes.
+
+**Default behavior:** Today's worklog as HTML.
+
+**Three output formats:**
+- **HTML** (default) - Rich formatting with syntax highlighting, state badges, and responsive layout. Use `--serve` to start a local HTTP server.
+- **Markdown** - Copy-pasteable for Slack, GitHub comments, Notion, etc.
+- **Text** - Plain text for terminal display or simple reports.
+
+**Date filtering** (same as `list`, `refs`, `messages`):
+
+```bash
+# Today (default)
+ohtv report worklog
+
+# Yesterday
+ohtv report worklog --date -1
+
+# Specific date
+ohtv report worklog --date 2026-07-01
+
+# This week (Monday to today)
+ohtv report worklog --week
+
+# Last 7 days
+ohtv report worklog --since 7d
+
+# Custom range
+ohtv report worklog --since 2026-06-01 --until 2026-06-30
+```
+
+**Engagement filtering** (same as `list`, `gen objs`):
+
+```bash
+# Only conversations with meaningful engagement
+ohtv report worklog --engaged
+
+# Minimum 5 minutes of engaged time
+ohtv report worklog --min-engaged 5m
+
+# Minimum 1 hour of engaged time
+ohtv report worklog --week --min-engaged 1h
+```
+
+**Output options:**
+
+```bash
+# Save to custom file
+ohtv report worklog --output ~/reports/worklog-$(date +%Y-%m-%d).html
+
+# Print to stdout (for piping to other tools)
+ohtv report worklog --format text --stdout
+
+# Generate and immediately serve HTML
+ohtv report worklog --serve
+# Opens http://localhost:8000/worklog.html
+
+# Markdown for Slack/GitHub
+ohtv report worklog --format markdown -o worklog.md
+```
+
+**LLM synthesis:**
+
+By default, `ohtv report worklog` uses LLM synthesis to generate clear,
+human-readable titles and purposes for each conversation. Synthesis runs in
+batches (20 conversations per LLM call) and uses cached `gen objs` analysis when
+available (falling back to synthesizing from raw events).
+
+```bash
+# Use a different model (default: gpt-4o-mini)
+ohtv report worklog --synthesis-model gpt-4o
+
+# Skip LLM synthesis (use raw titles as-is)
+ohtv report worklog --no-synthesis
+```
+
+**Common workflows:**
+
+```bash
+# Daily standup: What did I work on yesterday?
+ohtv report worklog --date -1 --engaged --format markdown --stdout
+
+# Weekly review: Generate HTML worklog for this week
+ohtv report worklog --week --serve
+
+# Monthly report: All engaged work from last month
+ohtv report worklog --since 1m --engaged --min-engaged 10m \
+  --output monthly-$(date +%Y-%m).html
+
+# Repository-specific worklog: What happened on this repo?
+ohtv report worklog --week --repo jpshackelford/ohtv
+```
+
+**What's included in the worklog:**
+
+- **Conversation summaries:** Title, purpose, and outcome (synthesized by LLM or from cached analysis)
+- **PR/Issue links:** All referenced PRs and issues with state badges (open/merged/closed)
+- **Engagement metrics:** Human engaged time, total duration, and engagement ratio
+- **File activity:** Key files created/modified during the conversation
+- **Commands run:** Notable terminal commands (git, npm, etc.)
+
+**Prerequisites:**
+
+- **Required:** Indexed database (`ohtv db scan && ohtv db process all` or `ohtv sync --process`)
+- **Optional:** `LLM_API_KEY` for synthesis (without this, use `--no-synthesis`)
+- **Optional:** Engagement stage processed (`ohtv db process engagement`) for `--engaged` / `--min-engaged` filters
+
+**Cost:** Synthesis typically costs $0.002-0.01 per conversation depending on
+length. Cost is displayed after generation. Use `--no-synthesis` to avoid LLM costs.
 
 ## Configuration
 
