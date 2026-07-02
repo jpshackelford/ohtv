@@ -13735,6 +13735,101 @@ def report_weekly_counts(
         _emit(report_data.rows, sys.stdout)
 
 
+def _parse_worklog_date_range(
+    date: str | None,
+    week: bool,
+    since_str: str | None,
+    until_str: str | None,
+    console: Console,
+) -> tuple[date, date]:
+    """Parse date range arguments for worklog command.
+    
+    Args:
+        date: Specific date (YYYY-MM-DD) or offset (-1)
+        week: Flag for current week
+        since_str: Start date string
+        until_str: End date string
+        console: Rich console for error messages
+        
+    Returns:
+        (since_date, until_date) tuple
+        
+    Raises:
+        SystemExit: If arguments are invalid or conflicting
+    """
+    from datetime import date as date_cls
+    from datetime import datetime, timedelta
+    
+    from ohtv.filters import parse_date_filter
+    
+    # Validate conflicting options
+    if date and (week or since_str or until_str):
+        console.print(
+            "[red]Error:[/red] --date cannot be combined with --week, --since, or --until"
+        )
+        raise SystemExit(2)
+    
+    if date:
+        # Specific date or offset
+        if date.startswith("-"):
+            try:
+                offset = int(date)
+                target_date = date_cls.today() + timedelta(days=offset)
+            except ValueError:
+                console.print(f"[red]Error:[/red] Invalid date offset: {date}")
+                raise SystemExit(2)
+        else:
+            try:
+                target_date = datetime.strptime(date, "%Y-%m-%d").date()
+            except ValueError:
+                console.print(f"[red]Error:[/red] Invalid date format: {date}. Use YYYY-MM-DD")
+                raise SystemExit(2)
+        return (target_date, target_date)
+    
+    elif week:
+        # This week (Monday to today)
+        today = date_cls.today()
+        since_date = today - timedelta(days=today.weekday())
+        return (since_date, today)
+    
+    elif since_str or until_str:
+        # Custom range
+        since_date = None
+        if since_str:
+            since_dt = parse_date_filter(since_str)
+            if since_dt is None:
+                console.print(
+                    f"[red]Error:[/red] could not parse --since {since_str!r}. "
+                    "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
+                )
+                raise SystemExit(2)
+            since_date = since_dt.date()
+        
+        until_date = None
+        if until_str:
+            until_dt = parse_date_filter(until_str)
+            if until_dt is None:
+                console.print(
+                    f"[red]Error:[/red] could not parse --until {until_str!r}. "
+                    "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
+                )
+                raise SystemExit(2)
+            until_date = until_dt.date()
+        
+        # Default to today for missing bounds
+        if since_date is None:
+            since_date = date_cls.today()
+        if until_date is None:
+            until_date = date_cls.today()
+        
+        return (since_date, until_date)
+    
+    else:
+        # Default: today
+        today = date_cls.today()
+        return (today, today)
+
+
 @report.command("worklog")
 @click.option(
     "--date",
@@ -13858,15 +13953,12 @@ def report_worklog(
       # Generate and serve HTML
       ohtv report worklog --serve
     """
-    from datetime import date as date_cls
-    from datetime import datetime, timedelta
     import http.server
     import os
     from pathlib import Path as PathLib
     from tempfile import gettempdir
     
     from ohtv.db import ensure_db_ready, get_connection, get_db_path
-    from ohtv.filters import parse_date_filter
     from ohtv.reports.worklog import (
         generate_worklog,
         render_html,
@@ -13875,68 +13967,9 @@ def report_worklog(
     )
     
     # Parse date range
-    if date and (week or since_str or until_str):
-        console.print(
-            "[red]Error:[/red] --date cannot be combined with --week, --since, or --until"
-        )
-        raise SystemExit(2)
-    
-    if date:
-        # Specific date or offset
-        if date.startswith("-"):
-            try:
-                offset = int(date)
-                target_date = date_cls.today() + timedelta(days=offset)
-            except ValueError:
-                console.print(f"[red]Error:[/red] Invalid date offset: {date}")
-                raise SystemExit(2)
-        else:
-            try:
-                target_date = datetime.strptime(date, "%Y-%m-%d").date()
-            except ValueError:
-                console.print(f"[red]Error:[/red] Invalid date format: {date}. Use YYYY-MM-DD")
-                raise SystemExit(2)
-        since_date = target_date
-        until_date = target_date
-    elif week:
-        # This week (Monday to today)
-        today = date_cls.today()
-        since_date = today - timedelta(days=today.weekday())
-        until_date = today
-    elif since_str or until_str:
-        # Custom range
-        since_date = None
-        if since_str:
-            since_dt = parse_date_filter(since_str)
-            if since_dt is None:
-                console.print(
-                    f"[red]Error:[/red] could not parse --since {since_str!r}. "
-                    "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
-                )
-                raise SystemExit(2)
-            since_date = since_dt.date()
-        
-        until_date = None
-        if until_str:
-            until_dt = parse_date_filter(until_str)
-            if until_dt is None:
-                console.print(
-                    f"[red]Error:[/red] could not parse --until {until_str!r}. "
-                    "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
-                )
-                raise SystemExit(2)
-            until_date = until_dt.date()
-        
-        # Default to today for missing bounds
-        if since_date is None:
-            since_date = date_cls.today()
-        if until_date is None:
-            until_date = date_cls.today()
-    else:
-        # Default: today
-        today = date_cls.today()
-        since_date = today
-        until_date = today
+    since_date, until_date = _parse_worklog_date_range(
+        date, week, since_str, until_str, console
+    )
     
     # Parse min_engaged
     min_engaged_seconds = 0
