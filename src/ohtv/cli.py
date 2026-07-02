@@ -2390,6 +2390,56 @@ def event_date_options(func):
     )(func)
 
 
+def jit_options(func):
+    """Adds JIT (just-in-time) fetch flags (Issue #188).
+    
+    Applied to commands that query conversations (list, show, gen objs,
+    search, ask). Adds three flags:
+    
+    * ``--jit`` - Enable JIT fetch mode (fetch on-demand from cloud)
+    * ``--refresh`` - Force refresh cached conversations (with --jit)
+    * ``--max-age`` - Max cache age in hours for recent dates (default: 24)
+    
+    When ``--jit`` is set, missing conversations are fetched from the
+    cloud API before the query runs. Cached conversations are reused
+    unless ``--refresh`` is set or they're stale (>max-age hours old
+    for conversations created <24h ago).
+    """
+    func = click.option(
+        "--jit",
+        "jit",
+        is_flag=True,
+        default=False,
+        help=(
+            "Fetch missing conversations on-demand from cloud. Only "
+            "downloads what's needed for this query. Cached conversations "
+            "are reused (use --refresh to force refetch)."
+        ),
+    )(func)
+    func = click.option(
+        "--refresh",
+        "refresh",
+        is_flag=True,
+        default=False,
+        help=(
+            "Force refresh cached conversations (with --jit). Refetches "
+            "even if conversation is already cached locally."
+        ),
+    )(func)
+    func = click.option(
+        "--max-age",
+        "max_age",
+        type=int,
+        default=24,
+        metavar="HOURS",
+        help=(
+            "Max cache age in hours for recent conversations (with --jit). "
+            "Conversations created >24h ago never expire. Default: 24."
+        ),
+    )(func)
+    return func
+
+
 def _validate_engagement_filter_args(
     *,
     engaged: bool,
@@ -2523,6 +2573,126 @@ def _filter_by_engagement(
         return True
 
     return [c for c in conversations if keep(c)]
+
+
+def _ensure_conversations_via_jit(
+    config: Config,
+    *,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    conv_ids: list[str] | None = None,
+    force_refresh: bool = False,
+    max_age_hours: int = 24,
+) -> None:
+    """Ensure conversations are available via JIT fetch (Issue #188).
+    
+    Fetches missing conversations from the cloud API on-demand. Uses the
+    same storage location as full sync mode for seamless interoperability.
+    
+    Args:
+        config: Configuration with API key and storage paths
+        since: Lower bound for conversation date filter
+        until: Upper bound for conversation date filter
+        conv_ids: Explicit list of conversation IDs to fetch (overrides date filter)
+        force_refresh: Refetch even if cached
+        max_age_hours: Max cache age for recent conversations (default: 24)
+    
+    Raises:
+        click.UsageError: If API key is not configured
+    """
+    from ohtv.jit import JITFetcher
+    from ohtv.progress import make_progress
+    from ohtv.sources.cloud import CloudClient
+    
+    if not config.api_key:
+        raise click.UsageError(
+            "JIT mode requires cloud API key. "
+            "Set OPENHANDS_API_KEY or OH_API_KEY environment variable."
+        )
+    
+    log.info("JIT: Starting on-demand fetch")
+    
+    # Ensure timezone-aware datetimes
+    # CLI date parsing creates naive datetimes, but JIT compares with
+    # timezone-aware datetimes from cloud API
+    from datetime import timezone as tz
+    if since and since.tzinfo is None:
+        since = since.replace(tzinfo=tz.utc)
+    if until and until.tzinfo is None:
+        until = until.replace(tzinfo=tz.utc)
+    
+    with CloudClient(config.cloud_api_url, config.api_key) as cloud:
+        fetcher = JITFetcher(config, cloud)
+        
+        # Progress tracking
+        with make_progress(
+            console=console,
+            show_rate=True,
+            show_remaining=False,
+            show_eta=False,
+        ) as progress:
+            task = progress.add_task(
+                "Fetching conversations...",
+                total=None,
+                rate="",
+            )
+            
+            def on_progress(conv_id: str, action: str) -> None:
+                """Progress callback for JIT fetch."""
+                short_id = conv_id[:8] if len(conv_id) > 8 else conv_id
+                progress.update(
+                    task,
+                    description=f"[cyan]{action}[/cyan] {short_id}",
+                )
+            
+            try:
+                result = fetcher.ensure_conversations(
+                    conv_ids=conv_ids,
+                    since=since,
+                    until=until,
+                    force_refresh=force_refresh,
+                    max_age_hours=max_age_hours,
+                    on_progress=on_progress,
+                )
+            except Exception as e:
+                log.error(f"JIT fetch failed: {e}")
+                raise click.ClickException(f"Failed to fetch conversations: {e}")
+        
+        # Summary
+        total_requested = len(result.requested_ids)
+        total_available = result.total_available
+        
+        if result.fetched:
+            console.print(f"📡 Fetched and indexed {len(result.fetched)} conversations")
+        if result.already_cached:
+            console.print(f"✅ Using {len(result.already_cached)} cached conversations")
+        if result.failed:
+            # Show which specific conversations failed (not just the count)
+            failed_count = len(result.failed)
+            console.print(
+                f"[red]⚠️  Failed to fetch {failed_count} of {total_requested} conversations:[/red]"
+            )
+            # Show first few failed IDs in console, rest in log
+            max_show = 5
+            for i, conv_id in enumerate(result.failed):
+                short_id = conv_id[:8] if len(conv_id) > 8 else conv_id
+                if i < max_show:
+                    console.print(f"    [red]• {short_id}[/red]")
+                log.warning(f"JIT: Failed to fetch conversation {short_id}")
+            
+            if failed_count > max_show:
+                remaining = failed_count - max_show
+                console.print(f"    [dim]... and {remaining} more (see logs)[/dim]")
+            
+            # Don't fail the command if some conversations couldn't be fetched
+            # The query will just run on what's available
+        
+        # Overall success summary
+        if total_requested > 0:
+            console.print(
+                f"[dim]Successfully prepared {total_available}/{total_requested} "
+                f"conversations for query[/dim]"
+            )
 
 
 def _apply_conversation_filters(
@@ -3103,6 +3273,7 @@ def _populate_error_info(
     default=False,
     help="Include sub-conversations created by agent delegation (default: roots only)",
 )
+@jit_options
 @engagement_filter_options
 @event_date_options
 @logging_options
@@ -3134,6 +3305,9 @@ def list_conversations(
     min_engaged: int | None,
     min_engagement_ratio: float | None,
     event_dates: bool,
+    jit: bool,
+    refresh: bool,
+    max_age: int,
     verbose: bool,
 ) -> None:
     """List available conversations from local and cloud sources.
@@ -3142,12 +3316,32 @@ def list_conversations(
     sub-conversations are hidden so each row represents a unit of human
     intent. Pass ``--include-sub-conversations`` to render every row
     (pre-#127 behavior).
+    
+    Issue #188: Pass ``--jit`` to fetch missing conversations on-demand
+    from the cloud API before listing. Cached conversations are reused
+    unless ``--refresh`` is set.
     """
     _init_logging(verbose=verbose)
     config = Config.from_env()
 
     # Parse date filters and apply shortcuts
     since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
+    
+    # Validate JIT-dependent flags
+    if refresh and not jit:
+        raise click.UsageError("--refresh requires --jit flag")
+    if max_age != 24 and not jit:  # 24 is the default
+        raise click.UsageError("--max-age requires --jit flag")
+    
+    # JIT fetch if requested (Issue #188)
+    if jit:
+        _ensure_conversations_via_jit(
+            config,
+            since=since,
+            until=until,
+            force_refresh=refresh,
+            max_age_hours=max_age,
+        )
 
     # Apply all conversation filters
     # Issue #127: roots-only by default. The flag flips the behavior
