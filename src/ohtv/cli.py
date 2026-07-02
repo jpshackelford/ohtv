@@ -2667,13 +2667,24 @@ def _ensure_conversations_via_jit(
         if result.already_cached:
             console.print(f"✅ Using {len(result.already_cached)} cached conversations")
         if result.failed:
+            # Show which specific conversations failed (not just the count)
+            # Addresses review feedback on PR #194, line 2657 (cli.py)
+            failed_count = len(result.failed)
             console.print(
-                f"[red]⚠️  Failed to fetch {len(result.failed)} of {total_requested} conversations[/red]"
+                f"[red]⚠️  Failed to fetch {failed_count} of {total_requested} conversations:[/red]"
             )
-            # Log specific failed conversation IDs for debugging
-            for conv_id in result.failed:
+            # Show first few failed IDs in console, rest in log
+            max_show = 5
+            for i, conv_id in enumerate(result.failed):
                 short_id = conv_id[:8] if len(conv_id) > 8 else conv_id
+                if i < max_show:
+                    console.print(f"    [red]• {short_id}[/red]")
                 log.warning(f"JIT: Failed to fetch conversation {short_id}")
+            
+            if failed_count > max_show:
+                remaining = failed_count - max_show
+                console.print(f"    [dim]... and {remaining} more (see logs)[/dim]")
+            
             # Don't fail the command if some conversations couldn't be fetched
             # The query will just run on what's available
         
