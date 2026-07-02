@@ -23,6 +23,7 @@ import html
 import json
 import logging
 import os
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
@@ -709,8 +710,10 @@ def render_text(report: WorklogReport) -> str:
         if entry.outcomes:
             lines.append("   Outcomes:")
             for outcome in entry.outcomes:
-                # Strip HTML tags for text output
-                clean_outcome = outcome.replace("<a href=\"", " (").replace("</a>", ")").replace("\">", " ")
+                # Strip HTML tags for text output using regex
+                clean_outcome = re.sub(r'<[^>]+>', ' ', outcome).strip()
+                # Collapse multiple spaces
+                clean_outcome = re.sub(r'\s+', ' ', clean_outcome)
                 lines.append(f"   {clean_outcome}")
             lines.append("")
     
