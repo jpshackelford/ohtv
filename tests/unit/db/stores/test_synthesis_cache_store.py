@@ -28,15 +28,16 @@ def db():
     # Create conversation_synthesis table
     conn.execute("""
         CREATE TABLE conversation_synthesis (
-            conversation_id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
             conversation_updated_at TEXT NOT NULL,
             synthesized_title TEXT,
             synthesized_objective TEXT,
             worklog_purpose TEXT,
-            synthesis_model TEXT,
+            synthesis_model TEXT NOT NULL,
             synthesis_version TEXT NOT NULL,
             synthesized_at TEXT NOT NULL,
             tokens_used INTEGER,
+            PRIMARY KEY (conversation_id, synthesis_model),
             FOREIGN KEY (conversation_id)
                 REFERENCES conversations(id)
                 ON DELETE CASCADE
@@ -236,6 +237,41 @@ def test_get_cached_title_miss_no_entry(db):
     )
     
     assert cached is None
+
+
+def test_multi_model_caching_no_collision(db):
+    """Test that caching with different models doesn't overwrite each other.
+    
+    This verifies the acceptance criteria: "Multi-model caching works
+    (different models don't collide)". With the composite PRIMARY KEY
+    (conversation_id, synthesis_model), both models can cache independently.
+    """
+    store = SynthesisCacheStore(db)
+    
+    # Cache with model A
+    store.upsert_title(
+        "abc123", "2024-01-01T00:00:00Z", "Title from GPT",
+        "gpt-4o-mini", "v1", 10
+    )
+    db.commit()
+    
+    # Cache same conversation with model B
+    store.upsert_title(
+        "abc123", "2024-01-01T00:00:00Z", "Title from Haiku",
+        "haiku", "v1", 8
+    )
+    db.commit()
+    
+    # Both should still be cached (no collision)
+    cached_gpt = store.get_cached_title(
+        "abc123", "2024-01-01T00:00:00Z", "gpt-4o-mini", "v1"
+    )
+    cached_haiku = store.get_cached_title(
+        "abc123", "2024-01-01T00:00:00Z", "haiku", "v1"
+    )
+    
+    assert cached_gpt == "Title from GPT"
+    assert cached_haiku == "Title from Haiku"
 
 
 def test_id_normalization(db):
