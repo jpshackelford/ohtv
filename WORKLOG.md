@@ -1392,3 +1392,37 @@ Documentation update required before testing can begin. Spawned docs worker to u
 **Next Check:** ~30 minutes (next cron trigger)
 
 ---
+
+---
+
+### 2026-07-02 18:51 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `b285d21` | merge | PR #197 - Add --with-outcomes and --enriched flags | **NEW** |
+
+🚀 **Spawned: Merge Worker**
+- PR: [#197 - feat: add --with-outcomes and --enriched flags](https://github.com/jpshackelford/ohtv/pull/197)
+- Conversation: [`b285d21`](https://app.all-hands.dev/conversations/b285d21f78cc4cb5acfd3a21d03b0600)
+
+**Current State:**
+- PR #197 (Issue #190): Ready ✅, CI green ✅, docs updated ✅, manual tests complete ✅, **APPROVED** ✅
+  - Bot review approved with "Good taste" rating
+  - All merge criteria met
+- No issues need expansion 🎉
+- No other ready issues (Issue #190 being addressed by PR #197)
+- Expansion slot: idle (nothing to expand)
+- PR slot: occupied (merge worker active)
+
+**Decision Flow:**
+1. ✅ Review worker `7d36117` completed successfully
+2. ✅ PR #197 has CI green, docs updated, manual tests complete
+3. ✅ Bot review APPROVED (18:29 UTC)
+4. ✅ No new review comments after approval
+5. ✅ Spawned merge worker to squash-merge and close Issue #190
+
+**Action Taken:**
+✅ Spawned merge worker - all merge criteria met (CI ✅, tests ✅, docs ✅, approved ✅)
+
+**Next Check:** ~30 minutes (next cron trigger)
