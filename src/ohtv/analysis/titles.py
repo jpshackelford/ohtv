@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -636,7 +637,7 @@ def generate_titles_with_cache(
                             SYNTHESIS_SCHEMA_VERSION, tokens_used
                         )
                         log.debug("Cached new title for %s", conv_id)
-                    except Exception as e:
+                    except sqlite3.IntegrityError as e:
                         log.debug("Failed to cache title for %s: %s", conv_id, e)
             
             try:
