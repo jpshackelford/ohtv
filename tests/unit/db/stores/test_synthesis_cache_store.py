@@ -238,6 +238,59 @@ def test_get_cached_title_miss_no_entry(db):
     assert cached is None
 
 
+def test_model_switching_overwrites_previous_cache(db):
+    """Test that caching with a different model overwrites the previous entry.
+    
+    This is the intended 'most recent synthesis' behavior - only ONE
+    synthesis result is stored per conversation. When switching models,
+    the new result overwrites the old one.
+    
+    Addresses PR #193 review feedback.
+    """
+    store = SynthesisCacheStore(db)
+    
+    # Step 1: Cache with model A (gpt-4o-mini)
+    store.upsert_title(
+        "conv1", "2024-01-01T00:00:00Z", "Title from GPT",
+        "gpt-4o-mini", "v1", 10
+    )
+    db.commit()
+    
+    # Verify model A cache hit
+    cached_gpt = store.get_cached_title(
+        "conv1", "2024-01-01T00:00:00Z", "gpt-4o-mini", "v1"
+    )
+    assert cached_gpt == "Title from GPT"
+    
+    # Step 2: Cache same conversation with model B (haiku)
+    # This OVERWRITES the previous entry completely
+    store.upsert_title(
+        "conv1", "2024-01-01T00:00:00Z", "Title from Haiku",
+        "haiku", "v1", 8
+    )
+    db.commit()
+    
+    # Step 3: Requesting model A now returns None (cache miss)
+    # The cache now stores model B's result, model A's is gone
+    cached_gpt_after = store.get_cached_title(
+        "conv1", "2024-01-01T00:00:00Z", "gpt-4o-mini", "v1"
+    )
+    assert cached_gpt_after is None  # Model A cache was overwritten
+    
+    # Only model B cache hit works now
+    cached_haiku = store.get_cached_title(
+        "conv1", "2024-01-01T00:00:00Z", "haiku", "v1"
+    )
+    assert cached_haiku == "Title from Haiku"
+    
+    # Verify only ONE entry exists in database
+    cursor = db.execute(
+        "SELECT COUNT(*) FROM conversation_synthesis WHERE conversation_id = ?",
+        ("conv1",)
+    )
+    assert cursor.fetchone()[0] == 1  # Only one entry per conversation
+
+
 def test_id_normalization(db):
     """Test that conversation IDs are normalized (dashes removed)."""
     store = SynthesisCacheStore(db)
