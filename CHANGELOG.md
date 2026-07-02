@@ -1,6 +1,100 @@
 # CHANGELOG
 
 
+## v0.33.0 (2026-07-02)
+
+### Chores
+
+- **worklog**: Orchestrator manual intervention - moved PR #194 to ready 2026-07-02T05:51:11Z
+  ([`9b57ed4`](https://github.com/jpshackelford/ohtv/commit/9b57ed4f06778c0ff68199157c6e88a4ab4daabd))
+
+- **worklog**: Orchestrator spawned docs worker for PR #194 [skip ci]
+  ([`308d099`](https://github.com/jpshackelford/ohtv/commit/308d09904fe12eff25de77ef45d93f799d1a3249))
+
+- **worklog**: Orchestrator spawned implementation worker for issue #188
+  ([`ba91368`](https://github.com/jpshackelford/ohtv/commit/ba91368dcf70a5ab278dd88cb18d2618eacab5bc))
+
+- **worklog**: Orchestrator spawned merge worker for PR #194
+  ([`1cc3ed1`](https://github.com/jpshackelford/ohtv/commit/1cc3ed1558ceb0d477c96785a3407bc6391a6116))
+
+- **worklog**: Orchestrator spawned re-testing worker for PR #194
+  ([`5725a5a`](https://github.com/jpshackelford/ohtv/commit/5725a5aea3c7bd60b3b26ddb6afdfa57ead83620))
+
+- **worklog**: Orchestrator status 2026-07-02T04:50:36Z
+  ([`959a6f8`](https://github.com/jpshackelford/ohtv/commit/959a6f8b1d62f4af3d614adee5a1149c35b1eef2))
+
+- **worklog**: Orchestrator status 2026-07-02T05:21:57Z
+  ([`0ec8701`](https://github.com/jpshackelford/ohtv/commit/0ec87010afe660d786e4e82ebaf4b11e24d6e274))
+
+- **worklog**: Spawn review worker for PR #194 - 2026-07-02T07:52:21Z
+  ([`80cfa7b`](https://github.com/jpshackelford/ohtv/commit/80cfa7b70cea2673f5a7611e187477b9f9b29903))
+
+- **worklog**: Spawn review worker for PR #194 thread resolution
+  ([`98fe475`](https://github.com/jpshackelford/ohtv/commit/98fe4758f389f822c6c0508c5ce11f10bfddbd90))
+
+- **worklog**: Spawned re-testing worker f0aa666 for PR #194
+  ([`75f5e2e`](https://github.com/jpshackelford/ohtv/commit/75f5e2e3977dc3fabc56bca5904e42934cafdd5c))
+
+- **worklog**: Spawned re-testing worker for PR #194
+  ([`5915ab8`](https://github.com/jpshackelford/ohtv/commit/5915ab8292e7a6aaba5fdd5153a66ca38cde7207))
+
+Re-test needed: 11 commits with fixes/features after last test Worker: 0973370
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Spawned review worker 47a4867 for PR #194
+  ([`d1f5431`](https://github.com/jpshackelford/ohtv/commit/d1f543113b3e44bd15d63a1c1dda12c452a38a86))
+
+- **worklog**: Spawned review worker for PR #194
+  ([`14028ac`](https://github.com/jpshackelford/ohtv/commit/14028aca4f989c75b66a4be258e902e1f7bb5200))
+
+- **worklog**: Spawned testing worker for PR #194
+  ([`5b7f65c`](https://github.com/jpshackelford/ohtv/commit/5b7f65c69ad9b7166748bc494fafa67656f0a523))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- Add just-in-time (lazy) fetch mode for targeted queries
+  ([#194](https://github.com/jpshackelford/ohtv/pull/194),
+  [`a297dac`](https://github.com/jpshackelford/ohtv/commit/a297dacf30fa27ba44ee63c600264e7efe3d9ab9))
+
+feat: add just-in-time (JIT) fetch mode for targeted queries
+
+Implements #188 - enables on-demand fetching of conversations from the cloud API without requiring a
+  full upfront sync. Provides a fast entry point for new users and targeted queries.
+
+Key features: - Lazy loading: Only fetch conversations needed for the current query - Opportunistic
+  caching: Fetched conversations stored for future reuse - Cache freshness: Historical conversations
+  (>24h old) never expire - Parallel downloads: 3 workers (matching full sync) - Transparent
+  integration: Uses same storage/DB as ohtv sync
+
+New components: - src/ohtv/jit.py: JITFetcher class with on-demand fetch logic (483 lines) - CLI
+  integration: --jit, --refresh, --max-age flags on list command (194 lines) - Comprehensive test
+  suite: 26 tests with >80% coverage (549 lines) - Documentation: README sections on JIT mode usage
+  (75 lines)
+
+Architecture decisions (from 4 review rounds): - Reuse existing storage for seamless
+  interoperability - Conservative parallelism (3 workers) instead of aggressive scaling - Minimal
+  processing (only essential DB stages) for speed - Fixed critical extract_metadata() signature bug
+  - Reduced nesting complexity via helper method extraction - Added CLI flag validation with clear
+  error messages
+
+Test coverage: - 2735 automated tests pass (26 JIT-specific) - 8/8 manual test scenarios pass -
+  Verified: date filters, caching, refresh, flag validation, error handling
+
+Example usage: ohtv list --day 2026-07-02 --jit # Fetch today's conversations ohtv list --week --jit
+  # Fetch this week's conversations ohtv list --week --jit --refresh # Force refresh cached
+  conversations
+
+Known issue: README line 130 has incorrect --since 7d syntax (should be -D 7 or --since YYYY-MM-DD).
+  Documentation-only, can be fixed in follow-up.
+
+Fixes #188
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+
 ## v0.32.0 (2026-07-02)
 
 ### Chores
