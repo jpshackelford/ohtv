@@ -1711,3 +1711,29 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 ✅ Spawned implementation worker for Issue #190 (priority:medium)
 
 ---
+
+---
+
+### 2026-07-02 16:53 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `1d4c144` | docs | PR #197 - Add --with-outcomes and --enriched flags | **NEW** |
+
+🚀 **Spawned: Docs Worker**
+- PR: [#197 - Add --with-outcomes and --enriched flags](https://github.com/jpshackelford/ohtv/pull/197)
+- Conversation: [`1d4c144`](https://app.all-hands.dev/conversations/1d4c14417ec247fda2b2a955aff7c277)
+
+**Current State:**
+- PR #197 (Issue #190): Draft, CI green, needs docs (being addressed now)
+- No issues need expansion
+- Ready issues: #190 (in PR #197)
+
+**Action Taken:**
+Documentation update required before testing can begin. Spawned docs worker to update README for new CLI flags (--with-outcomes, --enriched).
+
+**Next Steps:**
+- Once docs worker completes, testing worker will be spawned
+- After successful tests, PR will be moved to ready for review
+
