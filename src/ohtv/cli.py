@@ -2658,17 +2658,31 @@ def _ensure_conversations_via_jit(
                 log.error(f"JIT fetch failed: {e}")
                 raise click.ClickException(f"Failed to fetch conversations: {e}")
         
-        # Summary
+        # Summary (improved per Issue #188 review feedback)
+        total_requested = len(result.requested_ids)
+        total_available = result.total_available
+        
         if result.fetched:
             console.print(f"📡 Fetched and indexed {len(result.fetched)} conversations")
         if result.already_cached:
             console.print(f"✅ Using {len(result.already_cached)} cached conversations")
         if result.failed:
             console.print(
-                f"[red]⚠️  Failed to fetch {len(result.failed)} conversations[/red]"
+                f"[red]⚠️  Failed to fetch {len(result.failed)} of {total_requested} conversations[/red]"
             )
+            # Log specific failed conversation IDs for debugging
+            for conv_id in result.failed:
+                short_id = conv_id[:8] if len(conv_id) > 8 else conv_id
+                log.warning(f"JIT: Failed to fetch conversation {short_id}")
             # Don't fail the command if some conversations couldn't be fetched
             # The query will just run on what's available
+        
+        # Overall success summary
+        if total_requested > 0:
+            console.print(
+                f"[dim]Successfully prepared {total_available}/{total_requested} "
+                f"conversations for query[/dim]"
+            )
 
 
 def _apply_conversation_filters(
