@@ -31,6 +31,8 @@ for the full setup, including API keys.
 
 ## Quick start
 
+### Option 1: Full sync (traditional)
+
 ```bash
 # 1. Sync from cloud + run the indexing pipeline
 export OPENHANDS_API_KEY=...
@@ -52,6 +54,27 @@ ohtv report velocity
 ohtv report velocity --chart velocity.png --since 12w
 ```
 
+### Option 2: JIT (Just-In-Time) fetch mode
+
+Fetch only what you need, when you need it:
+
+```bash
+# Fetch and list today's conversations
+export OPENHANDS_API_KEY=...
+ohtv list --date 2026-07-02 --jit
+
+# Fetch and list this week's conversations
+ohtv list --week --jit
+
+# Force refresh cached conversations
+ohtv list --week --jit --refresh
+
+# Adjust cache freshness for recent conversations (default: 24 hours)
+ohtv list --week --jit --max-age 12
+```
+
+**When to use JIT mode:** For targeted queries without a full upfront sync. Fetched conversations are cached locally and reused on subsequent queries. Historical conversations (>24h old) never expire from cache.
+
 A 5-minute end-to-end walkthrough lives at
 [docs/guides/getting-started.md](docs/guides/getting-started.md).
 
@@ -69,6 +92,58 @@ A 5-minute end-to-end walkthrough lives at
 A flag-by-flag command index is at [docs/reference/cli.md](docs/reference/cli.md).
 For terminology (change_ref, partial_loc, manifest, sandbox, …) see
 [docs/reference/glossary.md](docs/reference/glossary.md).
+
+## JIT (Just-In-Time) fetch mode
+
+JIT mode enables targeted conversation queries without requiring a full upfront sync. Use `--jit` on `list` to fetch only the conversations needed for your current query.
+
+**Key features:**
+- **Lazy loading:** Only fetch conversations matching your filters (date range, repo, PR, etc.)
+- **Opportunistic caching:** Fetched conversations are stored locally and reused on subsequent queries
+- **Cache freshness:** Historical conversations (created >24h ago) never expire; recent conversations respect `--max-age` (default: 24 hours)
+- **Transparent integration:** Uses the same storage location as `ohtv sync`, so JIT-fetched and sync'd conversations work identically
+
+**Three flags control JIT behavior:**
+
+| Flag | Purpose |
+|------|---------|
+| `--jit` | Enable JIT fetch mode. Fetch missing conversations from cloud before running the query. |
+| `--refresh` | Force refresh cached conversations (requires `--jit`). Re-fetches even if already cached locally. |
+| `--max-age HOURS` | Max cache age in hours for recent conversations (requires `--jit`). Default: 24. Only applies to conversations created <24h ago. |
+
+**Examples:**
+
+```bash
+# Fetch and list only today's conversations
+ohtv list --date 2026-07-02 --jit
+
+# Fetch this week's conversations (cached for future use)
+ohtv list --week --jit
+
+# Force refresh this week's conversations (ignore cache)
+ohtv list --week --jit --refresh
+
+# Use a 12-hour cache window for recent conversations
+ohtv list --week --jit --max-age 12
+
+# JIT mode works with all existing filters
+ohtv list --jit --repo jpshackelford/ohtv --since 7d
+ohtv list --jit --pr 194 --engaged
+```
+
+**When to use JIT mode vs full sync:**
+- **Use JIT:** For quick spot checks, when exploring specific date ranges, or when you only need a subset of conversations
+- **Use sync:** For comprehensive reporting, when you need all conversations indexed, or for regular automated workflows
+
+**Cache behavior:**
+- First `--jit` query: Fetches from cloud and caches locally
+- Subsequent queries: Reuses cached conversations (unless `--refresh` is set)
+- Stale cache detection: Recent conversations (created <24h ago) are refetched if cached >24h ago (configurable via `--max-age`)
+- Historical conversations: Never expire from cache
+
+**Requires:** `OPENHANDS_API_KEY` environment variable (same as `ohtv sync`).
+
+See [#188](https://github.com/jpshackelford/ohtv/issues/188) for the full design.
 
 ## Engagement filtering
 
