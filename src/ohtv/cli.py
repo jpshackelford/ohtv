@@ -13783,7 +13783,7 @@ def report_weekly_counts(
     "--output",
     "-o",
     type=click.Path(dir_okay=False, writable=True),
-    help="Output file (default: /tmp/worklog.{ext})",
+    help="Output file (default: temp directory worklog.{ext})",
 )
 @click.option(
     "--stdout",
@@ -13860,10 +13860,10 @@ def report_worklog(
     """
     from datetime import date as date_cls
     from datetime import datetime, timedelta
-    import sys
     import http.server
     import os
     from pathlib import Path as PathLib
+    from tempfile import gettempdir
     
     from ohtv.db import ensure_db_ready, get_connection, get_db_path
     from ohtv.filters import parse_date_filter
@@ -14012,7 +14012,7 @@ def report_worklog(
     if stdout:
         console.print(output_str)
     else:
-        output_path = output or f"/tmp/worklog.{ext}"
+        output_path = output or str(PathLib(gettempdir()) / f"worklog.{ext}")
         PathLib(output_path).write_text(output_str, encoding="utf-8")
         console.print(f"[green]✓[/green] Wrote worklog to: {output_path}")
         
