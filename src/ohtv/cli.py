@@ -193,6 +193,22 @@ class RefInteractions:
     unpushed_commits: set[str] = field(default_factory=set)  # working dirs with commits but no push
 
 
+@dataclass
+class Outcome:
+    """A single outcome (PR or Issue) from a conversation.
+    
+    Used by the --with-outcomes flag to display PRs/issues that resulted
+    from conversations. PRs include state information (merged/open/closed),
+    while issues are always shown as open (state tracking for issues is
+    out of scope for Issue #190).
+    """
+    type: str  # "PR" or "Issue"
+    number: int
+    state: str  # "merged", "closed", or "open"
+    repo: str  # owner/repo format
+    url: str
+
+
 def _normalize_datetime_for_sort(dt: datetime | None) -> datetime:
     """Normalize datetime for sorting, handling None and timezone-naive values."""
     if dt is None:
@@ -3267,6 +3283,19 @@ def _populate_error_info(
     ),
 )
 @click.option(
+    "--with-outcomes",
+    "with_outcomes",
+    is_flag=True,
+    default=False,
+    help="Include outcomes column (PRs/issues with state indicators)",
+)
+@click.option(
+    "--enriched",
+    is_flag=True,
+    default=False,
+    help="Shorthand for --with-engagement --with-outcomes",
+)
+@click.option(
     "--include-sub-conversations",
     "include_sub_conversations",
     is_flag=True,
@@ -3299,6 +3328,8 @@ def list_conversations(
     with_errors: bool,
     errors_only: bool,
     with_engagement: bool,
+    with_outcomes: bool,
+    enriched: bool,
     include_sub_conversations: bool,
     engaged: bool,
     no_engaged: bool,
@@ -3323,6 +3354,11 @@ def list_conversations(
     """
     _init_logging(verbose=verbose)
     config = Config.from_env()
+    
+    # Handle --enriched flag (shorthand for --with-engagement --with-outcomes)
+    if enriched:
+        with_engagement = True
+        with_outcomes = True
 
     # Parse date filters and apply shortcuts
     since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
@@ -3423,12 +3459,19 @@ def list_conversations(
     engagement_map: dict[str, dict] | None = None
     if with_engagement:
         engagement_map = _load_engagement_for_conversations(conversations)
+    
+    # Load outcomes (PRs/issues) in a single batched query (Issue #190).
+    # Display-only: missing entries render as "(no refs)".
+    outcomes_map: dict[str, list[Outcome]] | None = None
+    if with_outcomes:
+        outcomes_map = _load_outcomes_for_conversations(conversations)
 
     # Format output
     output_text = _format_list_output(
         conversations, fmt, total_count, local_count, cloud_count,
         refs_map=refs_map, show_errors=show_errors,
         engagement_map=engagement_map,
+        outcomes_map=outcomes_map,
     )
 
     # Write to file or stdout
@@ -3447,6 +3490,7 @@ def list_conversations(
                 hide_title=errors_only,
                 idle_minutes=idle_minutes,
                 engagement_map=engagement_map,
+                outcomes_map=outcomes_map,
             )
         else:
             # For JSON and CSV, use plain print to avoid rich styling
@@ -4921,6 +4965,206 @@ def _load_engagement_for_conversations(
     return _load_engagement_for_ids([conv.id for conv in conversations])
 
 
+def _load_outcomes_for_conversations(
+    conversations: list[ConversationInfo],
+) -> dict[str, list[Outcome]]:
+    """Batch-load outcomes (PRs/issues) for a list of conversations.
+    
+    Returns a dict mapping conversation_id -> list of Outcome objects.
+    Missing entries indicate no outcomes for that conversation.
+    
+    Queries two data sources in a single batched query:
+    1. PRs with state from change_refs + conversation_contributions
+    2. Issues (without state) from refs + conversation_refs
+    
+    Issue #190: Display-layer only. Never raises - returns empty dict on
+    any unexpected failure so the calling path can always render.
+    """
+    from ohtv.filters import normalize_conversation_id
+    
+    outcomes_map: dict[str, list[Outcome]] = {}
+    if not conversations:
+        return outcomes_map
+    
+    try:
+        from ohtv.db import get_db_path, get_ready_connection
+    except Exception:  # pragma: no cover - defensive only
+        return outcomes_map
+    
+    db_path = get_db_path()
+    if not db_path.exists():
+        return outcomes_map
+    
+    # Build dashless -> original-id index (same pattern as engagement)
+    normalized_to_original: dict[str, str] = {}
+    for conv in conversations:
+        normalized = normalize_conversation_id(conv.id)
+        normalized_to_original.setdefault(normalized, conv.id)
+    
+    BATCH_SIZE = 900  # well below SQLite's default ~999 param ceiling
+    ids = list(normalized_to_original.keys())
+    
+    try:
+        with get_ready_connection(show_progress=False) as conn:
+            for start in range(0, len(ids), BATCH_SIZE):
+                batch = ids[start : start + BATCH_SIZE]
+                placeholders = ",".join("?" * len(batch))
+                
+                # Query 1: PRs with state from change_refs + conversation_contributions
+                pr_cur = conn.execute(
+                    """
+                    SELECT DISTINCT
+                        cc.conversation_id,
+                        cr.pr_number,
+                        cr.status,
+                        r.owner,
+                        r.name as repo_name
+                    FROM conversation_contributions cc
+                    JOIN change_refs cr ON cc.change_ref_id = cr.id
+                    JOIN repositories r ON cr.repo_id = r.id
+                    WHERE cc.conversation_id IN ({})
+                      AND cr.change_type = 'pr'
+                    ORDER BY cc.conversation_id, cr.pr_number
+                    """.format(placeholders),
+                    batch,
+                )
+                
+                for row in pr_cur.fetchall():
+                    conv_id = row[0]
+                    original_id = normalized_to_original[conv_id]
+                    pr_number = row[1]
+                    status = row[2]  # pending, fetched, merged, closed
+                    owner = row[3]
+                    repo_name = row[4]
+                    
+                    # Map status to display state
+                    if status == "merged":
+                        state = "merged"
+                    elif status == "closed":
+                        state = "closed"
+                    else:  # pending or fetched
+                        state = "open"
+                    
+                    repo_fqn = f"{owner}/{repo_name}"
+                    url = f"https://github.com/{repo_fqn}/pull/{pr_number}"
+                    
+                    outcome = Outcome(
+                        type="PR",
+                        number=pr_number,
+                        state=state,
+                        repo=repo_fqn,
+                        url=url,
+                    )
+                    
+                    outcomes_map.setdefault(original_id, []).append(outcome)
+                
+                # Query 2: Issues from refs + conversation_refs
+                issue_cur = conn.execute(
+                    """
+                    SELECT DISTINCT
+                        cr.conversation_id,
+                        r.fqn,
+                        r.url
+                    FROM conversation_refs cr
+                    JOIN refs r ON cr.ref_id = r.id
+                    WHERE cr.conversation_id IN ({})
+                      AND r.ref_type = 'issue'
+                    ORDER BY cr.conversation_id, r.fqn
+                    """.format(placeholders),
+                    batch,
+                )
+                
+                for row in issue_cur.fetchall():
+                    conv_id = row[0]
+                    original_id = normalized_to_original[conv_id]
+                    fqn = row[1]  # e.g., "owner/repo#123"
+                    url = row[2]
+                    
+                    # Extract issue number from FQN
+                    # FQN format: "owner/repo#123"
+                    if "#" in fqn:
+                        repo_part, issue_num_str = fqn.rsplit("#", 1)
+                        try:
+                            issue_number = int(issue_num_str)
+                        except ValueError:
+                            continue  # Skip malformed FQN
+                    else:
+                        continue  # Skip malformed FQN
+                    
+                    outcome = Outcome(
+                        type="Issue",
+                        number=issue_number,
+                        state="open",  # Always open for issues (no state tracking yet)
+                        repo=repo_part,
+                        url=url,
+                    )
+                    
+                    outcomes_map.setdefault(original_id, []).append(outcome)
+                    
+    except Exception:  # pragma: no cover - defensive only
+        return outcomes_map
+    
+    # Sort outcomes by type (PRs first) then by number
+    for conv_id in outcomes_map:
+        outcomes_map[conv_id].sort(key=lambda o: (o.type != "PR", o.number))
+    
+    return outcomes_map
+
+
+def _format_outcome(outcome: Outcome, max_width: int = 999) -> str:
+    """Format a single outcome for display.
+    
+    State indicators:
+    - ✓ for merged/closed
+    - → for open
+    
+    Returns format like: "✓ PR #15234" or "→ Issue #15198"
+    """
+    indicator = "✓" if outcome.state in ("merged", "closed") else "→"
+    text = f"{indicator} {outcome.type} #{outcome.number}"
+    
+    # Truncate if needed (shouldn't normally happen for single outcome)
+    if len(text) > max_width:
+        text = text[:max_width-1] + "…"
+    
+    return text
+
+
+def _format_outcomes_list(outcomes: list[Outcome], max_width: int = 50) -> str:
+    """Format a list of outcomes for table display.
+    
+    Shows up to 3 outcomes, then "+ N more" if there are more.
+    Returns "(no refs)" if the list is empty.
+    
+    Args:
+        outcomes: List of Outcome objects
+        max_width: Maximum width for the output string
+    
+    Returns:
+        Formatted string like "✓ PR #15234, → Issue #15198" or "+ 2 more"
+    """
+    if not outcomes:
+        return "(no refs)"
+    
+    # Format first 3 outcomes
+    formatted = []
+    for outcome in outcomes[:3]:
+        formatted.append(_format_outcome(outcome, max_width=999))
+    
+    # Add "more" indicator if needed
+    if len(outcomes) > 3:
+        remaining = len(outcomes) - 3
+        formatted.append(f"+ {remaining} more")
+    
+    result = ", ".join(formatted)
+    
+    # Truncate if still too long
+    if len(result) > max_width:
+        result = result[:max_width-1] + "…"
+    
+    return result
+
+
 def _validate_engagement_values(
     engaged_seconds: int | float | None,
     total_duration_seconds: int | float | None,
@@ -5021,17 +5265,18 @@ def _format_list_output(
     refs_map: dict[str, list[str]] | None = None,
     show_errors: bool = False,
     engagement_map: dict[str, dict] | None = None,
+    outcomes_map: dict[str, list[Outcome]] | None = None,
 ) -> str:
     """Format conversation list for output."""
     if fmt == "json":
         return _format_list_json(
             conversations, refs_map=refs_map, show_errors=show_errors,
-            engagement_map=engagement_map,
+            engagement_map=engagement_map, outcomes_map=outcomes_map,
         )
     if fmt == "csv":
         return _format_list_csv(
             conversations, refs_map=refs_map, show_errors=show_errors,
-            engagement_map=engagement_map,
+            engagement_map=engagement_map, outcomes_map=outcomes_map,
         )
     # Table format is handled separately with rich
     return ""
@@ -5043,6 +5288,7 @@ def _format_list_json(
     refs_map: dict[str, list[str]] | None = None,
     show_errors: bool = False,
     engagement_map: dict[str, dict] | None = None,
+    outcomes_map: dict[str, list[Outcome]] | None = None,
 ) -> str:
     """Format conversations as JSON."""
     items = []
@@ -5085,6 +5331,19 @@ def _format_list_json(
                     row.get("engaged_seconds"),
                     row.get("total_duration_seconds"),
                 )
+        if outcomes_map is not None:
+            # Issue #190: emit structured outcomes array with type/number/state/url
+            outcomes = outcomes_map.get(conv.id, [])
+            item["outcomes"] = [
+                {
+                    "type": o.type.lower(),  # "pr" or "issue"
+                    "number": o.number,
+                    "state": o.state,
+                    "repo": o.repo,
+                    "url": o.url,
+                }
+                for o in outcomes
+            ]
         items.append(item)
     return json.dumps(items, indent=2)
 
@@ -5095,6 +5354,7 @@ def _format_list_csv(
     refs_map: dict[str, list[str]] | None = None,
     show_errors: bool = False,
     engagement_map: dict[str, dict] | None = None,
+    outcomes_map: dict[str, list[Outcome]] | None = None,
 ) -> str:
     """Format conversations as CSV."""
     output = io.StringIO()
@@ -5114,6 +5374,9 @@ def _format_list_csv(
             "total_duration_seconds",
             "engagement_ratio",
         ])
+    if outcomes_map is not None:
+        # Issue #190: outcomes as semicolon-separated list
+        headers.append("outcomes")
     writer.writerow(headers)
 
     for conv in conversations:
@@ -5156,6 +5419,11 @@ def _format_list_csv(
                     er.get("engaged_seconds"), er.get("total_duration_seconds")
                 )
                 row.append(ratio if ratio is not None else "")
+        if outcomes_map is not None:
+            # Issue #190: format outcomes as semicolon-separated list
+            outcomes = outcomes_map.get(conv.id, [])
+            outcomes_str = "; ".join(_format_outcome(o, max_width=999) for o in outcomes)
+            row.append(outcomes_str if outcomes else "")
         writer.writerow(row)
 
     return output.getvalue()
@@ -5174,6 +5442,7 @@ def _print_list_table(
     hide_title: bool = False,
     idle_minutes: int | None = None,
     engagement_map: dict[str, dict] | None = None,
+    outcomes_map: dict[str, list[Outcome]] | None = None,
 ) -> None:
     """Print conversations as a rich table."""
     from datetime import datetime, timezone
@@ -5208,11 +5477,21 @@ def _print_list_table(
     else:
         table.add_column("Duration", justify="right", no_wrap=True)
     table.add_column("Events", justify="right", no_wrap=True)
+    
+    # Issue #190: When using --enriched (both engagement + outcomes), drop
+    # "Periods" and "Eng%" columns to fit outcomes. Otherwise show all columns.
+    enriched_mode = (engagement_map is not None and outcomes_map is not None)
+    
     if engagement_map is not None:
         # Issue #167: opt-in engagement columns.
         table.add_column("Engaged", justify="right", no_wrap=True)
-        table.add_column("Periods", justify="right", no_wrap=True)
-        table.add_column("Eng%", justify="right", no_wrap=True)
+        if not enriched_mode:
+            # Only show Periods/Eng% when NOT in enriched mode
+            table.add_column("Periods", justify="right", no_wrap=True)
+            table.add_column("Eng%", justify="right", no_wrap=True)
+    if outcomes_map is not None:
+        # Issue #190: outcomes column with PRs/issues
+        table.add_column("Outcomes", no_wrap=False, max_width=50)
     if show_errors:
         table.add_column("Errors", no_wrap=True)
     if not hide_title:
@@ -5312,7 +5591,19 @@ def _print_list_table(
                 )
                 pct_str = _format_eng_pct(engaged_secs, total_secs)
                 eng_pct = pct_str if pct_str != "-" else "[dim]-[/dim]"
-            row.extend([eng_engaged, eng_periods, eng_pct])
+            # Issue #190: only append Periods/Eng% when NOT in enriched mode
+            if enriched_mode:
+                row.append(eng_engaged)
+            else:
+                row.extend([eng_engaged, eng_periods, eng_pct])
+        if outcomes_map is not None:
+            # Issue #190: format outcomes for display
+            outcomes = outcomes_map.get(conv.id, [])
+            outcomes_text = _format_outcomes_list(outcomes, max_width=50)
+            if not outcomes:
+                # Dim style for "(no refs)"
+                outcomes_text = "[dim](no refs)[/dim]"
+            row.append(outcomes_text)
         if show_errors:
             row.append(error_text)
         if not hide_title:

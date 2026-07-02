@@ -96,6 +96,17 @@ ohtv list --with-engagement --repo OpenPaw -A
 ohtv list --with-engagement -F json    # Adds 5 keys per row
 ohtv list --with-engagement -F csv     # Appends 5 columns
 
+# Show outcomes column (PRs/issues with state indicators)
+# Requires refs, actions, and contributions stages processed
+ohtv list --with-outcomes
+ohtv list --with-outcomes -A
+ohtv list --with-outcomes -F json      # Structured outcomes array
+ohtv list --with-outcomes -F csv       # Semicolon-separated outcomes
+
+# Enriched mode: both engagement and outcomes
+ohtv list --enriched                   # Shorthand for --with-engagement --with-outcomes
+ohtv list --enriched --repo OpenPaw -A
+
 # Roots-only by default (since #127 / v0.18.0):
 # rows represent root conversations; agent-delegated subs are hidden.
 ohtv list -A
@@ -142,6 +153,8 @@ ohtv list -A --include-sub-conversations
 | `-E, --with-errors` | Include error info column (agent/LLM errors) |
 | `--errors-only` | Show only conversations with agent/LLM errors |
 | `--with-engagement` | Include engagement columns (`Engaged`, `Periods`, `Eng%`) in the table, five fields in JSON, and five appended columns in CSV. Default off. Values come from the [`engagement` indexing stage](indexing.md#engagement-stage) — run `ohtv db process all` (or `ohtv db process engagement`) to populate them. Rows with no engagement row render dim `-` in the table and `null` / empty in JSON / CSV. Display-only: never filters rows out. See [Engagement columns](#engagement-columns--with-engagement) below. |
+| `--with-outcomes` | Include outcomes column showing PRs and issues with state indicators (✓ for merged/closed, → for open) in the table, a structured `outcomes` array in JSON, and a semicolon-separated outcomes string in CSV. Default off. Values come from the [`refs`](indexing.md#refs-stage), [`actions`](indexing.md#actions-stage), and [`conversation_contributions`](indexing.md#contributions-stage) indexing stages — run `ohtv db process all` to populate them. Conversations without PR/issue contributions show "(no refs)" in the table and empty array/string in JSON/CSV. Graceful truncation: max 3 outcomes shown, then "+ N more". Display-only: never filters rows out. See [Outcomes columns](#outcomes-columns--with-outcomes) below. |
+| `--enriched` | Shorthand for `--with-engagement --with-outcomes`. Shows both engagement metrics and PR/issue outcomes. In table format, drops "Periods" and "Eng%" columns to fit outcomes (shows only "Engaged" and "Outcomes"). In JSON/CSV formats, includes all fields from both flags. |
 | `--engaged` | Filter to conversations with `engaged_seconds > 0`. Missing engagement rows are excluded. Mutually exclusive with `--no-engaged`; composes silently with `--min-engaged` / `--min-engagement-ratio`. See [Engagement filters](#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio). |
 | `--no-engaged` | Filter to fire-and-forget conversations (`engaged_seconds == 0` **OR** the engagement row is missing). Only engagement flag that *includes* missing rows. Mutually exclusive with `--engaged`, `--min-engaged`, `--min-engagement-ratio`. |
 | `--min-engaged DURATION` | Filter to `engaged_seconds >= DURATION`. Accepts `30s` / `5m` / `1h` / `1h30m` (case-insensitive); a bare number is interpreted as **minutes** (`5` == `5m`). Negatives / nonsense raise `BadParameter` (exit 2). Missing engagement rows are excluded. |
@@ -210,6 +223,82 @@ Empty strings for missing values; zeros are preserved as `0`.
 **Composes with other flags.** `--with-engagement` is purely a display switch — it adds columns / fields but never filters rows. It works alongside `--repo`, `--pr`, `--action`, `--label`, `--since` / `--until`, `--day` / `--week`, `--errors-only`, `--with-errors`, `--idle`, `--include-sub-conversations`, `--reverse`, `-n` / `-k`, `-A`, `--include-empty`, `--no-refs`, and any output format (`-F table|json|csv`).
 
 > **Need to actually filter by engagement?** See the next subsection — `--engaged`, `--no-engaged`, `--min-engaged`, and `--min-engagement-ratio` were added in [#175](https://github.com/jpshackelford/ohtv/pull/175) (tracks [#170](https://github.com/jpshackelford/ohtv/issues/170)) and are orthogonal to `--with-engagement` (you can filter without displaying, or display without filtering, or both).
+
+<a id="outcomes-columns--with-outcomes"></a>
+
+### Outcomes columns (`--with-outcomes`)
+
+The `--with-outcomes` flag (added in [#197](https://github.com/jpshackelford/ohtv/pull/197), tracks [#190](https://github.com/jpshackelford/ohtv/issues/190)) extends `ohtv list` with a column showing the PRs and issues that resulted from each conversation, with visual state indicators to quickly distinguish merged/closed outcomes (✓) from open ones (→).
+
+**Prerequisite:** values come from the [`refs`](indexing.md#refs-stage), [`actions`](indexing.md#actions-stage), and [`conversation_contributions`](indexing.md#contributions-stage) indexing stages. Run `ohtv db process all` after syncing. Without them the outcomes column renders "(no refs)" in table format and empty values in JSON / CSV — rows are **never** filtered out.
+
+**Table view** adds an "Outcomes" column showing up to 3 outcomes with state indicators:
+
+```text
+$ ohtv list --with-outcomes -A
+┃ ID       ┃ Source ┃ Started          ┃ Duration ┃ Events ┃ Outcomes                      ┃ Title             ┃
+│ abc123   │ cloud  │ 2026-07-01 09:23 │  1h 14m  │     47 │ ✓ PR #15234, ✓ Issue #15198   │ Add auth feature  │
+│ def456   │ cloud  │ 2026-07-01 14:15 │     23m  │     23 │ → PR #15240                   │ Fix CI pipeline   │
+│ ghi789   │ cloud  │ 2026-07-01 16:30 │      3m  │      3 │ (no refs)                     │ Quick experiment  │
+```
+
+**State indicators:**
+- **✓** — PR is merged, or PR/issue is closed
+- **→** — PR or issue is open
+
+**Graceful truncation:** If a conversation has more than 3 outcomes, the display shows the first 3 followed by "+ N more" (e.g., "✓ PR #100, ✓ PR #101, → Issue #200 + 2 more").
+
+**JSON view (`-F json`)** adds a structured `outcomes` array per row:
+
+```json
+{
+  "id": "abc123",
+  "title": "Add auth feature",
+  "started": "2026-07-01T09:23:00+00:00",
+  "outcomes": [
+    {
+      "type": "PR",
+      "number": 15234,
+      "state": "merged",
+      "repo": "owner/repo",
+      "url": "https://github.com/owner/repo/pull/15234"
+    },
+    {
+      "type": "Issue",
+      "number": 15198,
+      "state": "open",
+      "repo": "owner/repo",
+      "url": "https://github.com/owner/repo/issues/15198"
+    }
+  ]
+}
+```
+
+Missing values emit an empty array `[]` so the schema stays stable across rows.
+
+**CSV view (`-F csv`)** appends an `outcomes` column to the existing header:
+
+```
+id,source,started,duration,events,title,repository,refs,outcomes
+abc123,cloud,2026-07-01 09:23,1h 14m,47,Add auth feature,owner/repo,owner/repo; #15234; #15198,✓ PR #15234; ✓ Issue #15198
+def456,cloud,2026-07-01 14:15,23m,23,Fix CI pipeline,owner/repo,owner/repo; #15240,→ PR #15240
+ghi789,cloud,2026-07-01 16:30,3m,3,Quick experiment,,,
+```
+
+Outcomes are semicolon-separated. Empty string for conversations without PR/issue contributions.
+
+**Composes with other flags.** `--with-outcomes` is purely a display switch — it adds columns / fields but never filters rows. It works alongside all the same flags as `--with-engagement`: `--repo`, `--pr`, `--action`, `--label`, `--since` / `--until`, `--day` / `--week`, `--errors-only`, `--with-errors`, `--idle`, `--include-sub-conversations`, `--reverse`, `-n` / `-k`, `-A`, `--include-empty`, `--no-refs`, and any output format (`-F table|json|csv`).
+
+**Enriched mode (`--enriched`).** The `--enriched` flag is a shorthand for `--with-engagement --with-outcomes`. In table format, it drops the "Periods" and "Eng%" columns to fit both "Engaged" and "Outcomes" without overwhelming the display:
+
+```text
+$ ohtv list --enriched -A
+┃ ID       ┃ Source ┃ Started          ┃ Engaged ┃ Outcomes                      ┃ Title             ┃
+│ abc123   │ cloud  │ 2026-07-01 09:23 │ 28m 12s │ ✓ PR #15234, ✓ Issue #15198   │ Add auth feature  │
+│ def456   │ cloud  │ 2026-07-01 14:15 │  2m 14s │ → PR #15240                   │ Fix CI pipeline   │
+```
+
+In JSON and CSV formats, `--enriched` includes all fields from both `--with-engagement` and `--with-outcomes` (5 engagement fields + outcomes array/column).
 
 <a id="engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio"></a>
 
