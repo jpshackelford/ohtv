@@ -186,24 +186,31 @@ def query_refs_for_conversation(
 ) -> list[tuple]:
     """Query PR/issue refs for a conversation.
     
+    Queries from the refs table via conversation_refs to get PRs and issues
+    mentioned in the conversation. Note: The refs table doesn't track state,
+    so all refs are returned with state='open'.
+    
     Args:
         conn: Database connection
         conversation_id: Conversation ID (dashless)
         
     Returns:
         List of tuples: (change_type, number, title, state, repo, url)
+        where change_type is 'pr' or 'issue', number is extracted from fqn,
+        and state is always 'open'
     """
     query = """
         SELECT 
-            change_type,
-            pr_or_issue_number,
-            title,
-            state,
-            repo_full_name,
-            url
-        FROM change_refs
-        WHERE conversation_id = ?
-        ORDER BY first_mention_idx
+            r.ref_type,
+            SUBSTR(r.fqn, INSTR(r.fqn, '#') + 1) AS number,
+            r.display_name AS title,
+            'open' AS state,
+            SUBSTR(r.fqn, 1, INSTR(r.fqn, '#') - 1) AS repo,
+            r.url
+        FROM conversation_refs cr
+        JOIN refs r ON r.id = cr.ref_id
+        WHERE cr.conversation_id = ?
+        ORDER BY r.id
     """
     return conn.execute(query, [conversation_id]).fetchall()
 
@@ -328,7 +335,7 @@ def format_outcomes(refs: list[tuple]) -> list[str]:
         # Truncate title
         title_display = title[:60] if title and len(title) > 60 else title or "Untitled"
         
-        if change_type == "pull_request":
+        if change_type == "pr":
             # Badge: ✓ for closed/merged, → for open
             badge = "✓" if state in ("closed", "merged") else "→"
             outcomes.append(

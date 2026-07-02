@@ -61,20 +61,26 @@ def db_conn(tmp_path: Path) -> sqlite3.Connection:
         )
     """)
     
-    # Create change_refs table
+    # Create refs table (matches real schema from 001_initial_schema.py)
     conn.execute("""
-        CREATE TABLE change_refs (
-            id INTEGER PRIMARY KEY,
+        CREATE TABLE refs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ref_type TEXT NOT NULL CHECK(ref_type IN ('issue', 'pr')),
+            url TEXT NOT NULL UNIQUE,
+            fqn TEXT NOT NULL,
+            display_name TEXT NOT NULL
+        )
+    """)
+    
+    # Create conversation_refs link table (matches real schema)
+    conn.execute("""
+        CREATE TABLE conversation_refs (
             conversation_id TEXT NOT NULL,
-            change_type TEXT NOT NULL,
-            pr_or_issue_number INTEGER NOT NULL,
-            title TEXT,
-            state TEXT,
-            repo_full_name TEXT,
-            url TEXT,
-            first_mention_idx INTEGER,
-            FOREIGN KEY (conversation_id)
-                REFERENCES conversations(id) ON DELETE CASCADE
+            ref_id INTEGER NOT NULL,
+            link_type TEXT NOT NULL CHECK(link_type IN ('read', 'write')),
+            PRIMARY KEY (conversation_id, ref_id),
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            FOREIGN KEY (ref_id) REFERENCES refs(id) ON DELETE CASCADE
         )
     """)
     
@@ -118,20 +124,32 @@ def sample_conversations(db_conn: sqlite3.Connection) -> None:
         VALUES (?, ?, ?, ?, ?)
     """, ("conv003", "Fire and forget", "2026-07-01T16:00:00+00:00", "owner/repo1", "cloud"))
     
-    # Add some refs
+    # Add some refs (using real schema: refs + conversation_refs)
+    # Insert PR ref
     db_conn.execute("""
-        INSERT INTO change_refs 
-        (conversation_id, change_type, pr_or_issue_number, title, state, repo_full_name, url, first_mention_idx)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, ("conv001", "pull_request", 123, "Fix authentication redirect", "merged", "owner/repo1",
-          "https://github.com/owner/repo1/pull/123", 10))
+        INSERT INTO refs (ref_type, url, fqn, display_name)
+        VALUES (?, ?, ?, ?)
+    """, ("pr", "https://github.com/owner/repo1/pull/123", "owner/repo1#123", "Fix authentication redirect"))
+    pr_ref_id = db_conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     
+    # Link PR to conversation
     db_conn.execute("""
-        INSERT INTO change_refs 
-        (conversation_id, change_type, pr_or_issue_number, title, state, repo_full_name, url, first_mention_idx)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, ("conv001", "issue", 45, "Auth redirect loop", "closed", "owner/repo1",
-          "https://github.com/owner/repo1/issues/45", 5))
+        INSERT INTO conversation_refs (conversation_id, ref_id, link_type)
+        VALUES (?, ?, ?)
+    """, ("conv001", pr_ref_id, "write"))
+    
+    # Insert issue ref
+    db_conn.execute("""
+        INSERT INTO refs (ref_type, url, fqn, display_name)
+        VALUES (?, ?, ?, ?)
+    """, ("issue", "https://github.com/owner/repo1/issues/45", "owner/repo1#45", "Auth redirect loop"))
+    issue_ref_id = db_conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    
+    # Link issue to conversation
+    db_conn.execute("""
+        INSERT INTO conversation_refs (conversation_id, ref_id, link_type)
+        VALUES (?, ?, ?)
+    """, ("conv001", issue_ref_id, "read"))
     
     db_conn.commit()
 
@@ -207,11 +225,16 @@ def test_query_refs_for_conversation(db_conn: sqlite3.Connection, sample_convers
     refs = query_refs_for_conversation(db_conn, "conv001")
     
     assert len(refs) == 2
-    # Should be ordered by first_mention_idx
-    assert refs[0][0] == "issue"  # change_type
-    assert refs[0][1] == 45  # number
-    assert refs[1][0] == "pull_request"
-    assert refs[1][1] == 123
+    # Ordered by ref id (insertion order in test data)
+    assert refs[0][0] == "pr"  # change_type (ref_type from refs table)
+    assert refs[0][1] == "123"  # number (extracted from fqn as string)
+    assert refs[0][2] == "Fix authentication redirect"  # title
+    assert refs[0][3] == "open"  # state (always 'open' since refs table doesn't track state)
+    assert refs[0][4] == "owner/repo1"  # repo
+    
+    assert refs[1][0] == "issue"
+    assert refs[1][1] == "45"
+    assert refs[1][2] == "Auth redirect loop"
 
 
 def test_query_refs_no_results(db_conn: sqlite3.Connection, sample_conversations: None) -> None:
@@ -228,7 +251,7 @@ def test_query_refs_no_results(db_conn: sqlite3.Connection, sample_conversations
 def test_format_outcomes_pr_merged() -> None:
     """Test formatting PR outcomes."""
     refs = [
-        ("pull_request", 123, "Fix auth bug", "merged", "owner/repo", "https://github.com/owner/repo/pull/123"),
+        ("pr", 123, "Fix auth bug", "merged", "owner/repo", "https://github.com/owner/repo/pull/123"),
     ]
     outcomes = format_outcomes(refs)
     
@@ -242,7 +265,7 @@ def test_format_outcomes_pr_merged() -> None:
 def test_format_outcomes_pr_open() -> None:
     """Test formatting open PR."""
     refs = [
-        ("pull_request", 456, "Add feature", "open", "owner/repo", "https://github.com/owner/repo/pull/456"),
+        ("pr", 456, "Add feature", "open", "owner/repo", "https://github.com/owner/repo/pull/456"),
     ]
     outcomes = format_outcomes(refs)
     
@@ -267,7 +290,7 @@ def test_format_outcomes_title_truncation() -> None:
     """Test truncating long titles."""
     long_title = "A" * 100
     refs = [
-        ("pull_request", 1, long_title, "open", "owner/repo", "https://github.com/owner/repo/pull/1"),
+        ("pr", 1, long_title, "open", "owner/repo", "https://github.com/owner/repo/pull/1"),
     ]
     outcomes = format_outcomes(refs)
     
@@ -355,7 +378,7 @@ def test_format_batch_input() -> None:
             "user_messages": ["User message 1", "User message 2", "User message 3", "User message 4"],
             "finish_message": "Agent finished successfully",
             "refs": [
-                ("pull_request", 123, "PR title", "merged", "owner/repo", "url"),
+                ("pr", 123, "PR title", "merged", "owner/repo", "url"),
             ],
         }
     }
