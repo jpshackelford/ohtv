@@ -11482,6 +11482,8 @@ def _run_objectives_analysis(
               help="Override placeholder predicate and retitle every selected conversation")
 @click.option("--dry-run", is_flag=True,
               help="Generate titles and print diff without PATCH or local writeback")
+@click.option("--force", is_flag=True,
+              help="Force re-synthesis, ignore cache (Issue #191)")
 @click.option("--workers", type=int, default=5,
               help="Parallel PATCH workers (default: 5)")
 @click.option("--batch-size", type=int, default=25,
@@ -11524,6 +11526,7 @@ def gen_titles_cmd(
     reverse: bool,
     all_titled: bool,
     dry_run: bool,
+    force: bool,
     workers: int,
     batch_size: int,
     model: str | None,
@@ -11586,6 +11589,7 @@ def gen_titles_cmd(
                 reverse=reverse,
                 all_titled=all_titled,
                 dry_run=dry_run,
+                force=force,
                 workers=workers,
                 batch_size=batch_size,
                 model=model,
@@ -11617,6 +11621,7 @@ def _run_gen_titles(
     reverse: bool,
     all_titled: bool,
     dry_run: bool,
+    force: bool,
     workers: int,
     batch_size: int,
     model: str | None,
@@ -11730,7 +11735,8 @@ def _run_gen_titles(
         return
 
     # ----- 3. Probe analysis cache (detailed > standard > brief) ----------
-    items_for_llm: list[tuple[str, str]] = []
+    # Build (conv_id, updated_at, description) tuples for cache-enabled generation
+    items_for_cache: list[tuple[str, str, str]] = []
     convs_with_cache: list[ConversationInfo] = []
     cache_miss_convs: list[ConversationInfo] = []
 
@@ -11775,10 +11781,13 @@ def _run_gen_titles(
         if not description.strip():
             cache_miss_convs.append(conv)
             continue
-        items_for_llm.append((conv.id, description))
+        
+        # Build cache tuple with updated_at timestamp (Issue #191)
+        updated_at = conv.updated_at.isoformat() if conv.updated_at else ""
+        items_for_cache.append((conv.id, updated_at, description))
         convs_with_cache.append(conv)
 
-    if not items_for_llm:
+    if not items_for_cache:
         console.print(
             f"[yellow]No cached gen-objs analyses found "
             f"for {len(cache_miss_convs)} selected conversation(s).[/yellow]"
@@ -11789,15 +11798,15 @@ def _run_gen_titles(
         return
 
     # ----- 4. Confirmation prompt (skipped on -y / --dry-run) -------------
-    if not dry_run and not yes and len(items_for_llm) > 5:
-        sample = items_for_llm[:5]
+    if not dry_run and not yes and len(items_for_cache) > 5:
+        sample = items_for_cache[:5]
         console.print(
-            f"[bold]About to retitle {len(items_for_llm)} cloud conversation(s).[/bold]"
+            f"[bold]About to retitle {len(items_for_cache)} cloud conversation(s).[/bold]"
         )
         console.print(
             "[dim]Sample (first 5; titles are generated only after confirmation):[/dim]"
         )
-        for conv_id, desc in sample:
+        for conv_id, _, desc in sample:
             short = conv_id.replace("-", "")[:8]
             short_desc = desc[:60] + ("…" if len(desc) > 60 else "")
             console.print(f"  [cyan]{short}[/cyan]  {short_desc}")
@@ -11806,13 +11815,27 @@ def _run_gen_titles(
             console.print("[dim]Cancelled.[/dim]")
             return
 
-    # ----- 5. Generate titles ---------------------------------------------
-    gen_result = _generate_titles_with_progress(
-        items_for_llm,
+    # ----- 5. Generate titles with cache (Issue #191) --------------------
+    from ohtv.analysis.titles import generate_titles_with_cache
+    
+    console.print("[dim]Checking synthesis cache...[/dim]")
+    cache_result = generate_titles_with_cache(
+        items_for_cache,
         model=model,
+        force_refresh=force,
         batch_size=batch_size,
-        llm_call=llm_call,
     )
+    
+    # Show cache statistics
+    if cache_result.cache_hits > 0 or cache_result.cache_misses > 0:
+        total = cache_result.cache_hits + cache_result.cache_misses
+        hit_pct = (cache_result.cache_hits * 100) // total if total > 0 else 0
+        console.print(
+            f"[dim]Cache: {cache_result.cache_hits}/{total} hits ({hit_pct}%); "
+            f"LLM cost: ${cache_result.cost:.4f}[/dim]"
+        )
+    
+    gen_result = cache_result  # Adapt to existing result handling code
 
     if not gen_result.titles:
         console.print("[red]Error:[/red] LLM returned no usable titles.")
@@ -11842,7 +11865,7 @@ def _run_gen_titles(
         _print_titles_summary(
             console,
             selected=len(cloud_convs),
-            cache_hits=len(items_for_llm),
+            cache_hits=len(items_for_cache),
             cache_misses=len(cache_miss_convs),
             renamed=0,
             failed=0,
