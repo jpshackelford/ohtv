@@ -621,14 +621,23 @@ def generate_titles_with_cache(
                     # Estimate tokens (rough approximation: 1 token ≈ 4 chars)
                     tokens_used = len(title) // 4
                     
-                    # Store in cache
-                    store.upsert_title(
-                        conv_id, updated_at, title, effective_model,
-                        SYNTHESIS_SCHEMA_VERSION, tokens_used
-                    )
-                    log.debug("Cached new title for %s", conv_id)
+                    # Store in cache (gracefully handle FK constraint violations
+                    # in case conversation doesn't exist in DB)
+                    try:
+                        store.upsert_title(
+                            conv_id, updated_at, title, effective_model,
+                            SYNTHESIS_SCHEMA_VERSION, tokens_used
+                        )
+                        log.debug("Cached new title for %s", conv_id)
+                    except Exception as e:
+                        log.debug("Failed to cache title for %s: %s", conv_id, e)
             
-            conn.commit()
+            try:
+                conn.commit()
+            except Exception as e:
+                log.debug("Failed to commit synthesis cache: %s", e)
+                # Rollback to avoid leaving the transaction in a bad state
+                conn.rollback()
     
     return result
 

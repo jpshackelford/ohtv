@@ -11824,6 +11824,7 @@ def _run_gen_titles(
         model=model,
         force_refresh=force,
         batch_size=batch_size,
+        llm_call=llm_call,
     )
     
     # Show cache statistics
@@ -11967,7 +11968,7 @@ def _run_gen_titles(
     _print_titles_summary(
         console,
         selected=len(cloud_convs),
-        cache_hits=len(items_for_llm),
+        cache_hits=len(items_for_cache),
         cache_misses=len(cache_miss_convs),
         renamed=len(renamed_ids),
         failed=len(rename_failures),
