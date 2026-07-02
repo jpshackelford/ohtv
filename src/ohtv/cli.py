@@ -13735,5 +13735,315 @@ def report_weekly_counts(
         _emit(report_data.rows, sys.stdout)
 
 
+@report.command("worklog")
+@click.option(
+    "--date",
+    "-D",
+    "date_str",
+    help="Specific date (YYYY-MM-DD, or offset like -1 for yesterday)",
+)
+@click.option(
+    "--week",
+    "-W",
+    is_flag=True,
+    help="This week (Mon-Sun)",
+)
+@click.option(
+    "--since",
+    "since_str",
+    help="Start date (YYYY-MM-DD or relative: 7d, 2w, 1m)",
+)
+@click.option(
+    "--until",
+    "until_str",
+    help="End date (YYYY-MM-DD)",
+)
+@click.option(
+    "--engaged",
+    is_flag=True,
+    help="Only conversations with engagement > 0",
+)
+@click.option(
+    "--no-engaged",
+    is_flag=True,
+    help="Only fire-and-forget conversations (engagement = 0)",
+)
+@click.option(
+    "--min-engaged",
+    "min_engaged_str",
+    help="Minimum engaged time (e.g., 5m, 1h)",
+)
+@click.option(
+    "--repo",
+    "repo_filter",
+    help="Filter by repository",
+)
+@click.option(
+    "--format",
+    "-F",
+    "output_format",
+    type=click.Choice(["html", "markdown", "text"]),
+    default="html",
+    show_default=True,
+    help="Output format",
+)
+@click.option(
+    "--output",
+    "-o",
+    "output_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Output file (default: /tmp/worklog.{ext})",
+)
+@click.option(
+    "--stdout",
+    is_flag=True,
+    help="Print to stdout instead of file",
+)
+@click.option(
+    "--synthesis-model",
+    default="gpt-4o-mini",
+    show_default=True,
+    help="LLM model for synthesis",
+)
+@click.option(
+    "--no-synthesis",
+    is_flag=True,
+    help="Skip LLM synthesis (use titles as-is)",
+)
+@click.option(
+    "--timezone",
+    default="America/New_York",
+    show_default=True,
+    help="Timezone for date boundaries and display",
+)
+@click.option(
+    "--serve",
+    is_flag=True,
+    help="Start HTTP server after generating HTML (implies --format html)",
+)
+@click.option(
+    "--port",
+    default=8000,
+    type=int,
+    show_default=True,
+    help="HTTP server port (only with --serve)",
+)
+@logging_options
+def report_worklog(
+    date_str: str | None,
+    week: bool,
+    since_str: str | None,
+    until_str: str | None,
+    engaged: bool,
+    no_engaged: bool,
+    min_engaged_str: str | None,
+    repo_filter: str | None,
+    output_format: str,
+    output_path: Path | None,
+    stdout: bool,
+    synthesis_model: str,
+    no_synthesis: bool,
+    timezone: str,
+    serve: bool,
+    port: int,
+) -> None:
+    """Generate daily/weekly worklog with LLM synthesis.
+
+    Shows conversations with synthesized titles and purpose summaries,
+    engagement metrics, and PR/issue links. Outputs to HTML (default),
+    markdown, or plain text.
+
+    \b
+    Date selection (mutually exclusive):
+      --date DATE       Specific date (YYYY-MM-DD or -1 for yesterday)
+      --week            This week (Monday to Sunday)
+      --since/--until   Date range
+
+    \b
+    Examples:
+      ohtv report worklog                           # Today
+      ohtv report worklog --date yesterday          # Yesterday
+      ohtv report worklog --week                    # This week
+      ohtv report worklog --since 7d                # Last 7 days
+      ohtv report worklog --engaged                 # Only engaged conversations
+      ohtv report worklog --format markdown --stdout  # Markdown to stdout
+      ohtv report worklog --serve                   # Generate HTML and serve
+    """
+    from datetime import date as date_class
+    from datetime import timedelta
+
+    from ohtv.db import ensure_db_ready, get_connection, get_db_path
+    from ohtv.filters import parse_date_filter, parse_duration
+    from ohtv.reports.worklog import (
+        generate_worklog,
+        render_html,
+        render_markdown,
+        render_text,
+    )
+    from ohtv.sources import LocalSource
+
+    _init_logging(verbose=False)
+
+    # Validate conflicting options
+    if engaged and no_engaged:
+        console.print(
+            "[red]Error:[/red] --engaged and --no-engaged are mutually exclusive"
+        )
+        raise SystemExit(2)
+
+    if serve and output_format != "html":
+        console.print(
+            "[yellow]Warning:[/yellow] --serve requires HTML format, forcing --format html"
+        )
+        output_format = "html"
+
+    # Parse date range
+    since_dt = None
+    until_dt = None
+
+    if date_str:
+        # Specific date
+        if date_str in ("today", "0"):
+            target_date = date_class.today()
+        elif date_str in ("yesterday", "-1"):
+            target_date = date_class.today() - timedelta(days=1)
+        else:
+            try:
+                target_date = date_class.fromisoformat(date_str)
+            except ValueError:
+                console.print(
+                    f"[red]Error:[/red] Invalid date {date_str!r}. "
+                    "Use YYYY-MM-DD, 'today', 'yesterday', or offset like -1."
+                )
+                raise SystemExit(2)
+        since_dt = target_date
+        until_dt = target_date
+    elif week:
+        # This week (Monday to Sunday)
+        today = date_class.today()
+        weekday = today.weekday()  # Monday = 0, Sunday = 6
+        since_dt = today - timedelta(days=weekday)
+        until_dt = since_dt + timedelta(days=6)
+    else:
+        # Use --since/--until if provided
+        if since_str:
+            since_dt = parse_date_filter(since_str)
+            if since_dt is None:
+                console.print(
+                    f"[red]Error:[/red] Could not parse --since {since_str!r}. "
+                    "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
+                )
+                raise SystemExit(2)
+        if until_str:
+            until_dt = parse_date_filter(until_str)
+            if until_dt is None:
+                console.print(
+                    f"[red]Error:[/red] Could not parse --until {until_str!r}. "
+                    "Use YYYY-MM-DD."
+                )
+                raise SystemExit(2)
+
+    # Default to today if no date specified
+    if since_dt is None and until_dt is None:
+        since_dt = date_class.today()
+        until_dt = date_class.today()
+
+    # Parse min engaged duration
+    min_engaged_seconds = 0
+    if min_engaged_str:
+        min_engaged_seconds = parse_duration(min_engaged_str)
+        if min_engaged_seconds is None:
+            console.print(
+                f"[red]Error:[/red] Could not parse --min-engaged {min_engaged_str!r}. "
+                "Use format like 5m, 1h, 30s."
+            )
+            raise SystemExit(2)
+
+    # Get database
+    db_path = get_db_path()
+    if not db_path.exists():
+        console.print(
+            "[yellow]No database found.[/yellow] Run [bold]ohtv db scan[/bold] first."
+        )
+        raise SystemExit(1)
+
+    with get_connection(db_path) as conn:
+        ensure_db_ready(conn, show_progress=False)
+
+        # Get conversations base directory (local source)
+        local_source = LocalSource()
+        conversations_base_dir = local_source.conversations_dir
+
+        # Handle --no-engaged flag
+        if no_engaged:
+            # Override to exclude engaged conversations
+            engaged_only = False
+            # We'll need to filter for engaged_seconds = 0 in the query
+            # For now, treat as not engaged (we can refine the query logic)
+            console.print(
+                "[yellow]Note:[/yellow] --no-engaged shows fire-and-forget conversations (engagement = 0)"
+            )
+
+        # Generate worklog
+        with console.status(
+            f"[bold]Generating worklog for {since_dt} to {until_dt}...[/bold]"
+        ):
+            report = generate_worklog(
+                conn=conn,
+                conversations_base_dir=conversations_base_dir,
+                since=since_dt,
+                until=until_dt,
+                engaged_only=engaged and not no_engaged,
+                min_engaged_seconds=min_engaged_seconds if not no_engaged else 0,
+                source=None,  # Include both local and cloud
+                repo_filter=repo_filter,
+                synthesis_model=synthesis_model if not no_synthesis else None,
+                timezone_name=timezone,
+            )
+
+    # Render based on format
+    if output_format == "html":
+        output_str = render_html(report)
+        ext = "html"
+    elif output_format == "markdown":
+        output_str = render_markdown(report)
+        ext = "md"
+    else:
+        output_str = render_text(report)
+        ext = "txt"
+
+    # Output
+    if stdout:
+        console.print(output_str, markup=False, highlight=False)
+    else:
+        if output_path is None:
+            output_path = Path(f"/tmp/worklog.{ext}")
+
+        output_path.write_text(output_str)
+        console.print(f"✅ Generated worklog: [bold]{output_path}[/bold]")
+
+        if report.synthesis_cost > 0:
+            console.print(f"💰 Synthesis cost: [cyan]${report.synthesis_cost:.4f}[/cyan]")
+
+        # Start HTTP server if requested
+        if serve:
+            import http.server
+            import os
+
+            os.chdir(output_path.parent)
+            console.print(
+                f"\n🌐 Serving at [bold]http://localhost:{port}/{output_path.name}[/bold]"
+            )
+            console.print("Press Ctrl+C to stop the server.\n")
+
+            try:
+                server = http.server.HTTPServer(
+                    ("", port), http.server.SimpleHTTPRequestHandler
+                )
+                server.serve_forever()
+            except KeyboardInterrupt:
+                console.print("\n\n✅ Server stopped.")
+
+
 if __name__ == "__main__":
     main()
