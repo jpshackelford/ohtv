@@ -1095,3 +1095,24 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 <!-- orchestrator-status: manual-intervention-pr-ready -->
 
 ---
+
+### 2026-07-02 06:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `b6a8375` | docs | PR #194 - Add JIT fetch mode | **NEW** |
+
+**Spawned: Documentation Worker**
+- PR: [#194 - Add just-in-time (lazy) fetch mode for targeted queries](https://github.com/jpshackelford/ohtv/pull/194)
+- Conversation: [`b6a8375`](https://app.all-hands.dev/conversations/b6a83758d1804d9ca82d579d2b7a156b)
+
+**Current State:**
+- PR #194: `oR green ready` 💬6 - Missing docs update
+- No issues need expansion (expansion slot idle)
+- Ready issues: #189 (priority:medium), #190 (priority:medium) - Awaiting PR #194 completion
+
+**Decision Reasoning:**
+PR #194 introduces new CLI flags (--jit, --refresh, --max-age) that require README documentation. Following "Test What's Documented" principle - docs must be updated BEFORE testing.
+
+---
