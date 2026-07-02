@@ -3303,6 +3303,12 @@ def list_conversations(
     # Parse date filters and apply shortcuts
     since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
     
+    # Validate JIT-dependent flags (Issue #188 review feedback)
+    if refresh and not jit:
+        raise click.UsageError("--refresh requires --jit flag")
+    if max_age != 24 and not jit:  # 24 is the default
+        raise click.UsageError("--max-age requires --jit flag")
+    
     # JIT fetch if requested (Issue #188)
     if jit:
         _ensure_conversations_via_jit(
