@@ -61,7 +61,7 @@ Fetch only what you need, when you need it:
 ```bash
 # Fetch and list today's conversations
 export OPENHANDS_API_KEY=...
-ohtv list --date 2026-07-02 --jit
+ohtv list --day 2026-07-02 --jit
 
 # Fetch and list this week's conversations
 ohtv list --week --jit
@@ -115,7 +115,7 @@ JIT mode enables targeted conversation queries without requiring a full upfront 
 
 ```bash
 # Fetch and list only today's conversations
-ohtv list --date 2026-07-02 --jit
+ohtv list --day 2026-07-02 --jit
 
 # Fetch this week's conversations (cached for future use)
 ohtv list --week --jit
