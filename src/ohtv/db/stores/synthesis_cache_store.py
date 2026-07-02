@@ -4,8 +4,9 @@ This store manages cached LLM synthesis results (titles, objectives, worklog
 summaries) with automatic invalidation based on conversation updates.
 
 Issue #191. Unlike the file-based ``analysis_cache`` which stores multiple
-analysis variants per conversation, this table stores a single "best"
-synthesis result per conversation for fast retrieval in display/reporting.
+analysis variants per conversation, this table stores synthesis results
+per conversation per model, supporting multi-model caching where different
+models can cache independently without colliding.
 """
 
 import sqlite3
@@ -55,21 +56,19 @@ class SynthesisCacheStore:
         normalized_id = conv_id.replace("-", "")
         
         cursor = self.conn.execute("""
-            SELECT synthesized_title, conversation_updated_at,
-                   synthesis_model, synthesis_version
+            SELECT synthesized_title, conversation_updated_at, synthesis_version
             FROM conversation_synthesis
-            WHERE conversation_id = ?
-        """, (normalized_id,))
+            WHERE conversation_id = ? AND synthesis_model = ?
+        """, (normalized_id, model))
         
         row = cursor.fetchone()
         if not row:
             return None
         
-        cached_title, cached_updated, cached_model, cached_version = row
+        cached_title, cached_updated, cached_version = row
         
         # Cache hit only if all validation fields match
         if (cached_updated == conv_updated_at and
-            cached_model == model and
             cached_version == version and
             cached_title is not None):
             return cached_title
@@ -103,10 +102,9 @@ class SynthesisCacheStore:
             (conversation_id, conversation_updated_at, synthesized_title,
              synthesis_model, synthesis_version, synthesized_at, tokens_used)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(conversation_id) DO UPDATE SET
+            ON CONFLICT(conversation_id, synthesis_model) DO UPDATE SET
                 conversation_updated_at = excluded.conversation_updated_at,
                 synthesized_title = excluded.synthesized_title,
-                synthesis_model = excluded.synthesis_model,
                 synthesis_version = excluded.synthesis_version,
                 synthesized_at = excluded.synthesized_at,
                 tokens_used = COALESCE(excluded.tokens_used, conversation_synthesis.tokens_used)
@@ -135,21 +133,19 @@ class SynthesisCacheStore:
         normalized_id = conv_id.replace("-", "")
         
         cursor = self.conn.execute("""
-            SELECT synthesized_objective, conversation_updated_at,
-                   synthesis_model, synthesis_version
+            SELECT synthesized_objective, conversation_updated_at, synthesis_version
             FROM conversation_synthesis
-            WHERE conversation_id = ?
-        """, (normalized_id,))
+            WHERE conversation_id = ? AND synthesis_model = ?
+        """, (normalized_id, model))
         
         row = cursor.fetchone()
         if not row:
             return None
         
-        cached_obj, cached_updated, cached_model, cached_version = row
+        cached_obj, cached_updated, cached_version = row
         
         # Cache hit only if all validation fields match
         if (cached_updated == conv_updated_at and
-            cached_model == model and
             cached_version == version and
             cached_obj is not None):
             return cached_obj
@@ -183,10 +179,9 @@ class SynthesisCacheStore:
             (conversation_id, conversation_updated_at, synthesized_objective,
              synthesis_model, synthesis_version, synthesized_at, tokens_used)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(conversation_id) DO UPDATE SET
+            ON CONFLICT(conversation_id, synthesis_model) DO UPDATE SET
                 conversation_updated_at = excluded.conversation_updated_at,
                 synthesized_objective = excluded.synthesized_objective,
-                synthesis_model = excluded.synthesis_model,
                 synthesis_version = excluded.synthesis_version,
                 synthesized_at = excluded.synthesized_at,
                 tokens_used = COALESCE(excluded.tokens_used, conversation_synthesis.tokens_used)

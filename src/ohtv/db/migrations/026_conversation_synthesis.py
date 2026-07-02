@@ -22,14 +22,15 @@ Key distinction from existing ``analysis_cache`` table:
 
 - ``analysis_cache``: Tracks multiple analysis variants (context_level,
   detail_level, assess) per conversation in file-based cache
-- ``conversation_synthesis``: Stores single "best" synthesis result
-  per conversation for fast retrieval in display/reporting
+- ``conversation_synthesis``: Stores synthesis results per conversation
+  per model for fast retrieval in display/reporting, supporting
+  multi-model caching where different models can cache independently
 
 The two systems coexist:
 
 - ``gen objs`` continues using file-based cache for analysis variants
 - ``gen objs`` also populates synthesis cache with "default" objective
-- ``gen titles`` uses only synthesis cache (no multiple variants)
+- ``gen titles`` uses only synthesis cache (supports multiple models)
 
 This migration is purely additive. Older ``ohtv`` binaries running
 against a post-026 DB will ignore the table gracefully.
@@ -43,7 +44,7 @@ def upgrade(conn: sqlite3.Connection) -> None:
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS conversation_synthesis (
-            conversation_id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
             conversation_updated_at TEXT NOT NULL,
 
             -- Cached synthesis results (NULL if not synthesized)
@@ -52,11 +53,12 @@ def upgrade(conn: sqlite3.Connection) -> None:
             worklog_purpose TEXT,
 
             -- Synthesis metadata
-            synthesis_model TEXT,
+            synthesis_model TEXT NOT NULL,
             synthesis_version TEXT NOT NULL,
             synthesized_at TEXT NOT NULL,
             tokens_used INTEGER,
 
+            PRIMARY KEY (conversation_id, synthesis_model),
             FOREIGN KEY (conversation_id)
                 REFERENCES conversations(id)
                 ON DELETE CASCADE
