@@ -1263,3 +1263,29 @@ Following "Test What's Documented" principle - code changed after test, so re-te
 - Once re-test results posted and valid, proceed to merge preparation
 
 ---
+
+### 2026-07-02 09:21 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7772fd0` | re-testing | PR #194 - Lazy fetch mode | **NEW** |
+
+**Spawned: Re-Testing Worker**
+- PR: [#194 - feat: Add just-in-time (lazy) fetch mode for targeted queries](https://github.com/jpshackelford/ohtv/pull/194)
+- Conversation: [`7772fd0`](https://app.all-hands.dev/conversations/7772fd0f871845afa1311de78ff30caf)
+- Reason: Significant code changes after last manual test (2026-07-02T06:57:28Z)
+  - 11 commits pushed after last test
+  - Source files changed: src/ohtv/cli.py, src/ohtv/jit.py
+  - Changes include fixes, features, and refactoring
+
+**Current State:**
+- PR #194: `oRFcFcFcRFcRFcAc` (history), CI green, ready, approved, 13 💬
+- Last commit: 2026-07-02T08:24:51Z (1.5h after last test)
+- No issues need expansion
+- No ready issues (all work is in PR #194)
+
+**Action Taken:**
+✅ Spawned re-testing worker for PR #194
+
+---
