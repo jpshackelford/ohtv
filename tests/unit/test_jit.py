@@ -289,6 +289,70 @@ def test_index_conversation_missing_base_state(mock_extract, mock_conn, jit_fetc
     mock_extract.assert_not_called()
 
 
+def test_index_conversation_integration(jit_fetcher, tmp_path):
+    """Integration test: index conversation with real extract_metadata call.
+    
+    This test exercises the real extract_metadata function without mocking
+    to ensure the function signature is correct and the integration works.
+    Addresses review feedback on PR #194, line 226 (test_jit.py).
+    """
+    from ohtv.db import get_connection, migrate
+    
+    conv_id = "abc123def456"
+    conv_dir = tmp_path / "cloud" / conv_id
+    conv_dir.mkdir(parents=True)
+    
+    # Create a minimal but valid conversation directory structure
+    base_state = {
+        "id": conv_id,
+        "title": "Integration Test Conversation",
+        "updated_at": "2024-01-01T12:00:00Z",
+        "created_at": "2024-01-01T10:00:00Z",
+        "selected_repository": "owner/repo",
+        "selected_branch": "main",
+    }
+    (conv_dir / "base_state.json").write_text(json.dumps(base_state))
+    
+    # Create events directory with a minimal event
+    events_dir = conv_dir / "events"
+    events_dir.mkdir()
+    event = {
+        "id": "1",
+        "source": "user",
+        "message": "Test message",
+        "timestamp": "2024-01-01T10:00:00Z"
+    }
+    (events_dir / "1.json").write_text(json.dumps(event))
+    
+    # Create in-memory DB for testing
+    db_path = tmp_path / "test.db"
+    with get_connection(db_path) as conn:
+        migrate(conn)
+        
+        # Patch get_ready_connection to use our test DB
+        with patch("ohtv.jit.get_ready_connection") as mock_get_conn:
+            mock_conn_ctx = Mock()
+            mock_conn_ctx.__enter__ = Mock(return_value=conn)
+            mock_conn_ctx.__exit__ = Mock(return_value=False)
+            mock_get_conn.return_value = mock_conn_ctx
+            
+            # Mock STAGES to avoid running actual processing
+            with patch("ohtv.db.stages.STAGES", {"refs": Mock(), "actions": Mock()}):
+                # This should NOT raise ImportError or TypeError
+                # If extract_metadata signature is wrong, this will fail
+                jit_fetcher._index_conversation(conv_id, conv_dir)
+        
+        # Verify conversation was indexed in DB
+        from ohtv.db.stores import ConversationStore
+        store = ConversationStore(conn)
+        conv = store.get(conv_id.replace("-", ""))
+        
+        assert conv is not None, "Conversation should be in DB after indexing"
+        assert conv.title == "Integration Test Conversation"
+        assert conv.selected_repository == "owner/repo"
+        assert conv.source == "cloud"
+
+
 def test_ensure_conversations_requires_ids_or_dates(jit_fetcher):
     """Test that ensure_conversations requires either conv_ids or date range."""
     with pytest.raises(ValueError, match="Must provide either conv_ids or date range"):
