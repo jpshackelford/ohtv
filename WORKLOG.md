@@ -1360,3 +1360,35 @@ Documentation update required before testing can begin. Spawned docs worker to u
 **Next Check:** ~30 minutes (next cron trigger)
 
 ---
+
+### 2026-07-02 18:19 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `7d36117` | review | PR #197 - Address review feedback on docs | **NEW** |
+
+🚀 **Spawned: Review Worker**
+- PR: [#197 - feat: add --with-outcomes and --enriched flags](https://github.com/jpshackelford/ohtv/pull/197)
+- Conversation: [`7d36117`](https://app.all-hands.dev/conversations/7d36117b3c034df4b8362d4905a548f1)
+
+**Current State:**
+- PR #197 (Issue #190): Ready, CI green ✅, docs updated ✅, manual tests complete ✅
+  - Bot review posted with improvement suggestions (add docs to docs/ directory)
+  - Spawned review worker to address feedback
+- No issues need expansion 🎉
+- No other ready issues (Issue #190 being addressed by PR #197)
+- Expansion slot: idle (nothing to expand)
+- PR slot: occupied (review worker active)
+
+**Decision Flow:**
+1. ✅ PR #197 has CI green, docs updated, manual tests complete
+2. ✅ Bot review posted (COMMENTED state) with actionable feedback
+3. ✅ Spawned review worker to address documentation suggestions
+
+**Action Taken:**
+✅ Spawned review worker to add documentation to docs/reference/cli.md and docs/guides/exploration.md per bot review feedback
+
+**Next Check:** ~30 minutes (next cron trigger)
+
+---
