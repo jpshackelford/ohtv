@@ -152,7 +152,7 @@ def test_get_cache_age_hours_missing(jit_fetcher):
 def test_check_cache_status_missing_conversation(mock_conn, jit_fetcher):
     """Test cache status when conversation is not in DB."""
     mock_store = Mock()
-    mock_store.get_by_id.return_value = None
+    mock_store.get.return_value = None
     
     mock_conn_instance = Mock()
     mock_conn_instance.__enter__ = Mock(return_value=mock_conn_instance)
@@ -175,7 +175,7 @@ def test_check_cache_status_fresh_historical(mock_conn, jit_fetcher):
     mock_conv.cloud_updated_at = datetime.now(timezone.utc) - timedelta(days=1)
     
     mock_store = Mock()
-    mock_store.get_by_id.return_value = mock_conv
+    mock_store.get.return_value = mock_conv
     
     mock_conn_instance = Mock()
     mock_conn_instance.__enter__ = Mock(return_value=mock_conn_instance)
@@ -198,7 +198,7 @@ def test_check_cache_status_stale_recent(mock_conn, jit_fetcher):
     mock_conv.cloud_updated_at = datetime.now(timezone.utc) - timedelta(hours=30)
     
     mock_store = Mock()
-    mock_store.get_by_id.return_value = mock_conv
+    mock_store.get.return_value = mock_conv
     
     mock_conn_instance = Mock()
     mock_conn_instance.__enter__ = Mock(return_value=mock_conn_instance)
@@ -243,7 +243,7 @@ def test_index_conversation(mock_extract, mock_conn, jit_fetcher, tmp_path):
     mock_store = Mock()
     mock_conv = Mock()
     mock_conv.id = conv_id.replace("-", "")
-    mock_store.get_by_id.return_value = mock_conv
+    mock_store.get.return_value = mock_conv
     
     mock_conn_instance = Mock()
     mock_conn_instance.__enter__ = Mock(return_value=mock_conn_instance)
@@ -380,7 +380,7 @@ def test_ensure_conversations_with_explicit_ids(mock_conn, jit_fetcher):
     
     # Mock cache status check
     mock_store = Mock()
-    mock_store.get_by_id.return_value = None  # All missing
+    mock_store.get.return_value = None  # All missing
     
     mock_conn_instance = Mock()
     mock_conn_instance.__enter__ = Mock(return_value=mock_conn_instance)
@@ -408,7 +408,7 @@ def test_ensure_conversations_all_cached(mock_conn, jit_fetcher):
     mock_conv.cloud_updated_at = datetime.now(timezone.utc) - timedelta(hours=1)
     
     mock_store = Mock()
-    mock_store.get_by_id.return_value = mock_conv
+    mock_store.get.return_value = mock_conv
     
     mock_conn_instance = Mock()
     mock_conn_instance.__enter__ = Mock(return_value=mock_conn_instance)
@@ -460,7 +460,7 @@ def test_fetch_conversations_parallel(mock_extract, mock_conn, jit_fetcher, mock
     mock_store = Mock()
     mock_conv = Mock()
     mock_conv.id = "test"
-    mock_store.get_by_id.return_value = mock_conv
+    mock_store.get.return_value = mock_conv
     
     mock_conn_instance = Mock()
     mock_conn_instance.__enter__ = Mock(return_value=mock_conn_instance)
