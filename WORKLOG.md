@@ -583,3 +583,49 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 - Next orchestrator run: Spawn testing worker after docs complete
 
 ---
+
+### 2026-07-02 00:24 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `6521e76` | testing | PR #192 - Extract utilities | **NEW** |
+
+**Current State:**
+- **Open PR:** #192 (Issue #187) - feat: Extract core extraction utilities
+  - Status: `oc green ready --` (opened, commented, CI green, ready, no review threads)
+  - Last updated: 27 minutes ago (23:57 UTC)
+  - README updated: ✓ (ohtv-utils/README.md in diff)
+  - Manual test results: ✗ (not yet posted)
+  - Review status: COMMENTED by github-actions (🟡 Acceptable with improvement opportunities)
+- **Issues needing expansion:** 0 (all issues expanded ✓)
+- **Ready issues:** 5 total (#187-#191)
+  - #187: Has priority:medium, in PR #192 (blocked)
+  - #188, #189, #190, #191: Need prioritization before implementation
+
+**Decision Rationale:**
+- **Expansion slot:** Free, no issues need expansion → Idle
+- **PR slot:** Per decision tree: "PR exists, ready, CI green, docs updated, **no manual test results**" → Spawn **testing worker**
+  - Docs worker (12583e1) completed at 23:57 UTC
+  - README updated (ohtv-utils/README.md in PR diff)
+  - No manual test results found in PR comments
+  - CI is green, PR is ready (not draft)
+  - Review is COMMENTED (not CHANGES_REQUESTED), 0 unresolved threads
+
+**Actions Taken:**
+✅ **Spawned testing worker** [`6521e76`](https://app.all-hands.dev/conversations/6521e76b2d78428dbb442b80717909b2)
+- Type: Manual testing
+- PR: #192 - Extract core extraction utilities
+- Task: Run blackbox tests, post structured test report
+
+**Next Steps:**
+- Testing worker will design and execute tests for the utility extraction
+- Once test report is posted, review worker can address bot feedback
+- After review: merge worker can finalize PR #192
+- Then: prioritize and implement ready issues #188-#191
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+<!-- orchestrator-status: spawned-testing -->
+
+---
