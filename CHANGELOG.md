@@ -1,6 +1,77 @@
 # CHANGELOG
 
 
+## v0.34.0 (2026-07-02)
+
+### Chores
+
+- **worklog**: Orchestrator resolved duplicate PR situation 2026-07-02T12:24:16Z
+  ([`82c17c9`](https://github.com/jpshackelford/ohtv/commit/82c17c9db5463a48542a9e43a742a8556d173d8f))
+
+- **worklog**: Orchestrator spawned re-testing worker for PR #195 [skip ci]
+  ([`6451fd7`](https://github.com/jpshackelford/ohtv/commit/6451fd797f24c0b2ead660d6879249e4c68ee5bf))
+
+- **worklog**: Orchestrator spawned review worker for PR #195 [skip ci]
+  ([`7be220e`](https://github.com/jpshackelford/ohtv/commit/7be220e705af2efbfd6b95c2d66f64ddc0e0b003))
+
+- **worklog**: Orchestrator spawned review worker round 2 for PR #195 [skip ci]
+  ([`59d4a85`](https://github.com/jpshackelford/ohtv/commit/59d4a8514fb41ff44e6aa01b8d13c2921c01a9cb))
+
+- **worklog**: Orchestrator spawned testing worker 4f82e90 for PR #195
+  ([`9a17ea7`](https://github.com/jpshackelford/ohtv/commit/9a17ea77697dedf63f8f720636a53b860b944f11))
+
+- **worklog**: Orchestrator status - duplicate PRs detected
+  ([`dc3b950`](https://github.com/jpshackelford/ohtv/commit/dc3b950b8f951c9e00c4851f2d5c01193ae5f921))
+
+- **worklog**: Spawned docs worker for PR #195 2026-07-02T12:51:31Z
+  ([`13ce11b`](https://github.com/jpshackelford/ohtv/commit/13ce11b71c41cd936825e3d36ec0dff07179a1ee))
+
+- **worklog**: Spawned merge worker for PR #195 - 2026-07-02T15:53:25Z
+  ([`083cd83`](https://github.com/jpshackelford/ohtv/commit/083cd83744b8b3eb42e0ec75e0f226bd194c4efa))
+
+- **worklog**: Spawned review worker for PR #195 2026-07-02T13:54:16Z
+  ([`9d8060e`](https://github.com/jpshackelford/ohtv/commit/9d8060e7bc7df370ecb4de15d0afc60e373f8c6a))
+
+- **worklog**: Worklog update 2026-07-02T11:22:09Z
+  ([`e18b79f`](https://github.com/jpshackelford/ohtv/commit/e18b79f03aa6419a985248aa2932e0ada83b98f6))
+
+### Features
+
+- Add 'ohtv report worklog' command (Issue #189)
+  ([#195](https://github.com/jpshackelford/ohtv/pull/195),
+  [`709d3aa`](https://github.com/jpshackelford/ohtv/commit/709d3aaae4b42f1c1eb7692259b9b23ea2613f67))
+
+feat: Add 'ohtv report worklog' command for daily/weekly worklogs
+
+Implements Issue #189. Adds `ohtv report worklog` command for generating daily and weekly worklogs
+  with LLM-synthesized summaries, PR/issue links, and engagement metrics.
+
+Core implementation (~2,150 LOC): - src/ohtv/reports/worklog.py: Main report generation logic with
+  batch LLM synthesis, database queries, and multi-format rendering -
+  src/ohtv/prompts/worklog/synthesis.md: LLM synthesis prompt template -
+  tests/unit/reports/test_worklog.py: 25 comprehensive unit tests - src/ohtv/cli.py: CLI command
+  with full date/engagement/output options - README.md: Complete documentation with examples
+
+Features: - Date filtering: --date, --week, --since, --until - Engagement filtering: --engaged,
+  --min-engaged - Three output formats: HTML (default), Markdown, Text - LLM synthesis with batch
+  processing (20 conversations per call) - HTTP server support: --serve flag for HTML output -
+  Repository filtering: --repo owner/repo
+
+Key review fixes during development: - Fixed critical database schema mismatch (conversation_refs +
+  refs JOIN) - Added cross-platform tempfile support (Windows/macOS/Linux) - Extracted date parsing
+  logic to helper function for maintainability - Added proper HTTP server resource cleanup -
+  Replaced brittle HTML stripping with robust regex - Optimized redundant Config.from_env() calls
+
+Testing: - 2760/2760 tests pass (25 new worklog-specific tests) - Two rounds of manual testing
+  verified all features - Lint-clean (ruff check) - >80% test coverage on new code
+
+Follows existing patterns: - Database-first queries (conversations + engagement + refs) - Batch LLM
+  synthesis similar to gen titles (#89) - Report structure consistent with velocity (#81) and
+  weekly-counts (#92)
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+
 ## v0.33.0 (2026-07-02)
 
 ### Chores
