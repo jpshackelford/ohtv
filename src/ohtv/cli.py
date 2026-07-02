@@ -13735,5 +13735,305 @@ def report_weekly_counts(
         _emit(report_data.rows, sys.stdout)
 
 
+@report.command("worklog")
+@click.option(
+    "--date",
+    "-D",
+    help="Specific date (YYYY-MM-DD) or offset (-1 for yesterday)",
+)
+@click.option(
+    "--week",
+    "-W",
+    is_flag=True,
+    help="This week (Monday to today)",
+)
+@click.option(
+    "--since",
+    "since_str",
+    help="Start date (YYYY-MM-DD or relative like 7d, 2w, 1m)",
+)
+@click.option(
+    "--until",
+    "until_str",
+    help="End date (YYYY-MM-DD or relative)",
+)
+@click.option(
+    "--engaged",
+    is_flag=True,
+    help="Only conversations with engagement > 0",
+)
+@click.option(
+    "--min-engaged",
+    help="Minimum engaged time (e.g., 5m, 1h)",
+)
+@click.option(
+    "--repo",
+    "selected_repository",
+    help="Filter by repository (e.g., owner/repo)",
+)
+@click.option(
+    "--format",
+    "-F",
+    type=click.Choice(["html", "markdown", "text"]),
+    default="html",
+    show_default=True,
+    help="Output format",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Output file (default: /tmp/worklog.{ext})",
+)
+@click.option(
+    "--stdout",
+    is_flag=True,
+    help="Print to stdout instead of file",
+)
+@click.option(
+    "--synthesis-model",
+    default="gpt-4o-mini",
+    show_default=True,
+    help="LLM model for synthesis",
+)
+@click.option(
+    "--no-synthesis",
+    is_flag=True,
+    help="Skip LLM synthesis (use titles as-is)",
+)
+@click.option(
+    "--serve",
+    is_flag=True,
+    help="Start HTTP server after generating HTML (port 8000)",
+)
+@logging_options
+def report_worklog(
+    date: str | None,
+    week: bool,
+    since_str: str | None,
+    until_str: str | None,
+    engaged: bool,
+    min_engaged: str | None,
+    selected_repository: str | None,
+    format: str,
+    output: str | None,
+    stdout: bool,
+    synthesis_model: str,
+    no_synthesis: bool,
+    serve: bool,
+) -> None:
+    """Generate daily/weekly worklog with LLM synthesis.
+    
+    Creates a worklog showing what was accomplished during a time period,
+    with LLM-synthesized summaries, PR/issue links, and engagement metrics.
+    
+    Default behavior: Today's worklog as HTML.
+    
+    \b
+    Examples:
+      # Today's worklog
+      ohtv report worklog
+      
+      # Yesterday
+      ohtv report worklog --date -1
+      
+      # Specific date
+      ohtv report worklog --date 2026-07-01
+      
+      # This week
+      ohtv report worklog --week
+      
+      # Last 7 days
+      ohtv report worklog --since 7d
+      
+      # With engagement filtering
+      ohtv report worklog --engaged --min-engaged 5m
+      
+      # Markdown output
+      ohtv report worklog --format markdown -o worklog.md
+      
+      # Text to stdout (for Slack/chat)
+      ohtv report worklog --format text --stdout
+      
+      # Generate and serve HTML
+      ohtv report worklog --serve
+    """
+    from datetime import date as date_cls
+    from datetime import datetime, timedelta
+    import sys
+    import http.server
+    import os
+    from pathlib import Path as PathLib
+    
+    from ohtv.db import ensure_db_ready, get_connection, get_db_path
+    from ohtv.filters import parse_date_filter
+    from ohtv.reports.worklog import (
+        generate_worklog,
+        render_html,
+        render_markdown,
+        render_text,
+    )
+    
+    # Parse date range
+    if date and (week or since_str or until_str):
+        console.print(
+            "[red]Error:[/red] --date cannot be combined with --week, --since, or --until"
+        )
+        raise SystemExit(2)
+    
+    if date:
+        # Specific date or offset
+        if date.startswith("-"):
+            try:
+                offset = int(date)
+                target_date = date_cls.today() + timedelta(days=offset)
+            except ValueError:
+                console.print(f"[red]Error:[/red] Invalid date offset: {date}")
+                raise SystemExit(2)
+        else:
+            try:
+                target_date = datetime.strptime(date, "%Y-%m-%d").date()
+            except ValueError:
+                console.print(f"[red]Error:[/red] Invalid date format: {date}. Use YYYY-MM-DD")
+                raise SystemExit(2)
+        since_date = target_date
+        until_date = target_date
+    elif week:
+        # This week (Monday to today)
+        today = date_cls.today()
+        since_date = today - timedelta(days=today.weekday())
+        until_date = today
+    elif since_str or until_str:
+        # Custom range
+        since_date = None
+        if since_str:
+            since_dt = parse_date_filter(since_str)
+            if since_dt is None:
+                console.print(
+                    f"[red]Error:[/red] could not parse --since {since_str!r}. "
+                    "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
+                )
+                raise SystemExit(2)
+            since_date = since_dt.date()
+        
+        until_date = None
+        if until_str:
+            until_dt = parse_date_filter(until_str)
+            if until_dt is None:
+                console.print(
+                    f"[red]Error:[/red] could not parse --until {until_str!r}. "
+                    "Use YYYY-MM-DD or relative (e.g., 7d, 2w, 1m)."
+                )
+                raise SystemExit(2)
+            until_date = until_dt.date()
+        
+        # Default to today for missing bounds
+        if since_date is None:
+            since_date = date_cls.today()
+        if until_date is None:
+            until_date = date_cls.today()
+    else:
+        # Default: today
+        today = date_cls.today()
+        since_date = today
+        until_date = today
+    
+    # Parse min_engaged
+    min_engaged_seconds = 0
+    if min_engaged:
+        min_engaged = min_engaged.strip().lower()
+        if min_engaged.endswith("m"):
+            try:
+                min_engaged_seconds = int(min_engaged[:-1]) * 60
+            except ValueError:
+                console.print(f"[red]Error:[/red] Invalid --min-engaged: {min_engaged}")
+                raise SystemExit(2)
+        elif min_engaged.endswith("h"):
+            try:
+                min_engaged_seconds = int(min_engaged[:-1]) * 3600
+            except ValueError:
+                console.print(f"[red]Error:[/red] Invalid --min-engaged: {min_engaged}")
+                raise SystemExit(2)
+        else:
+            console.print(
+                f"[red]Error:[/red] --min-engaged must end with 'm' (minutes) or 'h' (hours): {min_engaged}"
+            )
+            raise SystemExit(2)
+    
+    # Check database exists
+    db_path = get_db_path()
+    if not db_path.exists():
+        console.print(
+            "[red]Error:[/red] Database not initialized. Run [bold]ohtv db scan[/bold] first."
+        )
+        raise SystemExit(2)
+    
+    # Generate worklog
+    with get_connection(db_path) as conn:
+        ensure_db_ready(conn, show_progress=False)
+        
+        with console.status(f"[bold]Generating worklog for {since_date} to {until_date}..."):
+            report = generate_worklog(
+                conn=conn,
+                since=since_date,
+                until=until_date,
+                engaged_only=engaged,
+                min_engaged_seconds=min_engaged_seconds,
+                selected_repository=selected_repository,
+                synthesis_model=synthesis_model if not no_synthesis else None,
+                enable_synthesis=not no_synthesis,
+            )
+    
+    if report.total_count == 0:
+        console.print("[yellow]No conversations found for the specified date range.[/yellow]")
+        if engaged or min_engaged:
+            console.print("[dim]Try without --engaged or --min-engaged to see all conversations.[/dim]")
+        return
+    
+    console.print(
+        f"[green]✓[/green] Generated worklog: {report.total_count} conversations "
+        f"({report.engaged_count} with meaningful engagement)"
+    )
+    if report.synthesis_cost > 0:
+        console.print(f"[dim]Synthesis cost: ${report.synthesis_cost:.4f}[/dim]")
+    
+    # Render output
+    if format == "html":
+        output_str = render_html(report)
+        ext = "html"
+    elif format == "markdown":
+        output_str = render_markdown(report)
+        ext = "md"
+    else:
+        output_str = render_text(report)
+        ext = "txt"
+    
+    # Output
+    if stdout:
+        console.print(output_str)
+    else:
+        output_path = output or f"/tmp/worklog.{ext}"
+        PathLib(output_path).write_text(output_str, encoding="utf-8")
+        console.print(f"[green]✓[/green] Wrote worklog to: {output_path}")
+        
+        if serve and format == "html":
+            # Start HTTP server
+            serve_dir = PathLib(output_path).parent
+            serve_file = PathLib(output_path).name
+            os.chdir(serve_dir)
+            
+            console.print(f"[bold blue]🌐 Serving at http://localhost:8000/{serve_file}[/bold blue]")
+            console.print("[dim]Press Ctrl+C to stop server[/dim]")
+            
+            server = http.server.HTTPServer(
+                ("", 8000),
+                http.server.SimpleHTTPRequestHandler,
+            )
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                console.print("\n[dim]Server stopped[/dim]")
+
+
 if __name__ == "__main__":
     main()
