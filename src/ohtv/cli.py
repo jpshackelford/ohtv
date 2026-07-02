@@ -2612,6 +2612,15 @@ def _ensure_conversations_via_jit(
     
     log.info("JIT: Starting on-demand fetch")
     
+    # Ensure timezone-aware datetimes (Issue #188 review feedback)
+    # CLI date parsing creates naive datetimes, but JIT compares with
+    # timezone-aware datetimes from cloud API
+    from datetime import timezone as tz
+    if since and since.tzinfo is None:
+        since = since.replace(tzinfo=tz.utc)
+    if until and until.tzinfo is None:
+        until = until.replace(tzinfo=tz.utc)
+    
     with CloudClient(config.cloud_api_url, config.api_key) as cloud:
         fetcher = JITFetcher(config, cloud)
         
