@@ -14066,6 +14066,9 @@ def report_worklog(
                 server.serve_forever()
             except KeyboardInterrupt:
                 console.print("\n[dim]Server stopped[/dim]")
+            finally:
+                server.shutdown()
+                server.server_close()
 
 
 if __name__ == "__main__":
