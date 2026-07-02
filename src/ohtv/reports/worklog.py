@@ -224,18 +224,20 @@ def query_refs_for_conversation(
 def extract_worklog_context(
     conversation_id: str,
     conn: sqlite3.Connection,
+    config: Config | None = None,
 ) -> dict:
     """Extract context needed for worklog synthesis.
     
     Args:
         conversation_id: Conversation ID (dashless)
         conn: Database connection
+        config: Config instance (created once if None)
         
     Returns:
         Dict with 'user_messages', 'agent_messages', 'finish_message', 'refs'
     """
     # Find conversation directory
-    conv_dir = _find_conversation_dir(conversation_id)
+    conv_dir = _find_conversation_dir(conversation_id, config=config)
     if not conv_dir:
         log.warning(f"Conversation directory not found: {conversation_id}")
         return {
@@ -287,11 +289,15 @@ def extract_worklog_context(
     }
 
 
-def _find_conversation_dir(conversation_id: str) -> Path | None:
+def _find_conversation_dir(
+    conversation_id: str,
+    config: Config | None = None,
+) -> Path | None:
     """Find conversation directory in local/cloud sources.
     
     Args:
         conversation_id: Conversation ID (with or without dashes)
+        config: Config instance (created once if None)
         
     Returns:
         Path to conversation directory, or None if not found
@@ -300,7 +306,8 @@ def _find_conversation_dir(conversation_id: str) -> Path | None:
     normalized_id = conversation_id.replace("-", "")
     
     # Load config to get conversation directories
-    config = Config.from_env()
+    if config is None:
+        config = Config.from_env()
     
     # Try local conversations first
     local_dir = config.local_conversations_dir / normalized_id
@@ -608,11 +615,14 @@ def generate_worklog(
     
     log.info(f"Found {len(conversations)} conversations")
     
+    # Create config once for efficiency (reused across all conversations)
+    config = Config.from_env()
+    
     # Extract context for each conversation
     contexts = {}
     for conv in conversations:
         conv_id = conv["id"]
-        contexts[conv_id] = extract_worklog_context(conv_id, conn)
+        contexts[conv_id] = extract_worklog_context(conv_id, conn, config=config)
     
     # Create entries
     entries = []
