@@ -767,3 +767,45 @@ Assessed 4 ready issues. Priorities assigned:
 Automated review bot found fundamental schema contradiction in PR #193. Spawning review worker to address this before docs/testing to avoid documenting/testing behavior that will change. Once schema issue is resolved, next cycle will handle docs update and manual testing.
 
 ---
+
+### 2026-07-02 02:20 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `803c62d0` | docs | PR #193 - Cache LLM synthesis | **NEW** |
+
+**Spawned: Docs Worker**
+- PR: [#193 - Cache LLM synthesis results](https://github.com/jpshackelford/ohtv/pull/193)
+- Conversation: [`803c62d0`](https://app.all-hands.dev/conversations/803c62d08a9b42d7b72d99f94140b596)
+
+**Current State:**
+- PR #193: ready, CI green (SUCCESS), review is 🟡 Acceptable
+  - All code issues resolved by previous review worker (f1a8d0f)
+  - Remaining: PR description has incorrect "Cache Behavior Note", README needs --force flag docs
+  - No manual test results yet
+- Issues needing expansion: 0 (all expanded ✓)
+- Ready issues: 4 (#191 priority:high, #188 priority:high, #190 priority:medium, #189 priority:medium)
+  - #191 is the issue for PR #193
+
+**Decision Rationale:**
+- **Expansion slot:** Free, no issues need expansion → Idle
+- **PR slot:** Per decision tree: "PR exists, ready, CI green, **README not updated**" → Spawn **docs worker**
+  - PR #193 adds --force flag to gen titles (new CLI flag)
+  - PR #193 adds cache statistics to output (changed output format)
+  - Per workflow guidelines: new flags and changed output formats require README update
+  - No README.md in PR diff, no docs update comment
+  - Latest review (02:03 UTC) says code is solid, tests pass, only docs issue remains
+  - **Test What's Documented principle:** Docs must be updated BEFORE manual testing
+
+**Next Steps:**
+- Docs worker will fix PR description and update README
+- After docs: spawn testing worker for manual tests
+- After testing: if review satisfied → merge worker
+- Then: implement next ready issue
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+<!-- orchestrator-status: spawned-docs -->
+
+---
