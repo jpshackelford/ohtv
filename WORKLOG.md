@@ -1116,3 +1116,25 @@ _This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshac
 PR #194 introduces new CLI flags (--jit, --refresh, --max-age) that require README documentation. Following "Test What's Documented" principle - docs must be updated BEFORE testing.
 
 ---
+
+---
+
+### 2026-07-02 06:50 UTC - Orchestrator
+
+**Active Workers:**
+| Conv ID | Type | Working On | Status |
+|---------|------|------------|--------|
+| `e3538ae` | testing | PR #194 - Add JIT fetch mode | **NEW** |
+
+**Spawned: Testing Worker**
+- PR: [#194 - Add just-in-time (lazy) fetch mode for targeted queries](https://github.com/jpshackelford/ohtv/pull/194)
+- Conversation: [`e3538ae`](https://app.all-hands.dev/conversations/e3538ae6fb37497ea2ec4dce1c3e7894)
+
+**Current State:**
+- PR #194: `oRFc green ready` 💬6 - Docs updated ✓, awaiting manual test
+- Docs worker `b6a8375` finished at 06:45 UTC (docs updated, README has new CLI flags)
+- No issues need expansion (expansion slot idle)
+- Ready issues: #189 (priority:medium), #190 (priority:medium) - Awaiting PR #194 completion
+
+**Decision Reasoning:**
+PR #194 has docs updated and CI green. Following "Test What's Documented" principle - manual testing is next gate before review can proceed. The 6 review comments will be addressed after test results are posted.
