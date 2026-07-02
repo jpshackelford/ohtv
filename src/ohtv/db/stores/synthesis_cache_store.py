@@ -4,8 +4,18 @@ This store manages cached LLM synthesis results (titles, objectives, worklog
 summaries) with automatic invalidation based on conversation updates.
 
 Issue #191. Unlike the file-based ``analysis_cache`` which stores multiple
-analysis variants per conversation, this table stores a single "best"
+analysis variants per conversation, this table stores a single "most recent"
 synthesis result per conversation for fast retrieval in display/reporting.
+
+**Model-switching behavior:**
+When you generate a synthesis with a different model than what's cached:
+1. get_cached_*() returns None (cache miss due to model mismatch)
+2. LLM generates new synthesis with the requested model
+3. upsert_*() **overwrites** the previous cache entry
+
+This "most recent synthesis" design avoids cache proliferation when users
+experiment with different models. The cache tracks what was most recently
+generated, not all possible model variations.
 """
 
 import sqlite3

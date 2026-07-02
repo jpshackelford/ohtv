@@ -11,18 +11,25 @@ The new ``conversation_synthesis`` table stores:
 2. Validation fields for cache invalidation (updated_at, version, model)
 3. Metadata for cost tracking (tokens_used, synthesized_at)
 
+Cache behavior (most-recent synthesis per conversation):
+
+The table stores **one** synthesis result per conversation (most recent).
+When you generate a title/objective with a different model, the previous
+result is **overwritten**. This is intentional - the cache tracks "what was
+most recently synthesized" rather than maintaining separate results per model.
+
 Cache invalidation conditions:
 
 - Conversation updated (``conversation_updated_at`` changed)
 - Synthesis schema version changed (prompt updated)
-- Different model requested
+- Different model requested (triggers cache miss, then overwrites on store)
 - User forces refresh with ``--force`` flag
 
 Key distinction from existing ``analysis_cache`` table:
 
 - ``analysis_cache``: Tracks multiple analysis variants (context_level,
   detail_level, assess) per conversation in file-based cache
-- ``conversation_synthesis``: Stores single "best" synthesis result
+- ``conversation_synthesis``: Stores single "most recent" synthesis result
   per conversation for fast retrieval in display/reporting
 
 The two systems coexist:
@@ -69,7 +76,7 @@ def upgrade(conn: sqlite3.Connection) -> None:
         ON conversation_synthesis(conversation_updated_at)
     """)
 
-    # Index on model for multi-model caching queries
+    # Index on model for filtering by which model was most recently used
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_synthesis_model
         ON conversation_synthesis(synthesis_model)
