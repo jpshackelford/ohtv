@@ -19,15 +19,18 @@ from ohtv.db.migrations import migrate
 from ohtv.db.models import Conversation
 from ohtv.db.stages.engagement import (
     COMPUTE_ENGAGEMENT_VERSION,
-    DEFAULT_SUSTAINED_ATTENTION_SECONDS,
-    DEFAULT_THRESHOLD_SECONDS,
     STAGE_NAME,
-    EngagementMetrics,
-    _parse_timestamp,
-    compute_engagement,
     process_engagement,
 )
 from ohtv.db.stores import ConversationStore, StageStore
+# Import utilities from ohtv-utils
+from ohtv_utils.metrics.engagement import (
+    DEFAULT_SUSTAINED_ATTENTION_SECONDS,
+    DEFAULT_THRESHOLD_SECONDS,
+    EngagementMetrics,
+    _parse_timestamp,
+    compute_engagement,
+)
 
 
 # ---------------------------------------------------------------------------

@@ -21,99 +21,18 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from ohtv.db.models import Conversation
 from ohtv.db.stores import StageStore
 
+# Import utilities from ohtv-utils
+from ohtv_utils.metrics.human_input import HumanInputMetrics, count_human_input
+
 log = logging.getLogger("ohtv")
 
 STAGE_NAME = "human_input"
-
-
-@dataclass
-class HumanInputMetrics:
-    """Word and message counts for human input in a conversation."""
-
-    initial_prompt_words: int
-    followup_word_count: int
-    followup_message_count: int
-
-
-def count_human_input(events: list[dict]) -> HumanInputMetrics:
-    """Count human input, separating initial prompt from follow-ups.
-
-    The first ``MessageEvent`` with ``source == "user"`` is treated as the
-    initial prompt. All subsequent ones are follow-ups.
-
-    Word counts use whitespace splitting (``str.split()``) for simple,
-    reproducible counts. Non-text content items are ignored.
-
-    Malformed events (missing/wrong-typed fields) are tolerated and
-    contribute zero words.
-
-    Args:
-        events: Ordered list of conversation events.
-
-    Returns:
-        HumanInputMetrics with separate counts for initial prompt and
-        follow-up messages.
-    """
-    initial_prompt_words = 0
-    followup_word_count = 0
-    followup_message_count = 0
-    found_initial = False
-
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        if event.get("kind") != "MessageEvent":
-            continue
-        if event.get("source") != "user":
-            continue
-
-        words = _count_words_in_message(event)
-
-        if not found_initial:
-            initial_prompt_words = words
-            found_initial = True
-        else:
-            followup_word_count += words
-            followup_message_count += 1
-
-    return HumanInputMetrics(
-        initial_prompt_words=initial_prompt_words,
-        followup_word_count=followup_word_count,
-        followup_message_count=followup_message_count,
-    )
-
-
-def _count_words_in_message(event: dict) -> int:
-    """Extract text from a MessageEvent and return word count.
-
-    Text is read from ``llm_message.content[].text`` where ``type`` is
-    ``"text"``. Multiple text items in the same message are summed.
-    """
-    llm_message = event.get("llm_message")
-    if not isinstance(llm_message, dict):
-        return 0
-
-    content_list = llm_message.get("content")
-    if not isinstance(content_list, list):
-        return 0
-
-    words = 0
-    for item in content_list:
-        if not isinstance(item, dict):
-            continue
-        if item.get("type") != "text":
-            continue
-        text = item.get("text")
-        if isinstance(text, str):
-            words += len(text.split())
-    return words
 
 
 def process_human_input(conn: sqlite3.Connection, conversation: Conversation) -> None:

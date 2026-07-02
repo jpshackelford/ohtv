@@ -104,45 +104,23 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from ohtv.db.models import Conversation
 from ohtv.db.stores import StageStore
 
+# Import utilities from ohtv-utils
+from ohtv_utils.metrics.engagement import (
+    DEFAULT_SUSTAINED_ATTENTION_SECONDS,
+    DEFAULT_THRESHOLD_SECONDS,
+    EngagementMetrics,
+    compute_engagement,
+)
+
 log = logging.getLogger("ohtv")
 
 STAGE_NAME = "engagement"
-
-# Default silence-tolerance threshold (``T``). "How long is a human
-# silent during a period of agent inactivity and still engaged, not
-# absent." Empirically grounded; see Issue #163 + the sweep script.
-DEFAULT_THRESHOLD_SECONDS = 12 * 60
-
-# Default sustained-attention window (``T_a``). "How long can a human
-# plausibly stay continuously engaged in one block before we should
-# assume they walked away from the keyboard." Semantically DISTINCT
-# from ``DEFAULT_THRESHOLD_SECONDS``.
-#
-# *** This value is PROVISIONAL pending empirical analysis. ***
-#
-# Rationale for 1 hour as the initial default:
-#   * Several multiples of ``T`` (12 min), so the constant cannot
-#     collapse onto T's meaning by coincidence.
-#   * The "normal" reference rows in Issue #184 cluster in the
-#     30–60 min engaged range; 60 min retains them while clipping
-#     the 14–20 hour outliers that motivated the bug report.
-#   * Configurable (CLI flag + per-call kwarg), so the empirical
-#     value can be plumbed in once it lands without touching code.
-#
-# The proposed empirical analysis (Issue #184 comment thread): bucket
-# the gap between consecutive user messages by length of intervening
-# agent activity, observe where the "still present" signal (gap to
-# immediately-preceding event ≤ T at the follow-up) begins to fall
-# off. That analysis lives in a separate workspace with a larger
-# conversation corpus.
-DEFAULT_SUSTAINED_ATTENTION_SECONDS = 60 * 60
 
 # Algorithm version stored alongside the metric. Bumped whenever
 # ``compute_engagement`` changes in a way that produces materially
@@ -154,195 +132,6 @@ DEFAULT_SUSTAINED_ATTENTION_SECONDS = 60 * 60
 #        attended blocks extended unconditionally back to ``Uᵢ₋₁``.
 #   v2 — Added the sustained-attention cap ``T_a`` (Issue #184).
 COMPUTE_ENGAGEMENT_VERSION = 2
-
-
-@dataclass(frozen=True)
-class EngagementMetrics:
-    """The engagement numbers for one conversation under one threshold pair.
-
-    ``first_event_ts`` and ``last_event_ts`` are normalized on the
-    first/last event JSON timestamps — NOT on
-    ``base_state.updated_at - created_at`` — so the three numbers
-    (engaged / periods / total) are self-consistent.
-    """
-
-    engaged_seconds: int
-    attention_periods: int
-    follow_up_user_message_count: int
-    attended_user_message_count: int
-    first_event_ts: datetime | None = None
-    last_event_ts: datetime | None = None
-
-    @property
-    def total_duration_seconds(self) -> int | None:
-        """``last_event_ts − first_event_ts`` in whole seconds, or None."""
-        if self.first_event_ts is None or self.last_event_ts is None:
-            return None
-        return int(
-            (self.last_event_ts - self.first_event_ts).total_seconds()
-        )
-
-
-def compute_engagement(
-    events: list[dict],
-    *,
-    threshold_seconds: int = DEFAULT_THRESHOLD_SECONDS,
-    sustained_attention_seconds: int = DEFAULT_SUSTAINED_ATTENTION_SECONDS,
-) -> EngagementMetrics:
-    """Compute engagement metrics for one conversation's events.
-
-    Args:
-        events: Ordered list of event dicts (as loaded from
-            ``events/event-*.json``). Events must be in chronological
-            order; the on-disk file naming guarantees this.
-        threshold_seconds: ``T`` — silence-tolerance threshold, in
-            seconds. Default :data:`DEFAULT_THRESHOLD_SECONDS` (12 min).
-            Pass ``0`` to mark every gap unattended; pass a very large
-            number to merge the whole conversation into one period
-            *for the silence gate*.
-        sustained_attention_seconds: ``T_a`` — sustained-attention
-            window, in seconds. Default
-            :data:`DEFAULT_SUSTAINED_ATTENTION_SECONDS` (1 h). Caps
-            how far an attended block may extend back from ``Uᵢ`` to
-            ``Uᵢ₋₁``. Pass ``0`` to disable block extension entirely
-            (every attended follow-up records a zero-duration touch);
-            pass a very large number to disable the cap (recovers the
-            v1 behavior). Negative values are clamped to ``0``.
-
-    Returns:
-        :class:`EngagementMetrics` for the conversation. Malformed
-        events (missing/wrong-typed timestamp or kind/source fields)
-        are tolerated and silently skipped — the metric degrades
-        gracefully rather than crashing the pipeline.
-    """
-    # Pre-extract (timestamp, is_user_message) for every parseable event.
-    # We keep the same index space as `events` so the gap-test uses
-    # event[u_i - 1] correctly.
-    parsed: list[tuple[datetime | None, bool]] = []
-    for event in events:
-        if not isinstance(event, dict):
-            parsed.append((None, False))
-            continue
-        ts = _parse_timestamp(event.get("timestamp"))
-        is_user = (
-            event.get("kind") == "MessageEvent"
-            and event.get("source") == "user"
-        )
-        parsed.append((ts, is_user))
-
-    # First and last *parseable* event timestamps anchor the conversation
-    # duration. The pre-existing display code uses base_state.updated_at
-    # - created_at which can drift; we deliberately re-derive here.
-    parsed_ts = [ts for ts, _ in parsed if ts is not None]
-    first_event_ts = parsed_ts[0] if parsed_ts else None
-    last_event_ts = parsed_ts[-1] if parsed_ts else None
-
-    user_idx = [i for i, (ts, is_user) in enumerate(parsed) if is_user and ts is not None]
-    follow_up_count = max(0, len(user_idx) - 1)
-
-    if len(user_idx) < 2:
-        # Fire-and-forget (or empty): no follow-up means no engagement.
-        return EngagementMetrics(
-            engaged_seconds=0,
-            attention_periods=0,
-            follow_up_user_message_count=follow_up_count,
-            attended_user_message_count=0,
-            first_event_ts=first_event_ts,
-            last_event_ts=last_event_ts,
-        )
-
-    threshold = max(0, int(threshold_seconds))
-    attention_window = max(0, int(sustained_attention_seconds))
-
-    # Walk backward over follow-up user messages (skip U₀). For each Uᵢ
-    # whose gap to the immediately preceding parseable event is ≤ T
-    # (silence-tolerance gate), record an attended block. The block is
-    # `[Uᵢ₋₁, Uᵢ]` when the user-to-user gap is within the sustained-
-    # attention window T_a; otherwise it is a zero-duration touch at
-    # `Uᵢ` (the user returned, but they cannot have been reading along
-    # for the whole gap).
-    attended: list[tuple[datetime, datetime]] = []
-    for k in range(len(user_idx) - 1, 0, -1):
-        u_i = user_idx[k]
-        u_ts = parsed[u_i][0]
-        assert u_ts is not None  # user_idx filter guarantees this
-
-        # Walk left from u_i to find the most recent parseable
-        # timestamp. We tolerate gaps caused by malformed events
-        # rather than letting one bad file shift the gap measurement.
-        p_ts: datetime | None = None
-        for j in range(u_i - 1, -1, -1):
-            cand = parsed[j][0]
-            if cand is not None:
-                p_ts = cand
-                break
-
-        if p_ts is None:
-            # Uᵢ is the first parseable event — no preceding event to
-            # gate the gap. Treat as unattended (matches the pseudocode
-            # which requires a preceding event Pᵢ).
-            continue
-
-        gap_seconds = (u_ts - p_ts).total_seconds()
-        if gap_seconds > threshold:
-            # Silence-tolerance gate failed → not attended.
-            continue
-
-        # Sustained-attention cap (Issue #184). Look at the user-to-
-        # user gap to decide whether the block extends back or
-        # collapses to a touch.
-        prev_user_idx = user_idx[k - 1]
-        prev_user_ts = parsed[prev_user_idx][0]
-        assert prev_user_ts is not None
-        user_gap_seconds = (u_ts - prev_user_ts).total_seconds()
-
-        if user_gap_seconds > attention_window:
-            # The user was silent longer than one continuous
-            # attention session can plausibly cover. Credit the
-            # touch only — they came back, but they were not
-            # reading along the whole time.
-            attended.append((u_ts, u_ts))
-        else:
-            # Normal back-and-forth: extend the block back to the
-            # previous user message ("reading along" credit).
-            attended.append((prev_user_ts, u_ts))
-
-    if not attended:
-        return EngagementMetrics(
-            engaged_seconds=0,
-            attention_periods=0,
-            follow_up_user_message_count=follow_up_count,
-            attended_user_message_count=0,
-            first_event_ts=first_event_ts,
-            last_event_ts=last_event_ts,
-        )
-
-    # Merge adjacent attended blocks whose seam gap ≤ T. `attended` was
-    # built walking backward; sort ascending for the merge.
-    attended.sort()
-    periods: list[tuple[datetime, datetime]] = [attended[0]]
-    for start, end in attended[1:]:
-        prev_start, prev_end = periods[-1]
-        seam = (start - prev_end).total_seconds()
-        if seam <= threshold:
-            # Overlap or within-threshold join → extend.
-            new_end = max(prev_end, end)
-            periods[-1] = (prev_start, new_end)
-        else:
-            periods.append((start, end))
-
-    engaged_seconds = sum(
-        int((end - start).total_seconds()) for start, end in periods
-    )
-
-    return EngagementMetrics(
-        engaged_seconds=engaged_seconds,
-        attention_periods=len(periods),
-        follow_up_user_message_count=follow_up_count,
-        attended_user_message_count=len(attended),
-        first_event_ts=first_event_ts,
-        last_event_ts=last_event_ts,
-    )
 
 
 def process_engagement(
@@ -449,27 +238,6 @@ def process_engagement(
         metrics.follow_up_user_message_count,
         metrics.attended_user_message_count,
     )
-
-
-def _parse_timestamp(value: object) -> datetime | None:
-    """Parse an ISO-8601 timestamp from an event JSON field.
-
-    Returns ``None`` for missing / wrong-typed / unparseable values.
-    Naive datetimes are assumed UTC (matches the rest of the codebase
-    per AGENTS.md item #5 — cloud event timestamps are UTC).
-    """
-    if not isinstance(value, str):
-        return None
-    raw = value.rstrip("Z")
-    if "+" in raw:
-        raw = raw.split("+")[0]
-    try:
-        dt = datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
 
 
 def _load_events(events_dir: Path) -> list[dict]:
