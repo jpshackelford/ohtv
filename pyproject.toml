@@ -1,7 +1,6 @@
 [project]
 name = "ohtv"
-# x-release-please-version
-version = "0.30.1"
+version = "0.31.0"
 description = "OpenHands Trajectory Viewer - CLI tool for viewing and syncing conversation histories"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,9 +16,6 @@ dependencies = [
     "rich>=13.0",
     "tomli_w>=1.0",
 ]
-
-[tool.uv.sources]
-ohtv-utils = { path = "ohtv-utils", editable = true }
 
 [project.optional-dependencies]
 charts = ["matplotlib>=3.8"]
@@ -48,17 +44,20 @@ ohtv = "ohtv.cli:main"
 
 
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+
+[tool.uv.sources]
+ohtv-utils = { path = "ohtv-utils", editable = true }
+
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ohtv"]
 
 
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "tests"]
+
 
 
 [tool.semantic_release]
@@ -117,6 +116,11 @@ prerelease = false
 
 
 
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [

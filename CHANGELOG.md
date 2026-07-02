@@ -1,6 +1,229 @@
 # CHANGELOG
 
 
+## v0.31.0 (2026-07-02)
+
+### Chores
+
+- **worklog**: 2026-06-06t18:52z - spawn merge worker, detect parallel-orchestrator race (PR #185
+  already merged)
+  ([`9c030d7`](https://github.com/jpshackelford/ohtv/commit/9c030d7a0e950bc9de4302ae10b0cc733e7adb32))
+
+- **worklog**: Merge PR #185
+  ([`b37ec66`](https://github.com/jpshackelford/ohtv/commit/b37ec66193a53543c6270ec10b0f20b8808139a0))
+
+Race-lost no-op entry: PR #185 was already merged at 18:51:17Z by a parallel worker when this merge
+  worker started. Logged the handoff state (merge commit 697008c, Issue #184 auto-closed, release
+  workflow running) per the task's explicit fallback contract.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Merge worker completed PR #185 — engagement v2 cap merged at 697008c8
+  ([`34a7416`](https://github.com/jpshackelford/ohtv/commit/34a7416dafa6906f89324899437aba9f49956bd0))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator auto-disabled 2026-06-06T19:46Z
+  ([`8fe2e26`](https://github.com/jpshackelford/ohtv/commit/8fe2e26bdec93ef615eba1c095320aec0c251e82))
+
+Two consecutive quiet entries detected (19:23Z, 19:48Z); orchestrator automation c202ca20 PATCHed to
+  enabled=false per skill rule.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator disabled live ed08056a automation 2026-06-06T20:18Z
+  ([`ca2901e`](https://github.com/jpshackelford/ohtv/commit/ca2901eb047f769c0c0a2f19a95b2d2239cda24f))
+
+Previous 19:46Z run patched the archived c202ca20 ID (no-op). This entry corrects that by disabling
+  the live OHTV Workflow Orchestrator (ed08056a-b8d8-41ac-adb3-1d8d105e0cef), which was still
+  firing.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator quiet 2026-06-06T19:23:30Z
+  ([`6bb0d53`](https://github.com/jpshackelford/ohtv/commit/6bb0d5382644c43622b6cbf05f5a03c0f1f2ad71))
+
+All quiet: PR #185 merged, 0.30.1 released, only hold issues remain.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator quiet 2026-06-06T19:48Z
+  ([`c860e20`](https://github.com/jpshackelford/ohtv/commit/c860e20029be10f68cfeb70aed479eb4cee49db3))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator quiet 2026-06-06T20:30Z
+  ([`817d09c`](https://github.com/jpshackelford/ohtv/commit/817d09c7a77c3129f5eb13c304a8098d4426e8d6))
+
+- **worklog**: Orchestrator quiet 2026-06-06T20:46Z
+  ([`0e0ebd8`](https://github.com/jpshackelford/ohtv/commit/0e0ebd8a7ba82c86cb6c8f6149558c887c654af4))
+
+- **worklog**: Orchestrator quiet 2026-06-07T01:49:34Z
+  ([`2767708`](https://github.com/jpshackelford/ohtv/commit/27677081ad8d330e1fc23f1def4f55a33fe2c8c7))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator quiet 2026-06-07T02:17:00Z
+  ([`cd86459`](https://github.com/jpshackelford/ohtv/commit/cd86459f01ab2b123084ae99995307b1c7b05969))
+
+- **worklog**: Orchestrator quiet tick 2026-06-06T21:18Z
+  ([`c90b918`](https://github.com/jpshackelford/ohtv/commit/c90b9180244e6721a95851355e2564aab3dd4110))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator quiet tick 2026-06-06T23:18Z
+  ([`282e758`](https://github.com/jpshackelford/ohtv/commit/282e75890d99d749003e9c0258d40556e052dd94))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator quiet tick 2026-06-07T01:18Z
+  ([`d61d9fc`](https://github.com/jpshackelford/ohtv/commit/d61d9fcf32d8a7f001a04288909040a264aae6fb))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator quiet tick 2026-06-07T02:47Z
+  ([`5a56e42`](https://github.com/jpshackelford/ohtv/commit/5a56e4215f5b2389ae61405904ef3bfdc3aae3aa))
+
+- **worklog**: Orchestrator quiet tick 2026-06-07T03:17Z
+  ([`01839f7`](https://github.com/jpshackelford/ohtv/commit/01839f740e927b35621ec941dde32904325ec436))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator quiet tick 2026-06-07T10:18Z
+  ([`d7adef0`](https://github.com/jpshackelford/ohtv/commit/d7adef08f512f05652362fbcd63c06710b621157))
+
+- **worklog**: Orchestrator quiet tick 2026-06-07T10:46Z
+  ([`9b8aea7`](https://github.com/jpshackelford/ohtv/commit/9b8aea755797ae66f54d68c00e378c2592eb26e5))
+
+- **worklog**: Orchestrator run 2026-07-01T21:52:09Z
+  ([`9aac711`](https://github.com/jpshackelford/ohtv/commit/9aac711dee7acf66010439a8faebf6adbd0b945f))
+
+- **worklog**: Orchestrator run 2026-07-01T23:54:55Z - moved PR #192 to ready, spawned docs worker
+  ([`f0d620b`](https://github.com/jpshackelford/ohtv/commit/f0d620bc1500724604fa579ad105bd3039c45ced))
+
+- **worklog**: Orchestrator spawn testing worker for PR #192
+  ([`34581cb`](https://github.com/jpshackelford/ohtv/commit/34581cbfa66c3edb785c2f9487beb0be4c170b69))
+
+- **worklog**: Orchestrator spawned expansion worker for issue #190
+  ([`f8bf6f3`](https://github.com/jpshackelford/ohtv/commit/f8bf6f3da2d9057795475aba035deb8fb67107e7))
+
+- **worklog**: Orchestrator spawned merge worker for PR #192 2026-07-02T00:52:24Z
+  ([`185c977`](https://github.com/jpshackelford/ohtv/commit/185c9771d07859878c57ae4804ba3b2ccc273dbe))
+
+- **worklog**: Orchestrator status - waiting for PR #192 draft→ready transition
+  ([`1b94dd6`](https://github.com/jpshackelford/ohtv/commit/1b94dd6bf8fd1e604f3fbec4ff5df2d1cfd7c19b))
+
+- **worklog**: Orchestrator status 2026-07-01T23:21:28Z
+  ([`0747dd0`](https://github.com/jpshackelford/ohtv/commit/0747dd0b846cc43b0f3632d8eebcfeb6b101f09a))
+
+- **worklog**: Orchestrator status check 2026-07-01T20:20:10Z
+  ([`9b5d147`](https://github.com/jpshackelford/ohtv/commit/9b5d147c6f0a9fb8736f7eebf8c36ecb95c6ce45))
+
+- **worklog**: Orchestrator status update 2026-06-07T11:16Z
+  ([`24748ed`](https://github.com/jpshackelford/ohtv/commit/24748edf3853257f150f63d53e4d8756eb517bb1))
+
+- **worklog**: Orchestrator status update 2026-07-01T22:54:07Z
+  ([`6ef9226`](https://github.com/jpshackelford/ohtv/commit/6ef92261271c744123ec13ddadd7df47cb244eff))
+
+- **worklog**: Orchestrator tick 2026-06-07 12:19Z - all quiet (13th)
+  ([`82113b3`](https://github.com/jpshackelford/ohtv/commit/82113b3fbd93f8ca18aac6ebf69ce8948ea581ef))
+
+- **worklog**: Orchestrator tick 2026-06-07 12:46Z - all quiet (14th)
+  ([`6ddcdf5`](https://github.com/jpshackelford/ohtv/commit/6ddcdf521ec9486d3d987706d042eb0952117b3d))
+
+- **worklog**: Orchestrator tick 2026-06-07 13:19Z - all quiet (15th) + auto-disable c202ca20
+  ([`ad9e857`](https://github.com/jpshackelford/ohtv/commit/ad9e857c2465b23351282d6d866dfc0ae493c1e8))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator tick 2026-07-01 20:50Z
+  ([`85797af`](https://github.com/jpshackelford/ohtv/commit/85797af84e471429bc500a0aed9eb7fb7eb898e1))
+
+- Spawned expansion worker 77ff0d0b for issue #189 - PR #192 (draft, CI green) waiting for next
+  phase - 2 issues still need expansion: #190, #191
+
+[AI agent worklog entry]
+
+- **worklog**: Orchestrator tick 2026-07-01T19:51:43Z
+  ([`267eeb4`](https://github.com/jpshackelford/ohtv/commit/267eeb484195d5cd389eee78a1659e668be67165))
+
+- **worklog**: Retroactively add orchestrator-status: quiet marker to 19:23Z entry
+  ([`606547c`](https://github.com/jpshackelford/ohtv/commit/606547c531227aa8a9f1de538ac00d550d30383a))
+
+The 19:23Z orchestrator entry correctly identified itself as the 1st quiet tick since the 18:15Z
+  productive burst (Counter = 1 of 2, not triggered) but omitted the required <!--
+  orchestrator-status: quiet --> marker that the auto-disable detection script (per
+  jpshackelford/.openhands#35) greps for. Without this marker, the next cron tick's detection would
+  see QUIET_COUNT=0 and never auto-disable, defeating the safety net we just fixed.
+
+This patch adds the marker so future ticks' detection logic is correctly seeded. The skill should
+  also be strengthened in a follow-up to make marker emission non-optional on every entry (separate
+  PR against the plugin repo).
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Spawn expansion worker for issue #187
+  ([`6cce6bf`](https://github.com/jpshackelford/ohtv/commit/6cce6bfd926f5a698f0b7e55aedf29fba215004a))
+
+### Documentation
+
+- **worklog**: Expanded issue #187 - extract core extraction utilities
+  ([`15e8ebd`](https://github.com/jpshackelford/ohtv/commit/15e8ebdd7ee0cfbb3858477853dfc991d162af64))
+
+✅ Issue #187 ready for implementation - Verified technical feasibility - Added comprehensive
+  implementation plan - Comment:
+  https://github.com/jpshackelford/ohtv/issues/187#issuecomment-4859381590
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Expansion of issue #188 complete [skip ci]
+  ([`db09470`](https://github.com/jpshackelford/ohtv/commit/db0947011042c258b8bfa1ef9154f3ec35f14bd6))
+
+- **worklog**: Expansion worker completed issue #190
+  ([`5e182f1`](https://github.com/jpshackelford/ohtv/commit/5e182f1fbe8509484d75e47c5d7b9ab6f1507de0))
+
+- **worklog**: Expansion worker completed issue #191
+  ([`4ee7e0a`](https://github.com/jpshackelford/ohtv/commit/4ee7e0a3c679ba22a5e009b47b60f5747b7bd251))
+
+- **worklog**: Issue #189 expanded and marked ready
+  ([`7f45272`](https://github.com/jpshackelford/ohtv/commit/7f452721cf7c83d317513ea57af16e03b7de74e5))
+
+Added technical approach comment covering implementation details for ohtv report worklog command.
+  Issue ready for implementation.
+
+### Features
+
+- Extract core extraction utilities to ohtv-utils package
+  ([#192](https://github.com/jpshackelford/ohtv/pull/192),
+  [`d4b0fb8`](https://github.com/jpshackelford/ohtv/commit/d4b0fb8fd1f3d95203b0989ed98d19a1639782b4))
+
+feat: extract core utilities to standalone ohtv-utils package
+
+Extract message extraction, URL parsing, engagement computation, and human input counting utilities
+  into a new ohtv-utils package with zero non-stdlib runtime dependencies.
+
+This enables other projects to work with OpenHands conversation events without requiring ohtv's full
+  database/CLI infrastructure.
+
+Package structure: - extraction/messages: extract_message_content, extract_action_summary, etc. -
+  extraction/refs: parse_repo_url, parse_ref_url for GitHub/GitLab URLs - metrics/engagement:
+  compute_engagement with attention period tracking - metrics/human_input: count_human_input for
+  message and word counting
+
+Key design decisions: - Dict-based return values avoid coupling to ohtv's model layer - Zero runtime
+  dependencies (only pytest for dev) - ~56KB installed size - Python 3.12+ for consistency with ohtv
+
+Integration: - ohtv uses ohtv-utils as editable path dependency during development - All ohtv
+  modules updated to import from ohtv_utils instead of local functions - Full backward compatibility
+  maintained via re-exports
+
+Test coverage: - 70 new ohtv-utils tests (engagement, human input, messages, refs) - All 2681
+  existing ohtv tests pass with zero regressions - Comprehensive manual testing verified package
+  separation
+
+Fixes #187
+
+
 ## v0.30.1 (2026-06-06)
 
 ### Bug Fixes
