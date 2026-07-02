@@ -453,22 +453,32 @@ class JITFetcher:
                 selected_branch=metadata.get("selected_branch"),
             ))
             
-            # Run minimal processing stages so conversation is queryable
-            # Note: Full processing (all stages) happens later via db process
-            from ohtv.db.stages import STAGES
-            
             # Refresh conversation record after upsert
             conv = store.get(normalized_id)
             
             if conv:
-                # Run refs and actions stages (fast, essential for queries)
-                for stage_name in ["refs", "actions"]:
-                    if stage_name in STAGES:
-                        try:
-                            process_fn = STAGES[stage_name]
-                            process_fn(conn, conv)
-                            log.debug(f"JIT: Processed stage '{stage_name}' for {conv_id}")
-                        except Exception as e:
-                            log.warning(f"JIT: Failed to process stage '{stage_name}' for {conv_id}: {e}")
+                self._run_essential_processing_stages(conn, conv, conv_id)
             
             conn.commit()
+    
+    def _run_essential_processing_stages(self, conn, conv, conv_id: str) -> None:
+        """Run minimal processing stages so conversation is immediately queryable.
+        
+        Runs refs and actions stages which are fast and essential for queries.
+        Full processing (all stages) happens later via db process.
+        
+        Args:
+            conn: Database connection
+            conv: Conversation object from store
+            conv_id: Conversation ID (for logging)
+        """
+        from ohtv.db.stages import STAGES
+        
+        for stage_name in ["refs", "actions"]:
+            if stage_name in STAGES:
+                try:
+                    process_fn = STAGES[stage_name]
+                    process_fn(conn, conv)
+                    log.debug(f"JIT: Processed stage '{stage_name}' for {conv_id}")
+                except Exception as e:
+                    log.warning(f"JIT: Failed to process stage '{stage_name}' for {conv_id}: {e}")

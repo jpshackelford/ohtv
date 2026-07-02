@@ -2668,7 +2668,6 @@ def _ensure_conversations_via_jit(
             console.print(f"✅ Using {len(result.already_cached)} cached conversations")
         if result.failed:
             # Show which specific conversations failed (not just the count)
-            # Addresses review feedback on PR #194, line 2657 (cli.py)
             failed_count = len(result.failed)
             console.print(
                 f"[red]⚠️  Failed to fetch {failed_count} of {total_requested} conversations:[/red]"
