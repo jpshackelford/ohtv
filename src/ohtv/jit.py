@@ -437,7 +437,7 @@ class JITFetcher:
             # Update with extracted metadata
             # The scanner pattern: extract_metadata returns a dict, then upsert
             # See src/ohtv/db/scanner.py lines 568-590 for reference
-            from ohtv.sources.base import Conversation
+            from ohtv.db.models import Conversation
             store.upsert(Conversation(
                 id=normalized_id,
                 location=str(conv_dir),
