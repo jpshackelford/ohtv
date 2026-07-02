@@ -294,7 +294,6 @@ def test_index_conversation_integration(jit_fetcher, tmp_path):
     
     This test exercises the real extract_metadata function without mocking
     to ensure the function signature is correct and the integration works.
-    Addresses review feedback on PR #194, line 226 (test_jit.py).
     """
     from ohtv.db import get_connection, migrate
     

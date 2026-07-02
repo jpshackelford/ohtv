@@ -475,10 +475,9 @@ class JITFetcher:
         from ohtv.db.stages import STAGES
         
         for stage_name in ["refs", "actions"]:
-            if stage_name in STAGES:
-                try:
-                    process_fn = STAGES[stage_name]
-                    process_fn(conn, conv)
-                    log.debug(f"JIT: Processed stage '{stage_name}' for {conv_id}")
-                except Exception as e:
-                    log.warning(f"JIT: Failed to process stage '{stage_name}' for {conv_id}: {e}")
+            try:
+                process_fn = STAGES[stage_name]
+                process_fn(conn, conv)
+                log.debug(f"JIT: Processed stage '{stage_name}' for {conv_id}")
+            except Exception as e:
+                log.warning(f"JIT: Failed to process stage '{stage_name}' for {conv_id}: {e}")

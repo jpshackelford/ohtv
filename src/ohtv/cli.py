@@ -2612,7 +2612,7 @@ def _ensure_conversations_via_jit(
     
     log.info("JIT: Starting on-demand fetch")
     
-    # Ensure timezone-aware datetimes (Issue #188 review feedback)
+    # Ensure timezone-aware datetimes
     # CLI date parsing creates naive datetimes, but JIT compares with
     # timezone-aware datetimes from cloud API
     from datetime import timezone as tz
@@ -2658,7 +2658,7 @@ def _ensure_conversations_via_jit(
                 log.error(f"JIT fetch failed: {e}")
                 raise click.ClickException(f"Failed to fetch conversations: {e}")
         
-        # Summary (improved per Issue #188 review feedback)
+        # Summary
         total_requested = len(result.requested_ids)
         total_available = result.total_available
         
@@ -3327,7 +3327,7 @@ def list_conversations(
     # Parse date filters and apply shortcuts
     since, until = _parse_date_filters(since_date, until_date, day_date, week_date)
     
-    # Validate JIT-dependent flags (Issue #188 review feedback)
+    # Validate JIT-dependent flags
     if refresh and not jit:
         raise click.UsageError("--refresh requires --jit flag")
     if max_age != 24 and not jit:  # 24 is the default
