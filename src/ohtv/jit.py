@@ -240,7 +240,7 @@ class JITFetcher:
             for conv_id in conv_ids:
                 # Normalize ID (remove dashes) per AGENTS.md item #14
                 normalized_id = conv_id.replace("-", "")
-                conv = store.get_by_id(normalized_id)
+                conv = store.get(normalized_id)
                 
                 if conv is None:
                     status["missing"].append(conv_id)
@@ -425,16 +425,40 @@ class JITFetcher:
             )
             
             # Extract metadata (title, created_at, event_count, etc.)
-            # This is lightweight and runs synchronously
-            extract_metadata(conn, str(conv_dir), source="cloud")
+            # Uses the existing DB row as overlay (Phase C of #114)
+            normalized_id = conv_id.replace("-", "")
+            conv = store.get(normalized_id)
+            metadata = extract_metadata(
+                conv_dir,
+                source="cloud",
+                db_overlay=conv,
+            )
+            
+            # Update with extracted metadata
+            # The scanner pattern: extract_metadata returns a dict, then upsert
+            # See src/ohtv/db/scanner.py lines 568-590 for reference
+            from ohtv.sources.base import Conversation
+            store.upsert(Conversation(
+                id=normalized_id,
+                location=str(conv_dir),
+                events_mtime=None,
+                event_count=metadata.get("event_count", 0),
+                title=metadata["title"],
+                created_at=metadata["created_at"],
+                updated_at=metadata["updated_at"],
+                selected_repository=metadata["selected_repository"],
+                source="cloud",
+                labels=metadata.get("labels"),
+                parent_conversation_id=metadata.get("parent_conversation_id"),
+                selected_branch=metadata.get("selected_branch"),
+            ))
             
             # Run minimal processing stages so conversation is queryable
             # Note: Full processing (all stages) happens later via db process
             from ohtv.db.stages import STAGES
             
-            # Get conversation record
-            normalized_id = conv_id.replace("-", "")
-            conv = store.get_by_id(normalized_id)
+            # Refresh conversation record after upsert
+            conv = store.get(normalized_id)
             
             if conv:
                 # Run refs and actions stages (fast, essential for queries)
