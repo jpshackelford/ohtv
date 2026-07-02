@@ -40,6 +40,7 @@ ohtv sync --process
 
 # 2. Browse what landed
 ohtv list
+ohtv list --enriched                               # Show engagement + outcomes
 ohtv show <conversation_id>
 ohtv refs <conversation_id>
 
@@ -206,6 +207,48 @@ and **included** by `--no-engaged`.
 Full details and per-command flag tables:
 [exploration](docs/guides/exploration.md#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio)
 · [analysis](docs/guides/analysis.md#engagement-filters--engaged---no-engaged---min-engaged---min-engagement-ratio).
+
+## Outcomes display
+
+`ohtv list` can display outcomes (PRs and issues) resulting from conversations with state indicators showing whether PRs are merged, closed, or still open ([#190](https://github.com/jpshackelford/ohtv/issues/190)).
+
+| Flag | Description |
+|------|-------------|
+| `--with-outcomes` | Add an Outcomes column showing PRs and issues with state indicators. Shows up to 3 outcomes, then "+ N more" for additional refs. |
+| `--enriched` | Shorthand for `--with-engagement --with-outcomes`. In enriched mode, the Periods and Eng% columns are dropped to fit the outcomes column. |
+
+**State indicators:**
+- ✓ for merged/closed PRs
+- → for open PRs and all issues
+
+**Examples:**
+
+```bash
+# Show today's conversations with their outcomes
+ohtv list --day --with-outcomes
+
+# Enriched view: engagement metrics + outcomes
+ohtv list --week --enriched
+
+# Filter by PR and show outcomes for related conversations
+ohtv list --pr 194 --with-outcomes
+
+# JSON format includes structured outcomes array
+ohtv list --with-outcomes -F json
+
+# CSV format includes semicolon-separated outcomes
+ohtv list --with-outcomes -F csv
+```
+
+**Format support:**
+- **Table:** Human-readable with state symbols (✓ / →)
+- **JSON:** Structured outcomes array with `type`, `number`, `state`, `repo`, and `url` fields
+- **CSV:** Semicolon-separated outcomes string
+
+**Prerequisite:** Requires indexed database with refs and contributions processed:
+```bash
+ohtv db scan && ohtv db process all
+```
 
 ## Event-date filtering
 
