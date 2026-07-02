@@ -56,6 +56,44 @@ class TestMigrate:
         expected = {"_migrations", "conversations", "repositories", "refs", 
                     "conversation_repos", "conversation_refs", "sqlite_sequence"}
         assert expected.issubset(tables)
+    
+    def test_migration_026_creates_synthesis_table(self):
+        """Test that migration 026 creates conversation_synthesis table (Issue #191)."""
+        conn = sqlite3.connect(":memory:")
+        
+        migrate(conn)
+        
+        # Verify table exists
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_synthesis'"
+        )
+        assert cursor.fetchone() is not None
+        
+        # Verify table schema has expected columns
+        cursor = conn.execute("PRAGMA table_info(conversation_synthesis)")
+        columns = {row[1] for row in cursor.fetchall()}
+        
+        expected_columns = {
+            "conversation_id",
+            "conversation_updated_at",
+            "synthesized_title",
+            "synthesized_objective",
+            "worklog_purpose",
+            "synthesis_model",
+            "synthesis_version",
+            "synthesized_at",
+            "tokens_used",
+        }
+        assert expected_columns.issubset(columns)
+        
+        # Verify indexes exist
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='conversation_synthesis'"
+        )
+        indexes = {row[0] for row in cursor.fetchall()}
+        
+        expected_indexes = {"idx_synthesis_updated", "idx_synthesis_model"}
+        assert expected_indexes.issubset(indexes)
 
 
 class TestGetPendingMigrations:

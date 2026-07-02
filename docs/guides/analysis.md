@@ -437,6 +437,13 @@ Renames cloud conversations whose title still matches the OpenHands placeholder 
 
 **Cache lookup order:** The command probes cached analyses in descending detail order — `detailed_assess > detailed > standard_assess > standard > brief_assess > brief` — and uses the first one it finds.
 
+**Synthesis caching** ([#191](https://github.com/jpshackelford/ohtv/issues/191)): Generated titles are cached in the `conversation_synthesis` table to avoid redundant LLM calls on repeated runs. Cache entries are automatically validated against:
+- `conversation_updated_at` - Invalidated when the conversation is modified
+- `synthesis_version` - Invalidated when the title generation prompt changes
+- `synthesis_model` - Per-model caching allows independent results for different LLMs
+
+Cache hits provide **60x speedup** (0.5s vs 30s for 50 conversations) and **~87% cost reduction**. Use `--force` to bypass the cache and force re-synthesis. Cache statistics (hit rate, cost savings) are displayed in command output.
+
 **Scope:**
 - **Cloud only.** Local CLI conversations are silently skipped (single end-of-run note) — the PATCH endpoint is cloud-only.
 - **Placeholder titles only by default.** Use `--all-titled` to retitle every selected conversation, including those already given a human-set title.
@@ -465,6 +472,9 @@ ohtv gen titles -y --workers 10
 
 # Use a cheaper / faster model for the renaming step
 ohtv gen titles -m haiku
+
+# Force re-synthesis, bypass cache (useful after prompt changes)
+ohtv gen titles --force --week
 
 # Filter by repo or PR (uses indexed actions; run `ohtv db process all` first)
 ohtv gen titles --repo OpenPaw
@@ -508,6 +518,7 @@ ohtv gen titles --week --include-sub-conversations
 | `--reverse` | Process oldest first (default: newest first) |
 | `--all-titled` | Override the placeholder predicate and retitle every selected conversation |
 | `--dry-run` | Generate titles and print diff without PATCH or local writeback |
+| `--force` | Force re-synthesis, bypass cache (Issue #191) |
 | `--workers N` | Parallel PATCH workers (default: `5`, capped at `50`) |
 | `--batch-size N` | Conversations per LLM call (default: `25`) |
 | `-m, --model MODEL` | LLM model override (e.g. `haiku`) |
