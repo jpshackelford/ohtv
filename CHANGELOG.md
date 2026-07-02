@@ -1,6 +1,73 @@
 # CHANGELOG
 
 
+## v0.32.0 (2026-07-02)
+
+### Chores
+
+- **worklog**: Orchestrator spawned docs worker for PR #193 2026-07-02T02:22:07Z
+  ([`f78d5b9`](https://github.com/jpshackelford/ohtv/commit/f78d5b9bce0c210ffa131b07e9b1caab4c434bc1))
+
+- **worklog**: Orchestrator spawned implementation worker for issue #191
+  ([`2e5582b`](https://github.com/jpshackelford/ohtv/commit/2e5582b49ca9b3a0f0f94b7107a3aa1bc950f872))
+
+- **worklog**: Orchestrator spawned merge worker for PR #193
+  ([`9a9ea90`](https://github.com/jpshackelford/ohtv/commit/9a9ea9018055f63cb72f9a48a35ffbe7bdaf183c))
+
+- **worklog**: Orchestrator spawned review worker for PR #193 2026-07-02T01:54:32Z
+  ([`9997c69`](https://github.com/jpshackelford/ohtv/commit/9997c694098167e591590da9f1e53cc74fad2335))
+
+- **worklog**: Orchestrator spawned review worker for PR #193 2026-07-02T03:24:30Z
+  ([`c1cc074`](https://github.com/jpshackelford/ohtv/commit/c1cc074a73f20290bf2da2f220fe5c331c6f80ed))
+
+- **worklog**: Orchestrator spawned testing worker for PR #193 2026-07-02T02:54:51Z
+  ([`51ef4d8`](https://github.com/jpshackelford/ohtv/commit/51ef4d81c310c551070a2ab40fe203938b8e8bb7))
+
+### Documentation
+
+- **worklog**: Add entry for PR #193 (Issue #191)
+  ([`5e855ba`](https://github.com/jpshackelford/ohtv/commit/5e855ba8af72620ac704aa963a79fe5e03705116))
+
+Implemented synthesis cache for LLM-generated titles with comprehensive testing and automatic
+  invalidation.
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+### Features
+
+- Cache LLM synthesis results to avoid redundant calls
+  ([#193](https://github.com/jpshackelford/ohtv/pull/193),
+  [`8fa5898`](https://github.com/jpshackelford/ohtv/commit/8fa5898468df998479e7abe6624feeda437b8863))
+
+feat: Cache LLM synthesis results to avoid redundant calls
+
+Implements synthesis caching for `gen titles` to avoid redundant LLM calls. Cache entries are
+  automatically invalidated when conversations update or prompts change.
+
+Key Features: - Migration 026: conversation_synthesis table with composite PRIMARY KEY
+  (conversation_id, synthesis_model) for true multi-model caching - SynthesisCacheStore: New store
+  class with batch lookup optimization - generate_titles_with_cache(): Wrapper with automatic cache
+  management - CLI: --force flag to bypass cache when needed - Cache statistics: Display hit rate
+  and cost savings
+
+Cache Validation: Cache entries automatically invalidate when: - conversation_updated_at changes
+  (conversation modified) - synthesis_version changes (prompt updated) - synthesis_model changes
+  (different LLM requested)
+
+Performance Impact: - Speed: 60x faster on cache hits (~0.5s vs 30s for 50 conversations) - Cost:
+  ~87% reduction for repeated title generation - Batch queries: Eliminated N+1 pattern with
+  single-query lookup
+
+Implementation Improvements During Review: 1. Composite PRIMARY KEY for true multi-model support (no
+  collision) 2. Batch cache lookup optimization (single query for N conversations) 3. Multi-model
+  caching test to verify independent caching 4. Specific exception handling (sqlite3.IntegrityError)
+
+Testing: - 28 new tests (migration, store operations, integration, manual) - All 2709 unit tests
+  passing - 9 manual blackbox tests passed
+
+Fixes #191
+
+
 ## v0.31.0 (2026-07-02)
 
 ### Chores
