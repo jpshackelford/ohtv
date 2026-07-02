@@ -1,6 +1,71 @@
 # CHANGELOG
 
 
+## v0.35.0 (2026-07-02)
+
+### Chores
+
+- **worklog**: Orchestrator run - spawned testing worker for PR #197
+  ([`7bc53ca`](https://github.com/jpshackelford/ohtv/commit/7bc53ca3a8e54cc9fb45caa9011ff93d7e6ffd2d))
+
+Co-authored-by: openhands <openhands@all-hands.dev>
+
+- **worklog**: Orchestrator spawned merge worker for PR #197
+  ([`7e1a3ce`](https://github.com/jpshackelford/ohtv/commit/7e1a3cedfbf3722f512b48cd0999f4f9d3dd0e8c))
+
+- **worklog**: Orchestrator update 2026-07-02T17:52:48Z
+  ([`761a4d2`](https://github.com/jpshackelford/ohtv/commit/761a4d2ea7e219659059e32ff3cf9b2cae356334))
+
+- **worklog**: Orchestrator update 2026-07-02T18:20:57Z
+  ([`538fd51`](https://github.com/jpshackelford/ohtv/commit/538fd51e998dbfd1175ca2755680e6c3f172b639))
+
+- **worklog**: Spawned docs worker for PR #197
+  ([`90595c9`](https://github.com/jpshackelford/ohtv/commit/90595c9407b3c87d39d27c93c247f65c92a687a9))
+
+- **worklog**: Spawned implementation worker for issue #190 (2026-07-02T16:22:05Z)
+  ([`137f8d7`](https://github.com/jpshackelford/ohtv/commit/137f8d77c39e7689903463b5210b886dc8006abc))
+
+### Features
+
+- Add --with-outcomes and --enriched flags to list command
+  ([#197](https://github.com/jpshackelford/ohtv/pull/197),
+  [`a06fee0`](https://github.com/jpshackelford/ohtv/commit/a06fee09186fc2a2d6417681a4951214ad17f199))
+
+feat: add --with-outcomes and --enriched flags to list command
+
+Implements Issue #190, enhancing `ohtv list` with optional flags to display PR/issue outcomes with
+  state indicators.
+
+**New flags:** - `--with-outcomes`: Shows PR/issue outcomes with visual state indicators (✓ for
+  merged/closed, → for open) in a dedicated column - `--enriched`: Shorthand for `--with-engagement
+  --with-outcomes`
+
+**Implementation highlights:** - New Outcome dataclass for representing PR/Issue outcomes - Batched
+  DB queries (900 IDs/batch) to avoid N+1 problems - Supports all three output formats (table, JSON,
+  CSV) - Display-only: never filters rows, follows --with-engagement pattern - Graceful truncation:
+  shows max 3 outcomes, then "+ N more" - Defensive: returns empty results on DB errors rather than
+  crashing
+
+**Data sources:** - PRs with state from change_refs + conversation_contributions tables - Issues
+  from refs + conversation_refs tables (always shown as "open")
+
+**Key design decisions:** - Enriched mode drops "Periods" and "Eng%" columns to fit outcomes -
+  DISTINCT handling prevents duplicate PRs when conversation has multiple contribution types to same
+  PR - Requires `ohtv db process all` to populate data for meaningful results
+
+**Testing:** - 21 comprehensive tests covering dataclass, formatters, batch loading, CLI
+  integration, and all output formats - All tests passing with >80% coverage
+
+**Documentation:** - Updated docs/reference/cli.md with flag reference - Added comprehensive usage
+  guide to docs/guides/exploration.md with examples for all output formats and integration with
+  other filters
+
+**Review feedback addressed:** - Initial review requested documentation updates - Documentation
+  added in commit dc7f27e - Second review approved as "Good taste" with low risk
+
+Closes #190
+
+
 ## v0.34.0 (2026-07-02)
 
 ### Chores

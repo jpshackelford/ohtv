@@ -10,4 +10,4 @@ import os as _os
 # (e.g. LITELLM_LOG=DEBUG for debugging).
 _os.environ.setdefault("LITELLM_LOG", "ERROR")
 
-__version__ = "0.34.0"
+__version__ = "0.35.0"
