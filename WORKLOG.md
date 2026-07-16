@@ -1,5 +1,39 @@
 ## Log
 
+### 2026-07-16 - Adopt Generic pr-workflow Plugin
+
+**Summary:** Switching from ohtv-specific `ohtv-workflow` plugin to the generic `pr-workflow` plugin with local customizations.
+
+**Changes made:**
+1. Created `.agents/resources/orchestration.md` - Project configuration for the generic orchestrator
+2. Created `.agents/skills/manual-test.md` - ohtv-specific manual testing procedure (CLI-only blackbox tests)
+
+**Key configuration in orchestration.md:**
+- Repository: jpshackelford/ohtv
+- Automation ID: c202ca20-60d5-4f5b-9d53-3d7308c1d95b
+- Manual testing: **required** (not just enabled)
+- Plugin source: `github:jpshackelford/.openhands/plugins/pr-workflow@main`
+
+**What the local manual-test skill preserves:**
+- CLI-only testing requirement (no Python imports allowed)
+- Conversation sync before testing (`uv run ohtv sync`)
+- README example verification
+- Structured test report format with attribution
+- Re-test workflow for post-review changes
+
+**To complete the migration**, update the automation tarball to use:
+```json
+{
+  "source": "github:jpshackelford/.openhands",
+  "ref": "main",
+  "repo_path": "plugins/pr-workflow"
+}
+```
+
+_This worklog entry was authored by an AI agent (OpenHands) on behalf of @jpshackelford._
+
+---
+
 ### 2026-07-01 21:55 UTC - Expansion Worker (Issue #191)
 
 ✅ **Expanded Issue #191** — Cache LLM synthesis results to avoid redundant calls
