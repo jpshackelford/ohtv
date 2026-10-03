@@ -187,6 +187,36 @@ class TestGetCachedResultForConversation:
             result = get_cached_result_for_conversation(conv_dir, "test_key")
             assert result == {"goal": "Test goal", "confidence": 0.9}
 
+    def test_reads_ohtv_cache_dir(self, monkeypatch, tmp_path):
+        """gen objs writes to ~/.ohtv/cache/analysis/<id>/, not the conversation dir."""
+        monkeypatch.setenv("OHTV_DIR", str(tmp_path / "ohtv"))
+        conv_dir = tmp_path / "conversations" / "conv-xyz"
+        conv_dir.mkdir(parents=True)
+        cache_dir = tmp_path / "ohtv" / "cache" / "analysis" / "conv-xyz"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / "objective_analysis.json").write_text(json.dumps({
+            "analyses": {"test_key": {"goal": "From ohtv cache"}}
+        }))
+
+        result = get_cached_result_for_conversation(conv_dir, "test_key")
+        assert result == {"goal": "From ohtv cache"}
+
+    def test_prefers_ohtv_cache_dir_over_legacy(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("OHTV_DIR", str(tmp_path / "ohtv"))
+        conv_dir = tmp_path / "conversations" / "conv-xyz"
+        conv_dir.mkdir(parents=True)
+        (conv_dir / "objective_analysis.json").write_text(json.dumps({
+            "analyses": {"test_key": {"goal": "Legacy"}}
+        }))
+        cache_dir = tmp_path / "ohtv" / "cache" / "analysis" / "conv-xyz"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / "objective_analysis.json").write_text(json.dumps({
+            "analyses": {"test_key": {"goal": "Current"}}
+        }))
+
+        result = get_cached_result_for_conversation(conv_dir, "test_key")
+        assert result == {"goal": "Current"}
+
     def test_handles_invalid_json(self):
         """Test handles corrupted JSON gracefully."""
         with TemporaryDirectory() as tmpdir:
