@@ -9,6 +9,10 @@ One-line definitions for ohtv terms.
 - **Aggregate job** — A `gen run` prompt that operates over many
   conversations at once (e.g. weekly summary, theme discovery) rather than
   per-conversation. See [analysis.md](../guides/analysis.md).
+- **Attention period** — A merged run of attended time inside one
+  conversation, counted in `conversation_engagement.attention_periods`.
+  Engaged time is the sum of the periods' lengths. See
+  [metrics-and-attention](../guides/metrics-and-attention.md#how-engaged-minutes-work).
 - **`change_ref`** — A row attributing one PR creation, PR merge, or direct
   push to a specific conversation. Populated by the `contributions` stage,
   enriched with `lines_added`/`lines_removed`/`merged_at` by `fetch-loc`.
@@ -34,11 +38,17 @@ One-line definitions for ohtv terms.
   without an associated PR open/merge event. Detected by the
   `contributions` stage as of #79/#94; recorded as a `change_ref` row with
   `kind='push'`. Contributes to LOC accounting just like a merged PR.
+- **Engaged time** (`engaged_seconds`) — Estimated time a human was
+  actively watching or steering a conversation, inferred from timestamps
+  around each follow-up user message. Distinct from human word counts. See
+  [metrics-and-attention](../guides/metrics-and-attention.md).
 - **Event** — A single trajectory entry in a conversation: user message,
   agent action, observation, finish, etc. ohtv never modifies events.
 - **Fetch-LOC** — The `ohtv fetch-loc` command — a network-bound, cached,
   idempotent backfill of `lines_added`/`lines_removed` from the GitHub REST
   API into pending `change_refs` rows.
+- **Fire-and-forget** — A conversation with zero or one user message.
+  Stored with `engaged_seconds = 0`, not `NULL`.
 - **ISO week** — A `YYYY-Www` label (e.g. `2026-W22`) computed in Python
   using `isocalendar()`. Used as the bucketing key for both
   `report velocity` and `report weekly-counts`. SQLite's `%W` is NOT
@@ -68,3 +78,10 @@ One-line definitions for ohtv terms.
 - **Source** — One of `cloud` or `local`. The `ohtv classify` command lets
   you inspect or override the classification when the heuristic is wrong.
 - **Stage** — see *Pipeline stage*.
+- **`T` / `T_a`** — The two engagement constants: `T` (silence tolerance,
+  default 12 min) and `T_a` (sustained-attention window, default 1 h,
+  provisional). See
+  [indexing § Engagement stage](../guides/indexing.md#engagement-stage).
+- **Touch** — A zero-length attention period recorded when the user returns
+  after longer than `T_a`. It increments `attention_periods` but adds no
+  engaged time.
