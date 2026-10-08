@@ -16,6 +16,7 @@ of a specific workflow.
 - [classification.md](guides/classification.md) — `ohtv classify`
 - [analysis.md](guides/analysis.md) — `ohtv gen` (objectives, summaries, aggregate jobs, titles)
 - [customizing-prompts.md](guides/customizing-prompts.md) — `ohtv prompts`
+- [metrics-and-attention.md](guides/metrics-and-attention.md) — the human-attention metrics: what they measure, how engagement works, what we've learned, SQL recipes
 - [reporting.md](guides/reporting.md) — `ohtv report velocity`, `weekly-counts`, `--chart`, `fetch-loc`
 - [search-and-ask.md](guides/search-and-ask.md) — `ohtv search`, `ohtv ask` (RAG + agent mode)
 - [automation.md](guides/automation.md) — cron jobs, `--quiet`, exit codes, env-var precedence
