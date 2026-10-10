@@ -15,6 +15,7 @@ from typing import Any
 
 from jinja2 import Environment, BaseLoader
 
+from ohtv.analysis.cache import _find_cache_file
 from ohtv.analysis.periods import PeriodInfo, compute_period_state_hash
 from ohtv.config import Config, get_ohtv_dir
 from ohtv.prompts.metadata import PromptMetadata
@@ -111,9 +112,8 @@ def get_cached_result_for_conversation(
     Returns:
         Cached result dict, or None if not cached
     """
-    # The cache is stored in objective_analysis.json with multiple analyses keyed by parameters
-    cache_file = conv_dir / "objective_analysis.json"
-    if not cache_file.exists():
+    cache_file = _find_cache_file(conv_dir)
+    if cache_file is None:
         return None
     
     try:
