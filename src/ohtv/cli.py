@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import logging
+import os
 import re
 import sqlite3
 import threading
@@ -788,6 +789,24 @@ def config(action: str | None, key: str | None, value: str | None) -> None:
       1. Environment variables (OHTV_*, OH_API_KEY)
       2. Config file (~/.ohtv/config.toml)
       3. Defaults
+
+    \b
+    Moving ohtv data: back up ~/.ohtv first. Set OHTV_DIR to the new data
+    directory (config.toml, manifest, cache, and index live there), then set
+    OHTV_CONVERSATIONS_DIR and OHTV_SYNCED_CONVERSATIONS_DIR to the relocated
+    conversation folders.
+    OHTV_DB_PATH optionally overrides the index path. Run 'ohtv config' to
+    verify paths, then 'ohtv db scan' to repair stored locations. Do not use
+    --remove-missing until all configured paths are available.
+
+    \b
+    Persistent OpenHands sandbox example (after copying the old data):
+      export OHTV_DIR=/workspace/ohtv
+      export OHTV_SYNCED_CONVERSATIONS_DIR=/workspace/cloud/conversations
+      export OHTV_CONVERSATIONS_DIR=/workspace/local/conversations
+      ohtv config
+      ohtv db scan
+    Omit the local override if you have no local CLI conversations.
     """
     from ohtv.config import CONFIGURABLE_KEYS, save_config_value
     
@@ -810,8 +829,11 @@ def config(action: str | None, key: str | None, value: str | None) -> None:
 
 def _show_config() -> None:
     """Display current configuration with sources."""
-    cfg = Config.from_env().with_sources()
-    
+    from ohtv.db import get_db_path
+
+    config = Config.from_env()
+    cfg = config.with_sources()
+
     table = Table(title="Configuration", show_header=True)
     table.add_column("Setting", style="cyan")
     table.add_column("Value")
@@ -857,7 +879,26 @@ def _show_config() -> None:
     
     console.print()
     console.print(table)
-    
+
+    configured_roots = (
+        (
+            "local_conversations_dir",
+            config.local_conversations_dir,
+            cfg.local_conversations_dir.source,
+        ),
+        (
+            "synced_conversations_dir",
+            config.synced_conversations_dir,
+            cfg.synced_conversations_dir.source,
+        ),
+    )
+    for name, path, source in configured_roots:
+        if source != "default" and not path.is_dir():
+            console.print(f"[yellow]![/yellow] {name} not found: {path}")
+    for path in config.extra_conversation_paths:
+        if not path.is_dir():
+            console.print(f"[yellow]![/yellow] extra_conversation_path not found: {path}")
+
     # Show embedding configuration
     console.print()
     console.print("[bold]Embedding Configuration[/bold]")
@@ -876,7 +917,9 @@ def _show_config() -> None:
     console.print()
     console.print("[bold]Data Directories[/bold]")
     ohtv_dir = cfg.ohtv_dir
+    db_source = "env" if os.environ.get("OHTV_DB_PATH") else ohtv_dir.source
     console.print(f"  ohtv_dir:      {ohtv_dir.value} ({_source_style(ohtv_dir.source)})")
+    console.print(f"  db_path:       {get_db_path()} ({_source_style(db_source)})")
     console.print(f"  manifest:      {cfg.manifest_path}")
     console.print(f"  config_file:   {cfg.config_file_path}")
     
@@ -1212,7 +1255,7 @@ def _run_post_sync_processing(quiet: bool, verbose: bool, no_llm: bool = False, 
         no_embed: Skip embedding generation
     """
     from ohtv.db import get_ready_connection, scan_conversations
-    from ohtv.db.stages import STAGES
+    from ohtv.db.stages import STAGES, conversation_events_available
     from ohtv.db.stores import ConversationStore, StageStore
     
     if not quiet:
@@ -1246,7 +1289,11 @@ def _run_post_sync_processing(quiet: bool, verbose: bool, no_llm: bool = False, 
             if not quiet:
                 console.print(f"  {stage_name}: processing {len(needs_processing)} conversation(s)...")
             
+            skipped_missing = 0
             for conv in needs_processing:
+                if not conversation_events_available(conv):
+                    skipped_missing += 1
+                    continue
                 try:
                     processor(conn, conv)
                 except Exception as e:
@@ -1258,7 +1305,19 @@ def _run_post_sync_processing(quiet: bool, verbose: bool, no_llm: bool = False, 
                     )
                     if verbose:
                         console.print(f"    [red]Error processing {conv.id}:[/red] {e}")
-            
+
+            if skipped_missing:
+                log.warning(
+                    "Skipped %d conversation(s) for %s: events directory not found",
+                    skipped_missing,
+                    stage_name,
+                )
+                if not quiet:
+                    console.print(
+                        f"    [yellow]![/yellow] Skipped {skipped_missing} "
+                        "conversation(s): events directory not found"
+                    )
+
             # Commit after each stage to save progress
             conn.commit()
     
@@ -9397,7 +9456,7 @@ def _run_process_stage(
     from functools import partial
 
     from ohtv.db import get_db_path, get_ready_connection, scan_conversations
-    from ohtv.db.stages import STAGES
+    from ohtv.db.stages import STAGES, conversation_events_available
     from ohtv.db.stages.engagement import (
         DEFAULT_SUSTAINED_ATTENTION_SECONDS as ENGAGEMENT_DEFAULT_ATTENTION_WINDOW,
         DEFAULT_THRESHOLD_SECONDS as ENGAGEMENT_DEFAULT_THRESHOLD,
@@ -9492,7 +9551,8 @@ def _run_process_stage(
         
         processed = 0
         errors = 0
-        
+        skipped_missing = 0
+
         with make_progress(
             console=console,
             show_rate=False,
@@ -9508,6 +9568,10 @@ def _run_process_stage(
             
             for conv in conversations_to_process:
                 progress.update(task, current=conv.id[:12] + "...")
+                if not conversation_events_available(conv):
+                    skipped_missing += 1
+                    progress.advance(task)
+                    continue
                 try:
                     processor(conn, conv)
                     processed += 1
@@ -9522,6 +9586,11 @@ def _run_process_stage(
     # Display results
     if processed > 0:
         console.print(f"[green]✓[/green] Processed {processed} conversation(s) for '{stage}' stage")
+    if skipped_missing:
+        console.print(
+            f"[yellow]![/yellow] Skipped {skipped_missing} conversation(s): "
+            "events directory not found (run 'ohtv db scan')"
+        )
     if errors > 0:
         console.print(f"[yellow]![/yellow] {errors} error(s) during processing")
 

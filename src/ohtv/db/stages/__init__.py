@@ -14,6 +14,9 @@ Stage ordering:
 8. engagement - Sustained-attention metric (engaged human minutes, periods)
 """
 
+from pathlib import Path
+
+from ohtv.db.models import Conversation
 from ohtv.db.stages.actions import process_actions
 from ohtv.db.stages.branch_context import process_branch_context
 from ohtv.db.stages.contributions import process_contributions
@@ -22,6 +25,11 @@ from ohtv.db.stages.human_input import process_human_input
 from ohtv.db.stages.push_pr_links import process_push_pr_links
 from ohtv.db.stages.refs import process_refs
 from ohtv.db.stages.summaries import process_summaries
+
+
+def conversation_events_available(conversation: Conversation) -> bool:
+    return (Path(conversation.location) / "events").is_dir()
+
 
 # Registry of available stages
 # Order matters for dependencies
@@ -38,6 +46,7 @@ STAGES = {
 
 __all__ = [
     "STAGES",
+    "conversation_events_available",
     "process_actions",
     "process_branch_context",
     "process_contributions",

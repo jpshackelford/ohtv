@@ -472,8 +472,12 @@ class JITFetcher:
             conv: Conversation object from store
             conv_id: Conversation ID (for logging)
         """
-        from ohtv.db.stages import STAGES
-        
+        from ohtv.db.stages import STAGES, conversation_events_available
+
+        if not conversation_events_available(conv):
+            log.warning("JIT: Skipping stages for %s: events directory not found", conv_id)
+            return
+
         for stage_name in ["refs", "actions"]:
             try:
                 process_fn = STAGES[stage_name]

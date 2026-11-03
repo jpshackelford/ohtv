@@ -5,7 +5,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 
+from ohtv.cli import main
 from ohtv.config import _get_extra_conversation_paths, _get_api_key
 
 
@@ -146,3 +148,20 @@ class TestGetApiKey:
         with patch.dict(os.environ, {"OPENHANDS_API_KEY": "env-key"}, clear=False):
             result = _get_api_key(tmp_path)
             assert result == "env-key"
+
+
+def test_config_shows_data_locations_and_missing_roots(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("OHTV_DIR", str(tmp_path / "ohtv"))
+    monkeypatch.setenv("OHTV_DB_PATH", str(tmp_path / "custom.db"))
+    monkeypatch.setenv("OHTV_CONVERSATIONS_DIR", str(tmp_path / "missing-local"))
+    cloud = tmp_path / "synced"
+    cloud.mkdir()
+    monkeypatch.setenv("OHTV_SYNCED_CONVERSATIONS_DIR", str(cloud))
+    result = CliRunner().invoke(main, ["config"])
+    assert result.exit_code == 0, result.output
+    assert "ohtv_dir" in result.output
+    assert "db_path" in result.output
+    assert str(tmp_path / "custom.db") in result.output.replace("\n", "")
+    assert "missing-local" in result.output
+    assert "not found" in result.output

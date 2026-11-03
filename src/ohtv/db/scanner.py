@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Callable
 import logging
 
-from ohtv.config import Config, get_openhands_dir, get_manifest_path
+from ohtv.config import Config, get_manifest_path
 from ohtv.db.models import Conversation
-from ohtv.db.stores import ConversationStore
+from ohtv.db.stores import ConversationStore, StageStore
 from ohtv.db.utils import generate_unique_source_names
 
 logger = logging.getLogger(__name__)
@@ -510,8 +510,8 @@ def scan_conversations(
         config = Config.from_env()
     
     store = ConversationStore(conn)
-    openhands_dir = get_openhands_dir()
-    
+    stages = StageStore(conn)
+
     # Load title + labels from manifest (for cloud conversations). Manifest
     # title takes precedence over base_state.json (Issue #86 — keeps a cold
     # `db scan` honest after a cloud-side rename).
@@ -525,9 +525,9 @@ def scan_conversations(
     parent_map = load_cloud_listing_parents(conn)
     
     # Discover from both local CLI and synced cloud locations
-    local_dir = openhands_dir / "conversations"
-    cloud_dir = openhands_dir / "cloud" / "conversations"
-    
+    local_dir = config.local_conversations_dir
+    cloud_dir = config.synced_conversations_dir
+
     all_discovered = []
     all_discovered.extend(discover_conversations(local_dir, "local"))
     all_discovered.extend(discover_conversations(cloud_dir, "cloud"))
@@ -554,7 +554,14 @@ def scan_conversations(
     for i, (conv_id, conv_path, source) in enumerate(all_discovered):
         if on_progress:
             on_progress(i, total, conv_id)
-        
+
+        if conv_id in seen_ids:
+            logger.warning(
+                "Duplicate conversation %s at %s; keeping first configured location",
+                conv_id,
+                conv_path,
+            )
+            continue
         seen_ids.add(conv_id)
         events_dir = conv_path / "events"
         
@@ -562,7 +569,12 @@ def scan_conversations(
         current_count = count_events(events_dir)
         
         existing = store.get(conv_id)
-        
+        relocated = existing is not None and existing.location != str(conv_path)
+        content_changed = (
+            existing is not None
+            and _has_changed(existing, current_mtime, current_count)
+        )
+
         if existing is None:
             # New conversation - extract metadata
             metadata = extract_metadata(
@@ -590,7 +602,14 @@ def scan_conversations(
                 selected_branch=metadata.get("selected_branch"),
             ))
             new_count += 1
-        elif force or _has_changed(existing, current_mtime, current_count):
+        elif relocated and not force and not content_changed:
+            conn.execute(
+                "UPDATE conversations SET location = ?, source = ? WHERE id = ?",
+                (str(conv_path), source, conv_id),
+            )
+            stages.clear_all_stages(conv_id)
+            updated_count += 1
+        elif force or content_changed:
             # Changed or forced update - re-extract metadata
             metadata = extract_metadata(
                 conv_path, source,
@@ -617,6 +636,8 @@ def scan_conversations(
                 parent_conversation_id=metadata.get("parent_conversation_id"),
                 selected_branch=metadata.get("selected_branch"),
             ))
+            if relocated:
+                stages.clear_all_stages(conv_id)
             updated_count += 1
         else:
             unchanged_count += 1
@@ -660,39 +681,46 @@ def _has_changed(existing: Conversation, current_mtime: float | None, current_co
     return False
 
 
-def get_changed_conversations(conn: sqlite3.Connection) -> list[Conversation]:
-    """Get conversations that have changed since last scan.
-    
-    Useful for finding conversations that need reprocessing without
-    actually updating the database.
-    """
+def get_changed_conversations(
+    conn: sqlite3.Connection, config: Config | None = None
+) -> list[Conversation]:
+    """Get conversations changed since last scan without updating the database."""
+    if config is None:
+        config = Config.from_env()
     store = ConversationStore(conn)
-    openhands_dir = get_openhands_dir()
-    
-    # Load title + labels from manifest (manifest title wins; Issue #86)
+
     manifest_map = load_manifest_metadata()
-    # Issue #108: parent/child relationships from cloud_listing snapshot.
     parent_map = load_cloud_listing_parents(conn)
-    
-    local_dir = openhands_dir / "conversations"
-    cloud_dir = openhands_dir / "cloud" / "conversations"
-    
+
     changed = []
-    
     all_discovered = (
-        discover_conversations(local_dir, "local") +
-        discover_conversations(cloud_dir, "cloud")
+        discover_conversations(config.local_conversations_dir, "local")
+        + discover_conversations(config.synced_conversations_dir, "cloud")
     )
-    
+    for path, source in zip(
+        config.extra_conversation_paths,
+        generate_unique_source_names(config.extra_conversation_paths),
+    ):
+        if path.is_dir():
+            all_discovered.extend(discover_conversations(path, source))
+
+    seen_ids = set()
     for conv_id, conv_path, source in all_discovered:
+        if conv_id in seen_ids:
+            continue
+        seen_ids.add(conv_id)
         events_dir = conv_path / "events"
         current_mtime = get_events_mtime(events_dir)
         current_count = count_events(events_dir)
         
         existing = store.get(conv_id)
-        
-        if existing is None or _has_changed(existing, current_mtime, current_count):
-            metadata = extract_metadata(conv_path, source, manifest_map=manifest_map, parent_map=parent_map)
+
+        if (existing is None or existing.location != str(conv_path)
+                or _has_changed(existing, current_mtime, current_count)):
+            metadata = extract_metadata(
+                conv_path, source, manifest_map=manifest_map,
+                parent_map=parent_map, db_overlay=existing,
+            )
             changed.append(Conversation(
                 id=conv_id,
                 location=str(conv_path),
