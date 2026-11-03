@@ -1,24 +1,26 @@
 """Tests for the conversation scanner."""
 
 import json
+import shutil
 import time
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
+from ohtv.config import Config
 from ohtv.db.scanner import (
     ScanResult,
     count_events,
     discover_conversations,
     extract_metadata,
+    get_changed_conversations,
     get_events_mtime,
     load_cloud_listing_parents,
     load_manifest_labels,
     load_manifest_metadata,
     scan_conversations,
 )
-from ohtv.db.stores import ConversationStore
+from ohtv.db.stores import ConversationStore, StageStore
 
 
 @pytest.fixture
@@ -35,12 +37,21 @@ def conversations_dir(tmp_path):
     return tmp_path
 
 
+def config_for_root(root: Path) -> Config:
+    return Config(
+        local_conversations_dir=root / ".openhands" / "conversations",
+        synced_conversations_dir=root / ".openhands" / "cloud" / "conversations",
+        cloud_api_url="https://example.invalid",
+        api_key=None,
+        source="local",
+        extra_conversation_paths=[],
+    )
+
+
 @pytest.fixture
-def mock_config():
-    """Create a mock config with empty extra_conversation_paths."""
-    config = MagicMock()
-    config.extra_conversation_paths = []
-    return config
+def mock_config(conversations_dir, monkeypatch):
+    monkeypatch.setenv("OHTV_DIR", str(conversations_dir / "ohtv"))
+    return config_for_root(conversations_dir)
 
 
 def create_conversation(base_dir: Path, conv_id: str, num_events: int = 3) -> Path:
@@ -159,8 +170,6 @@ class TestScanConversations:
         create_conversation(local_dir, "conv-new-1", num_events=5)
         create_conversation(local_dir, "conv-new-2", num_events=3)
         
-        # Monkeypatch get_openhands_dir to use our temp dir
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         result = scan_conversations(db_conn, config=mock_config)
         
@@ -182,7 +191,6 @@ class TestScanConversations:
         local_dir = conversations_dir / ".openhands" / "conversations"
         create_conversation(local_dir, "conv-1", num_events=3)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         # First scan
         result1 = scan_conversations(db_conn, config=mock_config)
@@ -198,7 +206,6 @@ class TestScanConversations:
         local_dir = conversations_dir / ".openhands" / "conversations"
         conv_dir = create_conversation(local_dir, "conv-1", num_events=3)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         # First scan
         result1 = scan_conversations(db_conn, config=mock_config)
@@ -223,7 +230,6 @@ class TestScanConversations:
         local_dir = conversations_dir / ".openhands" / "conversations"
         create_conversation(local_dir, "conv-1", num_events=3)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         # First scan
         scan_conversations(db_conn, config=mock_config)
@@ -238,7 +244,6 @@ class TestScanConversations:
         local_dir = conversations_dir / ".openhands" / "conversations"
         conv_dir = create_conversation(local_dir, "conv-1", num_events=3)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         # First scan
         scan_conversations(db_conn, config=mock_config)
@@ -263,7 +268,6 @@ class TestScanConversations:
         create_conversation(local_dir, "local-conv", num_events=2)
         create_conversation(cloud_dir, "cloud-conv", num_events=4)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         result = scan_conversations(db_conn, config=mock_config)
         
@@ -281,7 +285,6 @@ class TestScanConversations:
         create_conversation(local_dir, "conv-2", num_events=3)
         create_conversation(local_dir, "conv-3", num_events=1)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         # Track callback calls
         progress_calls = []
@@ -311,10 +314,9 @@ class TestScanConversations:
         create_conversation(local_dir, "local-conv", num_events=2)
         create_conversation(extra_dir, "extra-conv", num_events=4)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", lambda: conversations_dir / ".openhands")
         
         # Create config with extra path
-        config = MagicMock()
+        config = config_for_root(conversations_dir)
         config.extra_conversation_paths = [extra_dir]
         
         result = scan_conversations(db_conn, config=config)
@@ -341,10 +343,8 @@ class TestScanConversations:
         create_conversation(extra_dir1, "conv-1", num_events=2)
         create_conversation(extra_dir2, "conv-2", num_events=3)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", 
-                            lambda: conversations_dir / ".openhands")
         
-        config = MagicMock()
+        config = config_for_root(conversations_dir)
         config.extra_conversation_paths = [extra_dir1, extra_dir2]
         
         result = scan_conversations(db_conn, config=config)
@@ -368,10 +368,8 @@ class TestScanConversations:
         create_conversation(extra_local, "conv-extra-local", num_events=2)
         create_conversation(extra_cloud, "conv-extra-cloud", num_events=3)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", 
-                            lambda: conversations_dir / ".openhands")
         
-        config = MagicMock()
+        config = config_for_root(conversations_dir)
         config.extra_conversation_paths = [extra_local, extra_cloud]
         
         result = scan_conversations(db_conn, config=config)
@@ -398,10 +396,8 @@ class TestScanConversations:
         
         create_conversation(extra_dir, "conv-1", num_events=2)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", 
-                            lambda: conversations_dir / ".openhands")
         
-        config = MagicMock()
+        config = config_for_root(conversations_dir)
         config.extra_conversation_paths = [extra_dir, nonexistent_dir]
         
         with caplog.at_level(logging.WARNING):
@@ -427,10 +423,8 @@ class TestScanConversations:
         
         create_conversation(extra_dir, "conv-1", num_events=2)
         
-        monkeypatch.setattr("ohtv.db.scanner.get_openhands_dir", 
-                            lambda: conversations_dir / ".openhands")
         
-        config = MagicMock()
+        config = config_for_root(conversations_dir)
         config.extra_conversation_paths = [extra_dir, file_path]
         
         with caplog.at_level(logging.WARNING):
@@ -1002,10 +996,6 @@ class TestScanConversationsParentConversationId:
         """A sub-conversation discovered on disk gets its
         parent_conversation_id from the cloud_listing snapshot, not
         from the manifest (which is parent-agnostic)."""
-        monkeypatch.setattr(
-            "ohtv.db.scanner.get_openhands_dir",
-            lambda: conversations_dir / ".openhands",
-        )
 
         # Seed the cloud_listing snapshot with a parent/child relationship.
         db_conn.execute(
@@ -1038,3 +1028,74 @@ class TestScanConversationsParentConversationId:
         by_id = {r["id"]: r["parent_conversation_id"] for r in rows}
         assert by_id["childxyz"] == "rootabc"
         assert by_id["rootabc"] is None
+
+
+class TestConfiguredConversationPaths:
+    def test_scan_respects_configured_local_and_cloud_paths(self, db_conn, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("OHTV_DIR", str(tmp_path / "ohtv"))
+        local = tmp_path / "other-local" / "conversations"
+        cloud = tmp_path / "other-cloud" / "conversations"
+        create_conversation(local, "local-one")
+        create_conversation(cloud, "cloud-one")
+        config = Config.from_env()
+        config.local_conversations_dir = local
+        config.synced_conversations_dir = cloud
+
+        result = scan_conversations(db_conn, config=config)
+        assert result.new_registered == 2
+        assert ConversationStore(db_conn).get("local-one").source == "local"
+        assert ConversationStore(db_conn).get("cloud-one").source == "cloud"
+        assert scan_conversations(db_conn, config=config, remove_missing=True).removed == 0
+
+    def test_relocation_with_unchanged_events_reopens_completed_stages(
+        self, db_conn, tmp_path, monkeypatch
+    ):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("OHTV_DIR", str(tmp_path / "ohtv"))
+        original = tmp_path / "original" / "conversations"
+        destination = tmp_path / "moved" / "conversations"
+        create_conversation(original, "cloud-one")
+        config = Config.from_env()
+        config.local_conversations_dir = tmp_path / "empty-local"
+        config.synced_conversations_dir = original
+        scan_conversations(db_conn, config=config)
+        stages = StageStore(db_conn)
+        stages.mark_complete("cloud-one", "actions", 3)
+        db_conn.execute(
+            "INSERT INTO analysis_cache VALUES (?, ?, ?, ?, ?)",
+            ("cloud-one", "paid-result", 3, "hash", "2024-01-01T00:00:00Z"),
+        )
+        db_conn.execute(
+            "INSERT INTO embeddings (conversation_id, embed_type, chunk_index, cache_key, "
+            "embedding, dimensions, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("cloud-one", "content", 0, "", b"bytes", 1, "test", "2024-01-01T00:00:00Z"),
+        )
+        old_mtime = (original / "cloud-one" / "events").stat().st_mtime
+
+        destination.mkdir(parents=True)
+        shutil.move(str(original / "cloud-one"), str(destination / "cloud-one"))
+        config.synced_conversations_dir = destination
+        assert (destination / "cloud-one" / "events").stat().st_mtime == old_mtime
+        assert [c.id for c in get_changed_conversations(db_conn, config)] == ["cloud-one"]
+
+        result = scan_conversations(db_conn, config=config)
+        assert result.updated == 1
+        assert ConversationStore(db_conn).get("cloud-one").location == str(destination / "cloud-one")
+        assert stages.needs_processing("cloud-one", "actions", 3)
+        assert db_conn.execute("SELECT count(*) FROM analysis_cache").fetchone()[0] == 1
+        assert db_conn.execute("SELECT count(*) FROM embeddings").fetchone()[0] == 1
+        assert get_changed_conversations(db_conn, config) == []
+
+    def test_moving_between_configured_roots_updates_source(self, db_conn, tmp_path, monkeypatch):
+        monkeypatch.setenv("OHTV_DIR", str(tmp_path / "ohtv"))
+        config = config_for_root(tmp_path)
+        original = create_conversation(config.local_conversations_dir, "switched")
+        scan_conversations(db_conn, config=config)
+
+        shutil.move(str(original), str(config.synced_conversations_dir / "switched"))
+        result = scan_conversations(db_conn, config=config)
+        switched = ConversationStore(db_conn).get("switched")
+        assert result.updated == 1
+        assert switched.source == "cloud"
+        assert switched.location == str(config.synced_conversations_dir / "switched")

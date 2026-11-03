@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from ohtv.config import Config
+from ohtv.db.models import Conversation
 from ohtv.jit import JITFetchResult, JITFetcher
 
 
@@ -238,11 +239,11 @@ def test_index_conversation(mock_extract, mock_conn, jit_fetcher, tmp_path):
         "created_at": "2024-01-01T00:00:00Z",
     }
     (conv_dir / "base_state.json").write_text(json.dumps(base_state))
-    
+    (conv_dir / "events").mkdir()
+
     # Mock DB connection and store
     mock_store = Mock()
-    mock_conv = Mock()
-    mock_conv.id = conv_id.replace("-", "")
+    mock_conv = Conversation(id=conv_id.replace("-", ""), location=str(conv_dir))
     mock_store.get.return_value = mock_conv
     
     mock_conn_instance = Mock()
@@ -449,17 +450,18 @@ def test_fetch_conversations_parallel(mock_extract, mock_conn, jit_fetcher, mock
     def fake_export(conv_id, zip_bytes):
         conv_dir = tmp_path / "cloud" / conv_id
         conv_dir.mkdir(parents=True, exist_ok=True)
+        (conv_dir / "events").mkdir(exist_ok=True)
         base_state = {"id": conv_id, "updated_at": "2024-01-01T00:00:00Z"}
         (conv_dir / "base_state.json").write_text(json.dumps(base_state))
         return conv_dir
-    
+
     jit_fetcher.exporter.export_from_zip_bytes = fake_export
-    
+
     # Mock DB store
     mock_store = Mock()
-    mock_conv = Mock()
-    mock_conv.id = "test"
-    mock_store.get.return_value = mock_conv
+    mock_store.get.side_effect = lambda conv_id: Conversation(
+        id=conv_id, location=str(tmp_path / "cloud" / conv_id)
+    )
     
     mock_conn_instance = Mock()
     mock_conn_instance.__enter__ = Mock(return_value=mock_conn_instance)
